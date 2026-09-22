@@ -98,6 +98,7 @@ pub fn run() {
             }
             Ok(())
         })
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             load_settings,
             save_settings,
@@ -167,7 +168,11 @@ pub fn run() {
             keep_awake,
             browser_view_start,
             browser_view_stop,
-            browser_view_size
+            browser_view_size,
+            settings_read_all,
+            settings_write_all,
+            settings_export_write,
+            settings_import_read
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
@@ -478,12 +483,97 @@ fn crypto_reset(app: tauri::AppHandle, confirm: String) -> Result<(), String> {
     Ok(())
 }
 
+// ---------- Экспорт/импорт настроек одним файлом ----------
+
+/// Конфиг-файлы, входящие в экспорт. crypto.json включён: без той же соли
+/// и check зашифрованные ключи не оживут на другой машине.
+const EXPORT_FILES: &[&str] = &[
+    "settings.json",
+    "profiles.json",
+    "projects.json",
+    "sessions.json",
+    "commands.json",
+    "plugins.json",
+    "shortcuts.json",
+    "subagents.json",
+    "colors.json",
+    "hooks.json",
+    "mcp.json",
+    "imagegen.json",
+    "browser.json",
+    "computer.json",
+    "crypto.json",
+];
+
+/// Собрать содержимое всех конфиг-файлов (отсутствующие пропускаются)
+#[tauri::command(async)]
+fn settings_read_all(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
+    use tauri::Manager;
+    let dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
+    let mut files = serde_json::Map::new();
+    for name in EXPORT_FILES {
+        let path = dir.join(name);
+        if !path.exists() {
+            continue;
+        }
+        match fs::read_to_string(&path) {
+            Ok(data) => match serde_json::from_str::<serde_json::Value>(&data) {
+                Ok(v) => {
+                    files.insert((*name).to_string(), v);
+                }
+                Err(_) => {} // битый файл не тащим
+            },
+            Err(_) => {}
+        }
+    }
+    Ok(serde_json::Value::Object(files))
+}
+
+/// Записать набор конфиг-файлов (импорт). Имена жёстко из whitelist.
+#[tauri::command(async)]
+fn settings_write_all(
+    app: tauri::AppHandle,
+    files: std::collections::HashMap<String, serde_json::Value>,
+) -> Result<usize, String> {
+    use tauri::Manager;
+    let dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
+    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let mut written = 0usize;
+    for name in EXPORT_FILES {
+        let Some(value) = files.get(*name) else {
+            continue;
+        };
+        let json = serde_json::to_string_pretty(value).map_err(|e| e.to_string())?;
+        fs::write(dir.join(name), json).map_err(|e| e.to_string())?;
+        written += 1;
+    }
+    Ok(written)
+}
+
+/// Сохранить экспорт-файл (содержимое собрано на фронте)
+#[tauri::command(async)]
+fn settings_export_write(path: String, content: String) -> Result<(), String> {
+    if !path.ends_with(".json") {
+        return Err("export file must be .json".into());
+    }
+    // Проверка, что это валидный JSON — защита от мусора
+    serde_json::from_str::<serde_json::Value>(&content)
+        .map_err(|e| format!("export content is not valid JSON: {e}"))?;
+    fs::write(&path, content).map_err(|e| e.to_string())
+}
+
+/// Прочитать импорт-файл
+#[tauri::command(async)]
+fn settings_import_read(path: String) -> Result<serde_json::Value, String> {
+    let data = fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    serde_json::from_str(&data).map_err(|e| format!("import file corrupted: {e}"))
+}
+
 /// Тумблер шифрования: перезаписывает settings.json и profiles.json,
 /// шифруя (или расшифровывая) все API-ключи на месте.
 /// Включение требует разблокированного хранилища (пароль уже введён).
 #[tauri::command(async)]
-fn set_key_encryption(app: tauri::AppHandle, enable: bool) -> Result<(), String> {
-    if enable && !crypto::has_key() {
+fn set_key_encryption(app: tauri::AppHandle, enable: bool) -> Result<(), String> {    if enable && !crypto::has_key() {
         return Err("vault is locked: enter the master password first".into());
     }
 

@@ -7,6 +7,32 @@ Rust-тесты: `cargo test` в `src-tauri` (40 + 2 e2e). Запуск: `npm ru
 
 ## Что добавлено за сессию (поверх M0–M6)
 
+**Release-инфраструктура (перед публикацией):**
+1) CI: job release на теге v* — windows-latest, npm run tauri build с
+   TAURI_SIGNING_PRIVATE_KEY(_PASSWORD) из secrets, softprops/action-gh-release
+   прикладывает nsis/*.exe, msi/*.msi, **/*.sig, latest.json.
+2) tauri-plugin-updater: Cargo dep, .plugin(...) в run(), capability
+   updater:default, tauri.conf.json: bundle.createUpdaterArtifacts=true +
+   plugins.updater{endpoints:[github .../latest/download/latest.json],
+   pubkey: REPLACE_WITH_TAURI_SIGNER_PUBKEY}. Frontend api.checkForUpdate
+   (check → confirm → downloadAndInstall, ошибки молча), App вызывает через
+   8с после старта; тост upd.installed. npm i @tauri-apps/plugin-updater.
+3) Экспорт/импорт настроек: Rust settings_read_all/write_all (whitelist
+   EXPORT_FILES: settings/profiles/projects/sessions/commands/plugins/
+   shortcuts/subagents/colors/hooks/mcp/imagegen/browser/computer/crypto
+   — crypto.json нужен для переноса зашифрованных ключей!),
+   settings_export_write (валидация JSON)/settings_import_read. Frontend:
+   pickSaveFile/pickJsonFile (dialog), collectLocal/restoreLocal
+   (LS_EXPORT_KEYS: automations, theme-profiles, appearance, header-color,
+   theme, lang, sidebar-* , notify, keep-awake, browser-panel). UI в
+   «Основное»: Экспорт/Импорт + confirm; после импорта location.reload().
+4) RELEASE.md: signer generate, pubkey, secrets, теги. Локали main.export*/
+   import*, upd.* во всех 4 языках. ВАЖНО: локали теперь в locales/ru|en|zh|
+   ja.ts — locales.tsx только враппер; MsgKey = keyof ru.
+
+
+
+
 **Крипто: Argon2id вместо PBKDF2.** Оказалось, AES-GCM уже был на RustCrypto
 (aes_gcm::Aes256Gcm — AutoCoder), формат enc:v1:base64(nonce‖ct‖tag)
 стандартный — менять нечего. Заменён KDF: crypto.rs derive_key_argon2

@@ -87,6 +87,7 @@ import AutomationsModal from "./components/AutomationsModal";
 import BrowserPanel from "./components/BrowserPanel";
 import Toasts from "./components/Toast";
 import { isDue, loadAutomations, nextRunAfter, saveAutomations, VAULT_REPORT_SUFFIX } from "./automations";
+import { checkForUpdate } from "./api";
 import SearchModal from "./components/SearchModal";
 import ContextMenu, { type MenuItem } from "./components/ContextMenu";
 import NotesModal from "./components/NotesModal";
@@ -153,6 +154,17 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   // Раздел настроек для программного открытия (плагины из сайдбара)
   const [settingsSection, setSettingsSection] = useState<Section | null>(null);
+  // Автообновление: разовая проверка после старта (native-only, тихо)
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void checkForUpdate({
+        available: (v) => window.confirm(t("upd.available", { v })),
+        installed: () => addToast(t("upd.installed")),
+      });
+    }, 8000);
+    return () => window.clearTimeout(timer);
+  }, []);
+
   // Экран «Автоматизации»
   const [automationsOpen, setAutomationsOpen] = useState(false);
   // Плавающие уведомления (чекпоинты и пр.) — без строк в чате

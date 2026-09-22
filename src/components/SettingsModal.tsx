@@ -52,6 +52,16 @@ import CommandsSection from "./CommandsSection";
 import PluginsSection from "./PluginsSection";
 import type { SubagentsConfig } from "../subagents";
 import type { HardLimits } from "../limits";
+import {
+  settingsReadAll,
+  settingsWriteAll,
+  settingsExportWrite,
+  settingsImportRead,
+  pickSaveFile,
+  pickJsonFile,
+  collectLocal,
+  restoreLocal,
+} from "../api";
 import type { Plugin } from "../api";
 import { NOTIFY_SOUNDS, playSound, refreshCustomSound, type NotifyPrefs } from "../notify";
 import { dayPeriod } from "../time";
@@ -895,6 +905,54 @@ function MainSection({
 
       {/* Hard Limit: прерывание задачи при превышении лимитов расхода */}
       <HardLimitSection limits={limits} onChange={onLimitsChange} />
+
+      {/* Экспорт/импорт всех настроек одним файлом */}
+      <div className="rounded-xl border border-halo-line px-3.5 py-3">
+        <p className="text-sm text-halo-text">{t("main.exportTitle")}</p>
+        <p className="mt-0.5 text-xs text-halo-muted">{t("main.exportHint")}</p>
+        <div className="mt-2 flex gap-2">
+          <button
+            onClick={async () => {
+              try {
+                const path = await pickSaveFile("nocturn-settings.json");
+                if (!path) return;
+                const files = await settingsReadAll();
+                await settingsExportWrite(
+                  path,
+                  JSON.stringify({ version: 1, files, local: collectLocal() }, null, 2),
+                );
+              } catch (e) {
+                window.alert(String(e));
+              }
+            }}
+            className="rounded-lg border border-halo-line px-3 py-1.5 text-xs text-halo-text transition-colors hover:border-halo-accent/50 hover:bg-halo-hover"
+          >
+            {t("main.exportBtn")}
+          </button>
+          <button
+            onClick={async () => {
+              try {
+                const path = await pickJsonFile();
+                if (!path) return;
+                if (!window.confirm(t("main.importConfirm"))) return;
+                const data = await settingsImportRead(path);
+                let n = 0;
+                if (data.files && Object.keys(data.files).length > 0) {
+                  n = await settingsWriteAll(data.files);
+                }
+                if (data.local) restoreLocal(data.local);
+                window.alert(t("main.importDone", { n }));
+                location.reload();
+              } catch (e) {
+                window.alert(String(e));
+              }
+            }}
+            className="rounded-lg border border-halo-line px-3 py-1.5 text-xs text-halo-text transition-colors hover:border-halo-accent/50 hover:bg-halo-hover"
+          >
+            {t("main.importBtn")}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

@@ -552,6 +552,15 @@ export const zh = {
     "notify.soundSoft": "柔和",
     "notify.soundCustom": "自定义",
     "main.browserPanel": "代理浏览器面板（浏览网站时打开）",
+    "main.exportTitle": "导出与导入设置",
+    "main.exportHint":
+      "服务商、密钥、提示词、主题、自动化和聊天打包为一个文件。加密密钥需相同的主密码才能恢复。",
+    "main.exportBtn": "导出",
+    "main.importBtn": "导入",
+    "main.importConfirm": "导入设置？当前配置将被覆盖，应用将重新加载。",
+    "main.importDone": "已导入 {n} 个配置文件。正在重新加载…",
+    "upd.available": "Nocturn v{v} 可用。下载并安装？",
+    "upd.installed": "更新已安装——请重启应用",
     "browserPanel.noPage": "代理还没有打开页面",
     "browserPanel.hint":
       "代理开始使用浏览器后，这里会显示页面的实时画面。",

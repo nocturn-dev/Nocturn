@@ -552,6 +552,15 @@ export const ja = {
     "notify.soundSoft": "ソフト",
     "notify.soundCustom": "カスタム",
     "main.browserPanel": "エージェントのブラウザパネル（サイト操作時に開く）",
+    "main.exportTitle": "設定のエクスポートとインポート",
+    "main.exportHint":
+      "プロバイダー、キー、プロンプト、テーマ、自動化、チャットを 1 ファイルに。暗号化キーの復元には同じマスターパスワードが必要です。",
+    "main.exportBtn": "エクスポート",
+    "main.importBtn": "インポート",
+    "main.importConfirm": "設定をインポートしますか？現在の設定は上書きされ、アプリが再読み込みされます。",
+    "main.importDone": "{n} 件の設定をインポートしました。再読み込み中…",
+    "upd.available": "Nocturn v{v} が利用可能です。ダウンロードしてインストールしますか？",
+    "upd.installed": "更新をインストールしました——アプリを再起動してください",
     "browserPanel.noPage": "エージェントはまだページを開いていません",
     "browserPanel.hint":
       "エージェントがブラウザを使い始めると、ここにページのライブ映像が表示されます。",

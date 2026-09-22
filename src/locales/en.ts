@@ -533,6 +533,15 @@ export const en = {
     "sub.monitor": "Subagents",
     "main.settingsLarge": "Large settings window",
     "main.browserPanel": "Agent browser panel (open when the agent browses)",
+    "main.exportTitle": "Export & import settings",
+    "main.exportHint":
+      "Providers, keys, prompts, themes, automations and chats in one file. Encrypted keys revive only with the same master password.",
+    "main.exportBtn": "Export",
+    "main.importBtn": "Import",
+    "main.importConfirm": "Import settings? Current configurations will be overwritten and the app will reload.",
+    "main.importDone": "Imported {n} configuration files. Reloading…",
+    "upd.available": "Nocturn v{v} is available. Download and install?",
+    "upd.installed": "Update installed — restart the app",
     "browserPanel.noPage": "The agent has not opened a page yet",
     "browserPanel.hint":
       "A live view of the page will appear here once the agent starts using the browser.",

@@ -882,3 +882,104 @@ export async function pluginsSave(installed: Plugin[]): Promise<void> {
   if (!inTauri) return;
   return invoke("plugins_save", { file: { installed } });
 }
+
+// ---------- Автообновление (tauri-plugin-updater) ----------
+
+/** Проверить обновление; предложить установку. Ошибки молча (нет сети/
+    не настроен pubkey/браузерное превью). */
+export async function checkForUpdate(opts: {
+  available: (version: string) => boolean;
+  installed: () => void;
+}): Promise<void> {
+  if (!inTauri) return;
+  try {
+    const { check } = await import("@tauri-apps/plugin-updater");
+    const update = await check();
+    if (!update) return;
+    if (!opts.available(update.version ?? "")) return;
+    await update.downloadAndInstall();
+    opts.installed();
+  } catch {
+    // тихо: обновление не критично
+  }
+}
+
+// ---------- Экспорт/импорт настроек одним файлом ----------
+
+/** localStorage-ключи, входящие в экспорт (всё, что не в config-файлах) */
+export const LS_EXPORT_KEYS: string[] = [
+  "haloui-automations",
+  "haloui-theme-profiles",
+  "haloui-appearance",
+  "haloui-header-color",
+  "haloui-theme",
+  "haloui-lang",
+  "haloui-sidebar-width",
+  "haloui-sidebar-group",
+  "haloui-sidebar-projects",
+  "haloui-notify",
+  "haloui-keep-awake",
+  "haloui-browser-panel",
+];
+
+export function collectLocal(): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const k of LS_EXPORT_KEYS) {
+    const v = localStorage.getItem(k);
+    if (v !== null) out[k] = v;
+  }
+  return out;
+}
+
+export function restoreLocal(data: Record<string, string>): void {
+  for (const [k, v] of Object.entries(data)) {
+    localStorage.setItem(k, v);
+  }
+}
+
+export async function settingsReadAll(): Promise<Record<string, unknown>> {
+  if (!inTauri) return {};
+  return invoke<Record<string, unknown>>("settings_read_all");
+}
+
+export async function settingsWriteAll(
+  files: Record<string, unknown>,
+): Promise<number> {
+  return invoke<number>("settings_write_all", { files });
+}
+
+export async function settingsExportWrite(path: string, content: string): Promise<void> {
+  return invoke("settings_export_write", { path, content });
+}
+
+export async function settingsImportRead(
+  path: string,
+): Promise<{ files?: Record<string, unknown>; local?: Record<string, string> }> {
+  return invoke("settings_import_read", { path });
+}
+
+/** Диалог «Сохранить как» для экспорта; null — отмена */
+export async function pickSaveFile(defaultName: string): Promise<string | null> {
+  if (!inTauri) {
+    throw new Error("Экспорт работает в нативном приложении (npm run tauri dev)");
+  }
+  const { save } = await import("@tauri-apps/plugin-dialog");
+  const path = await save({
+    defaultPath: defaultName,
+    filters: [{ name: "JSON", extensions: ["json"] }],
+  });
+  return typeof path === "string" ? path : null;
+}
+
+/** Диалог выбора JSON-файла для импорта; null — отмена */
+export async function pickJsonFile(): Promise<string | null> {
+  if (!inTauri) {
+    throw new Error("Импорт работает в нативном приложении (npm run tauri dev)");
+  }
+  const { open } = await import("@tauri-apps/plugin-dialog");
+  const picked = await open({
+    multiple: false,
+    filters: [{ name: "JSON", extensions: ["json"] }],
+  });
+  return typeof picked === "string" ? picked : null;
+}
