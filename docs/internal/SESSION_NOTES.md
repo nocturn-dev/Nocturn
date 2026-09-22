@@ -7,6 +7,17 @@ Rust-тесты: `cargo test` в `src-tauri` (40 + 2 e2e). Запуск: `npm ru
 
 ## Что добавлено за сессию (поверх M0–M6)
 
+**Подготовка к open source (чек-лист публикации):** LICENSE (MIT),
+.gitignore (node_modules/dist/target/gen-schemas), .github/workflows/ci.yml
+(frontend tsc+vite на ubuntu; cargo test --lib на windows-latest),
+SECURITY.md (что уходит/хранится/поверхность агента), README переписан
+под опенсорс (фичи, приватность, скриншоты docs/screenshots/main.png /
+quick-look.png / automations.png — сняты с живого приложения), SESSION_NOTES
+переехал в docs/internal/. git init -b main + initial commit (88 файлов);
+identity локально Nocturn Dev <dev@nocturn.local> — пользователь может
+поправить автора перед push.
+
+
 **Наследство AutoCoder (волна 3) — аудит и достройка.** Внешний агент
 выполнил: локали разнесены на 4 файла (locales/ru|en|zh|ja.ts, MsgKey =
 keyof ru, translate фоллбэк en→ru); Hard Limit (limits.ts: maxTokens/
