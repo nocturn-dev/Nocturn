@@ -206,6 +206,7 @@ export const ru = {
     "composer.quoteRemove": "Убрать цитату",
     "composer.queued": "В очереди — отправится после ответа агента",
     "composer.queuedRemove": "Убрать из очереди",
+"chat.aiDisclaimer": "Ответ сгенерирован ИИ — только для справки.",
     "chat.askAboutSelection": "Задать вопрос по теме",
     "composer.clearChat": "Очистить чат",
     "composer.enterHint": "Enter — отправить · Shift+Enter — перенос строки",

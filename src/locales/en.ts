@@ -200,6 +200,7 @@ export const en = {
     "composer.quoteRemove": "Remove quote",
     "composer.queued": "Queued — will be sent after the agent replies",
     "composer.queuedRemove": "Remove from queue",
+"chat.aiDisclaimer": "This response is AI-generated, for reference only.",
     "chat.askAboutSelection": "Ask about this",
     "composer.clearChat": "Clear chat",
     "composer.enterHint": "Enter to send · Shift+Enter for a new line",

@@ -211,6 +211,7 @@ export const zh = {
     "composer.quoteRemove": "移除引用",
     "composer.queued": "已排队 — 将在代理回复后发送",
     "composer.queuedRemove": "从队列移除",
+"chat.aiDisclaimer": "本回复由 AI 生成，仅供参考。",
     "chat.askAboutSelection": "就此提问",
     "composer.clearChat": "清空对话",
     "composer.enterHint": "Enter — 发送 · Shift+Enter — 换行",

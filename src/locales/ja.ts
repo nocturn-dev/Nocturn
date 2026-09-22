@@ -211,6 +211,7 @@ export const ja = {
     "composer.quoteRemove": "引用を削除",
     "composer.queued": "待機中 — エージェントの返信後に送信されます",
     "composer.queuedRemove": "キューから削除",
+"chat.aiDisclaimer": "この回答は AI が生成しました。参考用です。",
     "chat.askAboutSelection": "これについて質問",
     "composer.clearChat": "チャットを消去",
     "composer.enterHint": "Enter — 送信 · Shift+Enter — 改行",

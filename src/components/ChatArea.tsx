@@ -1999,6 +1999,13 @@ function AssistantCard({
           </span>
         </div>
       )}
+
+      {/* Дисклеймер: ответ сгенерирован моделью */}
+      {message.role === "assistant" && message.content.trim() !== "" && (
+        <p className="mt-1.5 text-[10px] italic text-halo-muted/50">
+          {t("chat.aiDisclaimer")}
+        </p>
+      )}
     </div>
   );
 }

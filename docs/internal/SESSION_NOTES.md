@@ -28,7 +28,9 @@ Rust-тесты: `cargo test` в `src-tauri` (40 + 2 e2e). Запуск: `npm ru
    «Основное»: Экспорт/Импорт + confirm; после импорта location.reload().
 4) RELEASE.md: signer generate, pubkey, secrets, теги. Локали main.export*/
    import*, upd.* во всех 4 языках. ВАЖНО: локали теперь в locales/ru|en|zh|
-   ja.ts — locales.tsx только враппер; MsgKey = keyof ru.
+   ja.ts — locales.tsx только враппер; MsgKey = keyof ru. Дисклеймер «This response is AI-generated, for
+reference only» (chat.aiDisclaimer, 4 языка) — мелкая строка под каждой
+карточкой ассистента с непустым ответом (ChatArea, после usage-ряда).
 
 
 
