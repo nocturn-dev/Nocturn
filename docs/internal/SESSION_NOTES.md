@@ -7,6 +7,20 @@ Rust-тесты: `cargo test` в `src-tauri` (40 + 2 e2e). Запуск: `npm ru
 
 ## Что добавлено за сессию (поверх M0–M6)
 
+**Крипто: Argon2id вместо PBKDF2.** Оказалось, AES-GCM уже был на RustCrypto
+(aes_gcm::Aes256Gcm — AutoCoder), формат enc:v1:base64(nonce‖ct‖tag)
+стандартный — менять нечего. Заменён KDF: crypto.rs derive_key_argon2
+(Argon2id, Params::default() = 19MiB/t=2, OWASP) + encrypt_with/decrypt_with
+(явный ключ). lib.rs: crypto.json получил поле kdf ("argon2id"|"pbkdf2",
+отсутствие = pbkdf2-легаси); crypto_setup сразу argon2id; crypto_unlock при
+легаси-мете тихая миграция: verify старым KDF → rekey_all (settings.json
+api_key + profiles.json[].api_key: decrypt_with старым → encrypt_with новым;
+нерасшифровывающиеся остаются как есть) → новая соль/check/kdf=argon2id.
+Формат полей НЕ менялся → совместимость полная. Тест argon2_derive_
+deterministic_and_salt_sensitive. ГРЯБЛЯ: b"..." литералы не держат
+кириллицу (non-ASCII byte string).
+
+
 **Подготовка к open source (чек-лист публикации):** LICENSE (MIT),
 .gitignore (node_modules/dist/target/gen-schemas), .github/workflows/ci.yml
 (frontend tsc+vite на ubuntu; cargo test --lib на windows-latest),

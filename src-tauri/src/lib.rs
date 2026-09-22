@@ -284,14 +284,16 @@ fn save_profiles(
     fs::write(&path, json).map_err(|e| e.to_string())
 }
 
-/// Метa-файл шифрования crypto.json: соль PBKDF2 + маркер-проверка пароля
+/// Метa-файл шифрования crypto.json: соль KDF + маркер-проверка пароля.
+/// kdf: "argon2id" (текущий) или "pbkdf2" (легаси, отсутствие поля = pbkdf2)
 fn crypto_meta_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
     config_file(app, "crypto.json")
 }
 
-fn crypto_read_meta(
-    app: &tauri::AppHandle,
-) -> Result<Option<(Vec<u8>, String)>, String> {
+/// (соль, маркер, kdf)
+type CryptoMeta = (Vec<u8>, String, String);
+
+fn crypto_read_meta(app: &tauri::AppHandle) -> Result<Option<CryptoMeta>, String> {
     let path = crypto_meta_path(app)?;
     if !path.exists() {
         return Ok(None);
@@ -308,10 +310,20 @@ fn crypto_read_meta(
         .and_then(|x| x.as_str())
         .ok_or("crypto.json corrupted")?
         .to_string();
-    Ok(Some((salt, check)))
+    let kdf = v
+        .get("kdf")
+        .and_then(|x| x.as_str())
+        .unwrap_or("pbkdf2")
+        .to_string();
+    Ok(Some((salt, check, kdf)))
 }
 
-fn crypto_write_meta(app: &tauri::AppHandle, salt: &[u8], check: &str) -> Result<(), String> {
+fn crypto_write_meta(
+    app: &tauri::AppHandle,
+    salt: &[u8],
+    check: &str,
+    kdf: &str,
+) -> Result<(), String> {
     let path = crypto_meta_path(app)?;
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir).map_err(|e| e.to_string())?;
@@ -319,6 +331,7 @@ fn crypto_write_meta(app: &tauri::AppHandle, salt: &[u8], check: &str) -> Result
     let json = serde_json::to_string_pretty(&serde_json::json!({
         "salt": crypto::hex_encode(salt),
         "check": check,
+        "kdf": kdf,
     }))
     .map_err(|e| e.to_string())?;
     fs::write(&path, json).map_err(|e| e.to_string())
@@ -341,29 +354,85 @@ fn crypto_status(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
     }))
 }
 
-/// Первое создание мастер-пароля: соль + маркер, ключ в память
+/// Первое создание мастер-пароля: соль + маркер, ключ в память (Argon2id)
 #[tauri::command]
 fn crypto_setup(app: tauri::AppHandle, password: String) -> Result<(), String> {
     if password.len() < 8 {
         return Err("password too short (minimum 8 characters)".into());
     }
     let salt = crypto::new_salt();
-    let key = crypto::derive_key(&password, &salt);
+    let key = crypto::derive_key_argon2(&password, &salt);
     let check = crypto::make_check(&key)?;
     crypto::set_key(key);
-    crypto_write_meta(&app, &salt, &check)
+    crypto_write_meta(&app, &salt, &check, "argon2id")
 }
 
-/// Разблокировка существующим паролем
+/// Разблокировка существующим паролем. Легаси-хранилище (PBKDF2) после
+/// успешной проверки тихо мигрирует на Argon2id: ключ перегенерируется,
+/// все зашифрованные поля перезаписываются новым ключом.
 #[tauri::command]
 fn crypto_unlock(app: tauri::AppHandle, password: String) -> Result<(), String> {
-    let (salt, check) =
+    let (salt, check, kdf) =
         crypto_read_meta(&app)?.ok_or("encryption is not set up")?;
-    let key = crypto::derive_key(&password, &salt);
+    let key = match kdf.as_str() {
+        "argon2id" => crypto::derive_key_argon2(&password, &salt),
+        _ => crypto::derive_key(&password, &salt),
+    };
     if !crypto::verify_check(&key, &check) {
         return Err("wrong password".into());
     }
-    crypto::set_key(key);
+    if kdf == "argon2id" {
+        crypto::set_key(key);
+        return Ok(());
+    }
+    // --- Легаси-миграция PBKDF2 → Argon2id ---
+    let new_salt = crypto::new_salt();
+    let new_key = crypto::derive_key_argon2(&password, &new_salt);
+    rekey_all(&app, &key, &new_key)?;
+    let new_check = crypto::make_check(&new_key)?;
+    crypto::set_key(new_key);
+    crypto_write_meta(&app, &new_salt, &new_check, "argon2id")
+}
+
+/// Перешифровать все зашифрованные поля (settings.json, profiles.json)
+/// со старого ключа на новый. Поля, не расшифровавшиеся старым ключом,
+/// оставляются как есть (потеря уже произошла ранее).
+fn rekey_all(app: &tauri::AppHandle, old_key: &[u8], new_key: &[u8]) -> Result<(), String> {
+    for name in ["settings.json", "profiles.json"] {
+        let path = config_file(app, name)?;
+        if !path.exists() {
+            continue;
+        }
+        let data = fs::read_to_string(&path).map_err(|e| e.to_string())?;
+        let mut v: serde_json::Value =
+            serde_json::from_str(&data).unwrap_or(serde_json::json!({}));
+        let mut fields: Vec<&mut serde_json::Value> = Vec::new();
+        if name == "settings.json" {
+            if let Some(f) = v.get_mut("api_key") {
+                fields.push(f);
+            }
+        } else if let Some(arr) = v.get_mut("profiles").and_then(|x| x.as_array_mut()) {
+            for p in arr {
+                if let Some(f) = p.get_mut("api_key") {
+                    fields.push(f);
+                }
+            }
+        }
+        for f in fields {
+            if let Some(stored) = f.as_str() {
+                if !crypto::is_encrypted(stored) {
+                    continue;
+                }
+                if let Some(plain) = crypto::decrypt_with(old_key, stored) {
+                    *f = serde_json::Value::String(
+                        crypto::encrypt_with(new_key, &plain)?,
+                    );
+                }
+            }
+        }
+        fs::write(&path, serde_json::to_string_pretty(&v).map_err(|e| e.to_string())?)
+            .map_err(|e| e.to_string())?;
+    }
     Ok(())
 }
 

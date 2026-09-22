@@ -19,9 +19,12 @@ secrets are protected.
 - `%APPDATA%/com.haloui.app` (Windows) — settings, sessions, projects, notes,
   automation schedules, usage stats, browser-view state.
 - API keys are stored in plain settings.json **unless** key encryption is
-  enabled (recommended): then keys are AES-256-GCM encrypted, the key is
-  derived from your master password, and the check hash lives in the Windows
-  Credential Manager.
+  enabled (recommended): then keys are AES-256-GCM encrypted (RustCrypto
+  `aes-gcm`, standard `nonce ‖ ciphertext ‖ tag` layout), and the vault key is
+  derived from your master password with **Argon2id** (OWASP parameters,
+  19 MiB / t=2). Vaults created on the legacy PBKDF2 KDF are upgraded to
+  Argon2id transparently on the next successful unlock — all encrypted fields
+  are re-keyed in place.
 - Project checkpoints are plain-text snapshots under
   `appdata/checkpoints/` — they contain your code; disk encryption is your friend.
 

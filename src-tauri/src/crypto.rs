@@ -34,10 +34,23 @@ pub fn clear_key() {
     }
 }
 
-/// PBKDF2-HMAC-SHA256: пароль + соль → 32-байтный ключ AES
+/// PBKDF2-HMAC-SHA256: пароль + соль → 32-байтный ключ AES.
+/// Легаси-KDF: нужен только для чтения старых crypto.json (до Argon2id).
 pub fn derive_key(password: &str, salt: &[u8]) -> Vec<u8> {
     let mut out = vec![0u8; KEY_LEN];
     pbkdf2::pbkdf2_hmac::<sha2::Sha256>(password.as_bytes(), salt, PBKDF2_ITERS, &mut out);
+    out
+}
+
+/// Argon2id (параметры OWASP: 19 MiB, t=2) — актуальный KDF хранилища.
+/// Детерминирован: тот же пароль+соль → тот же ключ.
+pub fn derive_key_argon2(password: &str, salt: &[u8]) -> Vec<u8> {
+    use argon2::{Algorithm, Argon2, Params, Version};
+    let mut out = vec![0u8; KEY_LEN];
+    let argon = Argon2::new(Algorithm::Argon2id, Version::V0x13, Params::default());
+    argon
+        .hash_password_into(password.as_bytes(), salt, &mut out)
+        .expect("argon2 derive failed (fixed output size)");
     out
 }
 
@@ -54,7 +67,12 @@ pub fn encrypt(plain: &str) -> Result<String, String> {
         .map_err(|e| e.to_string())?
         .clone()
         .ok_or("vault is locked")?;
-    let cipher = Aes256Gcm::new_from_slice(&key).map_err(|e| e.to_string())?;
+    encrypt_with(&key, plain)
+}
+
+/// То же с явным ключом (миграция PBKDF2 → Argon2id)
+pub fn encrypt_with(key: &[u8], plain: &str) -> Result<String, String> {
+    let cipher = Aes256Gcm::new_from_slice(key).map_err(|e| e.to_string())?;
     let mut nonce = [0u8; 12];
     rand::thread_rng().fill_bytes(&mut nonce);
     let ct = cipher
@@ -72,7 +90,16 @@ pub fn decrypt(stored: &str) -> Option<String> {
         return None;
     }
     let key = VAULT_KEY.lock().ok()?.clone()?;
-    let cipher = Aes256Gcm::new_from_slice(&key).ok()?;
+    decrypt_with(&key, stored)
+}
+
+/// То же с явным ключом (миграция PBKDF2 → Argon2id)
+pub fn decrypt_with(key: &[u8], stored: &str) -> Option<String> {
+    let blob = B64.decode(stored.strip_prefix(PREFIX)?).ok()?;
+    if blob.len() <= 12 {
+        return None;
+    }
+    let cipher = Aes256Gcm::new_from_slice(key).ok()?;
     let pt = cipher
         .decrypt(Nonce::from_slice(&blob[..12]), &blob[12..])
         .ok()?;
@@ -162,5 +189,25 @@ mod tests {
         clear_key();
         assert!(encrypt("x").is_err());
         assert!(decrypt("enc:v1:AAAA").is_none());
+    }
+
+    #[test]
+    fn argon2_derive_is_deterministic_and_salt_sensitive() {
+        let a1 = derive_key_argon2("мастер-пароль", b"salt-salt-salt-sa");
+        let a2 = derive_key_argon2("мастер-пароль", b"salt-salt-salt-sa");
+        let b = derive_key_argon2("мастер-пароль", b"another-salt-16!");
+        assert_eq!(a1, a2);
+        assert_ne!(a1, b);
+        assert_eq!(a1.len(), 32);
+        // Не совпадает с легаси-KDF на тех же входах
+        assert_ne!(a1, derive_key("мастер-пароль", b"salt-salt-salt-sa"));
+        // Полнееценный раунд трип на argon2-ключе
+        set_key(a1.clone());
+        let enc = encrypt("sk-secret").expect("encrypt");
+        assert_eq!(decrypt(&enc).as_deref(), Some("sk-secret"));
+        // Ключ от другой соли не расшифровывает
+        set_key(b);
+        assert!(decrypt(&enc).is_none());
+        clear_key();
     }
 }
