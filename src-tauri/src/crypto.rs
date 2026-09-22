@@ -10,6 +10,7 @@ use aes_gcm::{Aes256Gcm, KeyInit, Nonce};
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use rand::RngCore;
 use std::sync::Mutex;
+use zeroize::Zeroize;
 
 const PREFIX: &str = "enc:v1:";
 const KEY_LEN: usize = 32; // AES-256
@@ -30,7 +31,11 @@ pub fn set_key(key: Vec<u8>) {
 
 pub fn clear_key() {
     if let Ok(mut g) = VAULT_KEY.lock() {
-        *g = None;
+        if let Some(mut key) = g.take() {
+            // Затирание через zeroize: compiler fences не дают LLVM
+            // выкинуть запись как dead store
+            key.zeroize();
+        }
     }
 }
 
@@ -60,14 +65,12 @@ pub fn new_salt() -> Vec<u8> {
     salt
 }
 
-/// Зашифровать строку текущим ключом. `enc:v1:…`; Err — хранилище заперто
+/// Зашифровать строку текущим ключом. `enc:v1:…`; Err — хранилище заперто.
+/// Ключ читается по месту (borrow) — без копий в heap
 pub fn encrypt(plain: &str) -> Result<String, String> {
-    let key = VAULT_KEY
-        .lock()
-        .map_err(|e| e.to_string())?
-        .clone()
-        .ok_or("vault is locked")?;
-    encrypt_with(&key, plain)
+    let guard = VAULT_KEY.lock().map_err(|e| e.to_string())?;
+    let key = guard.as_ref().ok_or("vault is locked")?;
+    encrypt_with(key, plain)
 }
 
 /// То же с явным ключом (миграция PBKDF2 → Argon2id)
@@ -83,14 +86,12 @@ pub fn encrypt_with(key: &[u8], plain: &str) -> Result<String, String> {
     Ok(format!("{PREFIX}{}", B64.encode(blob)))
 }
 
-/// Расшифровать строку с префиксом. None — не зашифровано или заперто
+/// Расшифровать строку с префиксом. None — не зашифровано или заперто.
+/// Ключ читается по месту (borrow) — без копий в heap
 pub fn decrypt(stored: &str) -> Option<String> {
-    let blob = B64.decode(stored.strip_prefix(PREFIX)?).ok()?;
-    if blob.len() <= 12 {
-        return None;
-    }
-    let key = VAULT_KEY.lock().ok()?.clone()?;
-    decrypt_with(&key, stored)
+    let guard = VAULT_KEY.lock().ok()?;
+    let key = guard.as_ref()?;
+    decrypt_with(key, stored)
 }
 
 /// То же с явным ключом (миграция PBKDF2 → Argon2id)

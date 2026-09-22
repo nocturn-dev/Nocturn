@@ -2616,6 +2616,7 @@ dependencies = [
  "tauri-plugin-notification",
  "tungstenite",
  "xcap",
+ "zeroize",
 ]
 
 [[package]]

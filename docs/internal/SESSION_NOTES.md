@@ -20,6 +20,15 @@ api_key + profiles.json[].api_key: decrypt_with старым → encrypt_with н
 deterministic_and_salt_sensitive. ГРЯБЛЯ: b"..." литералы не держат
 кириллицу (non-ASCII byte string).
 
+**Крипто-гигиена (по ревью пользователя):** encrypt/decrypt больше не клонируют
+ключ — borrow из VAULT_KEY (as_ref → &[u8] в encrypt_with/decrypt_with);
+clear_key затирает ключ через zeroize (ручной цикл *byte=0 LLVM может
+вырезать как dead store); decrypt больше не декодирует base64 дважды
+(просто lock+borrow+decrypt_with). Замечания пользователя: рекурсия —
+неверно (слоистость), v1-префикс у новых полей — не баг (KDF в meta,
+мультиключей нет), клоны/затирание — верно по сути, преувеличено как
+«критическое» (ключ всё равно живёт в VAULT_KEY, plaintext гуляет в JS).
+
 
 **Подготовка к open source (чек-лист публикации):** LICENSE (MIT),
 .gitignore (node_modules/dist/target/gen-schemas), .github/workflows/ci.yml
