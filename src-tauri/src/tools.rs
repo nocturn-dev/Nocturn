@@ -1,0 +1,650 @@
+//! M2: Реестр инструментов агента.
+//! Каждый инструмент: OpenAI JSON Schema (для запроса к модели) + execute().
+
+use serde_json::{json, Value};
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+use std::time::Duration;
+
+const FS_READ_LIMIT: u64 = 256 * 1024; // 256 КБ на чтение файла
+const SHELL_DEFAULT_TIMEOUT: u64 = 60; // сек
+
+/// OpenAI-совместимые определения инструментов (для body["tools"])
+pub fn tool_schemas() -> Value {
+    json!([
+        {
+            "type": "function",
+            "function": {
+                "name": "fs_list",
+                "description": "List files and directories at the given path. Returns names, types and sizes.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "path": { "type": "string", "description": "Directory path" }
+                    },
+                    "required": ["path"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "fs_read",
+                "description": "Read a text file. Files larger than 256 KB are truncated.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "path": { "type": "string", "description": "File path" }
+                    },
+                    "required": ["path"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "fs_write",
+                "description": "Write text to a file (creates or overwrites). Directories are created automatically.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "path": { "type": "string", "description": "File path" },
+                        "content": { "type": "string", "description": "Full file content" }
+                    },
+                    "required": ["path", "content"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "fs_delete",
+                "description": "Delete a file (directories are refused).",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "path": { "type": "string", "description": "File path" }
+                    },
+                    "required": ["path"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "shell_run",
+                "description": "Run a shell command (PowerShell on Windows) and return stdout, stderr and exit code. Default timeout 60 seconds.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "command": { "type": "string", "description": "Command to execute" },
+                        "cwd": { "type": "string", "description": "Working directory (optional)" },
+                        "timeout_sec": { "type": "integer", "description": "Timeout in seconds, default 60, max 300" }
+                    },
+                    "required": ["command"]
+                }
+            }
+        }
+    ])
+}
+
+/// Исполнение инструмента по имени с JSON-аргументами.
+/// Возвращает строку-результат (текст для модели).
+pub fn execute_tool(name: &str, arguments: &str) -> Result<String, String> {
+    let args: Value = serde_json::from_str(arguments)
+        .map_err(|e| format!("invalid arguments JSON: {e}"))?;
+
+    match name {
+        "fs_list" => {
+            let path = arg_str(&args, "path")?;
+            fs_list(&Path::new(&path))
+        }
+        "fs_read" => {
+            let path = arg_str(&args, "path")?;
+            fs_read(&Path::new(&path))
+        }
+        "fs_write" => {
+            let path = arg_str(&args, "path")?;
+            let content = args
+                .get("content")
+                .and_then(|v| v.as_str())
+                .ok_or("missing required argument: content")?;
+            fs_write(&Path::new(&path), content)
+        }
+        "fs_delete" => {
+            let path = arg_str(&args, "path")?;
+            fs_delete(&Path::new(&path))
+        }
+        "shell_run" => {
+            let command = arg_str(&args, "command")?;
+            let cwd = args.get("cwd").and_then(|v| v.as_str()).map(String::from);
+            let timeout = args
+                .get("timeout_sec")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(SHELL_DEFAULT_TIMEOUT)
+                .clamp(1, 300);
+            shell_run(&command, cwd.as_deref(), timeout)
+        }
+        other => Err(format!("unknown tool: {other}")),
+    }
+}
+
+fn arg_str(args: &Value, key: &str) -> Result<String, String> {
+    args.get(key)
+        .and_then(|v| v.as_str())
+        .map(String::from)
+        .ok_or(format!("missing required argument: {key}"))
+}
+
+// ---------- Vault (заметки): граф знаний как источник контекста ----------
+
+const VAULT_READ_LIMIT: usize = 64 * 1024;
+const VAULT_RESULTS_LIMIT: usize = 12;
+const VAULT_LIST_LIMIT: usize = 50;
+
+/// Схемы vault-инструментов (добавляются к fs/shell)
+pub fn vault_tool_schemas() -> Value {
+    json!([
+        {
+            "type": "function",
+            "function": {
+                "name": "vault_search",
+                "description": "Search the user's knowledge vault (markdown notes with [[wiki links]]). Empty query lists all note titles. Use it to recall user's notes, ideas and task chains.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": { "type": "string", "description": "Substring to match against note titles and content" }
+                    },
+                    "required": ["query"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "vault_read",
+                "description": "Read a note by file name (from vault_search). Returns content plus outgoing [[links]] and backlinks — follow them to walk the knowledge graph.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "file": { "type": "string", "description": "Note file name, e.g. \"architecture.md\"" }
+                    },
+                    "required": ["file"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "vault_write",
+                "description": "Create or overwrite a note in the user's vault (markdown with optional [[wiki links]]). Use for reports and summaries the user asked to keep in the vault.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "file": { "type": "string", "description": "Note file name ending with .md, e.g. \"automations-report.md\"" },
+                        "content": { "type": "string", "description": "Full note content" }
+                    },
+                    "required": ["file", "content"]
+                }
+            }
+        }
+    ])
+}
+
+/// Исполнение vault-инструмента; notes_dir передаётся вызывающей стороной
+pub fn execute_vault_tool(
+    notes_dir: &Path,
+    name: &str,
+    arguments: &str,
+) -> Result<String, String> {
+    let args: Value = serde_json::from_str(arguments)
+        .map_err(|e| format!("invalid arguments JSON: {e}"))?;
+    match name {
+        "vault_search" => {
+            let q = arg_str(&args, "query")?.to_lowercase();
+            vault_search(notes_dir, &q)
+        }
+        "vault_read" => {
+            let file = arg_str(&args, "file")?;
+            vault_read(notes_dir, &file)
+        }
+        "vault_write" => {
+            let file = arg_str(&args, "file")?;
+            let content = args
+                .get("content")
+                .and_then(|v| v.as_str())
+                .ok_or("missing required argument: content")?;
+            vault_write(notes_dir, &file, content)
+        }
+        other => Err(format!("unknown tool: {other}")),
+    }
+}
+
+/// Файл заметки: только простое имя *.md (без путей и "..").
+/// Единая проверка для vault-инструментов и lib.rs::notes_* (sanitize_note_file).
+pub(crate) fn sanitize_note_name(file: &str) -> Result<String, String> {
+    if file.is_empty()
+        || file.contains('/')
+        || file.contains('\\')
+        || file.contains("..")
+        || !file.ends_with(".md")
+    {
+        return Err(format!("invalid note file name: {file}"));
+    }
+    Ok(file.to_string())
+}
+
+/// Заголовок заметки: первая строка "# X", иначе имя файла без .md
+fn vault_title(file: &str, content: &str) -> String {
+    for line in content.lines() {
+        let t = line.trim();
+        if let Some(h) = t.strip_prefix("# ") {
+            let title = h.trim();
+            if !title.is_empty() {
+                return title.to_string();
+            }
+        }
+    }
+    file.trim_end_matches(".md").to_string()
+}
+
+/// Цели [[ссылок]] из текста: [[target]], [[target|alias]], [[target#anch]]
+fn vault_outgoing_links(content: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut rest = content;
+    while let Some(start) = rest.find("[[") {
+        let Some(end) = rest[start + 2..].find("]]") else { break };
+        let raw = &rest[start + 2..start + 2 + end];
+        let target = raw.split(['|', '#']).next().unwrap_or("").trim();
+        if !target.is_empty() && !out.iter().any(|o| o == target) {
+            out.push(target.to_string());
+        }
+        rest = &rest[start + 2 + end + 2..];
+    }
+    out
+}
+
+fn vault_search(notes_dir: &Path, query: &str) -> Result<String, String> {
+    let mut rows: Vec<(bool, String, String)> = Vec::new(); // (по заголовку, файл, сниппет)
+    let entries = fs::read_dir(notes_dir).map_err(|e| format!("cannot read notes: {e}"))?;
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if !name.ends_with(".md") {
+            continue;
+        }
+        let Ok(content) = fs::read(entry.path()) else { continue };
+        let content = String::from_utf8_lossy(&content).to_string();
+        let title = vault_title(&name, &content);
+        if query.is_empty() {
+            rows.push((true, name, title));
+            continue;
+        }
+        if title.to_lowercase().contains(query) {
+            // Сниппет всё равно полезен: первая строка с вхождением
+            let snippet = content
+                .lines()
+                .find(|l| l.to_lowercase().contains(query))
+                .unwrap_or(&title)
+                .trim();
+            rows.push((true, name, snippet.chars().take(160).collect()));
+        } else if content.to_lowercase().contains(query) {
+            let snippet = content
+                .lines()
+                .find(|l| l.to_lowercase().contains(query))
+                .unwrap_or("")
+                .trim();
+            rows.push((false, name, snippet.chars().take(160).collect()));
+        }
+    }
+    // Совпадения по заголовку — выше
+    rows.sort_by(|a, b| b.0.cmp(&a.0));
+    if rows.is_empty() {
+        return Ok(if query.is_empty() {
+            "The vault is empty.".to_string()
+        } else {
+            format!("No notes matched \"{query}\".")
+        });
+    }
+    let limit = if query.is_empty() {
+        VAULT_LIST_LIMIT
+    } else {
+        VAULT_RESULTS_LIMIT
+    };
+    let mut out = String::new();
+    for (i, (_, name, text)) in rows.iter().take(limit).enumerate() {
+        out.push_str(&format!("{}. {} — {}\n", i + 1, name, text));
+    }
+    if rows.len() > limit {
+        out.push_str(&format!("… and {} more\n", rows.len() - limit));
+    }
+    Ok(out)
+}
+
+/// Создать/перезаписать заметку (мутирующий — на фронте в списке правок)
+fn vault_write(notes_dir: &Path, file: &str, content: &str) -> Result<String, String> {
+    sanitize_note_name(file)?;
+    let path = notes_dir.join(file);
+    fs::write(&path, content).map_err(|e| format!("cannot write note: {e}"))?;
+    Ok(json!({
+        "ok": true,
+        "file": file,
+        "bytes": content.len(),
+    })
+    .to_string())
+}
+
+fn vault_read(notes_dir: &Path, file: &str) -> Result<String, String> {
+    sanitize_note_name(file)?;
+    let path = notes_dir.join(file);
+    let bytes = fs::read(&path).map_err(|e| format!("cannot read note: {e}"))?;
+    let mut content = String::from_utf8_lossy(&bytes).to_string();
+    let truncated = content.len() > VAULT_READ_LIMIT;
+    if truncated {
+        crate::truncate_at_char_boundary(&mut content, VAULT_READ_LIMIT);
+    }
+    let title = vault_title(file, &content);
+    let links = vault_outgoing_links(&content);
+
+    // Обратные ссылки: какие заметки ссылаются на эту (по имени и заголовку)
+    let mut backlinks: Vec<String> = Vec::new();
+    if let Ok(entries) = fs::read_dir(notes_dir) {
+        for entry in entries.flatten() {
+            let other = entry.file_name().to_string_lossy().to_string();
+            if other == file || !other.ends_with(".md") {
+                continue;
+            }
+            let Ok(b) = fs::read(entry.path()) else { continue };
+            let b = String::from_utf8_lossy(&b).to_string();
+            let hits = links.iter().any(|l| b.contains(&format!("[[{l}")))
+                || b.contains(&format!("[[{title}"))
+                || b.contains(&format!("[[{}", file.trim_end_matches(".md")));
+            if hits {
+                backlinks.push(other);
+            }
+        }
+    }
+
+    let mut out = String::new();
+    if truncated {
+        out.push_str("[note truncated]\n");
+    }
+    out.push_str(&content);
+    if !links.is_empty() {
+        out.push_str(&format!("\n\nOutgoing links: {}", links.join(", ")));
+    }
+    if !backlinks.is_empty() {
+        out.push_str(&format!("\nBacklinks: {}", backlinks.join(", ")));
+    }
+    Ok(out)
+}
+
+fn fs_list(path: &Path) -> Result<String, String> {
+    let entries = fs::read_dir(path).map_err(|e| format!("cannot list {path:?}: {e}"))?;
+    let mut items: Vec<String> = Vec::new();
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().to_string();
+        let kind = if entry.path().is_dir() { "dir" } else { "file" };
+        let size = entry
+            .metadata()
+            .map(|m| m.len())
+            .unwrap_or(0);
+        items.push(format!("{kind}\t{size}\t{name}"));
+    }
+    items.sort();
+    if items.is_empty() {
+        return Ok("(empty directory)".to_string());
+    }
+    Ok(format!("type\tsize\tname\n{}", items.join("\n")))
+}
+
+fn fs_read(path: &Path) -> Result<String, String> {
+    let meta = fs::metadata(path).map_err(|e| format!("cannot stat {path:?}: {e}"))?;
+    if meta.is_dir() {
+        return Err(format!("{path:?} is a directory, use fs_list"));
+    }
+    let data = fs::read(path).map_err(|e| format!("cannot read {path:?}: {e}"))?;
+    if data.len() as u64 > FS_READ_LIMIT {
+        let clipped = &data[..FS_READ_LIMIT as usize];
+        let text = String::from_utf8_lossy(clipped);
+        return Ok(format!(
+            "[TRUNCATED: file is {} bytes, showing first {FS_READ_LIMIT} bytes]\n{text}",
+            data.len()
+        ));
+    }
+    Ok(String::from_utf8_lossy(&data).to_string())
+}
+
+/// Предел на «до/после» в JSON-результате: дифф в UI не нужен больше 512 КБ на сторону.
+const FS_WRITE_DIFF_LIMIT: u64 = 512 * 1024;
+
+fn fs_write(path: &Path, content: &str) -> Result<String, String> {
+    // Захватываем старое содержимое до перезаписи — для diff «до/после» в UI
+    let before: Option<String> = fs::read(path).ok().map(|data| {
+        if data.len() as u64 > FS_WRITE_DIFF_LIMIT {
+            // Слишком большой для диффа — отметим усечение
+            format!("[TRUNCATED: {} bytes]", data.len())
+        } else {
+            String::from_utf8_lossy(&data).to_string()
+        }
+    });
+    let existed = before.is_some();
+
+    if let Some(dir) = path.parent() {
+        fs::create_dir_all(dir).map_err(|e| format!("cannot create directory {dir:?}: {e}"))?;
+    }
+    fs::write(path, content).map_err(|e| format!("cannot write {path:?}: {e}"))?;
+
+    Ok(json!({
+        "ok": true,
+        "path": path.display().to_string(),
+        "bytes": content.len(),
+        "created": !existed,
+        "before": before,
+        "after": content,
+    })
+    .to_string())
+}
+
+fn fs_delete(path: &Path) -> Result<String, String> {
+    // Только обычные файлы: каталоги и ссылки не трогаем из чата
+    let meta = fs::metadata(path).map_err(|e| format!("cannot stat {path:?}: {e}"))?;
+    if meta.is_dir() {
+        return Err(format!("{path:?} is a directory — refusing to delete"));
+    }
+    fs::remove_file(path).map_err(|e| format!("cannot delete {path:?}: {e}"))?;
+    Ok(json!({ "ok": true, "deleted": path.display().to_string() }).to_string())
+}
+
+fn shell_run(command: &str, cwd: Option<&str>, timeout_sec: u64) -> Result<String, String> {
+    let mut cmd = if cfg!(windows) {
+        let mut c = Command::new("powershell");
+        // PowerShell 5.1 пишет в пайп в OEM-кодировке (cp866 на русской
+        // Windows) — принудительно переводим консоль в UTF-8, иначе
+        // русский вывод превращается в кракозябры
+        let wrapped = format!(
+            "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; {}",
+            command
+        );
+        c.args(["-NoProfile", "-NonInteractive", "-Command", &wrapped]);
+        c
+    } else {
+        let mut c = Command::new("sh");
+        c.args(["-c", command]);
+        c
+    };
+    if let Some(dir) = cwd {
+        let p = PathBuf::from(dir);
+        cmd.current_dir(&p);
+    }
+
+    // Запуск, параллельное чтение пайпов, таймаут с kill и сбор вывода —
+    // единый примитив proc
+    let out = crate::proc::run_command(&mut cmd, Duration::from_secs(timeout_sec))?;
+    let (stdout, stderr) = (&out.stdout, &out.stderr);
+
+    if out.timed_out {
+        return Ok(format!(
+            "TIMEOUT after {timeout_sec}s (process killed)\n--- stdout ---\n{}\n--- stderr ---\n{}",
+            if stdout.is_empty() { "(empty)" } else { stdout },
+            if stderr.is_empty() { "(empty)" } else { stderr },
+        ));
+    }
+    Ok(format!(
+        "exit code: {}\n--- stdout ---\n{}\n--- stderr ---\n{}",
+        out.status.unwrap_or(-1),
+        if stdout.is_empty() { "(empty)" } else { stdout },
+        if stderr.is_empty() { "(empty)" } else { stderr },
+    ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tmp_dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("haloui-test-{}", name));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn fs_tools_roundtrip() {
+        let dir = tmp_dir("fs");
+        let file = dir.join("hello.txt");
+
+        let write_args = json!({ "path": file, "content": "line1\nline2" }).to_string();
+        let res = execute_tool("fs_write", &write_args).unwrap();
+        let parsed: Value = serde_json::from_str(&res).expect("fs_write returns JSON");
+        assert_eq!(parsed["ok"], true);
+        assert_eq!(parsed["created"], true);
+        assert_eq!(parsed["before"], Value::Null);
+        assert_eq!(parsed["after"], "line1\nline2");
+
+        // Вторая запись: before должен содержать прежнее содержимое
+        let write2 = json!({ "path": file, "content": "line1\nCHANGED" }).to_string();
+        let res = execute_tool("fs_write", &write2).unwrap();
+        let parsed: Value = serde_json::from_str(&res).expect("fs_write returns JSON");
+        assert_eq!(parsed["created"], false);
+        assert_eq!(parsed["before"], "line1\nline2");
+        assert_eq!(parsed["after"], "line1\nCHANGED");
+
+        let read_args = json!({ "path": file }).to_string();
+        let res = execute_tool("fs_read", &read_args).unwrap();
+        assert!(res.contains("CHANGED"));
+
+        let list_args = json!({ "path": dir }).to_string();
+        let res = execute_tool("fs_list", &list_args).unwrap();
+        assert!(res.contains("hello.txt"));
+    }
+
+    #[test]
+    fn fs_read_truncates_large_files() {
+        let dir = tmp_dir("big");
+        let file = dir.join("big.txt");
+        fs::write(&file, "x".repeat(300 * 1024)).unwrap();
+        let read_args = json!({ "path": file }).to_string();
+        let res = execute_tool("fs_read", &read_args).unwrap();
+        assert!(res.starts_with("[TRUNCATED"));
+    }
+
+    #[test]
+    fn fs_read_rejects_directory() {
+        let dir = tmp_dir("dircheck");
+        let read_args = json!({ "path": dir }).to_string();
+        let res = execute_tool("fs_read", &read_args);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn vault_search_and_read_roundtrip() {
+        let dir = tmp_dir("vault");
+        fs::write(
+            dir.join("arch.md"),
+            "# Архитектура\nСм. [[Задачи]] и [[design|дизайн]].\nГраф строится по ссылкам.\n",
+        )
+        .unwrap();
+        fs::write(dir.join("tasks.md"), "# Задачи\nСписок дел.\n").unwrap();
+        fs::write(dir.join("graph.md"), "# Граф\nСсылка на [[Архитектура]].\n").unwrap();
+        fs::write(dir.join("random.md"), "Что-то про граф знаний.\n").unwrap();
+
+        // Поиск по заголовку
+        let res = execute_vault_tool(&dir, "vault_search", r#"{ "query": "задач" }"#).unwrap();
+        assert!(res.contains("tasks.md"));
+        // Поиск по содержимому
+        let res = execute_vault_tool(&dir, "vault_search", r#"{ "query": "граф" }"#).unwrap();
+        assert!(res.contains("arch.md") && res.contains("random.md"));
+        // Пустой запрос — список всех
+        let res = execute_vault_tool(&dir, "vault_search", r#"{ "query": "" }"#).unwrap();
+        assert!(res.contains("random.md"));
+
+        // Чтение: контент + исходящие ссылки + обратные
+        let res = execute_vault_tool(&dir, "vault_read", r#"{ "file": "arch.md" }"#).unwrap();
+        assert!(res.contains("Архитектура"));
+        assert!(res.contains("Outgoing links: Задачи, design"));
+        assert!(res.contains("Backlinks: graph.md"));
+
+        // Путь внутрь имени — отказ
+        let res = execute_vault_tool(&dir, "vault_read", r#"{ "file": "../x.md" }"#);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn shell_run_echo() {
+        let res = execute_tool("shell_run", r#"{"command":"echo haloui-test"}"#).unwrap();
+        assert!(res.contains("haloui-test"), "got: {res}");
+        assert!(res.contains("exit code: 0"));
+    }
+
+    #[test]
+    fn shell_run_timeout_kills_process() {
+        let res = execute_tool("shell_run", r#"{"command":"Start-Sleep -Seconds 30","timeout_sec":1}"#);
+        assert!(res.is_ok());
+        assert!(res.unwrap().contains("TIMEOUT"));
+    }
+
+    #[test]
+    fn shell_run_large_output_no_false_timeout() {
+        // Регресс: команда выдаёт больше буфера пайпа (~64 КБ). Раньше stdout/
+        // stderr не читались до завершения — процесс блокировался на записи и
+        // try_wait не видел завершения, давая ложный TIMEOUT.
+        let command = if cfg!(windows) {
+            "'x' * 200000"
+        } else {
+            "head -c 200000 /dev/zero | tr '\\0' 'x'"
+        };
+        let args = json!({ "command": command, "timeout_sec": 15 }).to_string();
+        let res = execute_tool("shell_run", &args).unwrap();
+        assert!(res.contains("exit code: 0"), "got: {res}");
+        assert!(!res.contains("TIMEOUT"), "got: {res}");
+    }
+
+    #[test]
+    fn unknown_tool_rejected() {
+        let res = execute_tool("rm_rf_everything", "{}");
+        assert!(res.is_err());
+        assert!(res.unwrap_err().contains("unknown tool"));
+    }
+
+    #[test]
+    fn invalid_arguments_rejected() {
+        let res = execute_tool("fs_read", "not json");
+        assert!(res.is_err());
+        let res = execute_tool("fs_read", "{}");
+        assert!(res.is_err());
+        assert!(res.unwrap_err().contains("missing required argument"));
+    }
+
+    #[test]
+    fn tool_schemas_valid() {
+        let v = tool_schemas();
+        let arr = v.as_array().expect("schemas must be an array");
+        assert_eq!(arr.len(), 5);
+        for schema in arr {
+            assert_eq!(schema["type"], "function");
+            assert!(schema["function"]["name"].is_string());
+            assert!(schema["function"]["parameters"].is_object());
+        }
+    }
+}

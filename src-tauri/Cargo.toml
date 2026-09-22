@@ -1,0 +1,39 @@
+[package]
+name = "nocturn"
+version = "0.1.0"
+description = "Nocturn — универсальный ИИ-клиент (BYOK)"
+authors = ["Nocturn"]
+edition = "2021"
+# Два бинаря: само приложение (nocturn.exe) и mcp_echo_helper (для e2e-тестов).
+# Без default-run `cargo run`/`tauri dev` не знает, какой запускать.
+default-run = "nocturn"
+
+[[bin]]
+name = "nocturn"
+path = "src/main.rs"
+
+[lib]
+name = "nocturn_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+reqwest = { version = "0.12", features = ["json", "stream", "gzip", "brotli", "deflate"] }
+futures-util = { version = "0.3", default-features = false }
+tauri-plugin-dialog = "2.7.3"
+portable-pty = "0.9.0"
+tungstenite = { version = "0.24", default-features = false, features = ["handshake"] }
+xcap = "0.4"
+enigo = "0.3"
+image = { version = "0.25", default-features = false, features = ["jpeg"] }
+base64 = "0.22"
+aes-gcm = "0.10"
+rand = "0.8"
+pbkdf2 = "0.12"
+sha2 = "0.10"
+tauri-plugin-notification = "2.4.0"

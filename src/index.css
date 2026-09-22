@@ -1,0 +1,487 @@
+@import "tailwindcss";
+
+/*
+  HaloUI — палитра в духе Claude. Цвета живут в CSS-переменных,
+  чтобы тема переключалась на лету (html.light), а Tailwind
+  генерирует утилиты вида bg-halo-bg через @theme inline.
+*/
+:root {
+  --halo-bg: #262624; /* основная зона чата */
+  --halo-deep: #1f1e1d; /* сайдбар, модалки */
+  --halo-surface: #30302e; /* карточки, поле ввода */
+  --halo-raised: #3a3936; /* пузыри пользователя */
+  --halo-line: #3d3c38; /* тонкие линии и рамки */
+  --halo-text: #e8e6dc; /* основной текст */
+  --halo-muted: #9b9890; /* вторичный текст */
+  --halo-accent: #d97757; /* терракота Claude */
+  --halo-accent-deep: #bd5d3a;
+  --halo-hover: rgba(255, 255, 255, 0.055);
+  --halo-hover-strong: rgba(255, 255, 255, 0.085);
+  --halo-code-bg: #1a1918;
+  --halo-term-font: 11.5px; /* размер шрифта терминала (кастомизация) */
+  color-scheme: dark;
+}
+
+html.light {
+  --halo-bg: #faf9f5;
+  --halo-deep: #f2efe9;
+  --halo-surface: #ffffff;
+  --halo-raised: #ece9e0;
+  --halo-line: #e3dfd4;
+  --halo-text: #262524;
+  --halo-muted: #7c786e;
+  --halo-accent: #d97757;
+  --halo-accent-deep: #bd5d3a;
+  --halo-hover: rgba(0, 0, 0, 0.05);
+  --halo-hover-strong: rgba(0, 0, 0, 0.085);
+  --halo-code-bg: #1a1918;
+  color-scheme: light;
+}
+
+/* ---------- Стили тёмной темы (кастомизация, «Настройки → Темы»).
+   Применяются только в тёмном режиме; светлая не зависит. ---------- */
+html:not(.light)[data-style="midnight"] {
+  --halo-bg: #141416;
+  --halo-deep: #101012;
+  --halo-surface: #1e1e21;
+  --halo-raised: #28282b;
+  --halo-line: #34343a;
+  --halo-text: #e6e4ea;
+  --halo-muted: #94929a;
+  --halo-code-bg: #0d0d0f;
+}
+html:not(.light)[data-style="sepia"] {
+  --halo-bg: #2b2620;
+  --halo-deep: #241f1a;
+  --halo-surface: #332d26;
+  --halo-raised: #3d362e;
+  --halo-line: #474036;
+  --halo-text: #ece3d2;
+  --halo-muted: #a89a86;
+  --halo-code-bg: #1c1813;
+}
+/* Abyss — Чёрное море: глубокий сине-зелёный */
+html:not(.light)[data-style="abyss"] {
+  --halo-bg: #0c1616;
+  --halo-deep: #091012;
+  --halo-surface: #122020;
+  --halo-raised: #182b2a;
+  --halo-line: #223a38;
+  --halo-text: #dcebe6;
+  --halo-muted: #7fa39b;
+  --halo-code-bg: #0a1312;
+}
+/* Storm — полярная ночь: холодный сине-серый */
+html:not(.light)[data-style="storm"] {
+  --halo-bg: #10141c;
+  --halo-deep: #0c0f16;
+  --halo-surface: #181d27;
+  --halo-raised: #202633;
+  --halo-line: #2b3342;
+  --halo-text: #e2e7f0;
+  --halo-muted: #8d97ab;
+  --halo-code-bg: #0b0e14;
+}
+/* Dusk — поздний вечер: тёмный сине-фиолетовый */
+html:not(.light)[data-style="dusk"] {
+  --halo-bg: #16121f;
+  --halo-deep: #110e18;
+  --halo-surface: #1f1a2b;
+  --halo-raised: #292337;
+  --halo-line: #352d46;
+  --halo-text: #e9e4f2;
+  --halo-muted: #9b91ad;
+  --halo-code-bg: #120e1a;
+}
+/* Forest — ночный лес: глубокий тёмно-зелёный */
+html:not(.light)[data-style="forest"] {
+  --halo-bg: #101613;
+  --halo-deep: #0c110e;
+  --halo-surface: #182019;
+  --halo-raised: #202a21;
+  --halo-line: #2c382c;
+  --halo-text: #e4ece2;
+  --halo-muted: #93a494;
+  --halo-code-bg: #0b100c;
+}
+/* Rosewood — тёмный с тёплым розово-коричневым отливом */
+html:not(.light)[data-style="rosewood"] {
+  --halo-bg: #1a1214;
+  --halo-deep: #140d0f;
+  --halo-surface: #241a1d;
+  --halo-raised: #2f2225;
+  --halo-line: #3d2c30;
+  --halo-text: #f0e6e4;
+  --halo-muted: #a89395;
+  --halo-code-bg: #130c0e;
+}
+
+@theme inline {
+  --color-halo-bg: var(--halo-bg);
+  --color-halo-deep: var(--halo-deep);
+  --color-halo-surface: var(--halo-surface);
+  --color-halo-raised: var(--halo-raised);
+  --color-halo-line: var(--halo-line);
+  --color-halo-text: var(--halo-text);
+  --color-halo-muted: var(--halo-muted);
+  --color-halo-accent: var(--halo-accent);
+  --color-halo-accent-deep: var(--halo-accent-deep);
+  --color-halo-hover: var(--halo-hover);
+  --color-halo-hover-strong: var(--halo-hover-strong);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+/* Плавная смена темы: фон и рамки «перетекают», а не щёлкают */
+body,
+aside,
+section,
+header,
+.markdown pre {
+  transition:
+    background-color 0.3s ease,
+    border-color 0.3s ease;
+}
+
+body {
+  @apply bg-halo-bg font-sans text-halo-text antialiased;
+}
+
+/* ---------- Микроанимации ---------- */
+@keyframes halo-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes halo-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes halo-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.anim-fade-up {
+  animation: halo-fade-up 0.25s ease both;
+}
+.anim-pop {
+  animation: halo-pop 0.18s cubic-bezier(0.2, 0.8, 0.3, 1) both;
+}
+.anim-fade {
+  animation: halo-fade 0.2s ease both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .anim-fade-up,
+  .anim-pop,
+  .anim-fade,
+  .typing-dot,
+  .nav-tick-in {
+    animation: none;
+  }
+}
+
+::selection {
+  background: color-mix(in srgb, var(--halo-accent) 35%, transparent);
+}
+
+/* Тонкий аккуратный скроллбар в духе claude.ai */
+.scroll-slim {
+  scrollbar-width: thin;
+  scrollbar-color: var(--halo-line) transparent;
+}
+.scroll-slim::-webkit-scrollbar {
+  width: 8px;
+}
+.scroll-slim::-webkit-scrollbar-track {
+  background: transparent;
+}
+.scroll-slim::-webkit-scrollbar-thumb {
+  background: var(--halo-line);
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+.scroll-slim::-webkit-scrollbar-thumb:hover {
+  background: var(--halo-muted);
+  background-clip: content-box;
+}
+
+/* ---------- Markdown в ответах ассистента ---------- */
+.markdown > :first-child {
+  margin-top: 0;
+}
+.markdown > :last-child {
+  margin-bottom: 0;
+}
+.markdown p {
+  margin: 0.35rem 0;
+}
+.markdown ul {
+  list-style: disc;
+  padding-left: 1.35rem;
+  margin: 0.4rem 0;
+}
+.markdown ol {
+  list-style: decimal;
+  padding-left: 1.35rem;
+  margin: 0.4rem 0;
+}
+.markdown li {
+  margin: 0.18rem 0;
+}
+.markdown h1,
+.markdown h2,
+.markdown h3,
+.markdown h4 {
+  font-weight: 600;
+  margin: 0.6rem 0 0.3rem;
+}
+.markdown a {
+  color: var(--halo-accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.markdown blockquote {
+  border-left: 2px solid var(--halo-accent);
+  padding-left: 0.75rem;
+  color: var(--halo-muted);
+  margin: 0.4rem 0;
+}
+/* Таблицы: не выпирают за карточку — скроллятся внутри неё.
+   Естественная ширина колонок (width: max-content) — иначе таблица
+   сжимается и скролла не появляется */
+.markdown table {
+  display: block;
+  width: max-content;
+  min-width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+  margin: 0.5rem 0;
+  scrollbar-width: thin;
+  scrollbar-color: var(--halo-muted) transparent;
+}
+.markdown table::-webkit-scrollbar {
+  height: 8px;
+}
+.markdown table::-webkit-scrollbar-track {
+  background: transparent;
+}
+.markdown table::-webkit-scrollbar-thumb {
+  background: var(--halo-line);
+  border-radius: 9999px;
+}
+.markdown table::-webkit-scrollbar-thumb:hover {
+  background: var(--halo-muted);
+}
+.markdown th,
+.markdown td {
+  border: 1px solid var(--halo-line);
+  padding: 0.35rem 0.6rem;
+  text-align: left;
+  vertical-align: top;
+  /* Колонка растягивается под слово (width: max-content у таблицы),
+     рвём только безнадёжно длинные токены (URL/хэши), не обычные слова */
+  word-break: normal;
+  overflow-wrap: break-word;
+}
+.markdown th {
+  background: var(--halo-surface);
+  font-weight: 600;
+}
+.markdown tr:nth-child(2n) td {
+  background: color-mix(in srgb, var(--halo-surface) 45%, transparent);
+}
+.markdown code:not(pre code) {
+  background: var(--halo-raised);
+  border-radius: 0.375rem;
+  padding: 0.1rem 0.35rem;
+  font-size: 0.8125rem;
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+}
+.markdown pre {
+  background: var(--halo-code-bg);
+  border: 1px solid var(--halo-line);
+  border-radius: 0.75rem;
+  padding: 0.75rem 1rem;
+  overflow-x: auto;
+  margin: 0.5rem 0;
+}
+.markdown pre code {
+  background: transparent;
+  padding: 0;
+  font-size: 0.8125rem;
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+}
+
+/* ---------- Индикатор «Печатает…» ---------- */
+@keyframes halo-blink {
+  0%,
+  80%,
+  100% {
+    opacity: 0.25;
+    transform: translateY(0);
+  }
+  40% {
+    opacity: 1;
+    transform: translateY(-2px);
+  }
+}
+.typing-dot {
+  animation: halo-blink 1.2s infinite;
+}
+
+/* Засечка таймлайна: «домино» — появляются по очереди */
+@keyframes halo-nav-in {
+  from {
+    opacity: 0;
+    transform: translateX(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.nav-tick-in {
+  animation: halo-nav-in 0.35s cubic-bezier(0.2, 0.8, 0.3, 1) both;
+}
+
+/* Таймлайн сообщений: прокрутка без видимого скроллбара */
+.no-scrollbar {
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* ---------- Эффект стекла (переключается в «Настройках → Темы») ----------
+   Под панелями появляется мягкий градиентный «фон рабочего стола»,
+   а сами панели становятся полупрозрачными с размытием. Работает
+   поверх любой темы: цвета берутся из переменных текущей темы. */
+html.glass body {
+  background: transparent;
+}
+html.glass {
+  background:
+    radial-gradient(700px 450px at 12% 18%, rgba(217, 119, 87, 0.22), transparent 70%),
+    radial-gradient(800px 550px at 88% 85%, rgba(110, 85, 60, 0.4), transparent 70%),
+    radial-gradient(500px 350px at 70% 10%, rgba(160, 120, 90, 0.16), transparent 70%),
+    var(--halo-bg);
+}
+html.light.glass {
+  background:
+    radial-gradient(700px 450px at 12% 18%, rgba(217, 119, 87, 0.16), transparent 70%),
+    radial-gradient(800px 550px at 88% 85%, rgba(140, 130, 100, 0.28), transparent 70%),
+    radial-gradient(500px 350px at 70% 10%, rgba(200, 180, 150, 0.25), transparent 70%),
+    var(--halo-bg);
+}
+/* Полупрозрачность панелей */
+html.glass .bg-halo-bg {
+  background: color-mix(in srgb, var(--halo-bg) 68%, transparent);
+}
+html.glass .bg-halo-deep {
+  background: color-mix(in srgb, var(--halo-deep) 70%, transparent);
+}
+html.glass .bg-halo-surface {
+  background: color-mix(in srgb, var(--halo-surface) 72%, transparent);
+}
+html.glass .bg-halo-raised {
+  background: color-mix(in srgb, var(--halo-raised) 78%, transparent);
+}
+/* Размытие крупных поверхностей: сайдбар и модалки (класс .glass-pane).
+   Интенсивность управляется переменной --halo-blur (слайдер в «Темах») */
+html.glass aside,
+html.glass .glass-pane {
+  backdrop-filter: blur(var(--halo-blur, 14px)) saturate(1.25);
+  -webkit-backdrop-filter: blur(var(--halo-blur, 14px)) saturate(1.25);
+}
+
+/* Отдельное стекло на сайдбаре (тумблер в «Темах», работает и без общего стекла).
+   Фон делаем полупрозрачным — иначе blur не видно сквозь непрозрачный цвет */
+html.sidebar-glass aside {
+  background-color: color-mix(in srgb, var(--halo-surface, #30302e) 42%, transparent);
+  backdrop-filter: blur(calc(var(--halo-blur, 14px) * 1.6)) saturate(1.35);
+  -webkit-backdrop-filter: blur(calc(var(--halo-blur, 14px) * 1.6)) saturate(1.35);
+  box-shadow: inset -1px 0 0 color-mix(in srgb, var(--halo-line, #3d3c38) 80%, transparent);
+}
+
+/* ---------- Ползунки кастомизации: заметный трек и круглый ручка ---------- */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--halo-line);
+  outline: none;
+  cursor: pointer;
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--halo-accent);
+  border: 2px solid var(--halo-bg);
+  box-shadow: 0 1px 6px rgb(0 0 0 / 45%);
+  cursor: grab;
+  transition: transform 0.12s ease;
+}
+input[type="range"]::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+}
+input[type="range"]::-webkit-slider-thumb:active {
+  cursor: grabbing;
+  transform: scale(1.05);
+}
+
+
+/* ---------- Анимации статистики (Usage stats) ---------- */
+/* Линии тренда «рисуются» слева направо (pathLength=1) */
+@keyframes usage-draw {
+  from { stroke-dashoffset: 1; }
+  to { stroke-dashoffset: 0; }
+}
+.usage-draw {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: usage-draw 1.1s ease-out forwards;
+}
+/* Ячейки тепловой карты проявляются волной */
+@keyframes usage-cell {
+  from { opacity: 0; transform: scale(0.5); }
+  to { opacity: 1; transform: scale(1); }
+}
+.usage-cell {
+  animation: usage-cell 0.35s ease-out both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .usage-draw, .usage-cell { animation: none; stroke-dashoffset: 0; }
+}
+
+/* Дуги доната «разворачиваются» из нуля, сегмент за сегментом */
+@keyframes usage-arc {
+  from { stroke-dasharray: 0 999; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .usage-arc { animation: none !important; }
+}

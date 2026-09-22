@@ -1,0 +1,50 @@
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { useLang } from "../locales";
+
+/**
+ * Кнопки окна (свернуть / развернуть / закрыть) для безрамочного режима:
+ * нативный титлбар убран (decorations: false), управление перенесено
+ * в шапку приложения. Кнопки — в правом верхнем углу окна.
+ */
+export default function WindowControls() {
+  const { t } = useLang();
+  // В браузерном превью (без Tauri) кнопки не работают — прячем
+  if (typeof window === "undefined" || !("__TAURI_INTERNALS__" in window)) {
+    return null;
+  }
+  const win = getCurrentWindow();
+  const btn =
+    "flex h-full w-11 items-center justify-center text-halo-muted transition-colors";
+
+  return (
+    <div className="flex h-full shrink-0 items-stretch">
+      <button
+        onClick={() => void win.minimize()}
+        title={t("win.min")}
+        className={`${btn} hover:bg-halo-hover hover:text-halo-text`}
+      >
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+          <path d="M5 12h14" />
+        </svg>
+      </button>
+      <button
+        onClick={() => void win.toggleMaximize()}
+        title={t("win.max")}
+        className={`${btn} hover:bg-halo-hover hover:text-halo-text`}
+      >
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <rect x="5" y="5" width="14" height="14" rx="1.5" />
+        </svg>
+      </button>
+      <button
+        onClick={() => void win.close()}
+        title={t("win.close")}
+        className={`${btn} hover:bg-red-500/90 hover:text-white`}
+      >
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+          <path d="M18 6 6 18M6 6l12 12" />
+        </svg>
+      </button>
+    </div>
+  );
+}
