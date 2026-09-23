@@ -450,6 +450,10 @@ export function useAgentRun(deps: AgentRunDeps) {
       setStreamingId(null);
       streamingRef.current.delete(requestId);
       abortedRef.current.delete(requestId);
+      // Прогон завершён — метка последней активности (для авто-архива)
+      setSessions((prev) =>
+        prev.map((s) => (s.id === targetId ? { ...s, updatedAt: Date.now() } : s)),
+      );
       // Взаимодействия не должны пережить прогон (страховка: цикл обязан
       // был закрыть их сам, но Stop/finalize по исключению — гасим разом)
       cancelInteractions();
@@ -552,6 +556,11 @@ export function useAgentRun(deps: AgentRunDeps) {
     // Сообщение пользователя попадает в историю сессии: без этого в чате
     // видны только ответы модели, а само сообщение существует лишь в запросе
     pushMessage(userMsg);
+
+    // Задача тронута — двигаем метку последней активности (для авто-архива)
+    setSessions((prev) =>
+      prev.map((s) => (s.id === targetId ? { ...s, updatedAt: Date.now() } : s)),
+    );
 
     // Контекст: системный промт + последние 30 сообщений + новое
     const current =

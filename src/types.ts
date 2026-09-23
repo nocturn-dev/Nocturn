@@ -65,6 +65,8 @@ export interface Session {
   id: string;
   title: string;
   createdAt: number;
+  /** Последняя активность в задаче (для авто-архива); старые сессии — без поля */
+  updatedAt?: number;
   messages: Message[];
   pinned?: boolean;
   projectId?: string;

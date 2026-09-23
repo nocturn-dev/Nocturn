@@ -240,6 +240,14 @@ export default function App() {
   const [askAutoContinue, setAskAutoContinue] = useState(
     () => localStorage.getItem("haloui-ask-auto-continue") !== "0",
   );
+  // Авто-архив: старые задачи (без пина, старше срока) уходят в архив
+  const [autoArchive, setAutoArchive] = useState(
+    () => localStorage.getItem("haloui-auto-archive") === "1",
+  );
+  const [archiveRetention, setArchiveRetention] = useState<number>(() => {
+    const raw = Number(localStorage.getItem("haloui-archive-retention"));
+    return raw === 3 || raw === 30 ? raw : 7;
+  });
   const [streamCaret, setStreamCaret] = useState(
     () => localStorage.getItem("haloui-stream-caret") !== "0",
   );
@@ -438,6 +446,35 @@ export default function App() {
     localStorage.setItem("haloui-ask-auto-continue", askAutoContinue ? "1" : "0");
   }, [askAutoContinue]);
   useEffect(() => {
+    localStorage.setItem("haloui-auto-archive", autoArchive ? "1" : "0");
+  }, [autoArchive]);
+  useEffect(() => {
+    localStorage.setItem("haloui-archive-retention", String(archiveRetention));
+  }, [archiveRetention]);
+
+  /** Ручной авто-архив: задачи старше срока (кроме закреплённых и активной) */
+  const archiveOldNow = useCallback(() => {
+    const cutoff = Date.now() - archiveRetention * 86_400_000;
+    const ids = new Set(
+      sessions
+        .filter(
+          (s) =>
+            !s.archived &&
+            !s.pinned &&
+            s.id !== activeId &&
+            (s.updatedAt ?? s.createdAt) < cutoff,
+        )
+        .map((s) => s.id),
+    );
+    if (ids.size > 0) {
+      setSessions((prev) =>
+        prev.map((s) => (ids.has(s.id) ? { ...s, archived: true } : s)),
+      );
+    }
+    addToast(t("main.archivedN", { n: ids.size }));
+  }, [sessions, activeId, archiveRetention, addToast, t]);
+
+  useEffect(() => {
     localStorage.setItem("haloui-stream-caret", streamCaret ? "1" : "0");
   }, [streamCaret]);
   useEffect(() => {
@@ -600,6 +637,29 @@ export default function App() {
           try {
             const parsed = JSON.parse(data) as Session[];
             if (Array.isArray(parsed) && parsed.length > 0) {
+              // Авто-архив при старте: старые задачи (кроме закреплённых) — в архив
+              if (autoArchive) {
+                const cutoff = Date.now() - archiveRetention * 86_400_000;
+                const staleIds = new Set(
+                  parsed
+                    .filter(
+                      (s) =>
+                        !s.archived &&
+                        !s.pinned &&
+                        (s.updatedAt ?? s.createdAt) < cutoff,
+                    )
+                    .map((s) => s.id),
+                );
+                if (staleIds.size > 0) {
+                  setSessions(
+                    parsed.map((s) =>
+                      staleIds.has(s.id) ? { ...s, archived: true } : s,
+                    ),
+                  );
+                  addToast(t("main.archivedN", { n: staleIds.size }));
+                  return;
+                }
+              }
               setSessions(parsed);
               // Бэкфилл журнала использования из старой истории
               // (без дат сообщений — относим расход ко дню создания задачи)
@@ -1995,6 +2055,11 @@ export default function App() {
         onShowReasoningChange={setShowReasoning}
         askAutoContinue={askAutoContinue}
         onAskAutoContinueChange={setAskAutoContinue}
+        autoArchive={autoArchive}
+        onAutoArchiveChange={setAutoArchive}
+        archiveRetention={archiveRetention}
+        onArchiveRetentionChange={setArchiveRetention}
+        onArchiveNow={archiveOldNow}
         streamCaret={streamCaret}
         onStreamCaretChange={setStreamCaret}
         showUserMsgs={showUserMsgs}

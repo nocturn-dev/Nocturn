@@ -103,6 +103,11 @@ interface SettingsModalProps {
   onShowReasoningChange: (v: boolean) => void;
   askAutoContinue: boolean;
   onAskAutoContinueChange: (v: boolean) => void;
+  autoArchive: boolean;
+  onAutoArchiveChange: (v: boolean) => void;
+  archiveRetention: number;
+  onArchiveRetentionChange: (d: number) => void;
+  onArchiveNow: () => void;
   streamCaret: boolean;
   onStreamCaretChange: (v: boolean) => void;
   /** Показ сообщений пользователя в чате */
@@ -381,9 +386,14 @@ export default function SettingsModal({
   streamSmooth,
   showReasoning,
   askAutoContinue,
+  autoArchive,
+  archiveRetention,
   onStreamSmoothChange,
   onShowReasoningChange,
   onAskAutoContinueChange,
+  onAutoArchiveChange,
+  onArchiveRetentionChange,
+  onArchiveNow,
   streamCaret,
   onStreamCaretChange,
   showUserMsgs,
@@ -587,6 +597,11 @@ export default function SettingsModal({
               onShowReasoningChange={onShowReasoningChange}
               askAutoContinue={askAutoContinue}
               onAskAutoContinueChange={onAskAutoContinueChange}
+              autoArchive={autoArchive}
+              onAutoArchiveChange={onAutoArchiveChange}
+              archiveRetention={archiveRetention}
+              onArchiveRetentionChange={onArchiveRetentionChange}
+              onArchiveNow={onArchiveNow}
               streamCaret={streamCaret}
               onStreamCaretChange={onStreamCaretChange}
               showUserMsgs={showUserMsgs}
@@ -750,9 +765,14 @@ function MainSection({
   streamSmooth,
   showReasoning,
   askAutoContinue,
+  autoArchive,
+  archiveRetention,
   onStreamSmoothChange,
   onShowReasoningChange,
   onAskAutoContinueChange,
+  onAutoArchiveChange,
+  onArchiveRetentionChange,
+  onArchiveNow,
   streamCaret,
   onStreamCaretChange,
   showUserMsgs,
@@ -781,6 +801,11 @@ function MainSection({
   onShowReasoningChange: (v: boolean) => void;
   askAutoContinue: boolean;
   onAskAutoContinueChange: (v: boolean) => void;
+  autoArchive: boolean;
+  onAutoArchiveChange: (v: boolean) => void;
+  archiveRetention: number;
+  onArchiveRetentionChange: (d: number) => void;
+  onArchiveNow: () => void;
   streamCaret: boolean;
   onStreamCaretChange: (v: boolean) => void;
   showUserMsgs: boolean;
@@ -865,6 +890,34 @@ function MainSection({
         on={askAutoContinue}
         onChange={onAskAutoContinueChange}
       />
+      <ToggleRow
+        label={t("main.autoArchive")}
+        desc={t("main.autoArchiveDesc")}
+        on={autoArchive}
+        onChange={onAutoArchiveChange}
+      />
+      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-halo-line bg-halo-surface/40 px-3 py-2.5">
+        <span className="text-xs text-halo-muted">{t("main.archiveAfter")}:</span>
+        {[3, 7, 30].map((d) => (
+          <button
+            key={d}
+            onClick={() => onArchiveRetentionChange(d)}
+            className={`rounded-md border px-2.5 py-1 text-xs transition-colors ${
+              archiveRetention === d
+                ? "border-halo-accent/60 bg-halo-accent/10 text-halo-accent"
+                : "border-halo-line text-halo-muted hover:text-halo-text"
+            }`}
+          >
+            {d}
+          </button>
+        ))}
+        <button
+          onClick={onArchiveNow}
+          className="ml-auto rounded-md border border-halo-line px-2.5 py-1 text-xs text-halo-muted transition-colors hover:text-halo-text"
+        >
+          {t("main.archiveNow")}
+        </button>
+      </div>
       <ToggleRow
         label={t("main.settingsLarge")}
         desc={t("main.settingsLargeDesc")}
