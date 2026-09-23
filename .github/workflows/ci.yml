@@ -56,22 +56,7 @@ jobs:
         run: npm run tauri build
       - name: Generate latest.json for the updater
         shell: pwsh
-        run: |
-          $sig = Get-ChildItem "src-tauri/target/release/bundle/nsis/*.exe.sig" | Select-Object -First 1
-          if (-not $sig) { throw "no .sig file found" }
-          $version = "${{ github.ref_name }}".TrimStart("v")
-          $json = @{
-            version  = $version
-            notes    = "Release ${{ github.ref_name }}"
-            pub_date = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
-            platforms = @{
-              "windows-x86_64" = @{
-                signature = (Get-Content $sig.FullName -Raw).Trim()
-                url = "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/$(($sig.Name) -replace [regex]::Escape(".sig"), "")"
-              }
-            }
-          } | ConvertTo-Json -Depth 5
-          Set-Content -Path "src-tauri/target/release/bundle/latest.json" -Value $json
+        run: pwsh ./scripts/make-latest-json.ps1 -BundleDir "src-tauri/target/release/bundle" -Tag "${{ github.ref_name }}" -Repo "${{ github.repository }}" -Out "src-tauri/target/release/bundle/latest.json"
       - name: Upload release artifacts
         uses: softprops/action-gh-release@v2
         with:
