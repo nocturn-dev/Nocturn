@@ -1,0 +1,240 @@
+import { summarizeArguments } from "../../diff";
+import { thinkingPhases, useLang } from "../../locales";
+import { type Message } from "../../types";
+import { shortModelName } from "../ProviderIcon";
+import { CollapseButton } from "./CollapseButton";
+import { ErrorNote } from "./ErrorNote";
+import { ToolStepCard } from "./ToolStepCard";
+import { ChevronDownIcon, PlusIcon, SubagentIcon, ToolIcon } from "./icons";
+import { useEffect, useState } from "react";
+import ProviderIcon from "../ProviderIcon";
+import ReactMarkdown from "react-markdown";
+import rehypeHighlight from "rehype-highlight";
+import remarkGfm from "remark-gfm";
+
+export function AssistantCard({
+  mid,
+  message,
+  model,
+  results,
+  hint,
+  glassEffect,
+  isStreaming,
+  smooth,
+  caret,
+}: {
+  mid: string;
+  message: Message;
+  model: string;
+  /** Результаты инструментов этого шага — рендерятся внутри карточки */
+  results?: { id: string; content: string }[];
+  /** Живой статус стрима этого хода («Размышляет…») — внутри карточки */
+  hint?: string | null;
+  /** Эффект стекла на карточке (тумблер в «Темах») */
+  glassEffect?: boolean;
+  isStreaming: boolean;
+  smooth: boolean;
+  caret: boolean;
+}) {
+  // Плавная печать: показанный текст отстаёт от реального и догоняет
+  // его rAF-циклом с ускорением (чем больше отставание, тем быстрее),
+  // поэтому поток выглядит непрерывным, а не рваными пачками
+  const [shownLen, setShownLen] = useState(
+    isStreaming ? 0 : message.content.length,
+  );
+  useEffect(() => {
+    const target = message.content.length;
+    if (!isStreaming || !smooth) {
+      setShownLen(target);
+      return;
+    }
+    let raf = 0;
+    let last = 0;
+    const tick = (now: number) => {
+      if (now - last >= 33) {
+        // ~30 кадров в секунду достаточно для плавности
+        last = now;
+        setShownLen((prev) => {
+          const backlog = target - prev;
+          if (backlog <= 0) return prev;
+          return prev + Math.max(2, Math.ceil(backlog / 6));
+        });
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [isStreaming, smooth, message.content.length]);
+
+  const displayContent =
+    smooth && isStreaming
+      ? message.content.slice(0, shownLen)
+      : message.content;
+  const { lang, t } = useLang();
+  const [openThought, setOpenThought] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
+  const [phaseIdx, setPhaseIdx] = useState(0);
+  const phases = thinkingPhases(lang);
+
+  // Цикл фаз активности, пока модель стримит
+  useEffect(() => {
+    if (!isStreaming) return;
+    const t = window.setInterval(
+      () => setPhaseIdx((p) => (p + 1) % phases.length),
+      2500,
+    );
+    return () => window.clearInterval(t);
+  }, [isStreaming, phases.length]);
+
+  const preview =
+    message.content.replace(/[#*`>\n]+/g, " ").trim().slice(0, 70) ||
+    (message.thought ? t("card.thinking") : t("card.answer"));
+
+  if (collapsed) {
+    return (
+      <button
+        data-mid={mid}
+        onClick={() => setCollapsed(false)}
+        title={t("card.expand")}
+        className="anim-fade-up mr-auto flex w-fit max-w-[85%] items-center gap-2 rounded-lg border border-halo-line/70 bg-halo-surface/50 px-3 py-1.5 text-xs text-halo-muted transition-all duration-150 hover:border-halo-line hover:text-halo-text"
+      >
+        <PlusIcon />
+        <span className="truncate">{preview}</span>
+      </button>
+    );
+  }
+
+  return (
+    <div
+      data-mid={mid}
+      className={`anim-fade-up group relative mr-auto w-fit max-w-[85%] rounded-xl border border-halo-line/70 px-4 py-3 shadow-sm ${
+        glassEffect ? "glass-pane bg-halo-surface/40" : "bg-halo-surface/70"
+      }`}
+    >
+      <CollapseButton onClick={() => setCollapsed(true)} />
+
+      <div className="mb-1 flex items-center gap-2.5 pr-6">
+        <span className="flex items-center gap-1.5">
+          <ProviderIcon modelId={model} size={16} />
+          <span className="max-w-44 truncate text-[11px] font-semibold text-halo-text/90">
+            {shortModelName(model)}
+          </span>
+        </span>
+        {message.workedMs != null && (
+          <span className="text-[11px] text-halo-muted/70">
+            Worked for {(message.workedMs / 1000).toFixed(1).replace(".", ",")}{" "}
+            {t("chat.workedUnit")}
+          </span>
+        )}
+        {isStreaming && (
+          <span className="ml-auto flex items-center gap-1.5 text-[10px] text-halo-accent/90">
+            <span className="typing-dot size-1 rounded-full bg-halo-accent" />
+            {phases[phaseIdx]}…
+          </span>
+        )}
+      </div>
+
+      {/* Живой статус хода: агенты думают/исполняют инструменты — показываем внутри */}
+      {hint && !isStreaming && (
+        <div className="mb-1.5 flex items-center gap-1.5 text-[11px] text-halo-muted">
+          <span className="typing-dot size-1 rounded-full bg-halo-accent" />
+          {hint}
+        </div>
+      )}
+
+      {message.thought && (
+        <div className="mb-1.5">
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setOpenThought((v) => !v)}
+              className="flex items-center gap-1 text-[11px] font-medium text-halo-muted transition-colors hover:text-halo-text"
+            >
+              <ChevronDownIcon
+                className={openThought ? "" : "-rotate-90"}
+              />
+              Thought
+            </button>
+            {isStreaming && (
+              <span className="flex items-center gap-1 text-[10px] text-halo-muted/70">
+                <span className="typing-dot size-1 rounded-full bg-halo-muted" />
+                {phases[phaseIdx]}
+              </span>
+            )}
+          </div>
+          {openThought && (
+            <div className="anim-fade-up mt-1.5 whitespace-pre-wrap rounded-lg border border-halo-line/60 bg-halo-raised/40 px-3 py-2 text-xs italic leading-relaxed text-halo-muted">
+              {message.thought}
+            </div>
+          )}
+        </div>
+      )}
+
+      {message.toolCalls?.map((tc) => (
+        <div
+          key={tc.id}
+          className="mb-1 flex w-fit items-center gap-1.5 rounded-md border border-sky-400/25 bg-sky-400/5 px-2 py-1"
+        >
+          <span className="text-sky-400">
+            {tc.name === "subagent_run" ? <SubagentIcon /> : <ToolIcon />}
+          </span>
+          <span className="font-mono text-[11px] text-halo-text">
+            {tc.name}
+          </span>
+          <span className="max-w-64 truncate font-mono text-[10px] text-halo-muted">
+            {summarizeArguments(tc.name, tc.arguments)}
+          </span>
+        </div>
+      ))}
+
+      {/* Результаты инструментов этого шага — внутри ответа, отдельными
+          сворачиваемыми карточками (при клике по заголовку раскрываются) */}
+      {results?.map((r) => (
+        <ToolStepCard
+          key={r.id}
+          mid={r.id}
+          call={message.toolCalls?.find((tc) => tc.id === r.id)}
+          content={r.content}
+        />
+      ))}
+
+      <div className="markdown text-sm leading-relaxed text-halo-text">
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm]}
+          rehypePlugins={[rehypeHighlight]}
+        >
+          {displayContent}
+        </ReactMarkdown>
+        {caret && isStreaming && (
+          <span className="animate-pulse align-baseline text-halo-accent">▍</span>
+        )}
+      </div>
+
+      {message.error && (
+        <ErrorNote title={message.error.title} raw={message.error.raw} />
+      )}
+
+      {message.usage && (
+        <div className="mt-2 flex items-center gap-3 border-t border-halo-line/50 pt-2 text-[10px] text-halo-muted/70">
+          <span title={t("tokens.up")}>
+            ↑ {message.usage.prompt.toLocaleString("ru-RU")}
+          </span>
+          <span title={t("tokens.down")}>
+            ↓ {message.usage.completion.toLocaleString("ru-RU")}
+          </span>
+          <span title={t("tokens.total")}>
+            Σ {message.usage.total.toLocaleString("ru-RU")}
+          </span>
+        </div>
+      )}
+
+      {/* Дисклеймер: ответ сгенерирован моделью */}
+      {message.role === "assistant" && message.content.trim() !== "" && (
+        <p className="mt-1.5 text-[10px] italic text-halo-muted/50">
+          {t("chat.aiDisclaimer")}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** Ошибка запроса: короткий человекочитаемый заголовок, сырое тело — по клику */
