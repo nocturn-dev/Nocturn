@@ -493,6 +493,11 @@ impl SseAccumulator {
     }
 }
 
+/// Потолок tool-вызовов на один ответ: больше легитимные провайдеры не шлют.
+/// FIX: индекс приходит от провайдера, и цикл добивания вектора ниже при
+/// кривом index (например 2^40) занимал всю память — мусорные индексы пропускаем.
+const MAX_TOOL_CALLS: usize = 128;
+
 impl SseAccumulator {
     /// Обрабатывает одну data-строку (без префикса "data:"), возвращает события
     pub fn feed(&mut self, data: &str) -> Vec<FeedEvent> {
@@ -544,6 +549,11 @@ impl SseAccumulator {
             self.saw_tool_call = true;
             for call in calls {
                 let index = call.get("index").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+                // FIX [OOM]: index ничем не ограничен со стороны провайдера —
+                // добивание вектора до гигантского индекса = исчерпание памяти
+                if index >= MAX_TOOL_CALLS {
+                    continue;
+                }
                 // Добиваем вектор до нужного индекса
                 while self.tool_calls.len() <= index {
                     self.tool_calls.push(StreamToolCall { index: self.tool_calls.len(), ..Default::default() });

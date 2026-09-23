@@ -135,8 +135,14 @@ export function AssistantCard({
         </span>
         {message.workedMs != null && (
           <span className="text-[11px] text-halo-muted/70">
-            Worked for {(message.workedMs / 1000).toFixed(1).replace(".", ",")}{" "}
-            {t("chat.workedUnit")}
+            {/* FIX: «Worked for» было непереведённым English, а десятичная
+                запятая форсилась для всех локалей; ключ chat.worked уже
+                существовал во всех четырёх словарях — используем его */}
+            {t("chat.worked", {
+              s: (message.workedMs / 1000)
+                .toFixed(1)
+                .replace(".", lang === "ru" ? "," : "."),
+            })}
           </span>
         )}
         {isStreaming && (
@@ -165,7 +171,8 @@ export function AssistantCard({
               <ChevronDownIcon
                 className={openThought ? "" : "-rotate-90"}
               />
-              Thought
+              {/* FIX: «Thought» было захардкожено для всех локалей */}
+              {t("chat.thought")}
             </button>
             {isStreaming && (
               <span className="flex items-center gap-1 text-[10px] text-halo-muted/70">

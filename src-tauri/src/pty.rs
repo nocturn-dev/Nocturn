@@ -8,23 +8,37 @@ use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::sync::{Arc, Mutex};
 
-/// Ручки живой PTY-сессии
+/// Ручки живой PTY-сессии.
+/// FIX [дедлок]: child вынесен в ОТДЕЛЬНЫЙ мьютекс от writer/master. Раньше
+/// pty_write держал общий мьютекс сессии на блокирующем write_all (шелл не
+/// читает пайп — write стоит вечно), и pty_kill/kill_all ждали тот же лок —
+/// зависший процесс было невозможно убить.
 pub struct PtySession {
-    pub writer: Box<dyn Write + Send>,
-    pub master: Box<dyn MasterPty + Send>,
-    pub child: Box<dyn Child + Send + Sync>,
+    /// writer + master: сериализуются одним локом (запись и resize)
+    pub io: Mutex<PtyIo>,
+    /// Процесс шелла — убивается без ожидания io-лока
+    pub child: Mutex<Box<dyn Child + Send + Sync>>,
 }
 
-/// Реестр сессий: id → сессия (по образцу AbortRegistry)
-pub struct PtyRegistry(pub Mutex<HashMap<String, Arc<Mutex<PtySession>>>>);
+/// Писатель и master-PTY одной сессии
+pub struct PtyIo {
+    pub writer: Box<dyn Write + Send>,
+    pub master: Box<dyn MasterPty + Send>,
+}
+
+/// Реестр сессий: id → сессия (по образцу AbortRegistry).
+/// Сессия — Arc<PtySession>: блокировки внутри PtySession (io/child),
+/// внешний мьютекс не нужен и не должен участвовать в дедлок-сценариях.
+pub struct PtyRegistry(pub Mutex<HashMap<String, Arc<PtySession>>>);
 
 impl PtyRegistry {
     /// Гасим все сессии при выходе приложения — иначе возможен осиротевший PowerShell
     pub fn kill_all(&self) {
         let map = self.0.lock().unwrap_or_else(|p| p.into_inner());
         for (_, s) in map.iter() {
-            if let Ok(mut s) = s.lock() {
-                let _ = s.child.kill();
+            // FIX: убиваем через отдельный child-лок — без ожидания io
+            if let Ok(mut c) = s.child.lock() {
+                let _ = c.kill();
             }
         }
     }
@@ -82,7 +96,7 @@ pub fn spawn_pty(
     rows: u16,
     on_output: impl Fn(String) + Send + 'static,
     on_exit: impl Fn() + Send + 'static,
-) -> Result<Arc<Mutex<PtySession>>, String> {
+) -> Result<Arc<PtySession>, String> {
     let pair = native_pty_system()
         .openpty(PtySize {
             rows,
@@ -149,11 +163,13 @@ pub fn spawn_pty(
         on_exit();
     });
 
-    Ok(Arc::new(Mutex::new(PtySession {
-        writer,
-        master: pair.master,
-        child,
-    })))
+    Ok(Arc::new(PtySession {
+        io: Mutex::new(PtyIo {
+            writer,
+            master: pair.master,
+        }),
+        child: Mutex::new(child),
+    }))
 }
 
 #[tauri::command(async)]
@@ -204,8 +220,9 @@ pub async fn pty_create(
         // оставить живой PowerShell-процесс и поток чтения; семантика
         // «уже существует — ок» сохраняется.
         drop(reg);
-        if let Ok(mut s) = session.lock() {
-            let _ = s.child.kill();
+        // FIX: отдельный child-лок — kill больше не соревнуется с io
+        if let Ok(mut c) = session.child.lock() {
+            let _ = c.kill();
         }
         return Ok(());
     }
@@ -233,12 +250,13 @@ pub async fn pty_write(
         .cloned()
         .ok_or_else(|| format!("no pty session: {id}"))?;
     // write_all блокируется, если зависший шелл не читает пайп, —
-    // держим его вне потока UI
+    // держим его вне потока UI. Лочим только io: kill остаётся доступным
+    // (child в отдельном мьютексе), даже пока write стоит навсегда.
     tauri::async_runtime::spawn_blocking(move || {
-        let mut s = session.lock().map_err(|e| e.to_string())?;
-        s.writer
+        let mut io = session.io.lock().map_err(|e| e.to_string())?;
+        io.writer
             .write_all(data.as_bytes())
-            .and_then(|_| s.writer.flush())
+            .and_then(|_| io.writer.flush())
             .map_err(|e| format!("pty write failed: {e}"))
     })
     .await
@@ -260,8 +278,8 @@ pub async fn pty_resize(
         .cloned()
         .ok_or_else(|| format!("no pty session: {id}"))?;
     tauri::async_runtime::spawn_blocking(move || {
-        let s = session.lock().map_err(|e| e.to_string())?;
-        s.master
+        let io = session.io.lock().map_err(|e| e.to_string())?;
+        io.master
             .resize(PtySize {
                 rows: rows.max(5).min(200),
                 cols: cols.max(20).min(500),
@@ -279,8 +297,10 @@ pub async fn pty_kill(state: tauri::State<'_, PtyRegistry>, id: String) -> Resul
     let session = state.0.lock().map_err(|e| e.to_string())?.remove(&id);
     if let Some(s) = session {
         tauri::async_runtime::spawn_blocking(move || {
-            if let Ok(mut s) = s.lock() {
-                let _ = s.child.kill();
+            // FIX: отдельный child-лок — kill срабатывает, даже если
+            // pty_write застрял в write_all на io-локе
+            if let Ok(mut c) = s.child.lock() {
+                let _ = c.kill();
             }
         })
         .await
@@ -304,9 +324,9 @@ mod tests {
         // Даём PowerShell подняться и присылаем команду
         std::thread::sleep(Duration::from_millis(1500));
         {
-            let mut s = session.lock().unwrap();
-            s.writer.write_all(b"echo haloui-pty\r\n").unwrap();
-            s.writer.flush().unwrap();
+            let mut io = session.io.lock().unwrap();
+            io.writer.write_all(b"echo haloui-pty\r\n").unwrap();
+            io.writer.flush().unwrap();
         }
 
         // Собираем вывод до появления эха. Важно: PSReadLine на старте шлёт
@@ -327,9 +347,9 @@ mod tests {
             if !responded {
                 if let Some(pos) = acc.find("\u{1b}[6n") {
                     responded = true;
-                    let mut s = session.lock().unwrap();
-                    s.writer.write_all(b"\x1b[1;1R").unwrap();
-                    s.writer.flush().unwrap();
+                    let mut io = session.io.lock().unwrap();
+                    io.writer.write_all(b"\x1b[1;1R").unwrap();
+                    io.writer.flush().unwrap();
                     acc.replace_range(pos..pos + 4, "");
                 }
             }
@@ -339,6 +359,6 @@ mod tests {
         }
         assert!(acc.contains("haloui-pty"), "got: {acc:?}");
 
-        session.lock().unwrap().child.kill().ok();
+        session.child.lock().unwrap().kill().ok();
     }
 }

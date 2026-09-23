@@ -242,7 +242,17 @@ export function parseSubagentsConfig(raw: Record<string, unknown>): SubagentsCon
   const roles = Array.isArray(raw.roles)
     ? (raw.roles as SubagentRole[]).filter(
         (r) => r && typeof r.id === "string" && typeof r.systemPrompt === "string",
-      )
+      ).map((r) => ({
+        ...r,
+        // FIX: maxSteps приходит из JSON, и тип «number» здесь лживый —
+        // сохранённая роль без поля давала `step < undefined` → false на первой
+        // итерации: субагент возвращал «reached its step limit», не сделав
+        // ни одного вызова модели. Значения <1 и NaN отбрасываем, дефолт 8.
+        maxSteps:
+          typeof r.maxSteps === "number" && r.maxSteps >= 1
+            ? Math.floor(r.maxSteps)
+            : DEFAULT_SUBAGENTS_CONFIG.roles.find((d) => d.id === r.id)?.maxSteps ?? 8,
+      }))
     : [];
   return {
     enabled: raw.enabled !== false,

@@ -426,14 +426,20 @@ fn fs_read(path: &Path) -> Result<String, String> {
 const FS_WRITE_DIFF_LIMIT: u64 = 512 * 1024;
 
 fn fs_write(path: &Path, content: &str) -> Result<String, String> {
-    // Захватываем старое содержимое до перезаписи — для diff «до/после» в UI
-    let before: Option<String> = fs::read(path).ok().map(|data| {
-        if data.len() as u64 > FS_WRITE_DIFF_LIMIT {
-            // Слишком большой для диффа — отметим усечение
-            format!("[TRUNCATED: {} bytes]", data.len())
-        } else {
-            String::from_utf8_lossy(&data).to_string()
+    // FIX [perf]: раньше fs::read тянул в память ВЕСЬ файл (хоть гигабайт),
+    // чтобы тут же выбросить его при превышении лимита. Размер берём из
+    // metadata, содержимое читаем только когда оно влезает в diff.
+    let before: Option<String> = fs::metadata(path).ok().and_then(|meta| {
+        if !meta.is_file() {
+            return None;
         }
+        if meta.len() > FS_WRITE_DIFF_LIMIT {
+            // Слишком большой для диффа — отметим усечение, не читая файл
+            return Some(format!("[TRUNCATED: {} bytes]", meta.len()));
+        }
+        fs::read(path)
+            .ok()
+            .map(|data| String::from_utf8_lossy(&data).to_string())
     });
     let existed = before.is_some();
 

@@ -9,19 +9,24 @@ export function ToolStepCard({
   mid,
   call,
   content,
+  status,
 }: {
   mid: string;
   /** Вызов, к которому относится результат (старые сообщения — без него) */
   call?: ToolCallInfo;
   content: string;
+  /** Машиный статус результата; старые сообщения — без поля */
+  status?: "denied" | "error";
 }) {
   const { t } = useLang();
   const [open, setOpen] = useState(false);
   const name = call?.name ?? "";
 
-  // Статус шага: отказ пользователя, ошибка инструмента, ненулевой exit-код
-  const denied = content === t("agent.denied");
-  const toolError = content.startsWith("tool error:");
+  // Статус шага: отказ пользователя, ошибка инструмента, ненулевой exit-код.
+  // FIX: "denied" берётся из машинного поля Message.status; сравнение с
+  // локализованной строкой оставлено как фолбэк для старых сессий
+  const denied = status === "denied" || content === t("agent.denied");
+  const toolError = status === "error" || content.startsWith("tool error:");
   let exitCode: number | null = null;
   if (name === "shell_run") {
     const m = content.match(/exit code: (-?\d+)/);
@@ -48,7 +53,9 @@ export function ToolStepCard({
       ? "text-emerald-400"
       : "text-halo-muted";
 
-  const status = denied
+  // FIX: локальная метка статуса переименована в statusLabel, чтобы не
+  // перекрывать машинный пропс status
+  const statusLabel = denied
     ? t("agent.denied")
     : toolError
       ? t("agent.errorResult")
@@ -84,7 +91,7 @@ export function ToolStepCard({
             {summary}
           </span>
         )}
-        <span className={`shrink-0 text-[10px] ${statusColor}`}>{status}</span>
+        <span className={`shrink-0 text-[10px] ${statusColor}`}>{statusLabel}</span>
         <ChevronDownIcon className={open ? "" : "-rotate-90"} />
       </button>
 

@@ -207,17 +207,23 @@ export default function TerminalPanel({
 
   useEffect(() => {
     const msgs = session?.messages ?? [];
+    // FIX [perf]: один Map вместо msgs.flatMap(...).find(...) на каждую
+    // tool-карточку проекции
+    const callById = new Map<string, ToolCallInfo>();
+    for (const m of msgs) {
+      for (const tc of m.toolCalls ?? []) callById.set(tc.id, tc);
+    }
 
     const writeToolBlock = (m: Message, st: LiveState) => {
       st.body = true;
       const name =
         m.toolName ??
-        msgs
-          .flatMap((x) => x.toolCalls ?? [])
-          .find((tc) => tc.id === m.toolCallId)?.name ??
+        (m.toolCallId ? callById.get(m.toolCallId)?.name : undefined) ??
         "?";
-      const denied = m.content === t("agent.denied");
-      const toolError = m.content.startsWith("tool error:");
+      // FIX: "denied" — из машинного поля Message.status; сравнение с
+      // локализованной строкой — фолбэк для старых сессий
+      const denied = m.status === "denied" || m.content === t("agent.denied");
+      const toolError = m.status === "error" || m.content.startsWith("tool error:");
       const parsed =
         name === "fs_write" && !denied && !toolError
           ? parseWriteResult(m.content)
@@ -259,9 +265,7 @@ export default function TerminalPanel({
       const failed = exit !== null && exit !== 0;
       const statusColor = failed ? C.red : C.green;
       const args =
-        msgs
-          .flatMap((x) => x.toolCalls ?? [])
-          .find((tc) => tc.id === m.toolCallId)?.arguments ?? "";
+        (m.toolCallId ? callById.get(m.toolCallId)?.arguments : undefined) ?? "";
       write(
         `  ${C.cyan}⎿ ${name}${C.reset} ${C.dim}${esc(summarizeArguments(name, args))}${C.reset} ${statusColor}${exit !== null ? `exit ${exit}` : ""}${C.reset}`,
       );
@@ -344,8 +348,17 @@ export default function TerminalPanel({
   }, [session, streamingMsgId, t]);
 
   // ---------- Подтверждение в терминале ----------
+  // FIX: id вызова, промпт которого напечатан. Защита от рассинхрона
+  // «видимый промпт ↔ отвечаемый вызов»: раньше эффект печатал только
+  // один промпт на ожидание (по awaiting-флагу), и новое подтверждение,
+  // пришедшее до решения по старому, осталось бы невидимым, хотя y/a/n
+  // уже отвечали бы на него.
+  const confirmedCallIdRef = useRef<string | null>(null);
   useEffect(() => {
-    if (pendingConfirm && !awaitingRef.current) {
+    const callId = pendingConfirm?.call.id ?? null;
+    if (pendingConfirm && callId !== confirmedCallIdRef.current) {
+      // Новое (или первое) подтверждение — печатаем промпт
+      confirmedCallIdRef.current = callId;
       awaitingRef.current = true;
       setAwaiting(true);
       // Подтверждение относится к агенту — показываем его режим
@@ -359,6 +372,7 @@ export default function TerminalPanel({
       );
     } else if (!pendingConfirm && awaitingRef.current) {
       // Решение пришло из чат-карточки или отменено — закрываем строку
+      confirmedCallIdRef.current = null;
       awaitingRef.current = false;
       setAwaiting(false);
       write("\r\n");

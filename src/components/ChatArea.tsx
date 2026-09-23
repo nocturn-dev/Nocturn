@@ -908,6 +908,14 @@ export default function ChatArea({
                 В конце хода — сводка изменённых файлов */}
             {(() => {
               const nodes: ReactNode[] = [];
+              // FIX [perf]: один Map всех вызовов инструментов вместо
+              // messages.flatMap(...).find(...) на каждую tool-карточку —
+              // раньше это был полный проход по всей истории на каждую
+              // карточку на каждый рендер (т.е. на каждый чанк стрима)
+              const callById = new Map<string, ToolCallInfo>();
+              for (const m of messages) {
+                for (const tc of m.toolCalls ?? []) callById.set(tc.id, tc);
+              }
               // Разбивка на ходы
               const turns: { user: Message | null; items: Message[] }[] = [];
               for (const m of messages) {
@@ -1085,9 +1093,9 @@ showReasoning={showReasoning}
                           <SubagentCard
                             key={m.id}
                             mid={m.id}
-                            call={messages
-                              .flatMap((x) => x.toolCalls ?? [])
-                              .find((tc) => tc.id === m.toolCallId)}
+                            call={
+                              m.toolCallId ? callById.get(m.toolCallId) : undefined
+                            }
                             content={m.content}
                             run={subRuns?.[m.toolCallId ?? ""]}
                           />
@@ -1096,10 +1104,11 @@ showReasoning={showReasoning}
                         <ToolStepCard
                           key={m.id}
                           mid={m.id}
-                          call={messages
-                            .flatMap((x) => x.toolCalls ?? [])
-                            .find((tc) => tc.id === m.toolCallId)}
+                          call={
+                            m.toolCallId ? callById.get(m.toolCallId) : undefined
+                          }
                           content={m.content}
+                          status={m.status}
                         />
                         )
                       ) : m.role === "assistant" ? (

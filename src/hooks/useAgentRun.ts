@@ -14,7 +14,11 @@ import {
   runTool,
   type ApiSettings,
   type ChatMsgParam,
+  type ChatUsage,
 } from "../api";
+// FIX: trimContextWindow заменяет голый .slice(-30), который разрывал
+// пары «assistant tool_calls ↔ tool-результаты» на границе окна (→ 400 от провайдера)
+import { trimContextWindow } from "../agent/history";
 import { notifyTaskDone, type NotifyPrefs } from "../notify";
 import { useLang } from "../locales";
 import { dayKeyLocal } from "../time";
@@ -145,6 +149,17 @@ export function useAgentRun(deps: AgentRunDeps) {
           received = true;
           opts.onThought(th);
         },
+        // FIX: usage означает «провайдер уже насчитал токены за попытку» —
+        // ретрай после него двойно считал токены в Hard-Limit и журнале
+        onUsage: (u: ChatUsage) => {
+          received = true;
+          opts.onUsage(u);
+        },
+        // FIX: tool_calls тоже часть частично-оплаченного ответа — не ретраим
+        onToolCalls: (c: ToolCallInfo[]) => {
+          received = true;
+          opts.onToolCalls?.(c);
+        },
       };
       for (let attempt = 0; ; attempt++) {
         try {
@@ -185,19 +200,32 @@ export function useAgentRun(deps: AgentRunDeps) {
               : code !== null && code >= 500
                 ? t("err.server", { code })
                 : t("err.generic");
-      setSessions((prev) =>
-        prev.map((s) => ({
-          ...s,
-          messages: s.messages.map((m) =>
-            m.id === assistantId ? { ...m, error: { title, raw } } : m,
-          ),
-        })),
-      );
+      setSessions((prev) => {
+        // FIX: ищем сессию-владельца один раз и клонируем только её,
+        // вместо глубокой копии ВСЕХ сессий и всех их сообщений
+        const owner = prev.find((s) => s.messages.some((m) => m.id === assistantId));
+        if (!owner) return prev;
+        return prev.map((s) =>
+          s.id === owner.id
+            ? {
+                ...s,
+                messages: s.messages.map((m) =>
+                  m.id === assistantId ? { ...m, error: { title, raw } } : m,
+                ),
+              }
+            : s,
+        );
+      });
     },
     [t],
   );
 
   const [streamingId, setStreamingId] = useState<string | null>(null);
+  // FIX [re-entrancy]: реф активного прогона (requestId). state streamingId
+  // обновляется асинхронно — автоматизации и очередь нуждаются в синхронном
+  // «занят ли движок прямо сейчас», иначе второй прогон перезаписывает
+  // streamingId первого и finalize/Stop калечат чужой прогон.
+  const activeRunRef = useRef<string | null>(null);
   // Ожидающие взаимодействия агента (подтверждение инструмента, вопрос ask_user)
   const [interactions, setInteractions] = useState<Interaction[]>([]);
   const interactionsRef = useRef(new InteractionRegistry());
@@ -416,6 +444,7 @@ export function useAgentRun(deps: AgentRunDeps) {
     // requestId → id ассистентского сообщения выставляется при его создании
     // (в агентном режиме — на каждый шаг цикла)
     setStreamingId(requestId);
+    activeRunRef.current = requestId; // FIX [re-entrancy]: движок занят
     setTyping(true);
     setActivity(t("activity.thinking"));
     const startedAt = Date.now();
@@ -448,6 +477,7 @@ export function useAgentRun(deps: AgentRunDeps) {
       setTyping(false);
       setActivity(null);
       setStreamingId(null);
+      activeRunRef.current = null; // FIX [re-entrancy]: движок свободен
       streamingRef.current.delete(requestId);
       abortedRef.current.delete(requestId);
       // Прогон завершён — метка последней активности (для авто-архива)
@@ -509,15 +539,21 @@ export function useAgentRun(deps: AgentRunDeps) {
 
     const markWorked = (assistantId: string) => {
       const worked = Date.now() - startedAt;
+      // FIX: сужаем обновление по целевой сессии — остальные сессии
+      // переиспользуются по ссылке, а не клонируются целиком
       setSessions((prev) =>
-        prev.map((s) => ({
-          ...s,
-          messages: s.messages.map((m) =>
-            m.id === assistantId
-              ? { ...m, workedMs: m.workedMs ?? worked }
-              : m,
-          ),
-        })),
+        prev.map((s) =>
+          s.id === targetId
+            ? {
+                ...s,
+                messages: s.messages.map((m) =>
+                  m.id === assistantId
+                    ? { ...m, workedMs: m.workedMs ?? worked }
+                    : m,
+                ),
+              }
+            : s,
+        ),
       );
     };
 
@@ -527,28 +563,40 @@ export function useAgentRun(deps: AgentRunDeps) {
       // Текст уже печатается в карточке — статус-бабл скрываем;
       // идёт поток размышлений — показываем «Размышляет…»
       setActivity(thought ? t("activity.thinking") : null);
+      // FIX [CRITICAL]: раньше map шёл по ВСЕМ сессиям и клонировал каждый
+      // объект и каждый массив сообщений на каждую дельту стрима. Теперь
+      // маппится только целевая сессия: O(сообщения одной сессии) на дельту
+      // вместо O(все сессии × все сообщения), ревансиляция — одной сессии.
       setSessions((prev) =>
-        prev.map((s) => ({
-          ...s,
-          messages: s.messages.map((m) =>
-            m.id === assistantId
-              ? {
-                  ...m,
-                  content: m.content + delta,
-                  thought: thought
-                    ? (m.thought ?? "") + thought
-                    : m.thought,
-                }
-              : m,
-          ),
-        })),
+        prev.map((s) =>
+          s.id === targetId
+            ? {
+                ...s,
+                messages: s.messages.map((m) =>
+                  m.id === assistantId
+                    ? {
+                        ...m,
+                        content: m.content + delta,
+                        thought: thought
+                          ? (m.thought ?? "") + thought
+                          : m.thought,
+                      }
+                    : m,
+                ),
+              }
+            : s,
+        ),
       );
     };
 
     const pushMessage = (msg: Message) => {
+      // FIX: штамп времени создания — статистика привязывает токены к дню
+      // сообщения, а не ко дню создания сессии (многодневные задачи врали)
       setSessions((prev) =>
         prev.map((s) =>
-          s.id === targetId ? { ...s, messages: [...s.messages, msg] } : s,
+          s.id === targetId
+            ? { ...s, messages: [...s.messages, { ...msg, ts: msg.ts ?? Date.now() }] }
+            : s,
         ),
       );
     };
@@ -562,22 +610,26 @@ export function useAgentRun(deps: AgentRunDeps) {
       prev.map((s) => (s.id === targetId ? { ...s, updatedAt: Date.now() } : s)),
     );
 
-    // Контекст: системный промт + последние 30 сообщений + новое
+    // Контекст: системный промт + последние 30 сообщений + новое.
+    // FIX: обрезка через trimContextWindow — голый .slice(-30) мог отрезать
+    // assistant с tool_calls от его tool-ответов → постоянные 400 у провайдера
     const current =
       currentOverride ?? sessionsRef.current.find((s) => s.id === targetId);
     const history: ChatMsgParam[] = [
       ...(current?.systemPrompt
         ? [{ role: "system", content: current.systemPrompt }]
         : []),
-      ...(current?.messages ?? [])
-        .filter(
-          (m) =>
-            (m.content !== "" || m.thought || m.attachments?.length || m.toolCalls) &&
-            // Служебные уведомления (смена модели) в запрос не попадают
-            !m.content.startsWith("[i]"),
-        )
-        .slice(-30)
-        .map(toApiMessage),
+      ...trimContextWindow(
+        (current?.messages ?? [])
+          .filter(
+            (m) =>
+              (m.content !== "" || m.thought || m.attachments?.length || m.toolCalls) &&
+              // Служебные уведомления (смена модели) в запрос не попадают
+              !m.content.startsWith("[i]"),
+          )
+          .map(toApiMessage),
+        30,
+      ),
       { role: "user", content: toApiContent(userMsg) },
     ];
 
@@ -678,13 +730,18 @@ export function useAgentRun(deps: AgentRunDeps) {
             usageAcc.prompt += usage.prompt;
             usageAcc.completion += usage.completion;
             checkHardLimit();
+            // FIX: клонируем только целевую сессию, а не все сессии стора
             setSessions((prev) =>
-              prev.map((s) => ({
-                ...s,
-                messages: s.messages.map((m) =>
-                  m.id === assistantId ? { ...m, usage } : m,
-                ),
-              })),
+              prev.map((s) =>
+                s.id === targetId
+                  ? {
+                      ...s,
+                      messages: s.messages.map((m) =>
+                        m.id === assistantId ? { ...m, usage } : m,
+                      ),
+                    }
+                  : s,
+              ),
             );
           },
         });
@@ -766,13 +823,18 @@ export function useAgentRun(deps: AgentRunDeps) {
             usageAcc.prompt += usage.prompt;
             usageAcc.completion += usage.completion;
             checkHardLimit();
+            // FIX: клонируем только целевую сессию, а не все сессии стора
             setSessions((prev) =>
-              prev.map((s) => ({
-                ...s,
-                messages: s.messages.map((m) =>
-                  m.id === assistantId ? { ...m, usage } : m,
-                ),
-              })),
+              prev.map((s) =>
+                s.id === targetId
+                  ? {
+                      ...s,
+                      messages: s.messages.map((m) =>
+                        m.id === assistantId ? { ...m, usage } : m,
+                      ),
+                    }
+                  : s,
+              ),
             );
           },
           onToolCalls: (calls) => {
@@ -785,13 +847,18 @@ export function useAgentRun(deps: AgentRunDeps) {
                     : `${calls[0].name} +${calls.length - 1}`,
               }),
             );
+            // FIX: клонируем только целевую сессию, а не все сессии стора
             setSessions((prev) =>
-              prev.map((s) => ({
-                ...s,
-                messages: s.messages.map((m) =>
-                  m.id === assistantId ? { ...m, toolCalls: calls } : m,
-                ),
-              })),
+              prev.map((s) =>
+                s.id === targetId
+                  ? {
+                      ...s,
+                      messages: s.messages.map((m) =>
+                        m.id === assistantId ? { ...m, toolCalls: calls } : m,
+                      ),
+                    }
+                  : s,
+              ),
             );
           },
         });
@@ -1070,6 +1137,9 @@ export function useAgentRun(deps: AgentRunDeps) {
       }
       const runOneSubagent = async (call: ToolCallInfo): Promise<void> => {
         let subContent: string;
+        // FIX: машиный статус tool-результата (см. Message.status) — рендер
+        // больше не распознаёт отказ сравнением с локализованной строкой
+        let subStatus: Message["status"];
         try {
           const parsed = JSON.parse(call.arguments) as {
             role?: string;
@@ -1082,8 +1152,30 @@ export function useAgentRun(deps: AgentRunDeps) {
           const task = (parsed.task ?? "").trim();
           if (!task) {
             subContent = "error: empty task";
+          } else if (permMode === "plan") {
+            // FIX [SECURITY]: субагент исполнялся до permission-цикла — в
+            // plan-режиме его fs/shell/mcp-инструменты работали мимо прав
+            // задачи. План не трогает систему: запуск субагента блокируется
+            // целиком, как mutating-вызов в основном цикле.
+            subContent = t("agent.planBlocked");
+            subStatus = "denied";
+            setSubRuns((prev) => ({
+              ...prev,
+              [call.id]: {
+                roleId: role.id,
+                roleName: role.name,
+                task: task.split("\n")[0],
+                thought: "",
+                tools: [],
+                report: subContent,
+              },
+            }));
           } else if (
-            !subConfigRef.current.autonomous &&
+            // FIX [SECURITY]: подтверждение запуска привязано и к режиму прав
+            // задачи, а не только к тумблеру autonomous: в ask/edit запуск
+            // субагента — mutating-действие (его инструменты исполняются без
+            // поинструментных подтверждений фронтенда).
+            (permMode !== "full" || !subConfigRef.current.autonomous) &&
             (await askConfirm(call)) === "deny"
           ) {
             // Автономность выключена: запуск субагента требует подтверждения
@@ -1159,6 +1251,7 @@ ${report}`;
           content: subContent,
           toolCallId: call.id,
           toolName: call.name,
+          status: subStatus, // FIX: "denied" доезжает до рендера машинно
         });
         history.push({
           role: "tool",
@@ -1207,10 +1300,15 @@ ${report}`;
           (session?.allowedCommands?.includes(call.arguments) ?? false);
 
         let result: string;
+        // FIX: машиный статус результата — раньше "denied" распознавался на
+        // рендере сравнением контента с локализованной строкой t("agent.denied"),
+        // и смена языка перекрашивала историю инструментов
+        let toolStatus: Message["status"];
         if (permMode === "plan" && mutating) {
           // Режим плана: запись и команды блокируются, модель должна
           // предъявить план, не трогая систему
           result = t("agent.planBlocked");
+          toolStatus = "denied";
         } else if (
           permMode === "full" ||
           (permMode === "edit" && call.name === "fs_write") ||
@@ -1224,6 +1322,7 @@ ${report}`;
           const decision = await askConfirm(call);
           if (decision === "deny") {
             result = t("agent.denied");
+            toolStatus = "denied";
           } else {
             if (decision === "always") {
               setSessions((prev) =>
@@ -1288,6 +1387,7 @@ ${report}`;
           content: toolContent,
           toolCallId: call.id,
           toolName: call.name,
+          status: toolStatus, // FIX: "denied" доезжает до рендера машинно
         };
         pushMessage(toolMsg);
         history.push({
@@ -1339,6 +1439,7 @@ ${report}`;
     }
     streamingRef.current.delete(streamingId);
     setStreamingId(null);
+    activeRunRef.current = null; // FIX [re-entrancy]: движок свободен
     setTyping(false);
   };
 
@@ -1384,6 +1485,7 @@ ${report}`;
     activity,
     streamingId,
     streamingAssistantId,
+    activeRunRef, // FIX [re-entrancy]: наружу для guard'а автоматизаций
     subRuns,
     queuedMsgs,
     setQueuedMsgs,

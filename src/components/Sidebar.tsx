@@ -109,6 +109,9 @@ export default function Sidebar({
     localStorage.setItem("haloui-header-color", hex);
   };
   const [addingProject, setAddingProject] = useState(false);
+  // FIX: инлайн-ввод тега вместо window.prompt — в Tauri WebView prompt
+  // недоступен, и быстрая расстановка тегов молча не работала
+  const [taggingId, setTaggingId] = useState<string | null>(null);
   // Группировка списка задач: плоский / по проектам (запоминается)
   const [groupBy, setGroupBy] = useState<"flat" | "project">(() =>
     localStorage.getItem("haloui-sidebar-group") === "project"
@@ -165,6 +168,19 @@ export default function Sidebar({
           initial={s.title}
           onCommit={(value) => onRenameCommit(s.id, value)}
           onCancel={onRenameCancel}
+        />
+      ) : s.id === taggingId ? (
+        // FIX: тег вводится инлайн в строке списка (как переименование);
+        // allowEmpty — пустой ввод снимает тег
+        <RenameInput
+          initial={s.tag ?? ""}
+          placeholder={t("sidebar.tagPrompt")}
+          allowEmpty
+          onCommit={(value) => {
+            onTagSession(s.id, value || undefined);
+            setTaggingId(null);
+          }}
+          onCancel={() => setTaggingId(null)}
         />
       ) : (
         <button
@@ -229,8 +245,9 @@ export default function Sidebar({
               tabIndex={0}
               onClick={(e) => {
                 e.stopPropagation();
-                const tag = window.prompt(t("sidebar.tagPrompt"), s.tag ?? "");
-                if (tag !== null) onTagSession(s.id, tag.trim() || undefined);
+                // FIX: было window.prompt — в Tauri WebView возвращал null
+                // (недоступен), тег молча не ставился
+                setTaggingId(s.id);
               }}
               title={t("sidebar.tag")}
               className={`rounded p-0.5 transition-colors hover:text-halo-text ${
@@ -1118,11 +1135,14 @@ function RenameInput({
   placeholder,
   onCommit,
   onCancel,
+  allowEmpty,
 }: {
   initial: string;
   placeholder?: string;
   onCommit: (value: string) => void;
   onCancel: () => void;
+  /** Разрешить коммит пустой строки (снятие тега); по умолчанию пустое = отмена */
+  allowEmpty?: boolean;
 }) {
   const [value, setValue] = useState(initial);
   const finished = useRef(false);
@@ -1131,7 +1151,10 @@ function RenameInput({
     if (finished.current) return;
     finished.current = true;
     const trimmed = value.trim();
+    // FIX: ветка allowEmpty — пустой ввод коммитится (тег снимается),
+    // если изначально тег был
     if (trimmed && trimmed !== initial) onCommit(trimmed);
+    else if (allowEmpty && trimmed === "" && initial !== "") onCommit("");
     else onCancel();
   };
 

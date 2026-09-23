@@ -446,7 +446,12 @@ pub fn set_key_encryption(app: tauri::AppHandle, enable: bool) -> Result<(), Str
             let new_key = if enable && !key.is_empty() && !crypto::is_encrypted(&key) {
                 crypto::encrypt(&key)?
             } else if !enable && crypto::is_encrypted(&key) {
-                crypto::decrypt(&key).unwrap_or_default()
+                // FIX: раньше decrypt → None (заблокированное хранилище /
+                // сменившийся пароль) тихо писал на диск ПУСТОЙ ключ — потеря.
+                // Теперь команда падает, файл остаётся нетронутым.
+                crypto::decrypt(&key).ok_or(
+                    "stored API key cannot be decrypted (vault is locked or password changed) — unlock the vault first",
+                )?
             } else {
                 key
             };
@@ -468,7 +473,10 @@ pub fn set_key_encryption(app: tauri::AppHandle, enable: bool) -> Result<(), Str
                     let new_key = if enable && !key.is_empty() && !crypto::is_encrypted(&key) {
                         crypto::encrypt(&key)?
                     } else if !enable && crypto::is_encrypted(&key) {
-                        crypto::decrypt(&key).unwrap_or_default()
+                        // FIX: то же, что и для settings.json — без тихой потери ключа
+                        crypto::decrypt(&key).ok_or(
+                            "stored API key cannot be decrypted (vault is locked or password changed) — unlock the vault first",
+                        )?
                     } else {
                         key
                     };

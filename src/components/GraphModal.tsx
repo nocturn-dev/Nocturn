@@ -242,7 +242,9 @@ export default function GraphModal({ notes, onOpenNote, onClose }: GraphModalPro
       document.removeEventListener("visibilitychange", onVis);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [edges]);
+  }, [edges, layout]); // FIX: layout читался в эффекте (строка выше), но не был в
+  // зависимостях — после переключения tree→force rAF-цикл физики не запускался,
+  // и граф замирал навсегда в позициях дерева
 
   // ---------- Pan / zoom / drag ----------
   const svgRef = useRef<SVGSVGElement>(null);

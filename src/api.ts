@@ -162,6 +162,10 @@ export async function getToolSchemas(): Promise<unknown> {
   if (!inTauri) {
     throw new Error("Agent mode works in the native app (npm run tauri dev)");
   }
+  // FIX: кэш существовал, но никогда не читался (write-only) — каждый агентный
+  // send платил лишний IPC-раундтрип. Читаем до invoke; invalidateToolSchemas
+  // снова обретает смысл.
+  if (cachedSchemas !== null) return cachedSchemas;
   cachedSchemas = await invoke<unknown>("get_tool_schemas");
   return cachedSchemas;
 }
@@ -269,44 +273,46 @@ export async function chatStream(opts: {
     throw new Error("Чат работает в нативном приложении (npm run tauri dev)");
   }
 
-  const offChunk = await listen<{ requestId: string; delta: string }>(
-    "chat-chunk",
-    (e) => {
-      if (e.payload.requestId === opts.requestId) opts.onDelta(e.payload.delta);
-    },
-  );
-  const offThought = await listen<{ requestId: string; thought: string }>(
-    "chat-thought",
-    (e) => {
-      if (e.payload.requestId === opts.requestId) {
-        opts.onThought(e.payload.thought);
-      }
-    },
-  );
-  const offUsage = await listen<{
-    requestId: string;
-    promptTokens: number;
-    completionTokens: number;
-    totalTokens: number;
-  }>("chat-usage", (e) => {
-    if (e.payload.requestId === opts.requestId) {
-      opts.onUsage({
-        prompt: e.payload.promptTokens,
-        completion: e.payload.completionTokens,
-        total: e.payload.totalTokens,
-      });
-    }
-  });
-  const offToolCalls = await listen<{
-    requestId: string;
-    calls: ToolCallInfo[];
-  }>("chat-tool-calls", (e) => {
-    if (e.payload.requestId === opts.requestId) {
-      opts.onToolCalls?.(e.payload.calls);
-    }
-  });
-
+  // FIX [HIGH]: все 4 регистрации теперь внутри try и через Promise.all —
+  // если любая упадёт, finally снимет уже установленные. Раньше упавший
+  // 3-й/4-й listen терял unlisten-функции первых двух: вечная утечка слушателей
+  // на каждый неудавшийся send.
+  const offs: Array<() => void> = [];
   try {
+    offs.push(
+      ...(await Promise.all([
+        listen<{ requestId: string; delta: string }>("chat-chunk", (e) => {
+          if (e.payload.requestId === opts.requestId) opts.onDelta(e.payload.delta);
+        }),
+        listen<{ requestId: string; thought: string }>("chat-thought", (e) => {
+          if (e.payload.requestId === opts.requestId) {
+            opts.onThought(e.payload.thought);
+          }
+        }),
+        listen<{
+          requestId: string;
+          promptTokens: number;
+          completionTokens: number;
+          totalTokens: number;
+        }>("chat-usage", (e) => {
+          if (e.payload.requestId === opts.requestId) {
+            opts.onUsage({
+              prompt: e.payload.promptTokens,
+              completion: e.payload.completionTokens,
+              total: e.payload.totalTokens,
+            });
+          }
+        }),
+        listen<{ requestId: string; calls: ToolCallInfo[] }>(
+          "chat-tool-calls",
+          (e) => {
+            if (e.payload.requestId === opts.requestId) {
+              opts.onToolCalls?.(e.payload.calls);
+            }
+          },
+        ),
+      ])),
+    );
     await invoke("chat_stream", {
       requestId: opts.requestId,
       baseUrl: opts.baseUrl,
@@ -320,10 +326,14 @@ export async function chatStream(opts: {
           : null,
     });
   } finally {
-    offChunk();
-    offThought();
-    offUsage();
-    offToolCalls();
+    // FIX: снимаем только то, что успело установиться; двойной вызов off безопасен
+    for (const off of offs) {
+      try {
+        off();
+      } catch {
+        // уже снят — не падаем
+      }
+    }
   }
 }
 

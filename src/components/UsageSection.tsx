@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Session, UsageEvent } from "../types";
 import { dayKeyLocal } from "../time";
-import { useLang } from "../locales";
+import { useLang, type TFn } from "../locales";
 import { shortModelName } from "./ProviderIcon";
 import { usageColorsLoad, usageColorsSave } from "../api";
 
@@ -22,13 +22,13 @@ function fmtTokens(n: number): string {
   return String(Math.round(n));
 }
 
-/** Длительность: 197 мин → «3 ч 17 м» */
-function fmtDuration(ms: number): string {
+/** Длительность: 197 мин → «3 ч 17 м» (единицы — из словаря, а не хардкод) */
+const fmtDuration = (ms: number, t: TFn): string => {
   if (ms <= 0) return "—";
   const min = Math.round(ms / 60_000);
-  if (min < 60) return `${min} м`;
-  return `${Math.floor(min / 60)} ч ${min % 60} м`;
-}
+  if (min < 60) return t("usage.durationM", { m: min });
+  return t("usage.durationHm", { h: Math.floor(min / 60), m: min % 60 });
+};
 
 const dayKey = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -59,9 +59,14 @@ export default function UsageSection({ sessions }: { sessions: Session[] }) {
     void tick;
     const list: UsageEvent[] = [];
     for (const s of sessions) {
-      const day = dayKeyLocal(new Date(s.createdAt));
+      const sessionDay = dayKeyLocal(new Date(s.createdAt));
       for (const m of s.messages) {
         if (m.role === "assistant" && m.usage) {
+          // FIX: день события — из времени сообщения; раньше все сообщения
+          // сессии приписывались дню создания сессии, и тепловая карта/тренд/
+          // серии врали для многодневных задач. Старые сообщения без ts —
+          // фолбэк на день сессии (прежнее поведение).
+          const day = m.ts ? dayKeyLocal(new Date(m.ts)) : sessionDay;
           list.push({
             day,
             prompt: m.usage.prompt,
@@ -203,9 +208,10 @@ export default function UsageSection({ sessions }: { sessions: Session[] }) {
         {[
           [fmtTokens(data.total), t("usage.total")],
           [fmtTokens(data.peak), t("usage.peak")],
-          [fmtDuration(data.longest), t("usage.longest")],
-          [data.currentStreak > 0 ? `${data.currentStreak} д` : "—", t("usage.streak")],
-          [data.longestStreak > 0 ? `${data.longestStreak} д` : "—", t("usage.longestStreak")],
+          [fmtDuration(data.longest, t), t("usage.longest")],
+          // FIX: «д» было захардкожено для всех четырёх локалей
+          [data.currentStreak > 0 ? t("usage.days", { n: data.currentStreak }) : "—", t("usage.streak")],
+          [data.longestStreak > 0 ? t("usage.days", { n: data.longestStreak }) : "—", t("usage.longestStreak")],
         ].map(([v, label], i) => (
           <div
             key={label}

@@ -714,14 +714,32 @@ export default function App() {
     ]).then(() => setSplashDone(true));
   }, []);
 
-  // Автосохранение истории (с дебаунсом)
+  // Автосохранение истории.
+  // FIX [perf]: раньше трейлинг-дебаунс 400мс перезапускался каждой дельтой
+  // стрима, а потом строкифицировал ВЕСЬ стор (включая base64-вложения) на
+  // главном потоке. Теперь dirty-флаг + периодический сейв: не чаще раза
+  // в 3с независимо от плотности стрима, а окно потери данных ограничено.
+  const sessionsDirtyRef = useRef(false);
   useEffect(() => {
     if (!historyLoadedRef.current) return;
-    const t = window.setTimeout(() => {
-      saveSessions(JSON.stringify(sessions)).catch(() => {});
-    }, 400);
-    return () => window.clearTimeout(t);
+    sessionsDirtyRef.current = true;
   }, [sessions]);
+  useEffect(() => {
+    const flush = () => {
+      if (!sessionsDirtyRef.current) return;
+      sessionsDirtyRef.current = false;
+      void saveSessions(JSON.stringify(sessionsRef.current)).catch(() => {});
+    };
+    const id = window.setInterval(flush, 3000);
+    // Закрытие окна — последний сейв, если есть несохранённое
+    window.addEventListener("beforeunload", flush);
+    return () => {
+      window.clearInterval(id);
+      window.removeEventListener("beforeunload", flush);
+      // Размонтирование (StrictMode/HMR): не теряем накопленное
+      flush();
+    };
+  }, []);
 
   // Автосохранение настроек API: любое изменение (включая смену профиля
   // из чата) попадает на диск без кнопки «Сохранить».
@@ -1077,6 +1095,7 @@ export default function App() {
     activity,
     streamingId,
     streamingAssistantId,
+    activeRunRef,
     subRuns,
     queuedMsgs,
     setQueuedMsgs,
@@ -1172,6 +1191,11 @@ export default function App() {
       const now = Date.now();
       const due = autos.find((a) => isDue(a, now));
       if (!due) return;
+      // FIX [re-entrancy]: раньше тик запускал второй прогон поверх идущего:
+      // streamingId перезаписывался, finalize/Stop гасили чужой стрим.
+      // Занятый движок = тик пропускается; nextRunAt не двигаем, запуск
+      // произойдёт на ближайшем тике после освобождения — промт не теряется.
+      if (activeRunRef.current) return;
       // Без настроенного API запуск бессмыслен — сдвигаем срок, не спамим
       if (
         apiSettingsRef.current.api_key.trim() === "" ||
@@ -1181,10 +1205,6 @@ export default function App() {
         saveAutomations(autos);
         return;
       }
-      due.lastRunAt = now;
-      due.runs = [...(due.runs ?? []), now].slice(-10);
-      due.nextRunAt = nextRunAfter(due, now);
-      saveAutomations(autos);
       const session: Session = {
         id: uid(),
         title: due.name.slice(0, 48),
@@ -1192,7 +1212,13 @@ export default function App() {
         messages: [],
       };
       const send = handleSendRef.current;
+      // FIX: отметку «выполнен» ставим только когда отправка реально возможна —
+      // раньше прогон записывался и переносился ДО проверки send и терялся
       if (!send) return;
+      due.lastRunAt = now;
+      due.runs = [...(due.runs ?? []), now].slice(-10);
+      due.nextRunAt = nextRunAfter(due, now);
+      saveAutomations(autos);
       setSessions((prev) => [session, ...prev]);
       setActiveId(session.id);
       const prompt = due.toVault ? due.prompt + VAULT_REPORT_SUFFIX : due.prompt;
@@ -1553,18 +1579,28 @@ export default function App() {
 
   const handleDuplicate = (id: string) =>
     setSessions((prev) => {
-      const src = prev.find((s) => s.id === id);
+      const idx = prev.findIndex((s) => s.id === id);
+      const src = idx >= 0 ? prev[idx] : undefined;
       if (!src) return prev;
+      // FIX: раньше копия переносила только title/messages/pinned/projectId —
+      // agentMode, permissionMode, systemPrompt, allowedCommands, profileId,
+      // tag и plan молча терялись (дубликат агентной задачи превращался
+      // в обычный чат). Переносим все поля сессии, заменяя идентифицирующие.
+      const { id: _id, createdAt: _createdAt, ...rest } = src;
       const copy: Session = {
+        ...rest,
         id: uid(),
         title: `${src.title} ${t("session.copy")}`,
         createdAt: Date.now(),
+        updatedAt: Date.now(),
+        // Копия всегда живёт в основном списке, даже если оригинал в архиве
+        archived: false,
         messages: src.messages.map((m) => ({ ...m, id: uid() })),
-        pinned: src.pinned,
-        projectId: src.projectId,
       };
       const next = [...prev];
-      next.splice(prev.findIndex((s) => s.id === id) + 1, 0, copy);
+      // FIX: findIndex мог вернуть -1 → вставка в начало списка;
+      // здесь idx гарантированно валиден (проверен выше)
+      next.splice(idx + 1, 0, copy);
       return next;
     });
 

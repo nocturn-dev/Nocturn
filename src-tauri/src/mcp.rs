@@ -139,14 +139,25 @@ impl McpConnection {
         // она попадёт в сообщение об ошибке, если рукопожатие провалится
         let last_err = Arc::clone(&last_stderr);
         std::thread::spawn(move || {
-            for line in BufReader::new(stderr).lines().flatten() {
+            // FIX: flatten() крутится вечно, если итератор постоянно отдаёт Err
+            // (поток битого UTF-8 без '\n'). map_while гасит цикл на первом Err.
+            for line in BufReader::new(stderr).lines().map_while(Result::ok) {
                 if let Ok(mut buf) = last_err.lock() {
                     *buf = line;
                 }
             }
         });
 
-        let stdin = child.stdin.take().ok_or("no stdin to server")?;
+        // FIX: при отсутствии stdin child раньше дропался без kill/wait —
+        // процесс-сервер оставался жить зомби и держал порт.
+        let stdin = match child.stdin.take() {
+            Some(s) => s,
+            None => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err("no stdin to server".to_string());
+            }
+        };
 
         let conn = Arc::new(Self {
             server: server.to_string(),

@@ -40,7 +40,12 @@ function detectLang(): Lang {
   const nav = (navigator.language || "").toLowerCase();
   if (nav.startsWith("zh")) return "zh";
   if (nav.startsWith("ja")) return "ja";
-  return "ru";
+  // FIX: английский не определялся никогда — любой en-US/de-DE браузер
+  // получал русский UI на первом запуске. Теперь en явно, ru — только
+  // для русскоязычных, нейтральный дефолт — en.
+  if (nav.startsWith("en")) return "en";
+  if (nav.startsWith("ru")) return "ru";
+  return "en";
 }
 
 /** Фазы генерации — массивы, идут вне словаря */

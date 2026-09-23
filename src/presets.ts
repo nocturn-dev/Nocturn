@@ -63,7 +63,17 @@ const LS_KEY = "haloui-prompt-library";
 export function loadPromptLibrary(): PromptPreset[] {
   try {
     const raw = localStorage.getItem(LS_KEY);
-    return raw ? (JSON.parse(raw) as PromptPreset[]) : [];
+    if (!raw) return [];
+    // FIX: `JSON.parse(raw) as PromptPreset[]` принимал что угодно — битое
+    // значение ("abc", объект) падало TypeError в .map/.spread на старте App.
+    // Принимаем только массив с валидными id (как loadAutomations рядом).
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed)
+      ? parsed.filter(
+          (p): p is PromptPreset =>
+            !!p && typeof p === "object" && typeof (p as PromptPreset).id === "string",
+        )
+      : [];
   } catch {
     return [];
   }
