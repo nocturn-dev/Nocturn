@@ -8,8 +8,10 @@
 Your API key, your provider, your machine — no accounts, no telemetry, no backend
 of its own. Built with **Tauri 2** (native binary) + **React 19 + TypeScript** + Tailwind CSS 4.
 
-**Light by design:** the installer is ~4.4 MB and the running app stays around
-**~100 MB RAM** total (app + WebView2, per Task Manager) — no background services.
+**Light by design:** the installer is ~4.4 MB. It idles at **~100 MB RAM**
+(app + WebView2, per Task Manager); heavy agent runs with large tool outputs
+climb to ~200–300 MB — the agent's own headless browser is a separate process
+on top of that. No background services.
 
 > Интерфейс на русском и английском (плюс 中文 / 日本語). Основной язык разработки — TypeScript, нативная часть — Rust.
 
