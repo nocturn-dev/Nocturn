@@ -101,6 +101,8 @@ interface SettingsModalProps {
   onStreamSmoothChange: (v: boolean) => void;
   showReasoning: boolean;
   onShowReasoningChange: (v: boolean) => void;
+  askAutoContinue: boolean;
+  onAskAutoContinueChange: (v: boolean) => void;
   streamCaret: boolean;
   onStreamCaretChange: (v: boolean) => void;
   /** Показ сообщений пользователя в чате */
@@ -378,8 +380,10 @@ export default function SettingsModal({
   onScrollFollowChange,
   streamSmooth,
   showReasoning,
+  askAutoContinue,
   onStreamSmoothChange,
   onShowReasoningChange,
+  onAskAutoContinueChange,
   streamCaret,
   onStreamCaretChange,
   showUserMsgs,
@@ -581,6 +585,8 @@ export default function SettingsModal({
               onStreamSmoothChange={onStreamSmoothChange}
               showReasoning={showReasoning}
               onShowReasoningChange={onShowReasoningChange}
+              askAutoContinue={askAutoContinue}
+              onAskAutoContinueChange={onAskAutoContinueChange}
               streamCaret={streamCaret}
               onStreamCaretChange={onStreamCaretChange}
               showUserMsgs={showUserMsgs}
@@ -743,8 +749,10 @@ function MainSection({
   onScrollFollowChange,
   streamSmooth,
   showReasoning,
+  askAutoContinue,
   onStreamSmoothChange,
   onShowReasoningChange,
+  onAskAutoContinueChange,
   streamCaret,
   onStreamCaretChange,
   showUserMsgs,
@@ -771,6 +779,8 @@ function MainSection({
   onStreamSmoothChange: (v: boolean) => void;
   showReasoning: boolean;
   onShowReasoningChange: (v: boolean) => void;
+  askAutoContinue: boolean;
+  onAskAutoContinueChange: (v: boolean) => void;
   streamCaret: boolean;
   onStreamCaretChange: (v: boolean) => void;
   showUserMsgs: boolean;
@@ -848,6 +858,12 @@ function MainSection({
         desc={t("main.showReasoningDesc")}
         on={showReasoning}
         onChange={onShowReasoningChange}
+      />
+      <ToggleRow
+        label={t("main.askAutoContinue")}
+        desc={t("main.askAutoContinueDesc")}
+        on={askAutoContinue}
+        onChange={onAskAutoContinueChange}
       />
       <ToggleRow
         label={t("main.settingsLarge")}

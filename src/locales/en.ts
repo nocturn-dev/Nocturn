@@ -526,6 +526,8 @@ export const en = {
     "main.groupTurnsDesc": "Thoughts, commands, results and reply text in a single card; off shows each step separately",
     "main.showReasoning": "Show reasoning",
     "main.showReasoningDesc": "Expand the model's reasoning block automatically as it streams",
+    "main.askAutoContinue": "Auto-continue agent questions",
+    "main.askAutoContinueDesc": "If a question gets no answer for 5 minutes, the agent continues on its own. Off — questions wait indefinitely.",
     "main.notifyDone": "Notify when window is unfocused",
     "main.notifySound": "Sound",
     "notify.doneTitle": "Task completed",

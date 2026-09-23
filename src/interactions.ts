@@ -37,10 +37,12 @@ export interface AskAnswer {
   custom?: string;
 }
 
-/** Чем закрылось взаимодействие: решение / ответ / отмена (Stop, finalize) */
+/** Чем закрылось взаимодействие: решение / ответ / отмена (Stop, finalize) /
+ *  тайм-аут (автопродолжение вопроса без ответа) */
 export type InteractionResolution =
   | { kind: "confirm"; decision: ConfirmDecision }
   | { kind: "ask"; answer: AskAnswer }
+  | { kind: "ask-timeout" }
   | { kind: "cancel" };
 
 export class InteractionRegistry {

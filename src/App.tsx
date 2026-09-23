@@ -236,6 +236,10 @@ export default function App() {
   const [showReasoning, setShowReasoning] = useState(
     () => localStorage.getItem("haloui-show-reasoning") === "1",
   );
+  // Автопродолжение ask_user: вопрос без ответа 5 минут — агент продолжит сам
+  const [askAutoContinue, setAskAutoContinue] = useState(
+    () => localStorage.getItem("haloui-ask-auto-continue") !== "0",
+  );
   const [streamCaret, setStreamCaret] = useState(
     () => localStorage.getItem("haloui-stream-caret") !== "0",
   );
@@ -430,6 +434,9 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem("haloui-show-reasoning", showReasoning ? "1" : "0");
   }, [showReasoning]);
+  useEffect(() => {
+    localStorage.setItem("haloui-ask-auto-continue", askAutoContinue ? "1" : "0");
+  }, [askAutoContinue]);
   useEffect(() => {
     localStorage.setItem("haloui-stream-caret", streamCaret ? "1" : "0");
   }, [streamCaret]);
@@ -1026,6 +1033,7 @@ export default function App() {
     addToast,
     setUsageLog,
     chainRunning,
+    askAutoContinue,
     notifyMeta,
     activeProjectId,
     setActiveId,
@@ -1985,6 +1993,8 @@ export default function App() {
         onStreamSmoothChange={setStreamSmooth}
         showReasoning={showReasoning}
         onShowReasoningChange={setShowReasoning}
+        askAutoContinue={askAutoContinue}
+        onAskAutoContinueChange={setAskAutoContinue}
         streamCaret={streamCaret}
         onStreamCaretChange={setStreamCaret}
         showUserMsgs={showUserMsgs}

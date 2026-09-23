@@ -49,6 +49,8 @@ const RETRYABLE_RE =
 
 const uid = () => crypto.randomUUID();
 
+// Автопродолжение вопроса: без ответа пользователя N минут модель продолжит сама
+const ASK_AUTO_CONTINUE_MS = 5 * 60_000;
 /** HTTP-код из строки ошибки Rust-стрима ("HTTP 503: …") */
 function parseHttpCode(raw: string): number | null {
   const m = raw.match(/\bHTTP (\d{3})\b/);
@@ -71,6 +73,8 @@ export interface AgentRunDeps {
   addToast: (text: string) => void;
   setUsageLog: React.Dispatch<React.SetStateAction<UsageEvent[]>>;
   chainRunning: boolean;
+  /** Автопродолжение ask_user без ответа (5 минут) */
+  askAutoContinue: boolean;
   notifyMeta: (s: Session | null) => string;
   activeProjectId: string | null;
   setActiveId: React.Dispatch<React.SetStateAction<string | null>>;
@@ -93,6 +97,7 @@ export function useAgentRun(deps: AgentRunDeps) {
     addToast,
     setUsageLog,
     chainRunning,
+    askAutoContinue,
     notifyMeta,
     activeProjectId,
     setActiveId,
@@ -984,22 +989,57 @@ export function useAgentRun(deps: AgentRunDeps) {
             ask: { ...spec, answer: null },
           });
         }
-        const answer = await new Promise<{ answers: string[]; custom?: string } | null>(
-          (resolve) => {
-            openInteraction(
-              { id: uid(), kind: "ask", requestId, msgId: askMsgId, spec },
-              (r) => resolve(r.kind === "ask" ? r.answer : null),
-            );
-            // Пользователь мог уйти в другое приложение — уведомить
-            void notifyTaskDone(
-              notifyPrefsRef.current,
-              t("ask.notifyTitle"),
-              notifyMeta(activeSessionRef.current),
-              activeSessionRef.current?.title ?? "",
-            );
-          },
-        );
+        const answer = await new Promise<
+          { answers: string[]; custom?: string } | "timeout" | null
+        >((resolve) => {
+          const interactionId = uid();
+          openInteraction(
+            { id: interactionId, kind: "ask", requestId, msgId: askMsgId, spec },
+            (r) =>
+              resolve(
+                r.kind === "ask"
+                  ? r.answer
+                  : r.kind === "ask-timeout"
+                    ? "timeout"
+                    : null,
+              ),
+          );
+          // Автопродолжение: вопрос без ответа N минут — продолжаем сами
+          if (askAutoContinue) {
+            window.setTimeout(() => {
+              if (interactionsRef.current.has(interactionId)) {
+                resolveInteraction(interactionId, { kind: "ask-timeout" });
+              }
+            }, ASK_AUTO_CONTINUE_MS);
+          }
+          // Пользователь мог уйти в другое приложение — уведомить
+          void notifyTaskDone(
+            notifyPrefsRef.current,
+            t("ask.notifyTitle"),
+            notifyMeta(activeSessionRef.current),
+            activeSessionRef.current?.title ?? "",
+          );
+        });
         setActivity(null);
+
+        if (answer === "timeout") {
+          // Автопродолжение: карточка закрывается, модель получает указание
+          // продолжить самостоятельно
+          setSessions((prev) =>
+            prev.map((s) => ({
+              ...s,
+              messages: s.messages.map((m) =>
+                m.id === askMsgId && m.ask
+                  ? { ...m, ask: { ...m.ask, cancelled: true } }
+                  : m,
+              ),
+            })),
+          );
+          finishAsk(
+            `no answer within ${ASK_AUTO_CONTINUE_MS / 60_000} minutes — continue autonomously using your best judgment`,
+          );
+          continue;
+        }
 
         if (!answer || abortedRef.current.has(requestId)) {
           // Закрыто без ответа (Stop): карточка помечается, модель получает отказ
