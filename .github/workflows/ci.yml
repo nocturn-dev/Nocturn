@@ -60,6 +60,10 @@ jobs:
       - name: Upload release artifacts
         uses: softprops/action-gh-release@v2
         with:
+          # Релизы брендируются как «Beta vN.N.N» (title из имени тега);
+          # prerelease не ставим: /releases/latest не включает prerelease,
+          # а на него смотрит endpoint авто-обновления
+          name: Beta ${{ github.ref_name }}
           files: |
             src-tauri/target/release/bundle/nsis/*.exe
             src-tauri/target/release/bundle/msi/*.msi
