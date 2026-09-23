@@ -512,6 +512,8 @@ export default function App() {
         resizeRef.current = null;
         document.body.style.cursor = "";
         document.body.style.userSelect = "";
+        // Возвращаем плавные переходы ширины/высоты после перетаскивания
+        delete document.body.dataset.resizing;
       }
     };
     const onMove = (e: MouseEvent) => {
@@ -523,7 +525,7 @@ export default function App() {
       }
       if (resizeRef.current === "sidebar") {
         const x = sidebarSide === "right" ? window.innerWidth - e.clientX : e.clientX;
-        setSidebarWidth(clampNum(x, 220, 420));
+        setSidebarWidth(clampNum(x, 220, 440));
       } else if (resizeRef.current === "terminal") {
         // Секция чата занимает всю высоту окна
         const pct = ((window.innerHeight - e.clientY) / window.innerHeight) * 100;
@@ -546,11 +548,14 @@ export default function App() {
     resizeRef.current = "sidebar";
     document.body.style.cursor = "col-resize";
     document.body.style.userSelect = "none";
+    // Без transition-[width]: иначе панель «плывёт» за курсором
+    document.body.dataset.resizing = "1";
   };
   const startTerminalResize = () => {
     resizeRef.current = "terminal";
     document.body.style.cursor = "row-resize";
     document.body.style.userSelect = "none";
+    document.body.dataset.resizing = "1";
   };
 
   // Загружаем сохранённые настройки API и историю при старте
@@ -1905,7 +1910,7 @@ export default function App() {
         onNewNote={() => void handleNewNote()}
         onOpenGraph={() => setGraphOpen(true)}
         onResizeStart={startSidebarResize}
-        onResizeReset={() => setSidebarWidth(288)}
+        onResizeReset={() => setSidebarWidth(340)}
         onCollapse={() => setSidebarCollapsed(true)}
       />
       <ChatArea

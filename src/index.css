@@ -6,6 +6,20 @@
   генерирует утилиты вида bg-halo-bg через @theme inline.
 */
 
+/* ---------- Перетаскивание панелей: без анимации размеров ----------
+    Иначе width-переход 200 мс заставляет панель «плыть» за курсором */
+body[data-resizing] aside,
+body[data-resizing] .resize-panel {
+  transition: none !important;
+}
+
+/* ---------- Стекло: полупрозрачный фон у панелей с glass-pane ----------
+   backdrop-filter размывает то, что ЗА элементом: с непрозрачным
+   bg-halo-deep слайдер размытия не виден вовсе */
+html.glass .glass-pane {
+  background: color-mix(in srgb, var(--halo-deep) 70%, transparent);
+}
+
 /* ---------- Знак приложения: переключение classic/bold (Кастомизация) ---------- */
 .nocturn-mark .mark-classic {
   display: none;

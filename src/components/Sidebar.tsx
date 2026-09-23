@@ -277,8 +277,8 @@ export default function Sidebar({
         }}
         onDoubleClick={onResizeReset}
         title={t("sidebar.resizeHint")}
-        className={`absolute top-0 z-30 h-full w-1.5 cursor-col-resize transition-colors hover:bg-halo-accent/40 ${
-          side === "left" ? "-right-0.5" : "-left-0.5"
+        className={`absolute top-0 z-30 h-full w-2.5 cursor-col-resize transition-colors hover:bg-halo-accent/40 ${
+          side === "left" ? "-right-1" : "-left-1"
         }`}
       />
       )}
