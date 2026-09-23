@@ -561,6 +561,8 @@ export const zh = {
     "main.showReasoningDesc": "模型输出推理内容时自动展开折叠块",
     "main.askAutoContinue": "自动继续智能体提问",
     "main.askAutoContinueDesc": "提问 5 分钟没有回答时，智能体将自行继续。关闭则一直等待回答。",
+    "main.closeToTray": "关闭窗口时隐藏到托盘",
+    "main.closeToTrayDesc": "关闭按钮会将应用隐藏到托盘；从托盘菜单退出才会真正关闭。左键点击托盘图标可打开窗口。",
     "main.autoArchive": "自动归档旧任务",
     "main.autoArchiveDesc": "应用启动时，将超过保留期限未动的任务移入归档。固定的任务不受影响。",
     "main.archiveAfter": "归档超过以下天数的任务",

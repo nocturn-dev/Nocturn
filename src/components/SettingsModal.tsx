@@ -113,6 +113,8 @@ interface SettingsModalProps {
   archiveRetention: number;
   onArchiveRetentionChange: (d: number) => void;
   onArchiveNow: () => void;
+  closeToTray: boolean;
+  onCloseToTrayChange: (v: boolean) => void;
   streamCaret: boolean;
   onStreamCaretChange: (v: boolean) => void;
   /** Показ сообщений пользователя в чате */
@@ -405,6 +407,8 @@ export default function SettingsModal({
   onAutoArchiveChange,
   onArchiveRetentionChange,
   onArchiveNow,
+  closeToTray,
+  onCloseToTrayChange,
   streamCaret,
   onStreamCaretChange,
   showUserMsgs,
@@ -613,6 +617,8 @@ export default function SettingsModal({
               archiveRetention={archiveRetention}
               onArchiveRetentionChange={onArchiveRetentionChange}
               onArchiveNow={onArchiveNow}
+              closeToTray={closeToTray}
+              onCloseToTrayChange={onCloseToTrayChange}
               streamCaret={streamCaret}
               onStreamCaretChange={onStreamCaretChange}
               showUserMsgs={showUserMsgs}
@@ -787,6 +793,8 @@ function MainSection({
   onAutoArchiveChange,
   onArchiveRetentionChange,
   onArchiveNow,
+  closeToTray,
+  onCloseToTrayChange,
   streamCaret,
   onStreamCaretChange,
   showUserMsgs,
@@ -820,6 +828,8 @@ function MainSection({
   archiveRetention: number;
   onArchiveRetentionChange: (d: number) => void;
   onArchiveNow: () => void;
+  closeToTray: boolean;
+  onCloseToTrayChange: (v: boolean) => void;
   streamCaret: boolean;
   onStreamCaretChange: (v: boolean) => void;
   showUserMsgs: boolean;
@@ -909,6 +919,12 @@ function MainSection({
         desc={t("main.autoArchiveDesc")}
         on={autoArchive}
         onChange={onAutoArchiveChange}
+      />
+      <ToggleRow
+        label={t("main.closeToTray")}
+        desc={t("main.closeToTrayDesc")}
+        on={closeToTray}
+        onChange={onCloseToTrayChange}
       />
       <div className="flex flex-wrap items-center gap-2 rounded-lg border border-halo-line bg-halo-surface/40 px-3 py-2.5">
         <span className="text-xs text-halo-muted">{t("main.archiveAfter")}:</span>

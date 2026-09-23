@@ -244,6 +244,10 @@ export default function App() {
   const [termShell, setTermShell] = useState<string>(
     () => localStorage.getItem("haloui-term-shell") || "auto",
   );
+  // Скрывать в трей при закрытии окна (выход — из меню трея)
+  const [closeToTray, setCloseToTray] = useState(
+    () => localStorage.getItem("haloui-close-to-tray") === "1",
+  );
   // Авто-архив: старые задачи (без пина, старше срока) уходят в архив
   const [autoArchive, setAutoArchive] = useState(
     () => localStorage.getItem("haloui-auto-archive") === "1",
@@ -452,6 +456,9 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem("haloui-term-shell", termShell);
   }, [termShell]);
+  useEffect(() => {
+    localStorage.setItem("haloui-close-to-tray", closeToTray ? "1" : "0");
+  }, [closeToTray]);
   useEffect(() => {
     localStorage.setItem("haloui-auto-archive", autoArchive ? "1" : "0");
   }, [autoArchive]);
@@ -2067,6 +2074,8 @@ export default function App() {
         onAutoArchiveChange={setAutoArchive}
         termShell={termShell}
         onTermShellChange={setTermShell}
+        closeToTray={closeToTray}
+        onCloseToTrayChange={setCloseToTray}
         archiveRetention={archiveRetention}
         onArchiveRetentionChange={setArchiveRetention}
         onArchiveNow={archiveOldNow}

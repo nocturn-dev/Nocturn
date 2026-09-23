@@ -528,6 +528,8 @@ export const en = {
     "main.showReasoningDesc": "Expand the model's reasoning block automatically as it streams",
     "main.askAutoContinue": "Auto-continue agent questions",
     "main.askAutoContinueDesc": "If a question gets no answer for 5 minutes, the agent continues on its own. Off — questions wait indefinitely.",
+    "main.closeToTray": "Hide to tray when closing window",
+    "main.closeToTrayDesc": "The close button hides the window to the tray; quit from the tray menu still exits the app. Tray: left click opens the window.",
     "main.autoArchive": "Auto-archive old tasks",
     "main.autoArchiveDesc": "On startup, archive tasks untouched for longer than the retention window (pinned tasks are never archived).",
     "main.archiveAfter": "Archive tasks older than (days)",

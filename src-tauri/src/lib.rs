@@ -89,6 +89,7 @@ pub fn run() {
                 app_id.push(0);
                 unsafe { SetCurrentProcessExplicitAppUserModelID(app_id.as_ptr()) };
             }
+            build_tray(app.handle())?;
             Ok(())
         })
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -167,7 +168,8 @@ pub fn run() {
             mcp::mcp_status,
             mcp::mcp_autoconnect,
             network::network_get_config,
-            network::network_set_config
+            network::network_set_config,
+            hide_to_tray
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
@@ -189,6 +191,66 @@ pub fn run() {
         });
 }
 
+
+/// «Скрывать в трей»: крестик и системная кнопка закрытия прячут окно;
+/// настоящий выход — из меню трея (там RunEvent::Exit гасит дочерние процессы)
+#[tauri::command]
+fn hide_to_tray(app: tauri::AppHandle) -> Result<(), String> {
+    use tauri::Manager;
+    if let Some(w) = app.get_webview_window("main") {
+        w.hide().map_err(|e| e.to_string())
+    } else {
+        Ok(())
+    }
+}
+
+/// Трей: иконка (иконка приложения), левый клик — показать окно,
+/// меню: Открыть / Выход
+fn build_tray(app: &tauri::AppHandle) -> Result<(), String> {
+    use tauri::menu::{Menu, MenuItem};
+    use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+    use tauri::Manager;
+
+    let open = MenuItem::with_id(app, "open", "Open Nocturn", true, None::<&str>)
+        .map_err(|e| e.to_string())?;
+    let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)
+        .map_err(|e| e.to_string())?;
+    let menu = Menu::with_items(app, &[&open, &quit]).map_err(|e| e.to_string())?;
+
+    let mut tray = TrayIconBuilder::with_id("nocturn-tray")
+        .menu(&menu)
+        .tooltip("Nocturn")
+        .show_menu_on_left_click(false)
+        .on_menu_event(|app, event| match event.id().as_ref() {
+            "open" => {
+                if let Some(w) = app.get_webview_window("main") {
+                    let _ = w.show();
+                    let _ = w.set_focus();
+                }
+            }
+            "quit" => app.exit(0),
+            _ => {}
+        })
+        .on_tray_icon_event(|tray, event| {
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event
+            {
+                let app = tray.app_handle();
+                if let Some(w) = app.get_webview_window("main") {
+                    let _ = w.show();
+                    let _ = w.set_focus();
+                }
+            }
+        });
+    if let Some(icon) = app.default_window_icon() {
+        tray = tray.icon(icon.clone());
+    }
+    tray.build(app).map_err(|e| e.to_string())?;
+    Ok(())
+}
 
 /// Удаление временных профилей браузера: на каждый запуск создаётся
 /// haloui-browser-{port} в %TEMP%, при успешной сессии он не удалялся —

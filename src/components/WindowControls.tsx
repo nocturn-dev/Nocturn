@@ -1,4 +1,5 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { invoke } from "@tauri-apps/api/core";
 import { useLang } from "../locales";
 
 /**
@@ -37,7 +38,14 @@ export default function WindowControls() {
         </svg>
       </button>
       <button
-        onClick={() => void win.close()}
+        onClick={() => {
+          // «Скрывать в трей»: крестик прячет окно, выход — из меню трея
+          if (localStorage.getItem("haloui-close-to-tray") === "1") {
+            void invoke("hide_to_tray").catch(() => win.close());
+          } else {
+            void win.close();
+          }
+        }}
         title={t("win.close")}
         className={`${btn} hover:bg-red-500/90 hover:text-white`}
       >

@@ -561,6 +561,8 @@ export const ja = {
     "main.showReasoningDesc": "モデルの推論ブロックを自動的に展開します",
     "main.askAutoContinue": "質問の自動続行",
     "main.askAutoContinueDesc": "5分間回答がない場合、エージェントは自判断で続行します。オフの場合は無期限に待機します。",
+    "main.closeToTray": "閉じてもトレイに残す",
+    "main.closeToTrayDesc": "閉じるボタンでアプリをトレイに格納します。終了はトレイのメニューから。トレイ icon を左クリックでウィンドウを開きます。",
     "main.autoArchive": "古いタスクを自動アーカイブ",
     "main.autoArchiveDesc": "アプリ起動時、保存期間より古く未使用のタスクをアーカイブします。固定タスクは対象外です。",
     "main.archiveAfter": "次の日数より古いタスクをアーカイブ",
