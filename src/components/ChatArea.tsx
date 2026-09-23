@@ -257,6 +257,12 @@ export default function ChatArea({
   const [quickOpen, setQuickOpen] = useState(false);
   // Монитор субагентов: поповер у кнопки-робота в нижней панели
   const [subOpen, setSubOpen] = useState(false);
+  // Память: старые ходы рендерим заглушкой, пока не попросили показать всё
+  const [showOldTurns, setShowOldTurns] = useState(false);
+  const sessionKey = session?.id ?? null;
+  useEffect(() => {
+    setShowOldTurns(false); // смена задачи — снова сворачиваем историю
+  }, [sessionKey]);
   const [permOpen, setPermOpen] = useState(false);
   const slashActive = draft.startsWith("/");
   /** «&» — палитра скилов (src/skills.ts) */
@@ -920,7 +926,26 @@ export default function ChatArea({
               // отдельный бабл — только если карточки хода ещё нет
               let lastTurnMerged = false;
 
+              // Оптимизация памяти: полностью рендерим только последние
+              // RENDER_TURN_WINDOW ходов; более старые — заглушка с кнопкой
+              const RENDER_TURN_WINDOW = 25;
+              const visibleFrom = showOldTurns
+                ? 0
+                : Math.max(0, turns.length - RENDER_TURN_WINDOW);
+              if (visibleFrom > 0) {
+                nodes.push(
+                  <button
+                    key="show-old-turns"
+                    onClick={() => setShowOldTurns(true)}
+                    className="mx-auto my-1 rounded-full border border-halo-line px-3 py-1 text-[11px] text-halo-muted transition-colors hover:border-halo-accent/50 hover:text-halo-text"
+                  >
+                    {t("chat.showOldTurns", { n: visibleFrom })}
+                  </button>,
+                );
+              }
+
               turns.forEach((turn, ti) => {
+                if (ti < visibleFrom) return; // свёрнуто для экономии памяти
                 // Файлы, записанные агентом в этом ходе
                 const writes = new Map<string, ChangedFile>();
                 for (const m of turn.items) {

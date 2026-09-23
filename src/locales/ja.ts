@@ -212,6 +212,7 @@ export const ja = {
     "composer.queued": "待機中 — エージェントの返信後に送信されます",
     "composer.queuedRemove": "キューから削除",
 "chat.aiDisclaimer": "この回答は AI が生成しました。参考用です。",
+"chat.showOldTurns": "以前のメッセージを表示（{n}件）",
     "chat.askAboutSelection": "これについて質問",
     "composer.clearChat": "チャットを消去",
     "composer.enterHint": "Enter — 送信 · Shift+Enter — 改行",
