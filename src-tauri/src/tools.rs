@@ -3,6 +3,7 @@
 
 use serde_json::{json, Value};
 use std::fs;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
@@ -403,13 +404,19 @@ fn fs_read(path: &Path) -> Result<String, String> {
     if meta.is_dir() {
         return Err(format!("{path:?} is a directory, use fs_list"));
     }
-    let data = fs::read(path).map_err(|e| format!("cannot read {path:?}: {e}"))?;
-    if data.len() as u64 > FS_READ_LIMIT {
-        let clipped = &data[..FS_READ_LIMIT as usize];
-        let text = String::from_utf8_lossy(clipped);
+    // Читаем только первые FS_READ_LIMIT байт: многогигабайтный лог не должен
+    // целиком попадать в память до усечения
+    let file = fs::File::open(path).map_err(|e| format!("cannot read {path:?}: {e}"))?;
+    let mut limited = file.take(FS_READ_LIMIT);
+    let mut data = Vec::new();
+    limited
+        .read_to_end(&mut data)
+        .map_err(|e| format!("cannot read {path:?}: {e}"))?;
+    if meta.len() > FS_READ_LIMIT {
+        let text = String::from_utf8_lossy(&data);
         return Ok(format!(
             "[TRUNCATED: file is {} bytes, showing first {FS_READ_LIMIT} bytes]\n{text}",
-            data.len()
+            meta.len()
         ));
     }
     Ok(String::from_utf8_lossy(&data).to_string())
@@ -435,13 +442,31 @@ fn fs_write(path: &Path, content: &str) -> Result<String, String> {
     }
     fs::write(path, content).map_err(|e| format!("cannot write {path:?}: {e}"))?;
 
+    // «После» уходит в контекст модели — обрезаем тем же лимитом, что и «до»,
+    // иначе запись мегабайтного файла вернёт модели весь файл обратно
+    let after: String = if content.len() as u64 > FS_WRITE_DIFF_LIMIT {
+        let clipped = &content.as_bytes()[..FS_WRITE_DIFF_LIMIT as usize];
+        // Резать только по границе UTF-8 символа
+        let mut end = clipped.len();
+        while end > 0 && (clipped[end - 1] & 0xC0) == 0x80 {
+            end -= 1;
+        }
+        format!(
+            "{}\n[TRUNCATED: {} bytes total]",
+            String::from_utf8_lossy(&clipped[..end]),
+            content.len()
+        )
+    } else {
+        content.to_string()
+    };
+
     Ok(json!({
         "ok": true,
         "path": path.display().to_string(),
         "bytes": content.len(),
         "created": !existed,
         "before": before,
-        "after": content,
+        "after": after,
     })
     .to_string())
 }

@@ -50,8 +50,13 @@ export default function CryptoGate({
       return;
     }
     setError(false);
-    const ok = await onSubmit(pw);
-    if (!ok) setError(true);
+    try {
+      const ok = await onSubmit(pw);
+      if (!ok) setError(true);
+    } catch {
+      // onSubmit может бросить (напр. сбой IPC) — трактуем как неверный пароль
+      setError(true);
+    }
   };
 
   return (

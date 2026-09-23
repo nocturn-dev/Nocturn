@@ -47,11 +47,11 @@ impl Default for ImageGenConfig {
 pub static CONFIG: Mutex<Option<ImageGenConfig>> = Mutex::new(None);
 
 pub fn config() -> ImageGenConfig {
-    CONFIG.lock().unwrap().clone().unwrap_or_default()
+    CONFIG.lock().unwrap_or_else(|p| p.into_inner()).clone().unwrap_or_default()
 }
 
 pub fn set_config(cfg: ImageGenConfig) {
-    *CONFIG.lock().unwrap() = Some(cfg);
+    *CONFIG.lock().unwrap_or_else(|p| p.into_inner()) = Some(cfg);
 }
 
 // ---------------------------------------------------------------------------
@@ -94,6 +94,15 @@ pub async fn generate(data_dir: &Path, prompt: &str, size: Option<&str>) -> Resu
     if base.is_empty() || cfg.model.trim().is_empty() {
         return Err("Image generation is not configured (base URL / model)".into());
     }
+    // Ключ мог быть сохранён зашифрованным (vault): расшифровка на месте
+    // использования — при заблокированном хранилище модель получит понятную
+    // ошибку, а не молча уйдёт на провайдера без ключа
+    let api_key = if crate::crypto::is_encrypted(&cfg.api_key) {
+        crate::crypto::decrypt(&cfg.api_key)
+            .ok_or("vault is locked: enter the master password to use the image API key")?
+    } else {
+        cfg.api_key.clone()
+    };
     let url = format!("{base}/images/generations");
 
     let client = reqwest::Client::builder()
@@ -111,7 +120,7 @@ pub async fn generate(data_dir: &Path, prompt: &str, size: Option<&str>) -> Resu
     }
     let resp = client
         .post(&url)
-        .header("Authorization", format!("Bearer {}", cfg.api_key.trim()))
+        .header("Authorization", format!("Bearer {}", api_key.trim()))
         .json(&body)
         .send()
         .await
@@ -161,7 +170,7 @@ pub async fn generate(data_dir: &Path, prompt: &str, size: Option<&str>) -> Resu
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis())
         .unwrap_or(0);
-    let path: PathBuf = dir.join(format!("img-{ts}.png"));
+    let path: PathBuf = dir.join(format!("img-{ts}.{}", if bytes.starts_with(&[0xFF, 0xD8]) { "jpg" } else { "png" }));
     fs::write(&path, &bytes).map_err(|e| format!("cannot save image: {e}"))?;
 
     Ok(json!({

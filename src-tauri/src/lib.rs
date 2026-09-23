@@ -79,6 +79,8 @@ pub fn run() {
                 computer::set_config(serde_json::from_value(v).unwrap_or_default());
             }
             if let Some(v) = read("imagegen.json") {
+                // Ключ может быть зашифрован (vault): расшифровка ленивая —
+                // в generate()/imagegen_get_config, когда хранилище уже разблокировано
                 imagegen::set_config(serde_json::from_value(v).unwrap_or_default());
             }
             // Windows: привязка источника toast-уведомлений к Nocturn (в dev-режиме без
@@ -177,14 +179,19 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, event| {
-            // Гасим дочерние MCP-процессы при выходе, чтобы не оставлять сирот
+            // Гасим дочерние MCP/PTY/браузерные процессы при выходе,
+            // чтобы не оставлять сирот; заодно чистим temp-профили браузера
             if let tauri::RunEvent::Exit = event {
                 if let Some(registry) = app.try_state::<mcp::McpRegistry>() {
+                    registry.kill_all();
+                }
+                if let Some(registry) = app.try_state::<pty::PtyRegistry>() {
                     registry.kill_all();
                 }
                 if let Some(registry) = app.try_state::<browser::BrowserRegistry>() {
                     registry.kill_all();
                 }
+                cleanup_browser_profiles();
             }
         });
 }
@@ -256,8 +263,7 @@ fn load_profiles(app: tauri::AppHandle) -> Result<ProfilesStore, String> {
     // Прозрачно расшифровываем ключи профилей
     for p in &mut store.profiles {
         if crypto::is_encrypted(&p.api_key) {
-            // Потеря мастер-ключа → пустой ключ, профиль остаётся опознаваемым
-            p.api_key = crypto::decrypt(&p.api_key).unwrap_or_default();
+            p.api_key = decrypt_stored_key(&p.api_key)?;
         }
     }
     Ok(store)
@@ -359,15 +365,21 @@ fn crypto_status(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
     }))
 }
 
-/// Первое создание мастер-пароля: соль + маркер, ключ в память (Argon2id)
-#[tauri::command]
-fn crypto_setup(app: tauri::AppHandle, password: String) -> Result<(), String> {
+/// Первое создание мастер-пароля: соль + маркер, ключ в память (Argon2id).
+/// Вывод ключа — тяжёлый (Argon2id, 19 MiB) — исполняется вне потока UI.
+#[tauri::command(async)]
+async fn crypto_setup(app: tauri::AppHandle, password: String) -> Result<(), String> {
     if password.len() < 8 {
         return Err("password too short (minimum 8 characters)".into());
     }
-    let salt = crypto::new_salt();
-    let key = crypto::derive_key_argon2(&password, &salt);
-    let check = crypto::make_check(&key)?;
+    let (salt, key, check) = tauri::async_runtime::spawn_blocking(move || {
+        let salt = crypto::new_salt();
+        let key = crypto::derive_key_argon2(&password, &salt);
+        let check = crypto::make_check(&key)?;
+        Ok::<_, String>((salt, key, check))
+    })
+    .await
+    .map_err(|e| e.to_string())??;
     crypto::set_key(key);
     crypto_write_meta(&app, &salt, &check, "argon2id")
 }
@@ -375,28 +387,48 @@ fn crypto_setup(app: tauri::AppHandle, password: String) -> Result<(), String> {
 /// Разблокировка существующим паролем. Легаси-хранилище (PBKDF2) после
 /// успешной проверки тихо мигрирует на Argon2id: ключ перегенерируется,
 /// все зашифрованные поля перезаписываются новым ключом.
-#[tauri::command]
-fn crypto_unlock(app: tauri::AppHandle, password: String) -> Result<(), String> {
+#[tauri::command(async)]
+async fn crypto_unlock(app: tauri::AppHandle, password: String) -> Result<(), String> {
     let (salt, check, kdf) =
         crypto_read_meta(&app)?.ok_or("encryption is not set up")?;
-    let key = match kdf.as_str() {
-        "argon2id" => crypto::derive_key_argon2(&password, &salt),
-        _ => crypto::derive_key(&password, &salt),
-    };
-    if !crypto::verify_check(&key, &check) {
+    let is_argon2 = kdf == "argon2id";
+    // Пароль и app нужны в обоих spawn_blocking (легаси-миграция второй)
+    let password2 = password.clone();
+    let app2 = app.clone();
+    // Argon2id/PBKDF2 в spawn_blocking: сотни миллисекций CPU не фризят UI
+    let verified = tauri::async_runtime::spawn_blocking(move || {
+        let key = if is_argon2 {
+            crypto::derive_key_argon2(&password, &salt)
+        } else {
+            crypto::derive_key(&password, &salt)
+        };
+        if crypto::verify_check(&key, &check) {
+            Some(key)
+        } else {
+            None
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+    let Some(key) = verified else {
         return Err("wrong password".into());
-    }
-    if kdf == "argon2id" {
+    };
+    if is_argon2 {
         crypto::set_key(key);
         return Ok(());
     }
     // --- Легаси-миграция PBKDF2 → Argon2id ---
-    let new_salt = crypto::new_salt();
-    let new_key = crypto::derive_key_argon2(&password, &new_salt);
-    rekey_all(&app, &key, &new_key)?;
-    let new_check = crypto::make_check(&new_key)?;
-    crypto::set_key(new_key);
-    crypto_write_meta(&app, &new_salt, &new_check, "argon2id")
+    let migrated = tauri::async_runtime::spawn_blocking(move || {
+        let new_salt = crypto::new_salt();
+        let new_key = crypto::derive_key_argon2(&password2, &new_salt);
+        rekey_all(&app2, &key, &new_key)?;
+        let new_check = crypto::make_check(&new_key)?;
+        Ok::<_, String>((new_salt, new_key, new_check))
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    crypto::set_key(migrated.1);
+    crypto_write_meta(&app, &migrated.0, &migrated.2, "argon2id")
 }
 
 /// Перешифровать все зашифрованные поля (settings.json, profiles.json)
@@ -550,12 +582,45 @@ fn settings_write_all(
     Ok(written)
 }
 
+/// Удаление временных профилей браузера: на каждый запуск создаётся
+/// haloui-browser-{port} в %TEMP%, при успешной сессии он не удалялся —
+/// накапливались сотни мегабайт. Вызывается на выходе приложения.
+fn cleanup_browser_profiles() {
+    let tmp = std::env::temp_dir();
+    if let Ok(entries) = fs::read_dir(&tmp) {
+        for e in entries.flatten() {
+            if e.file_name().to_string_lossy().starts_with("haloui-browser-") {
+                let _ = fs::remove_dir_all(e.path());
+            }
+        }
+    }
+}
+
+/// Отсечение чувствительных системных локаций для команд, получающих
+/// произвольный путь с фронта (экспорт/импорт настроек, плагины, звуки):
+/// там вебвью нечего ни читать, ни перезаписывать. Пользовательские папки
+/// (включая репозитории на любом диске) не ограничиваются.
+fn rejects_sensitive_path(path: &str) -> Result<(), String> {
+    let norm = path.to_lowercase().replace('/', "\\");
+    const BLOCKED: &[&str] = &[
+        "\\windows\\",
+        "\\program files",
+        "\\programdata\\microsoft\\",
+        "\\microsoft\\windows\\start menu\\",
+    ];
+    if BLOCKED.iter().any(|b| norm.contains(b)) {
+        return Err("path points to a protected system location".into());
+    }
+    Ok(())
+}
+
 /// Сохранить экспорт-файл (содержимое собрано на фронте)
 #[tauri::command(async)]
 fn settings_export_write(path: String, content: String) -> Result<(), String> {
     if !path.ends_with(".json") {
         return Err("export file must be .json".into());
     }
+    rejects_sensitive_path(&path)?;
     // Проверка, что это валидный JSON — защита от мусора
     serde_json::from_str::<serde_json::Value>(&content)
         .map_err(|e| format!("export content is not valid JSON: {e}"))?;
@@ -565,6 +630,7 @@ fn settings_export_write(path: String, content: String) -> Result<(), String> {
 /// Прочитать импорт-файл
 #[tauri::command(async)]
 fn settings_import_read(path: String) -> Result<serde_json::Value, String> {
+    rejects_sensitive_path(&path)?;
     let data = fs::read_to_string(&path).map_err(|e| e.to_string())?;
     serde_json::from_str(&data).map_err(|e| format!("import file corrupted: {e}"))
 }
@@ -573,7 +639,8 @@ fn settings_import_read(path: String) -> Result<serde_json::Value, String> {
 /// шифруя (или расшифровывая) все API-ключи на месте.
 /// Включение требует разблокированного хранилища (пароль уже введён).
 #[tauri::command(async)]
-fn set_key_encryption(app: tauri::AppHandle, enable: bool) -> Result<(), String> {    if enable && !crypto::has_key() {
+fn set_key_encryption(app: tauri::AppHandle, enable: bool) -> Result<(), String> {
+    if enable && !crypto::has_key() {
         return Err("vault is locked: enter the master password first".into());
     }
 
@@ -764,8 +831,25 @@ fn checkpoints_dir(app: &tauri::AppHandle, root: &str) -> Result<PathBuf, String
     Ok(dir)
 }
 
-/// Рекурсивный обход проекта: файлы в base64, с лимитами по размеру и объёму
+/// Рекурсивный обход проекта: файлы в base64, с лимитами по размеру и объёму.
+/// Junction/symlink-каталоги не открываются (петля = бесконечная рекурсия),
+/// глубина ограничена на случай экзотических ФС, где флаг symlink не ставится.
 fn collect_files(dir: &Path, root: &Path, files: &mut Vec<CheckpointFile>, total: &mut u64) {
+    collect_files_at(dir, root, files, total, 0);
+}
+
+const CP_MAX_DEPTH: usize = 32;
+
+fn collect_files_at(
+    dir: &Path,
+    root: &Path,
+    files: &mut Vec<CheckpointFile>,
+    total: &mut u64,
+    depth: usize,
+) {
+    if depth > CP_MAX_DEPTH || *total >= CP_MAX_TOTAL {
+        return;
+    }
     let entries = match fs::read_dir(dir) {
         Ok(e) => e,
         Err(_) => return, // недоступная папка — просто пропускаем
@@ -775,13 +859,18 @@ fn collect_files(dir: &Path, root: &Path, files: &mut Vec<CheckpointFile>, total
             return;
         }
         let path = entry.path();
+        // file_type() берётся из записи каталога и НЕ следует по symlink/junction
+        let Ok(ft) = entry.file_type() else { continue };
+        if ft.is_symlink() {
+            continue;
+        }
         let Ok(meta) = entry.metadata() else { continue };
         if meta.is_dir() {
             let name = entry.file_name();
             if CP_SKIP_DIRS.iter().any(|s| name.eq_ignore_ascii_case(s)) {
                 continue;
             }
-            collect_files(&path, root, files, total);
+            collect_files_at(&path, root, files, total, depth + 1);
             if *total >= CP_MAX_TOTAL {
                 return;
             }
@@ -918,9 +1007,13 @@ fn checkpoint_restore(
     }
     let mut restored = 0usize;
     for f in &store.files {
-        // Разрешаем только относительные пути без подъёма
+        // Разрешаем только относительные пути без подъёма; диск/UNC в «относительном»
+        // пути на Windows полностью заменяет базу у join — тоже отказ
         let rel = f.rel.replace('/', "\\");
-        if rel.starts_with('\\') || rel.split('\\').any(|part| part == ".." || part.is_empty()) {
+        if rel.starts_with('\\')
+            || rel.contains(':')
+            || rel.split('\\').any(|part| part == ".." || part.is_empty())
+        {
             continue;
         }
         let dest = root.join(&rel);
@@ -1077,6 +1170,22 @@ fn config_file(app: &tauri::AppHandle, name: &str) -> Result<std::path::PathBuf,
     Ok(dir.join(name))
 }
 
+/// Расшифровка ключа при загрузке конфигов. Хранилище ещё заблокировано —
+/// отдаём пустую строку (после разблокировки фронт перечитает конфиги).
+/// Хранилище разблокировано, а ключ не расшифровался — мастер-пароль сменили
+/// или сбросили: возвращаем ошибку, чтобы фронт показал её, а не молча слал
+/// запросы без ключа с загадочным 401 от провайдера.
+fn decrypt_stored_key(stored: &str) -> Result<String, String> {
+    match crypto::decrypt(stored) {
+        Some(plain) => Ok(plain),
+        None if crypto::has_key() => Err(
+            "stored API key cannot be decrypted (master password changed or reset) — re-enter the key"
+                .into(),
+        ),
+        None => Ok(String::new()),
+    }
+}
+
 #[tauri::command(async)]
 fn load_settings(app: tauri::AppHandle) -> Result<ApiSettings, String> {
     let path = config_file(&app, "settings.json")?;
@@ -1086,10 +1195,9 @@ fn load_settings(app: tauri::AppHandle) -> Result<ApiSettings, String> {
     let data = fs::read_to_string(&path).map_err(|e| e.to_string())?;
     let mut s: ApiSettings =
         serde_json::from_str(&data).map_err(|e| format!("settings file corrupted: {e}"))?;
-    // Прозрачно расшифровываем ключ, если он зашифрован; при потере
-    // мастер-ключа возвращаем пустую строку вместо кракозябр
+    // Прозрачно расшифровываем ключ, если он зашифрован
     if crypto::is_encrypted(&s.api_key) {
-        s.api_key = crypto::decrypt(&s.api_key).unwrap_or_default();
+        s.api_key = decrypt_stored_key(&s.api_key)?;
     }
     Ok(s)
 }
@@ -1275,7 +1383,26 @@ async fn chat_stream(
     let anthropic = is_anthropic_base(&base_url);
     let base = base_url.trim_end_matches('/');
 
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        // Только connect-таймаут: общий таймаут запроса обрывал долгие стримы
+        .connect_timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|e| format!("failed to build http client: {e}"))?;
+
+    // Регистрируем флаг отмены ДО отправки запроса: иначе chat_abort,
+    // пришедший между send() и регистрацией, был бы no-op
+    let flag: Arc<AtomicBool> = {
+        let mut map = registry.0.lock().map_err(|e| e.to_string())?;
+        let f = Arc::new(AtomicBool::new(false));
+        map.insert(request_id.clone(), f.clone());
+        f
+    };
+    // Guard чистит запись при любом выходе из функции (в т.ч. по "?" и return)
+    let _abort_guard = AbortGuard {
+        registry: &registry,
+        request_id: request_id.clone(),
+    };
+
     let resp = if anthropic {
         let body = build_anthropic_body(
             &model,
@@ -1288,7 +1415,6 @@ async fn chat_stream(
             .header("x-api-key", api_key.trim())
             .header("anthropic-version", "2023-06-01")
             .json(&body)
-            .timeout(std::time::Duration::from_secs(300))
             .send()
             .await
             .map_err(|e| format!("failed to connect: {e}"))?
@@ -1312,7 +1438,6 @@ async fn chat_stream(
             .post(format!("{base}/chat/completions"))
             .bearer_auth(api_key.trim())
             .json(&body)
-            .timeout(std::time::Duration::from_secs(300))
             .send()
             .await
             .map_err(|e| format!("failed to connect: {e}"))?
@@ -1324,19 +1449,6 @@ async fn chat_stream(
         return Err(provider_error(status, &err_body));
     }
 
-    // Регистрируем флаг отмены для этого запроса
-    let flag: Arc<AtomicBool> = {
-        let mut map = registry.0.lock().map_err(|e| e.to_string())?;
-        let f = Arc::new(AtomicBool::new(false));
-        map.insert(request_id.clone(), f.clone());
-        f
-    };
-    // Guard чистит запись при любом выходе из функции (в т.ч. по "?" и return)
-    let _abort_guard = AbortGuard {
-        registry: &*registry,
-        request_id: request_id.clone(),
-    };
-
     let mut stream = resp.bytes_stream();
     let mut buf: Vec<u8> = Vec::new();
     let mut acc: Box<dyn StreamFeed + Send> = if anthropic {
@@ -1345,13 +1457,29 @@ async fn chat_stream(
         Box::new(SseAccumulator::default())
     };
 
-    while let Some(chunk) = stream.next().await {
+    // Idle-watchdog вместо общего таймаута запроса: долгие прогоны (thinking,
+    // большие ответы) легальны, а «зависший» без байт стрим режется по 120 с тишины
+    const STREAM_IDLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
+    // Потолок буфера неполной строки: провайдер, шлющий байты без '\n' — сломан
+    const SSE_BUF_LIMIT: usize = 1024 * 1024;
+
+    loop {
+        let chunk = match tokio::time::timeout(STREAM_IDLE_TIMEOUT, stream.next()).await {
+            Ok(item) => item,
+            Err(_) => return Err("stream idle: no data for 120s".to_string()),
+        };
+        let Some(chunk) = chunk else {
+            break;
+        };
         // Прерывание: агент ушёл «в бесконечное размышление» — гасим поток
         if flag.load(Ordering::Relaxed) {
             return Ok(());
         }
         let bytes = chunk.map_err(|e| format!("stream interrupted: {e}"))?;
         buf.extend_from_slice(&bytes);
+        if buf.len() > SSE_BUF_LIMIT {
+            return Err("stream buffer overflow: no line breaks in 1MB of data".to_string());
+        }
 
         for line in take_complete_lines(&mut buf) {
             if flag.load(Ordering::Relaxed) {
@@ -1455,6 +1583,9 @@ pub struct SseAccumulator {
     tool_calls: Vec<StreamToolCall>,
     saw_tool_call: bool,
     finish_reason: Option<String>,
+    /// Финальный usage-чанк OpenAI (`choices: []`) повторно триггерит
+    /// finish_reason — ToolCallsFinished эмитится ровно один раз
+    tool_calls_emitted: bool,
 }
 
 impl SseAccumulator {
@@ -1530,7 +1661,11 @@ impl SseAccumulator {
         }
 
         // Вызов закрыт: парсим склеенные аргументы один раз
-        if self.finish_reason.as_deref() == Some("tool_calls") && self.saw_tool_call {
+        if self.finish_reason.as_deref() == Some("tool_calls")
+            && self.saw_tool_call
+            && !self.tool_calls_emitted
+        {
+            self.tool_calls_emitted = true;
             let mut calls = self.tool_calls.clone();
             for c in &mut calls {
                 if c.arguments.trim().is_empty() {
@@ -2232,6 +2367,7 @@ fn shortcuts_save(app: tauri::AppHandle, binds: serde_json::Value) -> Result<(),
 /// Прочитать манифест плагина (plugin.json) из папки или файла
 #[tauri::command]
 fn plugin_read(path: String) -> Result<serde_json::Value, String> {
+    rejects_sensitive_path(&path)?;
     let p = std::path::PathBuf::from(&path);
     let manifest = if p.is_dir() { p.join("plugin.json") } else { p };
     let data = fs::read_to_string(&manifest)
@@ -2368,7 +2504,15 @@ fn computer_set_config(
 
 #[tauri::command(async)]
 fn imagegen_get_config() -> imagegen::ImageGenConfig {
-    imagegen::config()
+    let mut cfg = imagegen::config();
+    // На диске и в памяти после старта ключ может лежать зашифрованным —
+    // для отображения в настройках расшифровываем, если хранилище открыто
+    if crypto::is_encrypted(&cfg.api_key) {
+        if let Some(plain) = crypto::decrypt(&cfg.api_key) {
+            cfg.api_key = plain;
+        }
+    }
+    cfg
 }
 
 #[tauri::command(async)]
@@ -2376,7 +2520,16 @@ fn imagegen_set_config(
     app: tauri::AppHandle,
     config: imagegen::ImageGenConfig,
 ) -> Result<(), String> {
-    save_json_config(&app, "imagegen.json", &config)?;
+    // На диск ключ уходит зашифрованным (как ключи settings/profiles),
+    // в памяти остаётся открытым текстом для запросов к провайдеру
+    let mut for_disk = config.clone();
+    if crypto::has_key()
+        && !for_disk.api_key.is_empty()
+        && !crypto::is_encrypted(&for_disk.api_key)
+    {
+        for_disk.api_key = crypto::encrypt(&for_disk.api_key)?;
+    }
+    save_json_config(&app, "imagegen.json", &for_disk)?;
     imagegen::set_config(config);
     Ok(())
 }
@@ -2410,6 +2563,7 @@ fn sound_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 /// возвращает "имя файла|расширение" для отображения
 #[tauri::command(async)]
 fn sound_import(app: tauri::AppHandle, src: String) -> Result<String, String> {
+    rejects_sensitive_path(&src)?;
     let src_path = PathBuf::from(&src);
     // Обход каталогов через «..» запрещён — путь должен указывать на файл напрямую
     if src_path
@@ -2495,7 +2649,7 @@ fn browser_view_start(app: tauri::AppHandle) -> Result<(), String> {
         while BROWSER_VIEW_ACTIVE.load(Ordering::SeqCst) {
             let conn = {
                 let reg = app.state::<browser::BrowserRegistry>();
-                let guard = reg.0.lock().unwrap();
+                let guard = reg.0.lock().unwrap_or_else(|p| p.into_inner());
                 guard.clone()
             };
             let mut payload = json!({ "data": Value::Null, "url": "" });
@@ -2533,7 +2687,7 @@ fn browser_view_size(app: tauri::AppHandle, w: Option<i64>, h: Option<i64>) -> R
     use tauri::Manager;
     let conn = {
         let reg = app.state::<browser::BrowserRegistry>();
-        let guard = reg.0.lock().unwrap();
+        let guard = reg.0.lock().unwrap_or_else(|p| p.into_inner());
         guard.clone()
     };
     if let Some(conn) = conn {
@@ -2618,7 +2772,7 @@ fn perm_set(mode: String, roots: Vec<String>) -> Result<(), String> {
         "full" => perm::PermMode::Full,
         other => return Err(format!("unknown permission mode: {other}")),
     };
-    perm::set(perm::PermState { mode, roots });
+    perm::set(perm::PermState { mode, roots, synced: true });
     Ok(())
 }
 
@@ -2659,9 +2813,20 @@ fn get_tool_schemas(
         if imagegen::config().enabled {
             arr.push(imagegen::imagegen_tool_schema());
         }
+        // Фронтовые инструменты: исполнение целиком на вебвью (App.tsx),
+        // Rust отдаёт только схемы
+        arr.extend(frontend_tool_schemas());
+    }
+    merged
+}
+
+/// Схемы инструментов, которые исполняются на фронтенде, а не в Rust:
+/// субагенты, план задач и вопрос пользователю (ask_user)
+fn frontend_tool_schemas() -> Vec<serde_json::Value> {
+    vec![
         // Субагенты: исполнение на фронтенде (вложенный цикл в App), но
         // схема должна быть в списке, чтобы главный агент мог вызвать
-        arr.push(serde_json::json!({
+        serde_json::json!({
             "type": "function",
             "function": {
                 "name": "subagent_run",
@@ -2681,10 +2846,10 @@ fn get_tool_schemas(
                     "required": ["role", "task"]
                 }
             }
-        }));
+        }),
         // План задач: исполнение целиком на фронтенде (App парсит tasks и
         // обновляет виджет Progress в чате), Rust нужен только как схема
-        arr.push(serde_json::json!({
+        serde_json::json!({
             "type": "function",
             "function": {
                 "name": "plan_update",
@@ -2710,9 +2875,58 @@ fn get_tool_schemas(
                     "required": ["tasks"]
                 }
             }
-        }));
-    }
-    merged
+        }),
+        // Вопрос пользователю: блокирующий выбор из вариантов, ответ —
+        // tool result. Схема всегда в списке у главного агента
+        serde_json::json!({
+            "type": "function",
+            "function": {
+                "name": "ask_user",
+                "description": "Ask the user a blocking question with structured options — ONLY when the decision is truly theirs (scope of work, approach, trade-offs, anything you cannot resolve yourself) and the answer changes what you do next. Do NOT use it for facts you can look up, trivial choices with a conventional default, or to ask permission to proceed. Returns the selected option labels and optional free-text notes.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "question": {
+                            "type": "string",
+                            "description": "The complete question, specific and self-contained. Simple markdown allowed (bold, `code`)"
+                        },
+                        "header": {
+                            "type": "string",
+                            "description": "Very short label for the question chip (max ~12 chars), e.g. 'Auth method'"
+                        },
+                        "options": {
+                            "type": "array",
+                            "minItems": 2,
+                            "maxItems": 4,
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "label": {
+                                        "type": "string",
+                                        "description": "Concise option title (1-5 words). For the recommended option, append ' (Recommended)'"
+                                    },
+                                    "description": {
+                                        "type": "string",
+                                        "description": "What this option means, its trade-offs. One short paragraph"
+                                    },
+                                    "preview": {
+                                        "type": "string",
+                                        "description": "Optional monospace preview (code snippet, mockup, config) shown next to the focused option. Single-select questions only"
+                                    }
+                                },
+                                "required": ["label"]
+                            }
+                        },
+                        "multiSelect": {
+                            "type": "boolean",
+                            "description": "Allow the user to select several options"
+                        }
+                    },
+                    "required": ["question", "options"]
+                }
+            }
+        }),
+    ]
 }
 
 /// История задач: таскаем целиком как JSON-строку, чтобы не дублировать типы.
@@ -2739,6 +2953,37 @@ fn save_sessions(app: tauri::AppHandle, data: String) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn frontend_tool_schemas_are_wellformed() {
+        let schemas = frontend_tool_schemas();
+        let name_of = |v: &serde_json::Value| v["function"]["name"].as_str().unwrap().to_string();
+        let names: Vec<String> = schemas.iter().map(name_of).collect();
+        assert!(names.contains(&"subagent_run".to_string()));
+        assert!(names.contains(&"plan_update".to_string()));
+        assert!(names.contains(&"ask_user".to_string()));
+
+        let ask = schemas
+            .iter()
+            .find(|v| name_of(v) == "ask_user")
+            .unwrap()
+            .clone();
+        let params = &ask["function"]["parameters"];
+        // Обязательные поля вопроса и опций; границы количества опций
+        assert_eq!(params["required"], serde_json::json!(["question", "options"]));
+        let props = &params["properties"];
+        assert_eq!(
+            props["options"]["items"]["required"],
+            serde_json::json!(["label"])
+        );
+        assert_eq!(props["options"]["minItems"], serde_json::json!(2));
+        assert_eq!(props["options"]["maxItems"], serde_json::json!(4));
+        // multiSelect и preview объявлены (v2-поля, схема должна их нести)
+        assert!(props.get("multiSelect").is_some());
+        assert!(props["options"]["items"]["properties"]
+            .get("preview")
+            .is_some());
+    }
 
     fn feed_lines(acc: &mut SseAccumulator, lines: &[&str]) -> Vec<FeedEvent> {
         let mut all = Vec::new();

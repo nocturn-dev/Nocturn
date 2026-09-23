@@ -335,16 +335,18 @@ export class Vt {
       } else if (p === 49) this.style.bg = undefined;
       else if (p === 38 || p === 48) {
         const target = p === 38 ? "color" : "bg";
+        // i-инкремент цикла (+1) учитываем в сдвиге: после 38;5;C следующая
+        // итерация должна начаться с параметра C+1, после 38;2;r;g;b — с b+1
         if (nums[i + 1] === 5) {
           const c = color256(nums[i + 2] ?? 0);
           if (target === "color") this.style.color = c;
           else this.style.bg = c;
-          i += 3;
+          i += 2;
         } else if (nums[i + 1] === 2) {
           const c = `rgb(${nums[i + 2] ?? 0},${nums[i + 3] ?? 0},${nums[i + 4] ?? 0})`;
           if (target === "color") this.style.color = c;
           else this.style.bg = c;
-          i += 5;
+          i += 4;
         }
       }
     }

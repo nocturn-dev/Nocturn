@@ -27,12 +27,14 @@ pub enum PermMode {
 pub struct PermState {
     pub mode: PermMode,
     pub roots: Vec<String>,
+    /// true после первого perm_set: фронт синхронизировал режим задачи
+    pub synced: bool,
 }
 
 /// Глобальное состояние (одно на процесс). None = ещё не синхронизировано
 static PERM: Mutex<Option<PermState>> = Mutex::new(None);
 
-/// Текущее состояние; до первого perm_set — Ask без корней (дефолт фронта)
+/// Текущее состояние; до первого perm_set — Ask без корней и без синхронизации
 pub(crate) fn current() -> PermState {
     PERM.lock()
         .ok()
@@ -40,6 +42,7 @@ pub(crate) fn current() -> PermState {
         .unwrap_or(PermState {
             mode: PermMode::Ask,
             roots: Vec::new(),
+            synced: false,
         })
 }
 
@@ -66,6 +69,12 @@ pub(crate) fn decide(state: &PermState, name: &str, path: Option<&str>) -> Resul
         return Ok(());
     }
     let mutating = matches!(name, "fs_write" | "fs_delete" | "shell_run");
+    // Гонка IPC: perm_set летит fire-and-forget, run_tool может обогнать его.
+    // Пока фронт ни разу не синхронизировал режим, мутации под запретом —
+    // иначе окно «дефолтного Ask» пропускает shell_run даже в Plan-задаче
+    if !state.synced && mutating {
+        return Err("permission mode not synchronized yet; retry shortly".to_string());
+    }
     match state.mode {
         // План: запись и команды блокируются, чтение — с path-контролем
         PermMode::Plan => {
@@ -116,21 +125,56 @@ fn check_fs_path(state: &PermState, path: Option<&str>) -> Result<(), String> {
     }
 }
 
-/// Лежит ли path внутри одного из roots. Обе стороны нормализуются к нижнему
-/// регистру и обратным слэшам (Windows-стиль), префикс сравнивается с учётом
-/// границы компонента: "c:\proj" не матчит "c:\project". Относительные пути
-/// запрещены — модель должна слать абсолютные (так предсказуемее).
+/// Лежит ли path внутри одного из roots. Строковая нормализация дополнена
+/// резолвом через fs::canonicalize: он раскрывает `..`, symlink/junction и
+/// 8.3-короткие имена, которые чисто строковое сравнение пропускает как
+/// «внутри корня». Явные `..`/`.` в компонентах запрещены сразу; пути,
+/// которые не удалось резолвить (несуществующее поддерево), сравниваются
+/// строково — как и раньше. Относительные пути запрещены.
 fn path_allowed(roots: &[String], path: &str) -> bool {
-    let norm = |s: &str| s.to_lowercase().replace('/', "\\");
+    let norm = |s: &str| {
+        let mut s = s.to_lowercase().replace('/', "\\");
+        // canonicalize на Windows возвращает \\?\C:\... (или \\?\UNC\srv\share)
+        if let Some(rest) = s.strip_prefix("\\\\?\\unc\\") {
+            s = format!("\\\\{rest}");
+        } else if let Some(rest) = s.strip_prefix("\\\\?\\") {
+            s = rest.to_string();
+        }
+        s
+    };
     let p = norm(path);
     // Относительный путь (нет диска/UNC-префикса) — сразу запрещаем
     if !p.contains(':') && !p.starts_with('\\') {
         return false;
     }
+    // Подъём по дереву и «текущая папка» — запрещаем до всякого резолва:
+    // ОС резолвит их уже после нашей проверки префикса
+    if p.split('\\').any(|c| c == ".." || c == ".") {
+        return false;
+    }
+    let resolved = match canonicalize_for_compare(std::path::Path::new(path)) {
+        Some(r) => norm(&r.to_string_lossy()),
+        None => p.clone(),
+    };
     roots.iter().any(|r| {
-        let root = norm(r);
-        p == root || p.starts_with(&format!("{root}\\"))
+        let nr = match canonicalize_for_compare(std::path::Path::new(r)) {
+            Some(rr) => norm(&rr.to_string_lossy()),
+            None => norm(r),
+        };
+        resolved == nr || resolved.starts_with(&format!("{nr}\\"))
     })
+}
+
+/// Канонизация для сравнения путей: резолвит существующий путь; для ещё не
+/// существующего файла — существующего родителя + имя файла. None — резолвить
+/// нечего (нет ни пути, ни родителя): вызывающий падает в строковое сравнение.
+fn canonicalize_for_compare(path: &std::path::Path) -> Option<std::path::PathBuf> {
+    if let Ok(c) = std::fs::canonicalize(path) {
+        return Some(c);
+    }
+    let parent = path.parent()?;
+    let real_parent = std::fs::canonicalize(parent).ok()?;
+    Some(real_parent.join(path.file_name()?))
 }
 
 #[cfg(test)]
@@ -144,6 +188,7 @@ mod tests {
         PermState {
             mode,
             roots: roots.iter().map(|s| s.to_string()).collect(),
+            synced: true,
         }
     }
 
@@ -168,6 +213,36 @@ mod tests {
     #[test]
     fn relative_path_rejected() {
         assert!(!path_allowed(&[ROOT.to_string()], "src\\a.rs"));
+    }
+
+    #[test]
+    fn traversal_rejected() {
+        // Подъём по дереву: префикс совпадает, но ОС уводит путь за корень
+        assert!(!path_allowed(
+            &[ROOT.to_string()],
+            "C:\\proj\\..\\..\\Windows\\system32\\x"
+        ));
+    }
+
+    #[test]
+    fn dot_component_rejected() {
+        assert!(!path_allowed(&[ROOT.to_string()], "C:\\proj\\.\\..\\x"));
+    }
+
+    #[test]
+    fn device_prefix_cannot_escape() {
+        // \\?\-путь мимо корня не должен пройти проверку префикса
+        assert!(!path_allowed(&[ROOT.to_string()], "\\\\?\\C:\\Windows\\x"));
+    }
+
+    #[test]
+    fn not_synced_blocks_mutating() {
+        let mut st = state(PermMode::Plan, &[]);
+        st.synced = false;
+        assert!(decide(&st, "shell_run", None).is_err());
+        assert!(decide(&st, "fs_write", Some("C:\\proj\\a")).is_err());
+        // Чтение до синхронизации не блокируем
+        assert!(decide(&st, "fs_read", Some("C:\\proj\\a")).is_ok());
     }
 
     // ---------- decide ----------

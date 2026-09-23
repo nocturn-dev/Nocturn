@@ -11,6 +11,20 @@ export interface ToolCallInfo {
   arguments: string;
 }
 
+/** Вопрос пользователю от агента (инструмент ask_user) */
+export interface AskQuestion {
+  question: string;
+  /** Короткий ярлык-заголовок карточки */
+  header?: string;
+  options: { label: string; description?: string; preview?: string }[];
+  /** Разрешить выбор нескольких вариантов */
+  multiSelect?: boolean;
+  /** Ответ пользователя. null/undefined — ответа ещё нет */
+  answer?: { answers: string[]; custom?: string } | null;
+  /** Вопрос закрыт без ответа (Stop / конец прогона) */
+  cancelled?: boolean;
+}
+
 export interface Message {
   id: string;
   role: Role;
@@ -25,6 +39,8 @@ export interface Message {
   usage?: { prompt: number; completion: number; total: number };
   /** Вызовы инструментов (агентный режим) */
   toolCalls?: ToolCallInfo[];
+  /** Вопрос пользователю (ask_user): задан этим сообщением */
+  ask?: AskQuestion;
   /** Для role: "tool" — id вызова, к которому относится результат */
   toolCallId?: string;
   /** Для role: "tool" — имя исполнявшегося инструмента (старые сообщения — без него, ищем по toolCallId) */

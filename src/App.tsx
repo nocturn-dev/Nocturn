@@ -14,6 +14,13 @@ import type {
 import { useLang } from "./locales";
 import { parseWriteResult, normalizePath } from "./diff";
 import { dayKeyLocal } from "./time";
+import {
+  InteractionRegistry,
+  firstConfirm,
+  type AskUserSpec,
+  type Interaction,
+  type InteractionResolution,
+} from "./interactions";
 import CryptoGate from "./components/CryptoGate";
 
 /** Ошибки провайдера, которые имеет смысл ретраить: перегрузка/лимиты/сеть */
@@ -53,6 +60,7 @@ import {
   notesRead,
   notesWrite,
   notesDelete,
+  keepAwake,
   DEFAULT_SETTINGS,
   type ApiSettings,
   type ApiProfile,
@@ -408,11 +416,22 @@ export default function App() {
     localStorage.setItem("haloui-effort", effort);
   }, [effort]);
   const [streamingId, setStreamingId] = useState<string | null>(null);
-  const [pendingConfirm, setPendingConfirm] = useState<{
-    requestId: string;
-    call: ToolCallInfo;
-  } | null>(null);
-  const confirmResolverRef = useRef<((d: "once" | "always" | "deny") => void) | null>(null);
+  // Ожидающие взаимодействия агента (подтверждение инструмента, вопрос ask_user)
+  const [interactions, setInteractions] = useState<Interaction[]>([]);
+  const interactionsRef = useRef(new InteractionRegistry());
+  const openInteraction = useCallback((i: Interaction, resolve: (r: InteractionResolution) => void) => {
+    interactionsRef.current.open(i, resolve);
+    setInteractions((prev) => [...prev, i]);
+  }, []);
+  const resolveInteraction = useCallback((id: string, r: InteractionResolution) => {
+    if (interactionsRef.current.resolve(id, r)) {
+      setInteractions((prev) => prev.filter((x) => x.id !== id));
+    }
+  }, []);
+  const cancelInteractions = useCallback(() => {
+    interactionsRef.current.cancelAll();
+    setInteractions([]);
+  }, []);
   const [promptLibrary, setPromptLibrary] = useState<PromptPreset[]>(() =>
     loadPromptLibrary(),
   );
@@ -449,6 +468,14 @@ export default function App() {
     document.documentElement.classList.toggle("light", theme === "light");
     localStorage.setItem("haloui-theme", theme);
   }, [theme]);
+
+  // «Не давать ПК уснуть»: тумблер переживает перезапуск, но ОС-уровневый
+  // флаг сбрасывается вместе с процессом — восстанавливаем при старте
+  useEffect(() => {
+    if (localStorage.getItem("haloui-keep-awake") === "1") {
+      void keepAwake(true).catch(() => {});
+    }
+  }, []);
 
   // Эффект стекла — независимый слой поверх любой темы
   useEffect(() => {
@@ -706,7 +733,7 @@ export default function App() {
               ) {
                 const backfill: UsageEvent[] = [];
                 for (const s of parsed) {
-                  const day = new Date(s.createdAt).toISOString().slice(0, 10);
+                  const day = dayKeyLocal(new Date(s.createdAt));
                   for (const m of s.messages) {
                     if (m.role === "assistant" && m.usage) {
                       backfill.push({
@@ -861,26 +888,29 @@ export default function App() {
   /** Сабмит из окна гейта: создание пароля, разблокировка или отключение шифрования */
   const handleGateSubmit = useCallback(
     async (password: string) => {
-      if (cryptoGate === "create") {
-        await cryptoSetup(password);
-        if (encPendingRef.current) {
-          await setKeyEncryption(true);
-          encPendingRef.current = false;
+      // cryptoSetup/cryptoUnlock бросают при неверном пароле — гейт показывает ошибку
+      try {
+        if (cryptoGate === "create") {
+          await cryptoSetup(password);
+          if (encPendingRef.current) {
+            await setKeyEncryption(true);
+            encPendingRef.current = false;
+          }
+          await reloadSecrets();
+          setCryptoGate("none");
+          return true;
+        }
+        // unlock и disable: сначала проверяем пароль
+        await cryptoUnlock(password);
+        if (cryptoGate === "disable") {
+          await setKeyEncryption(false);
         }
         await reloadSecrets();
         setCryptoGate("none");
         return true;
+      } catch {
+        return false;
       }
-      // unlock и disable: сначала проверяем пароль (бросает исключение при неверном)
-      await cryptoUnlock(password);
-      if (cryptoGate === "disable") {
-        await setKeyEncryption(false);
-        await reloadSecrets();
-      } else {
-        await reloadSecrets();
-      }
-      setCryptoGate("none");
-      return true;
     },
     [cryptoGate, reloadSecrets],
   );
@@ -1034,6 +1064,12 @@ export default function App() {
   }, [sessions]);
 
   const activeSession = sessions.find((s) => s.id === activeId) ?? null;
+  // Снимок для длинных агентных прогонов: в уведомлениях должно быть
+  // актуальное название задачи/проект/модель, а не замыкание на момент старта
+  const activeSessionRef = useRef(activeSession);
+  useEffect(() => {
+    activeSessionRef.current = activeSession;
+  }, [activeSession]);
 
   // ---------- Уведомления о завершении / подтверждении (когда окно не в фокусе) ----------
   // Конфиг субагентов (M3): роли/параллельность/тумблер — subagents.json
@@ -1456,7 +1492,8 @@ export default function App() {
     }
 
     const requestId = uid();
-    streamingRef.current.set(requestId, requestId);
+    // requestId → id ассистентского сообщения выставляется при его создании
+    // (в агентном режиме — на каждый шаг цикла)
     setStreamingId(requestId);
     setTyping(true);
     setActivity(t("activity.thinking"));
@@ -1492,6 +1529,9 @@ export default function App() {
       setStreamingId(null);
       streamingRef.current.delete(requestId);
       abortedRef.current.delete(requestId);
+      // Взаимодействия не должны пережить прогон (страховка: цикл обязан
+      // был закрыть их сам, но Stop/finalize по исключению — гасим разом)
+      cancelInteractions();
       // Хук Stop: уведомления и т.п. (fire-and-forget, не блокирует UI)
       hooksRunEvent("Stop", { event: "Stop" }).catch(() => {});
       // Поправки, пришедшие во время ПОСЛЕДНЕГО шага: стрим уже завершён,
@@ -1525,8 +1565,8 @@ export default function App() {
       void notifyTaskDone(
         notifyPrefsRef.current,
         t("notify.doneTitle"),
-        notifyMeta(activeSession),
-        activeSession?.title ?? "",
+        notifyMeta(activeSessionRef.current),
+        activeSessionRef.current?.title ?? "",
       );
       if (usageAcc.prompt + usageAcc.completion > 0) {
         setUsageLog((prev) => [
@@ -1612,6 +1652,21 @@ export default function App() {
     ];
 
     const isAgent = current?.agentMode ?? false;
+
+    // Заголовок по первому сообщению: `current` — снимок сессии до pushMessage,
+    // поэтому сравнение идёт с изначальным числом сообщений
+    if ((current?.messages ?? []).length === 0) {
+      setSessions((prev) =>
+        prev.map((s) =>
+          s.id === targetId
+            ? {
+                ...s,
+                title: (text || images[0]?.name || t("chat.imageTitle")).slice(0, 48),
+              }
+            : s,
+        ),
+      );
+    }
     // Новый прогон — чекпоинт ещё не снят
     runCheckpointRef.current = false;
     const tools = isAgent
@@ -1669,6 +1724,7 @@ export default function App() {
           "Задач максимум 12, формулировки короткие и конкретные (глагол + объект).",
           "Полный список передавай каждый раз: вызов plan_update целиком заменяет предыдущий план.",
           "Пользователь может отправлять корректирующие сообщения во время работы — они появляются как user-сообщения между твоими раундами. Учитывай их и корректируй курс.",
+          "Инструмент ask_user задаёт пользователю блокирующий вопрос с вариантами ответа. Используй его ТОЛЬКО когда решение действительно за пользователем (объём работы, выбор подхода, компромиссы) и ответ меняет твои дальнейшие действия; не спрашивай о том, что можно узнать самому, о тривиальных вещах с очевидным дефолтом и о разрешении продолжать. Максимум один-два вопроса за задачу.",
         ].join(" "),
       });
     }
@@ -1676,20 +1732,8 @@ export default function App() {
     // ---------- Одиночный режим: один стрим, без инструментов ----------
     if (!isAgent) {
       const assistantId = uid();
+      streamingRef.current.set(requestId, assistantId);
       pushMessage({ id: assistantId, role: "assistant", content: "", thought: "", model: apiSettings.model });
-      setSessions((prev) =>
-        prev.map((s) =>
-          s.id === targetId
-            ? {
-                ...s,
-                title:
-                    s.messages.length === 0
-                      ? (text || images[0]?.name || t("chat.imageTitle")).slice(0, 48)
-                      : s.title,
-              }
-            : s,
-        ),
-      );
       try {
         await chatWithRetry({
           requestId,
@@ -1745,14 +1789,16 @@ export default function App() {
 
     const askConfirm = (call: ToolCallInfo) =>
       new Promise<"once" | "always" | "deny">((resolve) => {
-        confirmResolverRef.current = resolve;
-        setPendingConfirm({ requestId, call });
+        openInteraction(
+          { id: uid(), kind: "confirm", requestId, call },
+          (r) => resolve(r.kind === "confirm" ? r.decision : "deny"),
+        );
         // Пользователь может быть в другом приложении — уведомить о запросе
         void notifyTaskDone(
           notifyPrefsRef.current,
           t("notify.confirmTitle"),
-          notifyMeta(activeSession),
-          activeSession?.title ?? "",
+          notifyMeta(activeSessionRef.current),
+          activeSessionRef.current?.title ?? "",
         );
       });
 
@@ -1762,11 +1808,15 @@ export default function App() {
       injectCorrections();
 
       const assistantId = uid();
+      streamingRef.current.set(requestId, assistantId);
       pushMessage({ id: assistantId, role: "assistant", content: "", thought: "", model: apiSettings.model });
       setTyping(true);
       setActivity(t("activity.thinking"));
 
       const toolCallsHolder: { calls: ToolCallInfo[] | null } = { calls: null };
+      // Текст, отстрименный до вызова инструментов, — попадёт в историю
+      // вместе с tool_calls, иначе модель «забывает» то, что уже написала
+      let streamedText = "";
       let failed = false;
       try {
         await chatWithRetry({
@@ -1777,7 +1827,10 @@ export default function App() {
           reasoningEffort: effortRef.current,
           messages: history,
           tools,
-          onDelta: (delta) => appendTo(assistantId, delta, ""),
+          onDelta: (delta) => {
+            streamedText += delta;
+            appendTo(assistantId, delta, "");
+          },
           onThought: (thought) => appendTo(assistantId, "", thought),
           onUsage: (usage) => {
             usageAcc.prompt += usage.prompt;
@@ -1824,10 +1877,11 @@ export default function App() {
       if (failed || !toolCalls || toolCalls.length === 0) return finalize();
       if (abortedRef.current.has(requestId)) return finalize();
 
-      // Вызовы инструментов в истории как assistant.tool_calls
+      // Вызовы инструментов в истории как assistant.tool_calls;
+      // отстрименный до вызова текст не теряется
       history.push({
         role: "assistant",
-        content: null,
+        content: streamedText || null,
         tool_calls: toolCalls.map((tc) => ({
           id: tc.id,
           type: "function",
@@ -1929,6 +1983,126 @@ export default function App() {
           name: call.name,
           content: planContent,
         });
+      }
+
+      // Вопросы пользователю (ask_user): карточка в чате, цикл блокируется
+      // до ответа; результат возвращается модели tool result'ом
+      const askCalls = toolCalls.filter((c) => c.name === "ask_user");
+      for (const call of askCalls) {
+        if (abortedRef.current.has(requestId)) return finalize();
+        setActivity(t("activity.toolRun", { name: call.name }));
+
+        const finishAsk = (content: string) => {
+          pushMessage({
+            id: uid(),
+            role: "tool",
+            content,
+            toolCallId: call.id,
+            toolName: call.name,
+          });
+          history.push({
+            role: "tool",
+            tool_call_id: call.id,
+            name: call.name,
+            content,
+          });
+        };
+
+        // Валидация: вопрос + 2–4 опции с label, иначе — ошибка модели
+        let parsedSpec: AskUserSpec | null = null;
+        try {
+          const parsed = JSON.parse(call.arguments) as Partial<AskUserSpec>;
+          const options = Array.isArray(parsed.options)
+            ? parsed.options
+                .filter(
+                  (o): o is AskUserSpec["options"][number] =>
+                    !!o && typeof o.label === "string" && o.label.trim() !== "",
+                )
+                .slice(0, 4)
+            : [];
+          if (
+            typeof parsed.question === "string" &&
+            parsed.question.trim() !== "" &&
+            options.length >= 2
+          ) {
+            parsedSpec = {
+              question: parsed.question,
+              header:
+                typeof parsed.header === "string" && parsed.header.trim()
+                  ? parsed.header.slice(0, 24)
+                  : undefined,
+              options,
+              multiSelect: parsed.multiSelect === true,
+            };
+          }
+        } catch {
+          parsedSpec = null;
+        }
+        if (!parsedSpec) {
+          finishAsk(
+            "error: ask_user requires question (non-empty string) and options (2-4 items, each with a label)",
+          );
+          continue;
+        }
+        const spec: AskUserSpec = parsedSpec;
+
+        // Первый вопрос шага — на сообщении шага (assistantId), дополнительные
+        // (редкий батч) — отдельными сообщениями-карточками
+        const askMsgId = uid();
+        if (call === askCalls[0]) {
+          setSessions((prev) =>
+            prev.map((s) => ({
+              ...s,
+              messages: s.messages.map((m) =>
+                m.id === assistantId
+                  ? { ...m, ask: { ...spec, answer: null } }
+                  : m,
+              ),
+            })),
+          );
+        } else {
+          pushMessage({
+            id: askMsgId,
+            role: "assistant",
+            content: "",
+            ask: { ...spec, answer: null },
+          });
+        }
+
+        const answer = await new Promise<{ answers: string[]; custom?: string } | null>(
+          (resolve) => {
+            openInteraction(
+              { id: uid(), kind: "ask", requestId, msgId: askMsgId, spec },
+              (r) => resolve(r.kind === "ask" ? r.answer : null),
+            );
+            // Пользователь мог уйти в другое приложение — уведомить
+            void notifyTaskDone(
+              notifyPrefsRef.current,
+              t("ask.notifyTitle"),
+              notifyMeta(activeSessionRef.current),
+              activeSessionRef.current?.title ?? "",
+            );
+          },
+        );
+        setActivity(null);
+
+        if (!answer || abortedRef.current.has(requestId)) {
+          // Закрыто без ответа (Stop): карточка помечается, модель получает отказ
+          setSessions((prev) =>
+            prev.map((s) => ({
+              ...s,
+              messages: s.messages.map((m) =>
+                m.id === askMsgId && m.ask
+                  ? { ...m, ask: { ...m.ask, cancelled: true } }
+                  : m,
+              ),
+            })),
+          );
+          finishAsk("user did not answer (question cancelled)");
+          if (abortedRef.current.has(requestId)) return finalize();
+          continue;
+        }
+        finishAsk(JSON.stringify({ ok: true, ...answer }));
       }
       const runOneSubagent = async (call: ToolCallInfo): Promise<void> => {
         let subContent: string;
@@ -2046,6 +2220,7 @@ ${report}`;
         if (abortedRef.current.has(requestId)) return finalize();
         if (call.name === "subagent_run") continue; // уже исполнены выше
         if (call.name === "plan_update") continue; // уже исполнены выше (фронтенд)
+        if (call.name === "ask_user") continue; // уже исполнены выше (фронтенд)
 
         // Разрешения внутри прогона ограничены allowlist роли — главный
         // агент уже принял решение о запуске
@@ -2183,10 +2358,8 @@ ${report}`;
     abortedRef.current.add(streamingId);
     // Реальная отмена: Rust поднимает флаг и гасит поток
     void abortChat(streamingId).catch(() => {});
-    // Если агент ждал подтверждения — отклоняем, цикл завершится
-    confirmResolverRef.current?.("deny");
-    confirmResolverRef.current = null;
-    setPendingConfirm(null);
+    // Если агент ждал подтверждения/ответа — закрываем, цикл завершится
+    cancelInteractions();
     const msgId = streamingRef.current.get(streamingId);
     if (msgId) {
       setSessions((prev) =>
@@ -2231,9 +2404,28 @@ ${report}`;
 
   // Быстрая роль: применяется к активной задаче, если её нет — создаём
   const handleConfirmDecision = (d: "once" | "always" | "deny") => {
-    confirmResolverRef.current?.(d);
-    confirmResolverRef.current = null;
-    setPendingConfirm(null);
+    // Карточка [y/n/a] показывает первое confirm-взаимодействие — его и решаем
+    const pending = interactions.find((i) => i.kind === "confirm");
+    if (pending) resolveInteraction(pending.id, { kind: "confirm", decision: d });
+  };
+
+  /** Ответ на вопрос агента (ask_user): пометить карточку и разбудить цикл */
+  const handleAskAnswer = (
+    mid: string,
+    answer: { answers: string[]; custom?: string },
+  ) => {
+    setSessions((prev) =>
+      prev.map((s) => ({
+        ...s,
+        messages: s.messages.map((m) =>
+          m.id === mid && m.ask ? { ...m, ask: { ...m.ask, answer } } : m,
+        ),
+      })),
+    );
+    const pending = interactions.find((i) => i.kind === "ask" && i.msgId === mid);
+    if (pending && pending.kind === "ask") {
+      resolveInteraction(pending.id, { kind: "ask", answer });
+    }
   };
 
   // Открыть заметку. Принимает имя файла ИЛИ заголовок: как в Obsidian,
@@ -2846,7 +3038,16 @@ ${report}`;
         agentMode={activeSession?.agentMode ?? false}
         permissionMode={activeSession?.permissionMode ?? "ask"}
         onPermissionModeChange={handleSetPermissionMode}
-        pendingConfirm={pendingConfirm}
+        pendingConfirm={(() => {
+          const c = firstConfirm(interactions);
+          return c && c.kind === "confirm"
+            ? { requestId: c.requestId, call: c.call }
+            : null;
+        })()}
+        pendingAskIds={interactions
+          .filter((i) => i.kind === "ask")
+          .map((i) => (i.kind === "ask" ? i.msgId : ""))}
+        onAskAnswer={handleAskAnswer}
         onConfirmDecision={handleConfirmDecision}
         promptPresets={builtinPresetsFor(lang)}
         customPresets={promptLibrary}

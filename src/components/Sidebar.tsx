@@ -951,8 +951,8 @@ function FileTree({
 }) {
   const { lang, t } = useLang();
   const [open, setOpen] = useState<Set<string>>(() => new Set([root]));
-  // Кэш содержимого папок: path → entries | "error"
-  const [cache, setCache] = useState<Map<string, FileEntry[] | "error">>(
+  // Кэш содержимого папок: path → entries | "error" | "loading"
+  const [cache, setCache] = useState<Map<string, FileEntry[] | "error" | "loading">>(
     () => new Map(),
   );
 
@@ -960,7 +960,7 @@ function FileTree({
     if (cache.has(path)) return;
     setCache((prev) => {
       const next = new Map(prev);
-      next.set(path, []); // плейсхолдер, чтобы не грузить повторно
+      next.set(path, "loading"); // плейсхолдер, чтобы не грузить повторно
       return next;
     });
     listDir(path)
@@ -1014,7 +1014,7 @@ function FileTree({
 
   const renderEntries = (path: string, depth: number): React.ReactNode => {
     const entries = cache.get(path);
-    if (!entries || entries === "error") {
+    if (!entries || entries === "error" || entries === "loading") {
       return entries === "error" ? (
         <p className="py-1 text-[11px] text-red-400/80" style={{ paddingLeft: depth * 14 + 30 }}>
           {t("files.error")}

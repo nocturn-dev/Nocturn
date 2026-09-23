@@ -36,11 +36,11 @@ impl Default for ComputerConfig {
 pub static CONFIG: Mutex<Option<ComputerConfig>> = Mutex::new(None);
 
 pub fn config() -> ComputerConfig {
-    CONFIG.lock().unwrap().clone().unwrap_or_default()
+    CONFIG.lock().unwrap_or_else(|p| p.into_inner()).clone().unwrap_or_default()
 }
 
 pub fn set_config(cfg: ComputerConfig) {
-    *CONFIG.lock().unwrap() = Some(cfg);
+    *CONFIG.lock().unwrap_or_else(|p| p.into_inner()) = Some(cfg);
 }
 
 // ---------------------------------------------------------------------------

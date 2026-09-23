@@ -68,11 +68,11 @@ impl Default for BrowserConfig {
 pub static CONFIG: Mutex<Option<BrowserConfig>> = Mutex::new(None);
 
 pub fn config() -> BrowserConfig {
-    CONFIG.lock().unwrap().clone().unwrap_or_default()
+    CONFIG.lock().unwrap_or_else(|p| p.into_inner()).clone().unwrap_or_default()
 }
 
 pub fn set_config(cfg: BrowserConfig) {
-    *CONFIG.lock().unwrap() = Some(cfg);
+    *CONFIG.lock().unwrap_or_else(|p| p.into_inner()) = Some(cfg);
 }
 
 // ---------------------------------------------------------------------------
@@ -85,7 +85,7 @@ pub struct BrowserRegistry(pub Mutex<Option<Arc<BrowserConnection>>>);
 impl BrowserRegistry {
     /// Текущее живое соединение или запуск нового (ленивая инициализация)
     pub fn get_or_launch(&self) -> Result<Arc<BrowserConnection>, String> {
-        let mut slot = self.0.lock().unwrap();
+        let mut slot = self.0.lock().unwrap_or_else(|p| p.into_inner());
         if let Some(conn) = slot.as_ref() {
             if !conn.is_dead() && conn.child_alive() {
                 return Ok(Arc::clone(conn));
@@ -101,7 +101,7 @@ impl BrowserRegistry {
     }
 
     pub fn kill_all(&self) {
-        if let Some(conn) = self.0.lock().unwrap().take() {
+        if let Some(conn) = self.0.lock().unwrap_or_else(|p| p.into_inner()).take() {
             conn.kill();
         }
     }
@@ -349,16 +349,16 @@ impl BrowserConnection {
     }
 
     fn is_dead(&self) -> bool {
-        *self.dead.lock().unwrap()
+        *self.dead.lock().unwrap_or_else(|p| p.into_inner())
     }
 
     fn mark_dead(&self) {
-        *self.dead.lock().unwrap() = true;
+        *self.dead.lock().unwrap_or_else(|p| p.into_inner()) = true;
     }
 
     /// Жив ли процесс браузера
     fn child_alive(&self) -> bool {
-        matches!(self.child.lock().unwrap().try_wait(), Ok(None))
+        matches!(self.child.lock().unwrap_or_else(|p| p.into_inner()).try_wait(), Ok(None))
     }
 
     /// CDP-запрос с ожиданием ответа по id. Использование строго последовательное:
@@ -387,7 +387,7 @@ impl BrowserConnection {
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let msg = json!({ "id": id, "method": method, "params": params });
 
-        let mut ws = self.ws.lock().unwrap();
+        let mut ws = self.ws.lock().unwrap_or_else(|p| p.into_inner());
         // Таймаут чтения: WouldBlock просто завершает ожидание read(),
         // внутренний буфер tungstenite сохраняет частичные кадры
         if let tungstenite::stream::MaybeTlsStream::Plain(stream) = ws.get_ref() {
@@ -404,7 +404,7 @@ impl BrowserConnection {
         let deadline = Instant::now() + timeout;
         loop {
             if Instant::now() > deadline {
-                self.abandoned.lock().unwrap().insert(id);
+                self.abandoned.lock().unwrap_or_else(|p| p.into_inner()).insert(id);
                 if fatal {
                     self.mark_dead();
                     return Err(format!("browser did not respond to {method} in {}s", timeout.as_secs()));
@@ -444,7 +444,7 @@ impl BrowserConnection {
                 }
                 Some(resp_id) => {
                     // Поздний ответ просроченного запроса — пропускаем
-                    self.abandoned.lock().unwrap().remove(&resp_id);
+                    self.abandoned.lock().unwrap_or_else(|p| p.into_inner()).remove(&resp_id);
                 }
                 None => {} // события CDP (без id) — не нужны, readyState опрашиваем
             }
@@ -544,15 +544,15 @@ impl BrowserConnection {
 
 impl Drop for BrowserConnection {
     fn drop(&mut self) {
-        let _ = self.child.lock().unwrap().kill();
-        let _ = self.child.lock().unwrap().wait();
+        let _ = self.child.lock().unwrap_or_else(|p| p.into_inner()).kill();
+        let _ = self.child.lock().unwrap_or_else(|p| p.into_inner()).wait();
     }
 }
 
 impl BrowserConnection {
     fn kill(&self) {
-        let _ = self.child.lock().unwrap().kill();
-        let _ = self.child.lock().unwrap().wait();
+        let _ = self.child.lock().unwrap_or_else(|p| p.into_inner()).kill();
+        let _ = self.child.lock().unwrap_or_else(|p| p.into_inner()).wait();
     }
 }
 

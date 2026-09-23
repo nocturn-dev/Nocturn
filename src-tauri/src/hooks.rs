@@ -128,11 +128,12 @@ fn exec(hook: &Hook, payload: &serde_json::Value) -> HookOutcome {
     let mut out = HookOutcome::skipped(&hook.id);
     out.ran = true;
 
-    let timeout = Duration::from_secs(if hook.timeout == 0 {
-        30
+    // timeout 0 — без таймаута (ждём завершения хука), иначе ограничение 1..600 с
+    let timeout = if hook.timeout == 0 {
+        Duration::MAX
     } else {
-        hook.timeout.clamp(1, 600)
-    });
+        Duration::from_secs(hook.timeout.clamp(1, 600))
+    };
 
     let (shell, flag) = if cfg!(windows) {
         ("cmd", "/C")

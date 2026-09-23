@@ -25,6 +25,10 @@ pub fn has_key() -> bool {
 
 pub fn set_key(key: Vec<u8>) {
     if let Ok(mut g) = VAULT_KEY.lock() {
+        // Старый ключ (если был) затираем, а не оставляем в памяти
+        if let Some(mut old) = g.take() {
+            old.zeroize();
+        }
         *g = Some(key);
     }
 }

@@ -198,7 +198,7 @@ impl McpConnection {
                     .collect()
             })
             .unwrap_or_default();
-        *conn.tools.lock().unwrap() = parsed;
+        *conn.tools.lock().unwrap_or_else(|p| p.into_inner()) = parsed;
 
         Ok(conn)
     }
@@ -213,7 +213,7 @@ impl McpConnection {
     ) -> Result<Value, String> {
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let (tx, rx) = mpsc::channel();
-        self.pending.lock().unwrap().insert(id, tx);
+        self.pending.lock().unwrap_or_else(|p| p.into_inner()).insert(id, tx);
 
         if let Err(e) = self.write_line(&json!({
             "jsonrpc": "2.0",
@@ -221,14 +221,14 @@ impl McpConnection {
             "method": method,
             "params": params
         })) {
-            self.pending.lock().unwrap().remove(&id);
+            self.pending.lock().unwrap_or_else(|p| p.into_inner()).remove(&id);
             return Err(format!("write failed: {e}"));
         }
 
         match rx.recv_timeout(timeout) {
             Ok(res) => res,
             Err(_) => {
-                self.pending.lock().unwrap().remove(&id);
+                self.pending.lock().unwrap_or_else(|p| p.into_inner()).remove(&id);
                 Err(format!(
                     "timeout after {}s (server did not respond to {method})",
                     timeout.as_secs()
@@ -245,7 +245,7 @@ impl McpConnection {
     fn write_line(&self, value: &Value) -> Result<(), String> {
         let mut line = serde_json::to_string(value).map_err(|e| e.to_string())?;
         line.push('\n');
-        let mut stdin = self.stdin.lock().unwrap();
+        let mut stdin = self.stdin.lock().unwrap_or_else(|p| p.into_inner());
         stdin.write_all(line.as_bytes()).map_err(|e| e.to_string())?;
         stdin.flush().map_err(|e| e.to_string())
     }
@@ -285,7 +285,7 @@ impl McpConnection {
     }
 
     fn stderr_tail(&self) -> String {
-        self.last_stderr.lock().unwrap().clone()
+        self.last_stderr.lock().unwrap_or_else(|p| p.into_inner()).clone()
     }
 
     fn kill_and_describe(&self, msg: String) -> String {
@@ -299,16 +299,16 @@ impl McpConnection {
     }
 
     pub fn kill(&self) {
-        let _ = self.child.lock().unwrap().kill();
-        let _ = self.child.lock().unwrap().wait();
+        let _ = self.child.lock().unwrap_or_else(|p| p.into_inner()).kill();
+        let _ = self.child.lock().unwrap_or_else(|p| p.into_inner()).wait();
     }
 }
 
 impl Drop for McpConnection {
     fn drop(&mut self) {
         // Явный kill в Drop — на случай удаления соединения из реестра
-        let _ = self.child.lock().unwrap().kill();
-        let _ = self.child.lock().unwrap().wait();
+        let _ = self.child.lock().unwrap_or_else(|p| p.into_inner()).kill();
+        let _ = self.child.lock().unwrap_or_else(|p| p.into_inner()).wait();
     }
 }
 
@@ -318,7 +318,7 @@ pub struct McpRegistry(pub Mutex<HashMap<String, Arc<McpConnection>>>);
 
 impl McpRegistry {
     pub fn kill_all(&self) {
-        for (_, conn) in self.0.lock().unwrap().drain() {
+        for (_, conn) in self.0.lock().unwrap_or_else(|p| p.into_inner()).drain() {
             conn.kill();
         }
     }
@@ -330,9 +330,9 @@ impl McpRegistry {
             .as_array()
             .cloned()
             .unwrap_or_default();
-        let registry = self.0.lock().unwrap();
+        let registry = self.0.lock().unwrap_or_else(|p| p.into_inner());
         for (server, conn) in registry.iter() {
-            for tool in conn.tools.lock().unwrap().iter() {
+            for tool in conn.tools.lock().unwrap_or_else(|p| p.into_inner()).iter() {
                 list.push(json!({
                     "type": "function",
                     "function": {
@@ -437,9 +437,9 @@ pub fn mcp_connect(
     name: String,
 ) -> Result<Vec<McpToolInfo>, String> {
     {
-        let map = registry.0.lock().unwrap();
+        let map = registry.0.lock().unwrap_or_else(|p| p.into_inner());
         if let Some(conn) = map.get(&name) {
-            return Ok(conn.tools.lock().unwrap().clone());
+            return Ok(conn.tools.lock().unwrap_or_else(|p| p.into_inner()).clone());
         }
     }
     let cfg = load_servers(&app)?
@@ -450,8 +450,8 @@ pub fn mcp_connect(
         return Err(format!("MCP server \"{name}\" is disabled"));
     }
     let conn = McpConnection::connect(&cfg)?;
-    let tools = conn.tools.lock().unwrap().clone();
-    registry.0.lock().unwrap().insert(name, conn);
+    let tools = conn.tools.lock().unwrap_or_else(|p| p.into_inner()).clone();
+    registry.0.lock().unwrap_or_else(|p| p.into_inner()).insert(name, conn);
     Ok(tools)
 }
 
@@ -461,7 +461,7 @@ pub fn mcp_disconnect(
     registry: tauri::State<'_, McpRegistry>,
     name: String,
 ) -> Result<(), String> {
-    if let Some(conn) = registry.0.lock().unwrap().remove(&name) {
+    if let Some(conn) = registry.0.lock().unwrap_or_else(|p| p.into_inner()).remove(&name) {
         conn.kill();
     }
     Ok(())
@@ -470,12 +470,12 @@ pub fn mcp_disconnect(
 /// Живые соединения и их инструменты (для вкладки MCP в настройках)
 #[tauri::command(async)]
 pub fn mcp_status(registry: tauri::State<'_, McpRegistry>) -> Vec<McpServerStatus> {
-    let map = registry.0.lock().unwrap();
+    let map = registry.0.lock().unwrap_or_else(|p| p.into_inner());
     map.iter()
         .map(|(name, conn)| McpServerStatus {
             name: name.clone(),
             connected: true,
-            tools: conn.tools.lock().unwrap().clone(),
+            tools: conn.tools.lock().unwrap_or_else(|p| p.into_inner()).clone(),
         })
         .collect()
 }
@@ -488,18 +488,32 @@ pub fn mcp_autoconnect(
     registry: tauri::State<'_, McpRegistry>,
 ) -> Result<usize, String> {
     let configs = load_servers(&app)?;
+    let mut to_connect: Vec<McpServerConfig> = Vec::new();
     let mut connected = 0;
     for cfg in configs {
         if !cfg.enabled {
             continue;
         }
-        let already = registry.0.lock().unwrap().contains_key(&cfg.name);
+        let already = registry.0.lock().unwrap_or_else(|p| p.into_inner()).contains_key(&cfg.name);
         if already {
             connected += 1;
             continue;
         }
-        if let Ok(conn) = McpConnection::connect(&cfg) {
-            registry.0.lock().unwrap().insert(cfg.name.clone(), conn);
+        to_connect.push(cfg);
+    }
+    // Параллельный коннект: медленный старт одного сервера (npx) не тянет
+    // за собой остальных; таймаут остаётся на каждом соединении
+    let handles: Vec<_> = to_connect
+        .into_iter()
+        .map(|cfg| std::thread::spawn(move || (cfg.name.clone(), McpConnection::connect(&cfg))))
+        .collect();
+    for h in handles {
+        if let Ok((name, Ok(conn))) = h.join() {
+            registry
+                .0
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .insert(name, conn);
             connected += 1;
         }
     }

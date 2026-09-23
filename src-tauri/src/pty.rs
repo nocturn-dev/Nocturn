@@ -18,6 +18,18 @@ pub struct PtySession {
 /// Реестр сессий: id → сессия (по образцу AbortRegistry)
 pub struct PtyRegistry(pub Mutex<HashMap<String, Arc<Mutex<PtySession>>>>);
 
+impl PtyRegistry {
+    /// Гасим все сессии при выходе приложения — иначе возможен осиротевший PowerShell
+    pub fn kill_all(&self) {
+        let map = self.0.lock().unwrap_or_else(|p| p.into_inner());
+        for (_, s) in map.iter() {
+            if let Ok(mut s) = s.lock() {
+                let _ = s.child.kill();
+            }
+        }
+    }
+}
+
 const PTY_OUTPUT_LIMIT: usize = 1024 * 1024; // предохранитель на накопитель декодера
 
 /// Рождение PTY: PowerShell -NoLogo в cwd, читатель в отдельном потоке.
@@ -106,10 +118,10 @@ pub fn spawn_pty(
     })))
 }
 
-#[tauri::command]
-pub fn pty_create(
+#[tauri::command(async)]
+pub async fn pty_create(
     app: tauri::AppHandle,
-    state: tauri::State<PtyRegistry>,
+    state: tauri::State<'_, PtyRegistry>,
     id: String,
     cwd: Option<String>,
     cols: u16,
@@ -124,19 +136,25 @@ pub fn pty_create(
     let app_out = app.clone();
     let out_id = id.clone();
     let exit_id = id.clone();
-    let session = spawn_pty(
-        cwd,
-        cols.max(20).min(500),
-        rows.max(5).min(200),
-        move |s| {
-            use tauri::Emitter;
-            let _ = app_out.emit("pty-output", PtyEvent { id: out_id.clone(), data: s });
-        },
-        move || {
-            use tauri::Emitter;
-            let _ = app.emit("pty-exit", exit_id.clone());
-        },
-    )?;
+    // openpty + spawn PowerShell — блокирующие вызовы: уводим из команды,
+    // чтобы не замораживать вызвавший поток
+    let session = tauri::async_runtime::spawn_blocking(move || {
+        spawn_pty(
+            cwd,
+            cols.max(20).min(500),
+            rows.max(5).min(200),
+            move |s| {
+                use tauri::Emitter;
+                let _ = app_out.emit("pty-output", PtyEvent { id: out_id.clone(), data: s });
+            },
+            move || {
+                use tauri::Emitter;
+                let _ = app.emit("pty-exit", exit_id.clone());
+            },
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())??;
     // TOCTOU: между первоначальной проверкой и insert параллельный pty_create
     // с тем же id мог вставить свою сессию. Повторная проверка под локом.
     let mut reg = state.0.lock().map_err(|e| e.to_string())?;
@@ -160,8 +178,12 @@ pub struct PtyEvent {
     pub data: String,
 }
 
-#[tauri::command]
-pub fn pty_write(state: tauri::State<PtyRegistry>, id: String, data: String) -> Result<(), String> {
+#[tauri::command(async)]
+pub async fn pty_write(
+    state: tauri::State<'_, PtyRegistry>,
+    id: String,
+    data: String,
+) -> Result<(), String> {
     let session = state
         .0
         .lock()
@@ -169,15 +191,26 @@ pub fn pty_write(state: tauri::State<PtyRegistry>, id: String, data: String) -> 
         .get(&id)
         .cloned()
         .ok_or_else(|| format!("no pty session: {id}"))?;
-    let mut s = session.lock().map_err(|e| e.to_string())?;
-    s.writer
-        .write_all(data.as_bytes())
-        .and_then(|_| s.writer.flush())
-        .map_err(|e| format!("pty write failed: {e}"))
+    // write_all блокируется, если зависший шелл не читает пайп, —
+    // держим его вне потока UI
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut s = session.lock().map_err(|e| e.to_string())?;
+        s.writer
+            .write_all(data.as_bytes())
+            .and_then(|_| s.writer.flush())
+            .map_err(|e| format!("pty write failed: {e}"))
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
-#[tauri::command]
-pub fn pty_resize(state: tauri::State<PtyRegistry>, id: String, cols: u16, rows: u16) -> Result<(), String> {
+#[tauri::command(async)]
+pub async fn pty_resize(
+    state: tauri::State<'_, PtyRegistry>,
+    id: String,
+    cols: u16,
+    rows: u16,
+) -> Result<(), String> {
     let session = state
         .0
         .lock()
@@ -185,23 +218,32 @@ pub fn pty_resize(state: tauri::State<PtyRegistry>, id: String, cols: u16, rows:
         .get(&id)
         .cloned()
         .ok_or_else(|| format!("no pty session: {id}"))?;
-    let s = session.lock().map_err(|e| e.to_string())?;
-    s.master
-        .resize(PtySize {
-            rows: rows.max(5).min(200),
-            cols: cols.max(20).min(500),
-            pixel_width: 0,
-            pixel_height: 0,
-        })
-        .map_err(|e| format!("pty resize failed: {e}"))
+    tauri::async_runtime::spawn_blocking(move || {
+        let s = session.lock().map_err(|e| e.to_string())?;
+        s.master
+            .resize(PtySize {
+                rows: rows.max(5).min(200),
+                cols: cols.max(20).min(500),
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+            .map_err(|e| format!("pty resize failed: {e}"))
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
-#[tauri::command]
-pub fn pty_kill(state: tauri::State<PtyRegistry>, id: String) -> Result<(), String> {
+#[tauri::command(async)]
+pub async fn pty_kill(state: tauri::State<'_, PtyRegistry>, id: String) -> Result<(), String> {
     let session = state.0.lock().map_err(|e| e.to_string())?.remove(&id);
     if let Some(s) = session {
-        let mut s = s.lock().map_err(|e| e.to_string())?;
-        let _ = s.child.kill();
+        tauri::async_runtime::spawn_blocking(move || {
+            if let Ok(mut s) = s.lock() {
+                let _ = s.child.kill();
+            }
+        })
+        .await
+        .map_err(|e| e.to_string())?;
     }
     Ok(())
 }
