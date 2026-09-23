@@ -221,4 +221,66 @@ writeFileSync(
     { size: 256, data: png256 },
   ]),
 );
+
+// ---------- Классический вариант (диск с тонкой N) — для тумблера в трее ----------
+function drawClassic(size) {
+  const buf = Buffer.alloc(size * size * 4);
+  const c = (size - 1) / 2;
+  const disc = size / 2 - 0.75;
+  const bg = [31, 30, 29];
+  const cyan = [56, 199, 238];
+  const blue = [37, 78, 225];
+  const clamp01 = (v) => Math.max(0, Math.min(1, v));
+  const CLASSIC_PATH = [
+    [5.4, 19.8],
+    [8.7, 4.4],
+    [15.3, 19.6],
+    [18.6, 4.2],
+  ];
+  const s = (size / 24) * 0.66;
+  const half = (0.55 * size) / 24;
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const d = Math.hypot(x - c, y - c);
+      let col = null;
+      let alpha = 1;
+      if (d < disc) {
+        col = bg;
+        alpha = clamp01(disc - d + 0.5);
+        const lx = 12 + (x - c) / s;
+        const ly = 12 + (y - c) / s;
+        let nd = Infinity;
+        for (let i = 0; i < CLASSIC_PATH.length - 1; i++) {
+          const [ax, ay] = CLASSIC_PATH[i];
+          const [bx, by] = CLASSIC_PATH[i + 1];
+          nd = Math.min(nd, segDist(lx, ly, ax, ay, bx, by));
+        }
+        if (nd < half + 0.5) {
+          const t = clamp01(((x + y) / (2 * size) - 0.3) / 0.7);
+          const n = [
+            Math.round(cyan[0] + (blue[0] - cyan[0]) * t),
+            Math.round(cyan[1] + (blue[1] - cyan[1]) * t),
+            Math.round(cyan[2] + (blue[2] - cyan[2]) * t),
+          ];
+          const a = clamp01(half + 0.5 - nd);
+          col = [
+            Math.round(n[0] * a + col[0] * (1 - a)),
+            Math.round(n[1] * a + col[1] * (1 - a)),
+            Math.round(n[2] * a + col[2] * (1 - a)),
+          ];
+        }
+      }
+      if (!col) continue;
+      const i = (y * size + x) * 4;
+      buf[i] = col[0];
+      buf[i + 1] = col[1];
+      buf[i + 2] = col[2];
+      buf[i + 3] = Math.round(alpha * 255);
+    }
+  }
+  return buf;
+}
+
+writeFileSync(join(outDir, "tray-bold.png"), encodePng(32, draw(32)));
+writeFileSync(join(outDir, "tray-classic.png"), encodePng(32, drawClassic(32)));
 console.log("OK: icons written to", outDir);

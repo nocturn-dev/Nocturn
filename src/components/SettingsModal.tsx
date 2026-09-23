@@ -3026,6 +3026,33 @@ function ThemeSection({
         <span className="w-12 shrink-0 text-right text-xs text-halo-muted">{appearance.scale}%</span>
       </div>
 
+      {/* Знак приложения: новая широкая N или классическая */}
+      <div className="mt-2.5 flex items-center gap-3 rounded-xl border border-halo-line px-3.5 py-3">
+        <div className="min-w-0 flex-1">
+          <p className="whitespace-nowrap text-sm text-halo-text">
+            {t("themes.markStyle")}
+          </p>
+          <p className="text-[10px] leading-relaxed text-halo-muted/60">
+            {t("themes.markStyleHint")}
+          </p>
+        </div>
+        <div className="flex shrink-0 items-center gap-1.5">
+          {(["bold", "classic"] as const).map((v) => (
+            <button
+              key={v}
+              onClick={() => onAppearanceChange({ ...appearance, markStyle: v })}
+              className={`rounded-md border px-2.5 py-1 text-xs transition-colors ${
+                appearance.markStyle === v
+                  ? "border-halo-accent/60 bg-halo-accent/10 text-halo-accent"
+                  : "border-halo-line text-halo-muted hover:text-halo-text"
+              }`}
+            >
+              {t(v === "bold" ? "themes.markBold" : "themes.markClassic")}
+            </button>
+          ))}
+        </div>
+      </div>
+
       {/* Оболочка терминала */}
       <div className="mt-2.5 flex items-center gap-3 rounded-xl border border-halo-line px-3.5 py-3">
         <div className="min-w-0 flex-1">

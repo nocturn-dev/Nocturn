@@ -456,6 +456,12 @@ export interface NetworkConfig {
   ca_path: string;
 }
 
+/** Сменить иконку трея (bold | classic); no-op вне Tauri */
+export async function setTrayVariant(kind: "bold" | "classic"): Promise<void> {
+  if (!inTauri) return;
+  await invoke("set_tray_variant", { kind });
+}
+
 export async function networkGetConfig(): Promise<NetworkConfig> {
   if (!inTauri) return { proxy: "", no_proxy: "", ca_path: "" };
   return invoke("network_get_config");

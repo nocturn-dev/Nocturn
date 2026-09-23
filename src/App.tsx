@@ -36,6 +36,7 @@ import {
   mcpAutoconnect,
   loadSessions,
   saveSessions,
+  setTrayVariant,
   providerFromBaseUrl,
   notesList,
   notesRead,
@@ -397,6 +398,8 @@ export default function App() {
   useEffect(() => {
     applyAppearance(appearance);
     saveAppearance(appearance);
+    // Иконка трея следует за знаком приложения (bold/classic)
+    void setTrayVariant(appearance.markStyle).catch(() => {});
   }, [appearance]);
 
   // Профили внешнего вида: персистентность

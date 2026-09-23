@@ -169,7 +169,8 @@ pub fn run() {
             mcp::mcp_autoconnect,
             network::network_get_config,
             network::network_set_config,
-            hide_to_tray
+            hide_to_tray,
+            set_tray_variant
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
@@ -191,6 +192,25 @@ pub fn run() {
         });
 }
 
+
+static TRAY_BOLD: &[u8] = include_bytes!("../icons/tray-bold.png");
+static TRAY_CLASSIC: &[u8] = include_bytes!("../icons/tray-classic.png");
+
+/// Сменить иконку трея (Кастомизация → знак приложения: bold/classic)
+#[tauri::command]
+fn set_tray_variant(app: tauri::AppHandle, kind: String) -> Result<(), String> {
+    use tauri::Manager;
+    let bytes: &[u8] = if kind == "classic" {
+        TRAY_CLASSIC
+    } else {
+        TRAY_BOLD
+    };
+    let img = tauri::image::Image::from_bytes(bytes).map_err(|e| e.to_string())?;
+    if let Some(tray) = app.tray_by_id("nocturn-tray") {
+        tray.set_icon(Some(img)).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
 
 /// «Скрывать в трей»: крестик и системная кнопка закрытия прячут окно;
 /// настоящий выход — из меню трея (там RunEvent::Exit гасит дочерние процессы)

@@ -5,6 +5,18 @@
   чтобы тема переключалась на лету (html.light), а Tailwind
   генерирует утилиты вида bg-halo-bg через @theme inline.
 */
+
+/* ---------- Знак приложения: переключение classic/bold (Кастомизация) ---------- */
+.nocturn-mark .mark-classic {
+  display: none;
+}
+html[data-mark="classic"] .nocturn-mark .mark-classic {
+  display: block;
+}
+html[data-mark="classic"] .nocturn-mark .mark-bold {
+  display: none;
+}
+
 :root {
   --halo-bg: #262624; /* основная зона чата */
   --halo-deep: #1f1e1d; /* сайдбар, модалки */

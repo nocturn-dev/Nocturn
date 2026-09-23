@@ -52,6 +52,7 @@ function parseProfile(raw: unknown): ThemeProfile | null {
       scale: num(a.scale, 100, 90, 115),
       glassBlur: num(a.glassBlur, 14, 4, 20),
       termFont: num(a.termFont, 11.5, 10, 16),
+      markStyle: a.markStyle === "classic" ? "classic" : "bold",
       sidebarGlass: a.sidebarGlass === true,
       customGreeting: typeof a.customGreeting === "string" ? a.customGreeting : "",
     },

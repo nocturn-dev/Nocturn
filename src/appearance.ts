@@ -21,6 +21,8 @@ export interface Appearance {
   glassBlur: number;
   /** Размер шрифта терминала/консоли, px, 10–16 */
   termFont: number;
+  /** Знак приложения: bold — широкая N с порезами, classic — тонкая */
+  markStyle: "bold" | "classic";
   /** Отдельное стекло на сайдбаре (независимо от общего стекла) */
   sidebarGlass: boolean;
   /** Своё приветствие на пустом экране чата (пусто — стандартное по времени суток) */
@@ -33,6 +35,7 @@ export const DEFAULT_APPEARANCE: Appearance = {
   scale: 100,
   glassBlur: 14,
   termFont: 11.5,
+  markStyle: "bold",
   sidebarGlass: false,
   customGreeting: "",
 };
@@ -59,6 +62,7 @@ export function loadAppearance(): Appearance {
       scale: clamp(p.scale ?? DEFAULT_APPEARANCE.scale, 90, 115),
       glassBlur: clamp(p.glassBlur ?? DEFAULT_APPEARANCE.glassBlur, 4, 20),
       termFont: clamp(p.termFont ?? DEFAULT_APPEARANCE.termFont, 10, 16),
+      markStyle: p.markStyle === "classic" ? "classic" : "bold",
       sidebarGlass: p.sidebarGlass ?? DEFAULT_APPEARANCE.sidebarGlass,
       customGreeting:
         typeof p.customGreeting === "string"
@@ -96,6 +100,8 @@ export function applyAppearance(a: Appearance) {
   root.style.setProperty("--halo-accent-deep", darken(a.accent, 0.82));
   root.style.setProperty("--halo-term-font", `${a.termFont}px`);
   root.style.setProperty("--halo-blur", `${a.glassBlur}px`);
+  // Вариант знака: NocturnMark переключается через CSS
+  root.dataset.mark = a.markStyle;
   root.style.fontSize = `${a.scale}%`;
   root.classList.toggle("sidebar-glass", a.sidebarGlass);
   if (a.style === "claude") root.removeAttribute("data-style");
