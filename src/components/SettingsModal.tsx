@@ -797,41 +797,49 @@ function MainSection({
       <Row label={t("main.version")} value={t("main.versionVal")} />
       <Row
         label={t("main.language")}
+        desc={t("main.languageDesc")}
         value=""
         extra={<LangSwitch />}
       />
       <ToggleRow
         label={t("main.sidebarSide")}
+        desc={t("main.sidebarSideDesc")}
         on={sidebarSide === "right"}
         onChange={(v) => onSidebarSideChange(v ? "right" : "left")}
       />
       <ToggleRow
         label={t("main.hideStarter")}
+        desc={t("main.hideStarterDesc")}
         on={hideStarter}
         onChange={onHideStarterChange}
       />
       <ToggleRow
         label={t("main.scrollFollow")}
+        desc={t("main.scrollFollowDesc")}
         on={scrollFollow}
         onChange={onScrollFollowChange}
       />
       <ToggleRow
         label={t("main.streamSmooth")}
+        desc={t("main.streamSmoothDesc")}
         on={streamSmooth}
         onChange={onStreamSmoothChange}
       />
       <ToggleRow
         label={t("main.streamCaret")}
+        desc={t("main.streamCaretDesc")}
         on={streamCaret}
         onChange={onStreamCaretChange}
       />
       <ToggleRow
         label={t("main.showUserMsgs")}
+        desc={t("main.showUserMsgsDesc")}
         on={showUserMsgs}
         onChange={onShowUserMsgsChange}
       />
       <ToggleRow
         label={t("main.groupTurns")}
+        desc={t("main.groupTurnsDesc")}
         on={groupTurns}
         onChange={onGroupTurnsChange}
       />
@@ -843,11 +851,13 @@ function MainSection({
       />
       <ToggleRow
         label={t("main.settingsLarge")}
+        desc={t("main.settingsLargeDesc")}
         on={settingsLarge}
         onChange={onSettingsLargeChange}
       />
       <ToggleRow
         label={t("main.browserPanel")}
+        desc={t("main.browserPanelDesc")}
         on={browserPanel}
         onChange={onBrowserPanelChange}
       />
@@ -855,6 +865,7 @@ function MainSection({
       {/* Уведомления, когда пользователь не в приложении */}
       <ToggleRow
         label={t("main.notifyDone")}
+        desc={t("main.notifyDoneDesc")}
         on={notifyPrefs.enabled}
         onChange={(v) => onNotifyPrefsChange({ ...notifyPrefs, enabled: v })}
       />
@@ -2450,16 +2461,25 @@ function LangSwitch() {
 
 function Row({ 
   label,
+  desc,
   value,
   extra,
 }: {
   label: string;
+  desc?: string;
   value: string;
   extra?: React.ReactNode;
 }) {
   return (
     <div className="flex items-center justify-between rounded-lg px-2.5 py-2.5 text-sm">
-      <span className="text-halo-text">{label}</span>
+      <span className="min-w-0">
+        <span className="text-halo-text">{label}</span>
+        {desc && (
+          <span className="mt-0.5 block text-xs leading-relaxed text-halo-muted">
+            {desc}
+          </span>
+        )}
+      </span>
       {extra ?? <span className="text-halo-muted">{value}</span>}
     </div>
   );
