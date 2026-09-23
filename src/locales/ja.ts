@@ -252,7 +252,7 @@ export const ja = {
     "api.profilesEmpty": "プロファイルはまだありません — 上でキーと URL を入力して保存してください。",
     "api.profileSaved": "プロファイルを保存しました",
     "api.encKeys": "API キーを暗号化",
-    "api.encKeysDesc": "AES-256-GCM。キーはマスターパスワード (PBKDF2) から導出され、メモリ上にのみ存在 — ディスク上にキーは残りません。",
+    "api.encKeysDesc": "AES-256-GCM（RustCrypto）。キーはマスターパスワード（Argon2id）から導出され、メモリ上にのみ存在——ディスク上にキーは残りません。",
     "api.encError": "暗号化を有効にできませんでした：システムの資格情報ストアを利用できません。",
     // Окно мастер-пароля
     "gate.createTitle": "マスターパスワードを設定",

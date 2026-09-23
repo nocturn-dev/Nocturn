@@ -236,7 +236,7 @@ export const en = {
     "api.profilesEmpty": "No profiles yet — fill in the key and URL above, then save.",
     "api.profileSaved": "Profile saved",
     "api.encKeys": "Encrypt API keys",
-    "api.encKeysDesc": "AES-256-GCM. The key is derived from your master password (PBKDF2) and lives only in memory — nothing on disk.",
+    "api.encKeysDesc": "AES-256-GCM (RustCrypto). The key is derived from your master password (Argon2id) and lives only in memory — nothing on disk.",
     "api.encError": "Could not enable encryption: the system credential store is unavailable.",
     "gate.createTitle": "Create a master password",
     "gate.createSub": "It encrypts your API keys (AES-256-GCM). The key is derived from the password and lives only in app memory.",

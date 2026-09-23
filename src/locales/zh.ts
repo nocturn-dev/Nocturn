@@ -252,7 +252,7 @@ export const zh = {
     "api.profilesEmpty": "还没有配置 — 在上方填写密钥和 URL，然后保存。",
     "api.profileSaved": "配置已保存",
     "api.encKeys": "加密 API 密钥",
-    "api.encKeysDesc": "AES-256-GCM。密钥由你的主密码派生 (PBKDF2)，仅存在于内存中 — 磁盘上不留任何密钥。",
+    "api.encKeysDesc": "AES-256-GCM（RustCrypto）。密钥由你的主密码派生（Argon2id），仅存在于内存中——磁盘上不留任何密钥。",
     "api.encError": "无法启用加密：系统凭据存储不可用。",
     // Окно мастер-пароля
     "gate.createTitle": "设置主密码",
