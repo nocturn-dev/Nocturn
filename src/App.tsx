@@ -1478,6 +1478,9 @@ export default function App() {
       }
       if (hitKey) {
         limitHitRef.current = true;
+        // Полноценный abort: помечаем задачу прерванной (цикл и субагенты
+        // проверяют abortedRef на каждом шаге) + рвём текущий стрим
+        abortedRef.current.add(requestId);
         void abortChat(requestId).catch(() => {});
         addToast(t(hitKey as never));
       }
