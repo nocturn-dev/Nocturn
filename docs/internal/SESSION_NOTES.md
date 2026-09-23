@@ -145,6 +145,8 @@ EN «Name it — it gets done» (вместо «Сообщение… (Ctrl+V…
 python-запись "
 " внутри кода — проверять экранирование.
 
+**Release v0.1.0 выпущен и проверен.** Грабли CI: 1) workflow без tags: ["v*"] в on.push не срабатывал на пуш тега — теги ≠ ветки; 2) тег должен указывать на коммит с актуальным workflow (форс-пуш тега); 3) latest.json Tauri v2 сам НЕ генерирует (это делает tauri-action) — скрипт scripts/make-latest-json.ps1 в CI (sig → signature, exe url); 4) двойное .exe: $sig.BaseName отрезает только .sig; 5) инлайн-pwsh в YAML ломается об экранирование кавычек — выносить в .ps1 файл. Проверено: latest.json в Assets корректен (version/url/signature), автообновление рабочее.
+
 **Быстрая кастомизация в сайдбаре:** QuickSettings += пропсы align
 ("left" — открывать от левого края) и initialTab; во вкладке «Вид»
 добавлена палитра акцента (6 пресетов ACCENT_PRESETS + input[type=color]).
