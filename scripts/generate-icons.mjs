@@ -56,12 +56,23 @@ function encodePng(size, rgba) {
 // ---------- Рисунок ----------
 // Курсивная «N» Nocturn (как NocturnMark.tsx) в координатах 24×24
 const N_PATH = [
-  [5.4, 19.8],
-  [8.7, 4.4],
-  [15.3, 19.6],
-  [18.6, 4.2],
+  [4.2, 20.2],
+  [7.6, 3.8],
+  [16.4, 20.2],
+  [19.8, 3.8],
 ];
-const N_STROKE = 2.3; // половина ширины в юнитах 24×24 = 1.15
+// Диагональные «порезы» в стиле ZCode: линии параллельны среднему штриху N
+const CUTS = [
+  { x: 5.8, y: 7.6 },
+  { x: 18.2, y: 16.2 },
+];
+const CUT_DIR = (() => {
+  const dx = 16.4 - 7.6;
+  const dy = 20.2 - 3.8;
+  const len = Math.hypot(dx, dy);
+  return [dx / len, dy / len];
+})();
+const CUT_HALF = 0.9; // половина ширины пореза в юнитах 24×24
 
 function segDist(px, py, ax, ay, bx, by) {
   const vx = bx - ax;
@@ -83,41 +94,61 @@ function nDist(lx, ly) {
 function draw(size) {
   const buf = Buffer.alloc(size * size * 4);
   const c = (size - 1) / 2;
-  const disc = size / 2 - 0.75;
-  const bg = [31, 30, 29]; // #1f1e1d — тёмный диск
+  const bg = [24, 23, 22]; // #181716 — монолитный тёмный квадрат
   const cyan = [56, 199, 238]; // #38C7EE
   const blue = [37, 78, 225]; // #254EE1
   const clamp01 = (v) => Math.max(0, Math.min(1, v));
-  // Буква масштабируется в центр диска: юниты 24×24 → размер иконки
-  const s = (size / 24) * 0.66;
-  const half = (0.55 * size) / 24; // половина толщины штриха, px
+  // Скруглённый квадрат: SDF бокса минус радиус
+  const boxHalf = size / 2 - 1;
+  const radius = size * 0.2;
+  const boxSDF = (px, py) => {
+    const dx = Math.abs(px - c) - (boxHalf - radius);
+    const dy = Math.abs(py - c) - (boxHalf - radius);
+    const ax = Math.max(dx, 0);
+    const ay = Math.max(dy, 0);
+    return Math.hypot(ax, ay) + Math.min(Math.max(dx, dy), 0) - radius;
+  };
+  // Буква: крупнее и шире, чем на старом диске. Все величины буквы —
+  // в юнитах 24×24 (nd и half в ОДНИХ единицах, иначе штрих плывёт по size)
+  const s = (size / 24) * 0.88;
+  const halfU = 1.45; // половина толщины штриха, юниты буквы
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
-      const d = Math.hypot(x - c, y - c);
+      const sd = boxSDF(x, y);
       let col = null;
       let alpha = 1;
-      const insideDisc = d < disc;
-      if (insideDisc) {
+      if (sd < 0.5) {
         col = bg;
-        alpha = clamp01(disc - d + 0.5);
+        alpha = clamp01(0.5 - sd);
         // буква N
         const lx = 12 + (x - c) / s;
         const ly = 12 + (y - c) / s;
         const nd = nDist(lx, ly);
-        if (nd < half + 0.5) {
-          // градиент циан → синий по диагонали (как в логотипе)
-          const t = clamp01(((x + y) / (2 * size) - 0.3) / 0.7);
-          const n = [
-            Math.round(cyan[0] + (blue[0] - cyan[0]) * t),
-            Math.round(cyan[1] + (blue[1] - cyan[1]) * t),
-            Math.round(cyan[2] + (blue[2] - cyan[2]) * t),
-          ];
-          const a = clamp01(half + 0.5 - nd);
-          col = [
-            Math.round(n[0] * a + col[0] * (1 - a)),
-            Math.round(n[1] * a + col[1] * (1 - a)),
-            Math.round(n[2] * a + col[2] * (1 - a)),
-          ];
+        if (nd < halfU + 0.08) {
+          // порезы: в полосе буква стирается, фон виден насквозь
+          let letterA = clamp01(halfU + 0.08 - nd);
+          for (const cut of CUTS) {
+            const vx = lx - cut.x;
+            const vy = ly - cut.y;
+            const cd = Math.abs(vx * CUT_DIR[1] - vy * CUT_DIR[0]);
+            if (cd < CUT_HALF + 0.15) {
+              letterA *= clamp01((cd - CUT_HALF) / 0.15 + 0.5);
+            }
+          }
+          if (letterA > 0) {
+            // градиент циан → синий по диагонали (как в логотипе)
+            const t = clamp01(((x + y) / (2 * size) - 0.3) / 0.7);
+            const n = [
+              Math.round(cyan[0] + (blue[0] - cyan[0]) * t),
+              Math.round(cyan[1] + (blue[1] - cyan[1]) * t),
+              Math.round(cyan[2] + (blue[2] - cyan[2]) * t),
+            ];
+            col = [
+              Math.round(n[0] * letterA + col[0] * (1 - letterA)),
+              Math.round(n[1] * letterA + col[1] * (1 - letterA)),
+              Math.round(n[2] * letterA + col[2] * (1 - letterA)),
+            ];
+          }
         }
       }
       if (!col) continue;
