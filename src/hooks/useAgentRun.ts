@@ -1319,6 +1319,12 @@ ${report}`;
     }
   };
 
+  // id ассистентского сообщения активного стрима: карточки сравнивают
+  // себя с ним (isStreaming), тогда как streamingId — это requestId
+  // (отмена/корректировки/поправки ключуются по нему)
+  const streamingAssistantId =
+    streamingId ? (streamingRef.current.get(streamingId) ?? null) : null;
+
   return {
     handleSend,
     handleStop,
@@ -1328,6 +1334,7 @@ ${report}`;
     typing,
     activity,
     streamingId,
+    streamingAssistantId,
     subRuns,
     queuedMsgs,
     setQueuedMsgs,

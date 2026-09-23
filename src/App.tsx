@@ -993,6 +993,7 @@ export default function App() {
     typing,
     activity,
     streamingId,
+    streamingAssistantId,
     subRuns,
     queuedMsgs,
     setQueuedMsgs,
@@ -1841,7 +1842,7 @@ export default function App() {
           void handleSend(text, undefined, activeId ?? undefined, undefined, msgId)
         }
         model={apiSettings.model}
-        streamingMsgId={streamingId}
+        streamingMsgId={streamingAssistantId}
         visionCapable={
           apiStatus.models?.find((m) => m.id === apiSettings.model)?.vision
         }

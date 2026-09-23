@@ -39,8 +39,10 @@ export function AssistantCard({
   // Плавная печать: показанный текст отстаёт от реального и догоняет
   // его rAF-циклом с ускорением (чем больше отставание, тем быстрее),
   // поэтому поток выглядит непрерывным, а не рваными пачками
-  const [shownLen, setShownLen] = useState(
-    isStreaming ? 0 : message.content.length,
+  // При ремонте карточки посреди стрима не переигрываем весь текст с нуля —
+  // догоняем только короткий хвост (иначе текст «исчезает и печатается заново»)
+  const [shownLen, setShownLen] = useState(() =>
+    isStreaming ? Math.max(0, message.content.length - 120) : message.content.length,
   );
   useEffect(() => {
     const target = message.content.length;

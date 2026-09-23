@@ -341,6 +341,28 @@ pub async fn chat_stream(
         }
     }
 
+    // Хвост аккумулятора (подозрительный на частичный тег) — дочитываем:
+    // flush может отдать только Content/Thought
+    for event in acc.flush() {
+        match event {
+            FeedEvent::Content { delta } => {
+                app.emit(
+                    "chat-chunk",
+                    serde_json::json!({ "requestId": request_id, "delta": delta }),
+                )
+                .map_err(|e| e.to_string())?;
+            }
+            FeedEvent::Thought { delta } => {
+                app.emit(
+                    "chat-thought",
+                    serde_json::json!({ "requestId": request_id, "thought": delta }),
+                )
+                .map_err(|e| e.to_string())?;
+            }
+            _ => {}
+        }
+    }
+
     Ok(())
 }
 
@@ -394,6 +416,79 @@ pub struct SseAccumulator {
     /// Финальный usage-чанк OpenAI (`choices: []`) повторно триггерит
     /// finish_reason — ToolCallsFinished эмитится ровно один раз
     tool_calls_emitted: bool,
+    /// Часть контента внутри `<think>…</think>` — рассуждения, приходящие
+    /// инлайном в content (OpenAI-совместимые прокси, DeepSeek-R1 и др.).
+    /// Маршрутизируются в Thought, иначе react-markdown без rehype-raw
+    /// глотает HTML-блоки и текст «исчезает» до закрытия тега.
+    in_think: bool,
+    /// Хвост дельты, который может оказаться началом тега, разрезанного
+    /// сетевым чанком (держим до следующей порции)
+    tag_tail: String,
+}
+
+/// Длина хвоста buf, совпадающего с началом tag (частичный тег на границе чанка)
+fn partial_tag_len(buf: &str, tag: &str) -> usize {
+    let max = tag.len().saturating_sub(1).min(buf.len());
+    (1..=max).rev().find(|k| buf.ends_with(&tag[..*k])).unwrap_or(0)
+}
+
+impl SseAccumulator {
+    /// Пропускает content-дельту через фильтр `<think>`: текст внутри тега
+    /// уходит в Thought, снаружи — в Content. Тег, разрезанный между чанками,
+    /// собирается через tag_tail.
+    fn route_content(&mut self, piece: String, events: &mut Vec<FeedEvent>) {
+        let mut buf = std::mem::take(&mut self.tag_tail);
+        buf.push_str(&piece);
+        loop {
+            if self.in_think {
+                match buf.find("</think>") {
+                    Some(pos) => {
+                        let inner = buf[..pos].to_string();
+                        buf.drain(..pos + "</think>".len());
+                        if !inner.is_empty() {
+                            events.push(FeedEvent::Thought { delta: inner });
+                        }
+                        self.in_think = false;
+                    }
+                    None => {
+                        let keep = partial_tag_len(&buf, "</think>");
+                        let emit = buf.len() - keep;
+                        if emit > 0 {
+                            events.push(FeedEvent::Thought {
+                                delta: buf[..emit].to_string(),
+                            });
+                            buf.drain(..emit);
+                        }
+                        self.tag_tail = buf;
+                        return;
+                    }
+                }
+            } else {
+                match buf.find("<think>") {
+                    Some(pos) => {
+                        let outer = buf[..pos].to_string();
+                        buf.drain(..pos + "<think>".len());
+                        if !outer.is_empty() {
+                            events.push(FeedEvent::Content { delta: outer });
+                        }
+                        self.in_think = true;
+                    }
+                    None => {
+                        let keep = partial_tag_len(&buf, "<think>");
+                        let emit = buf.len() - keep;
+                        if emit > 0 {
+                            events.push(FeedEvent::Content {
+                                delta: buf[..emit].to_string(),
+                            });
+                            buf.drain(..emit);
+                        }
+                        self.tag_tail = buf;
+                        return;
+                    }
+                }
+            }
+        }
+    }
 }
 
 impl SseAccumulator {
@@ -429,7 +524,7 @@ impl SseAccumulator {
 
         if let Some(content) = delta.get("content").and_then(|v| v.as_str()) {
             if !content.is_empty() {
-                events.push(FeedEvent::Content { delta: content.to_string() });
+                self.route_content(content.to_string(), &mut events);
             }
         }
 
@@ -494,6 +589,13 @@ impl SseAccumulator {
 /// Общий интерфейс стрим-парсера: data-строка SSE → события фронтовому каналу
 trait StreamFeed: Send {
     fn feed(&mut self, data: &str) -> Vec<FeedEvent>;
+
+    /// Хвост, оставшийся в буфере на границе чанков (дочитывается при
+    /// следующей порции). Вызывается по завершении стрима, чтобы ничего
+    /// не потерять — например, хвост, подозрительный на частичный тег.
+    fn flush(&mut self) -> Vec<FeedEvent> {
+        Vec::new()
+    }
 }
 
 /// Детект нативного Anthropic по Base URL
@@ -515,6 +617,20 @@ pub fn normalize_base_url(base_url: &str) -> String {
 impl StreamFeed for SseAccumulator {
     fn feed(&mut self, data: &str) -> Vec<FeedEvent> {
         SseAccumulator::feed(self, data)
+    }
+
+    fn flush(&mut self) -> Vec<FeedEvent> {
+        let tail = std::mem::take(&mut self.tag_tail);
+        if tail.is_empty() {
+            return Vec::new();
+        }
+        // Хвост на границе стрима — не тег (тег длиной 7-8 не уместился):
+        // отдаём туда, куда нёс его контекст
+        if self.in_think {
+            vec![FeedEvent::Thought { delta: tail }]
+        } else {
+            vec![FeedEvent::Content { delta: tail }]
+        }
     }
 }
 
@@ -913,8 +1029,103 @@ mod tests {
         for l in lines {
             all.extend(acc.feed(l));
         }
+        all.extend(acc.flush());
         all
     }
+
+    fn joined(events: &[FeedEvent], f: impl Fn(&FeedEvent) -> Option<String>) -> String {
+        events.iter().filter_map(f).collect()
+    }
+
+    #[test]
+    fn think_block_routed_to_thought() {
+        // Провайдеры-прокси шлют рассуждения инлайном в content:
+        // `<think>…</think>` должен уйти в Thought, остальное — в Content
+        let mut acc = SseAccumulator::default();
+        let events = feed_lines(
+            &mut acc,
+            &[
+                r#"{"choices":[{"delta":{"content":"<think>думаю"}}]}"#,
+                r#"{"choices":[{"delta":{"content":" вслух</think>Ответ готов"}}]}"#,
+            ],
+        );
+        let thought = joined(&events, |e| match e {
+            FeedEvent::Thought { delta } => Some(delta.clone()),
+            _ => None,
+        });
+        let content = joined(&events, |e| match e {
+            FeedEvent::Content { delta } => Some(delta.clone()),
+            _ => None,
+        });
+        assert_eq!(thought, "думаю вслух");
+        assert_eq!(content, "Ответ готов");
+    }
+
+    #[test]
+    fn think_tag_split_across_chunks() {
+        // Тег разрезан посреди сетевых чанков — не должен протечь в Content
+        // ни частично, ни целиком
+        let mut acc = SseAccumulator::default();
+        let events = feed_lines(
+            &mut acc,
+            &[
+                r#"{"choices":[{"delta":{"content":"Привет <thi"}}]}"#,
+                r#"{"choices":[{"delta":{"content":"nk>секрет"}}]}"#,
+                r#"{"choices":[{"delta":{"content":"ы</th"}}]}"#,
+                r#"{"choices":[{"delta":{"content":"ink>Хвост"}}]}"#,
+            ],
+        );
+        let thought = joined(&events, |e| match e {
+            FeedEvent::Thought { delta } => Some(delta.clone()),
+            _ => None,
+        });
+        let content = joined(&events, |e| match e {
+            FeedEvent::Content { delta } => Some(delta.clone()),
+            _ => None,
+        });
+        assert_eq!(thought, "секреты");
+        assert_eq!(content, "Привет Хвост");
+        assert!(!content.contains("<"), "тег протёк в content: {content:?}");
+    }
+
+    #[test]
+    fn unclosed_think_is_all_thought() {
+        // Стрим оборвался без </think> — всё после тега не попадает в ответ
+        let mut acc = SseAccumulator::default();
+        let events = feed_lines(
+            &mut acc,
+            &[
+                r#"{"choices":[{"delta":{"content":"Ответ. <think>о хвос"}}]}"#,
+                r#"{"choices":[{"delta":{"content":"те"}}]}"#,
+            ],
+        );
+        let content = joined(&events, |e| match e {
+            FeedEvent::Content { delta } => Some(delta.clone()),
+            _ => None,
+        });
+        assert_eq!(content, "Ответ. ");
+        let thought = joined(&events, |e| match e {
+            FeedEvent::Thought { delta } => Some(delta.clone()),
+            _ => None,
+        });
+        assert!(thought.contains("о хвосте"), "{thought:?}");
+    }
+
+    #[test]
+    fn angle_bracket_without_think_passes_through() {
+        // Обычный "<" в тексте (не тег think) не теряется
+        let mut acc = SseAccumulator::default();
+        let events = feed_lines(
+            &mut acc,
+            &[r#"{"choices":[{"delta":{"content":"a < b и 5<6"}}]}"#],
+        );
+        let content = joined(&events, |e| match e {
+            FeedEvent::Content { delta } => Some(delta.clone()),
+            _ => None,
+        });
+        assert_eq!(content, "a < b и 5<6");
+    }
+
     #[test]
     fn content_and_usage_stream() {
         let mut acc = SseAccumulator::default();
