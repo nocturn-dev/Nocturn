@@ -455,11 +455,13 @@ export async function ptyCreate(
   cwd: string | null,
   cols: number,
   rows: number,
+  /** "cmd" | "gitbash"; undefined — PowerShell (auto) */
+  shell?: string,
 ): Promise<void> {
   if (!inTauri) {
     throw new Error("Консоль работает в нативном приложении (npm run tauri dev)");
   }
-  return invoke("pty_create", { id, cwd, cols, rows });
+  return invoke("pty_create", { id, cwd, cols, rows, shell });
 }
 
 export async function ptyWrite(id: string, data: string): Promise<void> {

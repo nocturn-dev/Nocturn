@@ -240,6 +240,10 @@ export default function App() {
   const [askAutoContinue, setAskAutoContinue] = useState(
     () => localStorage.getItem("haloui-ask-auto-continue") !== "0",
   );
+  // Оболочка консоли терминала: auto | powershell | cmd | gitbash
+  const [termShell, setTermShell] = useState<string>(
+    () => localStorage.getItem("haloui-term-shell") || "auto",
+  );
   // Авто-архив: старые задачи (без пина, старше срока) уходят в архив
   const [autoArchive, setAutoArchive] = useState(
     () => localStorage.getItem("haloui-auto-archive") === "1",
@@ -445,6 +449,9 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem("haloui-ask-auto-continue", askAutoContinue ? "1" : "0");
   }, [askAutoContinue]);
+  useEffect(() => {
+    localStorage.setItem("haloui-term-shell", termShell);
+  }, [termShell]);
   useEffect(() => {
     localStorage.setItem("haloui-auto-archive", autoArchive ? "1" : "0");
   }, [autoArchive]);
@@ -1980,6 +1987,7 @@ export default function App() {
         terminalOpen={terminalOpen}
         onToggleTerminal={() => setTerminalOpen((v) => !v)}
         projectRoot={projectRoot}
+        termShell={termShell}
         hideStarter={hideStarter}
         onToggleStarter={() => setHideStarter((v) => !v)}
         terminalHeightPct={terminalHeight}
@@ -2057,6 +2065,8 @@ export default function App() {
         onAskAutoContinueChange={setAskAutoContinue}
         autoArchive={autoArchive}
         onAutoArchiveChange={setAutoArchive}
+        termShell={termShell}
+        onTermShellChange={setTermShell}
         archiveRetention={archiveRetention}
         onArchiveRetentionChange={setArchiveRetention}
         onArchiveNow={archiveOldNow}

@@ -82,6 +82,8 @@ interface SettingsModalProps {
   /** Кастомизация оформления (акцент, стиль, масштаб) */
   appearance: Appearance;
   onAppearanceChange: (a: Appearance) => void;
+  termShell: string;
+  onTermShellChange: (v: string) => void;
   /** Профили внешнего вида: именованные пресеты (Theme + Appearance) */
   themeProfiles: ThemeProfile[];
   onThemeProfilesChange: (list: ThemeProfile[]) => void;
@@ -372,6 +374,8 @@ export default function SettingsModal({
   glass,
   appearance,
   onAppearanceChange,
+  termShell,
+  onTermShellChange,
   themeProfiles,
   onThemeProfilesChange,
   onApplyThemeProfile,
@@ -624,6 +628,8 @@ export default function SettingsModal({
               glass={glass}
               appearance={appearance}
               onAppearanceChange={onAppearanceChange}
+              termShell={termShell}
+              onTermShellChange={onTermShellChange}
               themeProfiles={themeProfiles}
               onThemeProfilesChange={onThemeProfilesChange}
               onApplyThemeProfile={onApplyThemeProfile}
@@ -2654,11 +2660,20 @@ function MemorySection({
   );
 }
 
+/** Названия шеллов консоли: не переводятся */
+const SHELL_LABELS: Record<"powershell" | "cmd" | "gitbash", string> = {
+  powershell: "PowerShell",
+  cmd: "CMD",
+  gitbash: "Git Bash",
+};
+
 function ThemeSection({
   theme,
   glass,
   appearance,
   onAppearanceChange,
+  termShell,
+  onTermShellChange,
   themeProfiles,
   onThemeProfilesChange,
   onApplyThemeProfile,
@@ -2673,6 +2688,8 @@ function ThemeSection({
   glass: boolean;
   appearance: Appearance;
   onAppearanceChange: (a: Appearance) => void;
+  termShell: string;
+  onTermShellChange: (v: string) => void;
   /** Профили внешнего вида: лента чипов + сохранение текущего */
   themeProfiles: ThemeProfile[];
   onThemeProfilesChange: (list: ThemeProfile[]) => void;
@@ -2901,6 +2918,33 @@ function ThemeSection({
           className="min-w-0 flex-1"
         />
         <span className="w-12 shrink-0 text-right text-xs text-halo-muted">{appearance.scale}%</span>
+      </div>
+
+      {/* Оболочка терминала */}
+      <div className="mt-2.5 flex items-center gap-3 rounded-xl border border-halo-line px-3.5 py-3">
+        <div className="min-w-0 flex-1">
+          <p className="whitespace-nowrap text-sm text-halo-text">
+            {t("themes.termShell")}
+          </p>
+          <p className="text-[10px] leading-relaxed text-halo-muted/60">
+            {t("themes.termShellHint")}
+          </p>
+        </div>
+        <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+          {(["auto", "powershell", "cmd", "gitbash"] as const).map((sh) => (
+            <button
+              key={sh}
+              onClick={() => onTermShellChange(sh)}
+              className={`rounded-md border px-2.5 py-1 text-xs transition-colors ${
+                termShell === sh
+                  ? "border-halo-accent/60 bg-halo-accent/10 text-halo-accent"
+                  : "border-halo-line text-halo-muted hover:text-halo-text"
+              }`}
+            >
+              {sh === "auto" ? t("themes.shellAuto") : SHELL_LABELS[sh]}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Шрифт терминала */}

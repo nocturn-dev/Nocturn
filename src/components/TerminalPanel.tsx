@@ -28,6 +28,8 @@ interface TerminalPanelProps {
   pendingConfirm: { requestId: string; call: ToolCallInfo } | null;
   /** Корень проекта — рабочая папка консоли (M4.2) */
   projectRoot: string | null;
+  /** Оболочка консоли: auto | powershell | cmd | gitbash */
+  termShell: string;
   /** Высота панели, % от чата (drag за верхнюю границу) */
   heightPct: number;
   onResizeStart: () => void;
@@ -141,6 +143,7 @@ export default function TerminalPanel({
   streamingMsgId,
   pendingConfirm,
   projectRoot,
+  termShell,
   heightPct,
   onResizeStart,
   onConfirmDecision,
@@ -421,7 +424,13 @@ export default function TerminalPanel({
     void (async () => {
       try {
         if (!createdRef.current) {
-          await ptyCreate(PTY_ID, projectRoot, PTY_COLS, PTY_ROWS);
+          await ptyCreate(
+            PTY_ID,
+            projectRoot,
+            PTY_COLS,
+            PTY_ROWS,
+            termShell === "auto" ? undefined : termShell,
+          );
           createdRef.current = true;
         }
         const offOut = await listen<{ id: string; data: string }>(
@@ -515,7 +524,15 @@ export default function TerminalPanel({
         // может сработать до завершения kill и потерять шелл
         void ptyKill(PTY_ID)
           .catch(() => {})
-          .then(() => ptyCreate(PTY_ID, projectRoot, PTY_COLS, PTY_ROWS))
+          .then(() =>
+            ptyCreate(
+              PTY_ID,
+              projectRoot,
+              PTY_COLS,
+              PTY_ROWS,
+              termShell === "auto" ? undefined : termShell,
+            ),
+          )
           .then(() => {
             createdRef.current = true;
           })

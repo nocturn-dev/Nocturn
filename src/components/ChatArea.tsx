@@ -95,6 +95,8 @@ interface ChatAreaProps {
   onToggleTerminal: () => void;
   /** Корень проекта — рабочая папка консоли терминала (M6) */
   projectRoot: string | null;
+  /** Оболочка консоли: auto | powershell | cmd | gitbash */
+  termShell: string;
   /** Стартовые подсказки скрыты (эргономика) */
   hideStarter: boolean;
   onToggleStarter: () => void;
@@ -218,6 +220,7 @@ export default function ChatArea({
   terminalOpen,
   onToggleTerminal,
   projectRoot,
+  termShell,
   hideStarter,
   onToggleStarter,
   terminalHeightPct,
@@ -1199,6 +1202,7 @@ showReasoning={showReasoning}
           streamingMsgId={streamingMsgId}
           pendingConfirm={pendingConfirm}
           projectRoot={projectRoot}
+          termShell={termShell}
           heightPct={terminalHeightPct}
           onResizeStart={onTerminalResizeStart}
           onConfirmDecision={onConfirmDecision}

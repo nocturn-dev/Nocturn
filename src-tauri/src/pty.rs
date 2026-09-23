@@ -32,10 +32,52 @@ impl PtyRegistry {
 
 const PTY_OUTPUT_LIMIT: usize = 1024 * 1024; // предохранитель на накопитель декодера
 
-/// Рождение PTY: PowerShell -NoLogo в cwd, читатель в отдельном потоке.
+/// Команда шелла по выбору пользователя: None/auto — PowerShell (как было),
+/// "cmd" — cmd.exe, "gitbash" — Git Bash (--login -i; путь ищется стандартно)
+fn build_shell_command(shell: Option<&str>, cwd: Option<&str>) -> Result<CommandBuilder, String> {
+    let mut cmd = match shell.map(str::to_ascii_lowercase).as_deref() {
+        Some("cmd") => CommandBuilder::new("cmd.exe"),
+        Some("gitbash") => {
+            let bash = find_git_bash()
+                .ok_or("Git Bash not found: install Git for Windows or pick another shell")?;
+            let mut c = CommandBuilder::new(bash);
+            c.args(["--login", "-i"]);
+            c
+        }
+        _ => {
+            let mut c = CommandBuilder::new("powershell");
+            c.args(["-NoLogo", "-NoProfile"]);
+            c
+        }
+    };
+    if let Some(dir) = cwd {
+        cmd.cwd(dir);
+    }
+    Ok(cmd)
+}
+
+/// Поиск bash.exe из Git for Windows в стандартных местах установки
+fn find_git_bash() -> Option<String> {
+    let pf = std::env::var("ProgramFiles").unwrap_or_else(|_| "C:\\Program Files".into());
+    let pf86 =
+        std::env::var("ProgramFiles(x86)").unwrap_or_else(|_| "C:\\Program Files (x86)".into());
+    let mut candidates = vec![
+        format!("{pf}\\Git\\bin\\bash.exe"),
+        format!("{pf86}\\Git\\bin\\bash.exe"),
+    ];
+    if let Ok(la) = std::env::var("LOCALAPPDATA") {
+        candidates.push(format!("{la}\\Programs\\Git\\bin\\bash.exe"));
+    }
+    candidates
+        .into_iter()
+        .find(|c| std::path::Path::new(c).exists())
+}
+
+/// Рождение PTY: выбранный шелл в cwd, читатель в отдельном потоке.
 /// `on_output` вызывается из потока-читателя с корректно декодированным UTF-8.
 pub fn spawn_pty(
     cwd: Option<String>,
+    shell: Option<String>,
     cols: u16,
     rows: u16,
     on_output: impl Fn(String) + Send + 'static,
@@ -50,11 +92,7 @@ pub fn spawn_pty(
         })
         .map_err(|e| format!("openpty failed: {e}"))?;
 
-    let mut cmd = CommandBuilder::new("powershell");
-    cmd.args(["-NoLogo", "-NoProfile"]);
-    if let Some(dir) = cwd {
-        cmd.cwd(dir);
-    }
+    let mut cmd = build_shell_command(shell.as_deref(), cwd.as_deref())?;
     let child = pair
         .slave
         .spawn_command(cmd)
@@ -124,6 +162,8 @@ pub async fn pty_create(
     state: tauri::State<'_, PtyRegistry>,
     id: String,
     cwd: Option<String>,
+    // "cmd" | "gitbash" | None/auto (PowerShell); применяется к новым сессиям
+    shell: Option<String>,
     cols: u16,
     rows: u16,
 ) -> Result<(), String> {
@@ -141,6 +181,7 @@ pub async fn pty_create(
     let session = tauri::async_runtime::spawn_blocking(move || {
         spawn_pty(
             cwd,
+            shell,
             cols.max(20).min(500),
             rows.max(5).min(200),
             move |s| {
@@ -257,7 +298,8 @@ mod tests {
     #[test]
     fn pty_echo_roundtrip() {
         let (tx, rx) = mpsc::channel::<String>();
-        let session = spawn_pty(None, 100, 30, move |s| tx.send(s).unwrap(), || {}).expect("spawn pty");
+        let session = spawn_pty(None, None, 100, 30, move |s| tx.send(s).unwrap(), || {})
+            .expect("spawn pty");
 
         // Даём PowerShell подняться и присылаем команду
         std::thread::sleep(Duration::from_millis(1500));
