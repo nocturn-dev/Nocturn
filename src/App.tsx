@@ -111,20 +111,10 @@ export default function App() {
   // Демо-чаты не создаём: список стартует пустым, задачи — только те,
   // что создал пользователь («Новая задача» / автоматизации)
   const [sessions, setSessions] = useState<Session[]>([]);
-  const [projects, setProjects] = useState<Project[]>(() => {
-    try {
-      const raw = localStorage.getItem("haloui-projects");
-      if (raw) {
-        const parsed = JSON.parse(raw) as Project[];
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-      }
-    } catch {
-      // битый JSON — начинаем с пустого списка
-    }
-    // Демо-проекты не создаём: список стартует пустым и наполняется
-    // только вручную («+» во вкладке «Проекты»)
-    return [];
-  });
+  // Проекты: единственный источник истины — projects.json (загружается
+  // ниже при старте). Демо-проекты не создаём: список стартует пустым
+  // и наполняется только вручную («+» во вкладке «Проекты»)
+  const [projects, setProjects] = useState<Project[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   // Профили ключей — отдельное хранилище profiles.json
   const [profiles, setProfiles] = useState<ApiProfile[]>([]);
@@ -418,9 +408,6 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem("haloui-sidebar-side", sidebarSide);
   }, [sidebarSide]);
-  useEffect(() => {
-    localStorage.setItem("haloui-projects", JSON.stringify(projects));
-  }, [projects]);
   useEffect(() => {
     localStorage.setItem("haloui-sidebar-collapsed", sidebarCollapsed ? "1" : "0");
   }, [sidebarCollapsed]);
