@@ -545,6 +545,8 @@ export const ja = {
     "main.showUserMsgsDesc": "オフにするとチャットにはモデルの返信だけが表示されます",
     "main.groupTurns": "エージェントのターンを 1 ブロックに",
     "main.groupTurnsDesc": "思考・コマンド・結果・回答テキストを 1 枚のカードにまとめます。オフにすると各ステップが個別に表示されます",
+    "main.showReasoning": "推論を表示",
+    "main.showReasoningDesc": "モデルの推論ブロックを自動的に展開します",
     "main.notifyDone": "ウィンドウが非フォーカス時に通知",
     "main.notifySound": "サウンド",
     "notify.doneTitle": "タスクが完了しました",

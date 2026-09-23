@@ -6,7 +6,7 @@ import { CollapseButton } from "./CollapseButton";
 import { ErrorNote } from "./ErrorNote";
 import { ToolStepCard } from "./ToolStepCard";
 import { ChevronDownIcon, PlusIcon, SubagentIcon, ToolIcon } from "./icons";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import ProviderIcon from "../ProviderIcon";
 import ReactMarkdown from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
@@ -21,6 +21,7 @@ export function AssistantCard({
   glassEffect,
   isStreaming,
   smooth,
+  showReasoning,
   caret,
 }: {
   mid: string;
@@ -34,6 +35,7 @@ export function AssistantCard({
   glassEffect?: boolean;
   isStreaming: boolean;
   smooth: boolean;
+  showReasoning: boolean;
   caret: boolean;
 }) {
   // Плавная печать: показанный текст отстаёт от реального и догоняет
@@ -74,6 +76,15 @@ export function AssistantCard({
       : message.content;
   const { lang, t } = useLang();
   const [openThought, setOpenThought] = useState(false);
+  // Настройка «показывать рассуждения»: первый блок в сообщении раскрывается
+  // сам; защёлка — чтобы ручное закрытие не перебивалось каждым чанком
+  const reasoningLatched = useRef(false);
+  useEffect(() => {
+    if (showReasoning && !reasoningLatched.current && message.thought) {
+      reasoningLatched.current = true;
+      setOpenThought(true);
+    }
+  }, [showReasoning, message.thought]);
   const [collapsed, setCollapsed] = useState(false);
   const [phaseIdx, setPhaseIdx] = useState(0);
   const phases = thinkingPhases(lang);

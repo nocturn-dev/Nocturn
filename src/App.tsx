@@ -232,6 +232,10 @@ export default function App() {
   const [streamSmooth, setStreamSmooth] = useState(
     () => localStorage.getItem("haloui-stream-smooth") !== "0",
   );
+  // Рассуждения: раскрывать блок размышлений автоматически
+  const [showReasoning, setShowReasoning] = useState(
+    () => localStorage.getItem("haloui-show-reasoning") === "1",
+  );
   const [streamCaret, setStreamCaret] = useState(
     () => localStorage.getItem("haloui-stream-caret") !== "0",
   );
@@ -423,6 +427,9 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem("haloui-stream-smooth", streamSmooth ? "1" : "0");
   }, [streamSmooth]);
+  useEffect(() => {
+    localStorage.setItem("haloui-show-reasoning", showReasoning ? "1" : "0");
+  }, [showReasoning]);
   useEffect(() => {
     localStorage.setItem("haloui-stream-caret", streamCaret ? "1" : "0");
   }, [streamCaret]);
@@ -1911,6 +1918,7 @@ export default function App() {
         onTerminalResizeStart={startTerminalResize}
         scrollFollow={scrollFollow}
         streamSmooth={streamSmooth}
+        showReasoning={showReasoning}
         streamCaret={streamCaret}
         showUserMsgs={showUserMsgs}
         groupTurns={groupTurns}
@@ -1975,6 +1983,8 @@ export default function App() {
         onScrollFollowChange={setScrollFollow}
         streamSmooth={streamSmooth}
         onStreamSmoothChange={setStreamSmooth}
+        showReasoning={showReasoning}
+        onShowReasoningChange={setShowReasoning}
         streamCaret={streamCaret}
         onStreamCaretChange={setStreamCaret}
         showUserMsgs={showUserMsgs}

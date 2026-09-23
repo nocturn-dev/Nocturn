@@ -545,6 +545,8 @@ export const zh = {
     "main.showUserMsgsDesc": "关闭后聊天中只显示模型的回复",
     "main.groupTurns": "代理回合合并为一个块",
     "main.groupTurnsDesc": "思考、命令、结果和回复文本合并在一张卡片中；关闭则每步单独显示",
+    "main.showReasoning": "显示推理过程",
+    "main.showReasoningDesc": "模型输出推理内容时自动展开折叠块",
     "main.notifyDone": "窗口失焦时通知",
     "main.notifySound": "声音",
     "notify.doneTitle": "任务已完成",

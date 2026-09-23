@@ -540,6 +540,8 @@ export const ru = {
     "main.showUserMsgsDesc": "Выключи — в чате останутся только ответы модели",
     "main.groupTurns": "Ход агента одним блоком",
     "main.groupTurnsDesc": "Мысли, команды, результаты и текст ответа — в одной карточке; иначе каждый шаг отдельно",
+    "main.showReasoning": "Показывать рассуждения",
+    "main.showReasoningDesc": "Раскрывать блок размышлений модели автоматически, пока он пишется",
     "main.notifyDone": "Уведомления, когда окно не в фокусе",
     "main.notifySound": "Звук",
     "notify.doneTitle": "Задача завершена",

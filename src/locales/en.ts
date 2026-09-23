@@ -524,6 +524,8 @@ export const en = {
     "main.showUserMsgsDesc": "Turn off to show only the model's replies",
     "main.groupTurns": "Agent turn as one block",
     "main.groupTurnsDesc": "Thoughts, commands, results and reply text in a single card; off shows each step separately",
+    "main.showReasoning": "Show reasoning",
+    "main.showReasoningDesc": "Expand the model's reasoning block automatically as it streams",
     "main.notifyDone": "Notify when window is unfocused",
     "main.notifySound": "Sound",
     "notify.doneTitle": "Task completed",

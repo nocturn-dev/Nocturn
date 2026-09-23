@@ -104,6 +104,8 @@ interface ChatAreaProps {
   /** Поведение генерации: принудительный автоскролл, плавная печать, каретка */
   scrollFollow: boolean;
   streamSmooth: boolean;
+  /** Раскрывать блок рассуждений автоматически */
+  showReasoning: boolean;
   streamCaret: boolean;
   /** Показывать сообщения пользователя (иначе — только ответы модели) */
   showUserMsgs: boolean;
@@ -222,6 +224,7 @@ export default function ChatArea({
   onTerminalResizeStart,
   scrollFollow,
   streamSmooth,
+  showReasoning,
   streamCaret,
   showUserMsgs,
   groupTurns,
@@ -1039,6 +1042,7 @@ export default function ChatArea({
                           glassEffect={msgGlass}
                           isStreaming={merged.id === streamingMsgId}
                           smooth={streamSmooth}
+showReasoning={showReasoning}
                           caret={streamCaret}
                         />,
                       );
@@ -1108,6 +1112,7 @@ export default function ChatArea({
                             glassEffect={msgGlass}
                             isStreaming={m.id === streamingMsgId}
                             smooth={streamSmooth}
+showReasoning={showReasoning}
                             caret={streamCaret}
                           />
                         )

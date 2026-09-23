@@ -99,6 +99,8 @@ interface SettingsModalProps {
   onScrollFollowChange: (v: boolean) => void;
   streamSmooth: boolean;
   onStreamSmoothChange: (v: boolean) => void;
+  showReasoning: boolean;
+  onShowReasoningChange: (v: boolean) => void;
   streamCaret: boolean;
   onStreamCaretChange: (v: boolean) => void;
   /** Показ сообщений пользователя в чате */
@@ -375,7 +377,9 @@ export default function SettingsModal({
   scrollFollow,
   onScrollFollowChange,
   streamSmooth,
+  showReasoning,
   onStreamSmoothChange,
+  onShowReasoningChange,
   streamCaret,
   onStreamCaretChange,
   showUserMsgs,
@@ -575,6 +579,8 @@ export default function SettingsModal({
               onScrollFollowChange={onScrollFollowChange}
               streamSmooth={streamSmooth}
               onStreamSmoothChange={onStreamSmoothChange}
+              showReasoning={showReasoning}
+              onShowReasoningChange={onShowReasoningChange}
               streamCaret={streamCaret}
               onStreamCaretChange={onStreamCaretChange}
               showUserMsgs={showUserMsgs}
@@ -736,7 +742,9 @@ function MainSection({
   scrollFollow,
   onScrollFollowChange,
   streamSmooth,
+  showReasoning,
   onStreamSmoothChange,
+  onShowReasoningChange,
   streamCaret,
   onStreamCaretChange,
   showUserMsgs,
@@ -761,6 +769,8 @@ function MainSection({
   onScrollFollowChange: (v: boolean) => void;
   streamSmooth: boolean;
   onStreamSmoothChange: (v: boolean) => void;
+  showReasoning: boolean;
+  onShowReasoningChange: (v: boolean) => void;
   streamCaret: boolean;
   onStreamCaretChange: (v: boolean) => void;
   showUserMsgs: boolean;
@@ -824,6 +834,12 @@ function MainSection({
         label={t("main.groupTurns")}
         on={groupTurns}
         onChange={onGroupTurnsChange}
+      />
+      <ToggleRow
+        label={t("main.showReasoning")}
+        desc={t("main.showReasoningDesc")}
+        on={showReasoning}
+        onChange={onShowReasoningChange}
       />
       <ToggleRow
         label={t("main.settingsLarge")}
@@ -2451,12 +2467,15 @@ function Row({
 
 export function ToggleRow({
   label,
+  desc,
   disabled,
   defaultOn,
   on,
   onChange,
 }: {
   label: string;
+  /** Пояснение под названием строки (мелким приглушённым шрифтом) */
+  desc?: string;
   disabled?: boolean;
   defaultOn?: boolean;
   /** Контролируемый режим: значение извне */
@@ -2472,8 +2491,15 @@ export function ToggleRow({
   };
   return (
     <div className="flex items-center justify-between rounded-lg px-2.5 py-2.5 text-sm">
-      <span className={disabled ? "text-halo-muted" : "text-halo-text"}>
-        {label}
+      <span className="min-w-0">
+        <span className={disabled ? "text-halo-muted" : "text-halo-text"}>
+          {label}
+        </span>
+        {desc && (
+          <span className="mt-0.5 block text-xs leading-relaxed text-halo-muted">
+            {desc}
+          </span>
+        )}
       </span>
       <button
         onClick={toggle}
