@@ -48,7 +48,7 @@ pub async fn test_connection(base_url: String, api_key: String) -> Result<Vec<Mo
         format!("{}/models", base_url.trim_end_matches('/'))
     };
 
-    let client = reqwest::Client::new();
+    let client = crate::network::apply(reqwest::Client::builder())?.build().map_err(|e| e.to_string())?;
     let mut req = client.get(&url);
     if is_anthropic_base(&base_url) {
         // Anthropic: /v1/models существует, но авторизация — x-api-key + версия
@@ -191,11 +191,13 @@ pub async fn chat_stream(
     let anthropic = is_anthropic_base(&base_url);
     let base = base_url.trim_end_matches('/');
 
-    let client = reqwest::Client::builder()
+    let client = crate::network::apply(
         // Только connect-таймаут: общий таймаут запроса обрывал долгие стримы
-        .connect_timeout(std::time::Duration::from_secs(30))
-        .build()
-        .map_err(|e| format!("failed to build http client: {e}"))?;
+        reqwest::Client::builder().connect_timeout(std::time::Duration::from_secs(30)),
+    )
+    .map_err(|e| format!("failed to build http client: {e}"))?
+    .build()
+    .map_err(|e| format!("failed to build http client: {e}"))?;
 
     // Регистрируем флаг отмены ДО отправки запроса: иначе chat_abort,
     // пришедший между send() и регистрацией, был бы no-op
@@ -993,7 +995,7 @@ pub fn chat_abort(registry: tauri::State<'_, AbortRegistry>, request_id: String)
 /// Ok(None) — Ollama не отвечает, Ok(Some(ids)) — список локальных моделей.
 #[tauri::command]
 pub async fn detect_ollama() -> Result<Option<Vec<String>>, String> {
-    let client = reqwest::Client::new();
+    let client = crate::network::apply(reqwest::Client::builder())?.build().map_err(|e| e.to_string())?;
     let resp = client
         .get("http://localhost:11434/v1/models")
         .timeout(std::time::Duration::from_secs(3))

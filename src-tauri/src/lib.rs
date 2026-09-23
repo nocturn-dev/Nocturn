@@ -13,6 +13,7 @@ pub mod computer;
 mod files;
 pub mod hooks;
 pub mod imagegen;
+mod network;
 mod notes;
 mod plugins;
 mod settings;
@@ -59,6 +60,9 @@ pub fn run() {
                 let data = fs::read_to_string(cfg_dir.join(file)).ok()?;
                 serde_json::from_str(&data).ok()
             };
+            if let Some(v) = read("network.json") {
+                network::set_config(serde_json::from_value(v).unwrap_or_default());
+            }
             if let Some(v) = read("browser.json") {
                 browser::set_config(serde_json::from_value(v).unwrap_or_default());
             }
@@ -161,7 +165,9 @@ pub fn run() {
             mcp::mcp_connect,
             mcp::mcp_disconnect,
             mcp::mcp_status,
-            mcp::mcp_autoconnect
+            mcp::mcp_autoconnect,
+            network::network_get_config,
+            network::network_set_config
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

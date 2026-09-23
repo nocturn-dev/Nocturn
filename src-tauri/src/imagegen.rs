@@ -105,8 +105,8 @@ pub async fn generate(data_dir: &Path, prompt: &str, size: Option<&str>) -> Resu
     };
     let url = format!("{base}/images/generations");
 
-    let client = reqwest::Client::builder()
-        .timeout(HTTP_TIMEOUT)
+    let client = crate::network::apply(reqwest::Client::builder().timeout(HTTP_TIMEOUT))
+        .map_err(|e| format!("http client: {e}"))?
         .build()
         .map_err(|e| format!("http client: {e}"))?;
     let mut body = json!({ "model": cfg.model.trim(), "prompt": prompt, "n": 1 });
@@ -144,8 +144,8 @@ pub async fn generate(data_dir: &Path, prompt: &str, size: Option<&str>) -> Resu
             .decode(b64)
             .map_err(|e| format!("bad base64 image: {e}"))?
     } else if let Some(img_url) = item.get("url").and_then(|x| x.as_str()) {
-        let dl = reqwest::Client::builder()
-            .timeout(DOWNLOAD_TIMEOUT)
+        let dl = crate::network::apply(reqwest::Client::builder().timeout(DOWNLOAD_TIMEOUT))
+            .map_err(|e| format!("http client: {e}"))?
             .build()
             .map_err(|e| format!("http client: {e}"))?;
         let r = dl

@@ -448,6 +448,24 @@ export async function checkpointDelete(path: string, id: string): Promise<void> 
   await invoke("checkpoint_delete", { path, id });
 }
 
+// ---------- Сетевые настройки (прокси / исключения / CA) ----------
+
+export interface NetworkConfig {
+  proxy: string;
+  no_proxy: string;
+  ca_path: string;
+}
+
+export async function networkGetConfig(): Promise<NetworkConfig> {
+  if (!inTauri) return { proxy: "", no_proxy: "", ca_path: "" };
+  return invoke("network_get_config");
+}
+
+export async function networkSetConfig(cfg: NetworkConfig): Promise<void> {
+  if (!inTauri) return;
+  await invoke("network_set_config", { config: cfg });
+}
+
 // ---------- M6: интерактивный PTY-терминал ----------
 
 export async function ptyCreate(
