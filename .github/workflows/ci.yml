@@ -67,7 +67,7 @@ jobs:
             platforms = @{
               "windows-x86_64" = @{
                 signature = (Get-Content $sig.FullName -Raw).Trim()
-                url = "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/$($sig.BaseName).exe"
+                url = "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/$(($sig.Name) -replace [regex]::Escape(".sig"), "")"
               }
             }
           } | ConvertTo-Json -Depth 5
