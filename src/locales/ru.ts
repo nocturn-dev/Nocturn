@@ -653,6 +653,7 @@ export const ru = {
     "ask.otherPh": "Введите свой ответ…",
     "ask.otherLabel": "Другое",
     "ask.submit": "Отправить",
+    "ask.kbdHint": "Tab / 1-9 — выбор · Enter — отправить",
     "ask.answered": "Ответ",
     "ask.cancelled": "Закрыт без ответа",
     "ask.multiHint": "Можно выбрать несколько",

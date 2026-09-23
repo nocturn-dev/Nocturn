@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import type { Attachment, ChangedFile, Message, PermissionMode, PlanTask, Session, ToolCallInfo } from "../types";
+import type { AskQuestion, Attachment, ChangedFile, Message, PermissionMode, PlanTask, Session, ToolCallInfo } from "../types";
 import type { PromptPreset } from "../presets";
 import { normalizePath, parseWriteResult } from "../diff";
 import type { SlashCommand } from "../commands";
@@ -18,7 +18,7 @@ import { BUILTIN_SKILLS, type Skill } from "../skills";
 import type { SubRunState } from "../subagents";
 import type { UserCommand } from "../api";
 import { BUILTIN_COMMANDS } from "../commands";
-import { AskUserCard } from "./cards/AskUserCard";
+import { AskClosedCard, AskPanel } from "./cards/AskUserCard";
 import { AssistantCard } from "./cards/AssistantCard";
 import { ChangedFilesCard } from "./cards/ChangedFilesCard";
 import { ConfirmCard } from "./cards/ConfirmCard";
@@ -74,8 +74,8 @@ interface ChatAreaProps {
   onApplyPreset: (prompt: string) => void;
   onToggleAgent: () => void;
   onConfirmDecision: (d: "once" | "always" | "deny") => void;
-  /** Живые вопросы ask_user: id сообщений, чьи карточки интерактивны */
-  pendingAskIds: string[];
+  /** Живой вопрос ask_user (панель над композером); null — вопросa нет */
+  pendingAsk: { msgId: string; ask: AskQuestion } | null;
   /** Ответ пользователя на вопрос агента (ask_user) */
   onAskAnswer: (mid: string, answer: { answers: string[]; custom?: string }) => void;
   /** Откат записи агента: восстановить before или удалить созданный файл */
@@ -205,7 +205,7 @@ export default function ChatArea({
   onApplyPreset,
   onToggleAgent,
   onConfirmDecision,
-  pendingAskIds,
+  pendingAsk,
   onAskAnswer,
   onUndoWrite,
   onEditMessage,
@@ -1043,17 +1043,11 @@ export default function ChatArea({
                         />,
                       );
                     }
-                    // Вопросы ask_user этого хода — карточками под ответом
+                    // Закрытые вопросы ask_user остаются в истории
+                    // (живой вопрос показывается панелью над композером)
                     for (const a of assistants) {
-                      if (!a.ask) continue;
-                      nodes.push(
-                        <AskUserCard
-                          key={`ask-${a.id}`}
-                          ask={a.ask}
-                          live={pendingAskIds.includes(a.id)}
-                          onAnswer={(ans) => onAskAnswer(a.id, ans)}
-                        />,
-                      );
+                      if (!a.ask || !(a.ask.answer || a.ask.cancelled)) continue;
+                      nodes.push(<AskClosedCard key={`ask-${a.id}`} ask={a.ask} />);
                     }
                   }
                 } else {
@@ -1119,15 +1113,12 @@ export default function ChatArea({
                         )
                       ) : null,
                     );
-                    if (m.role === "assistant" && m.ask) {
-                      nodes.push(
-                        <AskUserCard
-                          key={`ask-${m.id}`}
-                          ask={m.ask}
-                          live={pendingAskIds.includes(m.id)}
-                          onAnswer={(ans) => onAskAnswer(m.id, ans)}
-                        />,
-                      );
+                    if (
+                      m.role === "assistant" &&
+                      m.ask &&
+                      (m.ask.answer || m.ask.cancelled)
+                    ) {
+                      nodes.push(<AskClosedCard key={`ask-${m.id}`} ask={m.ask} />);
                     }
                   }
                 }
@@ -1350,6 +1341,13 @@ export default function ChatArea({
                   ✕
                 </button>
               </div>
+            )}
+            {/* Живой вопрос агента: панель над композером, прикреплена к нему */}
+            {pendingAsk && !terminalOpen && (
+              <AskPanel
+                ask={pendingAsk.ask}
+                onAnswer={(ans) => onAskAnswer(pendingAsk.msgId, ans)}
+              />
             )}
             <div className="flex items-end gap-2">
               <input

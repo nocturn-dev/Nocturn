@@ -658,6 +658,7 @@ export const zh = {
     "ask.otherPh": "输入你的回答…",
     "ask.otherLabel": "其他",
     "ask.submit": "提交",
+    "ask.kbdHint": "Tab / 数字键选择 · Enter 提交",
     "ask.answered": "回答",
     "ask.cancelled": "已关闭，未回答",
     "ask.multiHint": "可多选",

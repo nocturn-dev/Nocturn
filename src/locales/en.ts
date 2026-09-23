@@ -634,6 +634,7 @@ export const en = {
     "ask.otherPh": "Enter your answer…",
     "ask.otherLabel": "Other",
     "ask.submit": "Submit",
+    "ask.kbdHint": "Tab / 1-9 to choose · Enter to submit",
     "ask.answered": "Answer",
     "ask.cancelled": "Closed without an answer",
     "ask.multiHint": "You can choose several",

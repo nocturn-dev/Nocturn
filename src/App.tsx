@@ -2046,9 +2046,9 @@ export default function App() {
         }
         const spec: AskUserSpec = parsedSpec;
 
-        // Первый вопрос шага — на сообщении шага (assistantId), дополнительные
-        // (редкий батч) — отдельными сообщениями-карточками
-        const askMsgId = uid();
+        // Первый вопрос шага живёт на сообщении шага (assistantId),
+        // дополнительные (редкий батч) — на отдельных сообщениях-карточках
+        const askMsgId = call === askCalls[0] ? assistantId : uid();
         if (call === askCalls[0]) {
           setSessions((prev) =>
             prev.map((s) => ({
@@ -2068,7 +2068,6 @@ export default function App() {
             ask: { ...spec, answer: null },
           });
         }
-
         const answer = await new Promise<{ answers: string[]; custom?: string } | null>(
           (resolve) => {
             openInteraction(
@@ -3044,9 +3043,12 @@ ${report}`;
             ? { requestId: c.requestId, call: c.call }
             : null;
         })()}
-        pendingAskIds={interactions
-          .filter((i) => i.kind === "ask")
-          .map((i) => (i.kind === "ask" ? i.msgId : ""))}
+        pendingAsk={(() => {
+          const a = interactions.find((i) => i.kind === "ask");
+          return a && a.kind === "ask"
+            ? { msgId: a.msgId, ask: { ...a.spec } }
+            : null;
+        })()}
         onAskAnswer={handleAskAnswer}
         onConfirmDecision={handleConfirmDecision}
         promptPresets={builtinPresetsFor(lang)}

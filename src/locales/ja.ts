@@ -658,6 +658,7 @@ export const ja = {
     "ask.otherPh": "回答を入力…",
     "ask.otherLabel": "その他",
     "ask.submit": "送信",
+    "ask.kbdHint": "Tab / 数字で選択 · Enter で送信",
     "ask.answered": "回答",
     "ask.cancelled": "回答なしで閉じられました",
     "ask.multiHint": "複数選択できます",
