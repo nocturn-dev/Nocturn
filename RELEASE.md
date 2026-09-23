@@ -2,17 +2,19 @@
 
 ## One-time setup
 
-1. Generate the updater signing keypair:
+1. Keypair is already generated: the **public** key is set in
+   `src-tauri/tauri.conf.json`; the private key and its password live in
+   the local (gitignored) `.keys/` folder. To regenerate:
 
    ```bash
    npm run tauri signer generate -w ~/.tauri/nocturn.key
    ```
 
-2. Replace `plugins.updater.pubkey` in `src-tauri/tauri.conf.json` with the
-   **public** key printed by the command.
-3. In the GitHub repo → Settings → Secrets and variables → Actions, add:
-   - `TAURI_SIGNING_PRIVATE_KEY` — contents of the private key file;
-   - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` — its password (or empty).
+   (and update the pubkey in `tauri.conf.json` + the GitHub secrets).
+
+2. In the GitHub repo → Settings → Secrets and variables → Actions, add:
+   - `TAURI_SIGNING_PRIVATE_KEY` — contents of `.keys/nocturn-private.key`;
+   - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` — contents of `.keys/PASSWORD.txt`.
 4. Update the updater endpoint in `tauri.conf.json` if the repository is not
    `nocturn-app/nocturn` (it points to
    `https://github.com/<org>/<repo>/releases/latest/download/latest.json`).

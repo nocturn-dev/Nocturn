@@ -15,3 +15,6 @@ Thumbs.db
 
 # Local runtime artifacts
 *.local
+
+# Updater signing keypair (никогда не коммитить)
+.keys/
