@@ -8,6 +8,9 @@
 Your API key, your provider, your machine — no accounts, no telemetry, no backend
 of its own. Built with **Tauri 2** (native binary) + **React 19 + TypeScript** + Tailwind CSS 4.
 
+**Light by design:** the installer is ~4.4 MB and the running app stays around
+**~100 MB RAM** total (app + WebView2, per Task Manager) — no background services.
+
 > Интерфейс на русском и английском (плюс 中文 / 日本語). Основной язык разработки — TypeScript, нативная часть — Rust.
 
 ## Features
@@ -38,9 +41,15 @@ of its own. Built with **Tauri 2** (native binary) + **React 19 + TypeScript** +
 - **Customization** — 6 dark themes + light, accent colors, glass effects, UI
   scale, theme profiles, RU / EN / 中文 / 日本語.
 
+
+## Screenshots
+
 <p align="center">
   <img src="docs/screenshots/quick-look.png" width="420" alt="Quick appearance settings" />
-  <img src="docs/screenshots/automations.png" width="420" alt="Automations" />
+  <img src="docs/screenshots/customization.png" width="420" alt="Appearance settings: theme profiles, accent colors" />
+</p>
+<p align="center">
+  <img src="docs/screenshots/automations.png" width="560" alt="Automations: scheduled agent tasks" />
 </p>
 
 ## Privacy & Security
