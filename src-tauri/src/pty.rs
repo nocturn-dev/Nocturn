@@ -51,30 +51,33 @@ const PTY_OUTPUT_LIMIT: usize = 1024 * 1024; // предохранитель н�
 /// macOS/Linux: None/auto — $SHELL (fallback bash → zsh → sh); "cmd" и
 /// "gitbash" — Windows-специфичные, трактуются как auto. Без ветки для Unix
 /// дефолтный `powershell` не находился и весь терминал был неработоспособен.
+/// Ветви строго #[cfg] compile-time: внутри Windows-ветки зовётся
+/// find_git_bash(), существующий только на Windows (cfg!() — рантайм-макрос,
+/// обе его ветки обязаны компилироваться на всех ОС).
 fn build_shell_command(shell: Option<&str>, cwd: Option<&str>) -> Result<CommandBuilder, String> {
     let picked = shell.map(str::to_ascii_lowercase);
-    let mut cmd = if cfg!(windows) {
-        match picked.as_deref() {
-            Some("cmd") => CommandBuilder::new("cmd.exe"),
-            Some("gitbash") => {
-                let bash = find_git_bash().ok_or(
-                    "Git Bash not found: install Git for Windows or pick another shell",
-                )?;
-                let mut c = CommandBuilder::new(bash);
-                c.args(["--login", "-i"]);
-                c
-            }
-            _ => {
-                let mut c = CommandBuilder::new("powershell");
-                c.args(["-NoLogo", "-NoProfile"]);
-                c
-            }
+    #[cfg(windows)]
+    let mut cmd = match picked.as_deref() {
+        Some("cmd") => CommandBuilder::new("cmd.exe"),
+        Some("gitbash") => {
+            let bash = find_git_bash()
+                .ok_or("Git Bash not found: install Git for Windows or pick another shell")?;
+            let mut c = CommandBuilder::new(bash);
+            c.args(["--login", "-i"]);
+            c
         }
-    } else {
-        match unix_shell() {
-            Some(s) => CommandBuilder::new(s),
-            None => return Err("no shell found: set $SHELL or install bash/zsh/sh".into()),
+        _ => {
+            let mut c = CommandBuilder::new("powershell");
+            c.args(["-NoLogo", "-NoProfile"]);
+            c
         }
+    };
+    #[cfg(not(windows))]
+    let mut cmd = {
+        // "cmd"/"gitbash" на Unix трактуются как auto
+        let s =
+            unix_shell().ok_or("no shell found: set $SHELL or install bash/zsh/sh")?;
+        CommandBuilder::new(s)
     };
     if let Some(dir) = cwd {
         cmd.cwd(dir);
@@ -84,6 +87,7 @@ fn build_shell_command(shell: Option<&str>, cwd: Option<&str>) -> Result<Command
 
 /// Shell по умолчанию для macOS/Linux: $SHELL пользователя, затем
 /// стандартные места установки bash/zsh/sh
+#[cfg(not(windows))]
 fn unix_shell() -> Option<String> {
     if let Ok(s) = std::env::var("SHELL") {
         if std::path::Path::new(&s).exists() {
