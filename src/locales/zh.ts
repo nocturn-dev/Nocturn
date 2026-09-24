@@ -499,12 +499,14 @@ export const zh = {
     "bu.desc":
       "通过 CDP 控制真实浏览器：导航、读取页面、截图和坐标点击。启用后代理可见 browser_* 工具。截图请选择带「vision」徽标的模型。",
     "bu.enabled": "浏览器工具已启用",
+    "bu.enabledDesc": "为代理添加 browser_* 工具（导航、读取页面、截图、通过 CDP 点击）。关闭时浏览器调用会被拒绝。",
     "bu.headless": "无头模式 (headless)",
-    "bu.privateNet": "访问私有/回环网络 (127.0.0.1、192.168.* 等)",
-    "bu.privateNetDesc": "默认关闭：网页可能通过提示注入让代理读取内部服务。仅针对本地开发目标开启。",
+    "bu.privateNet": "访问本地网络",
+    "bu.privateNetDesc": "允许代理打开 127.0.0.1、192.168.*、169.254.* 等地址。默认关闭，以防网页通过提示注入让代理读取内部服务——仅在需要本地应用时开启。",
     "bu.headlessDesc":
       "浏览器在无窗口状态下运行。关闭后可以看到代理的操作。",
     "bu.executable": "浏览器路径（可选）",
+    "bu.executableDesc": "Chrome/Edge 安装在非标准位置时的显式路径；留空则自动检测。",
     "bu.executablePh": "C:\\…\\msedge.exe — 留空 = 自动查找 Edge/Chrome",
     "bu.save": "应用",
     "bu.note":

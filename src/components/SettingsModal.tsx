@@ -2347,6 +2347,7 @@ function BrowserUseSection() {
       <div className="space-y-1">
         <ToggleRow
           label={t("bu.enabled")}
+          desc={t("bu.enabledDesc")}
           on={cfg.enabled}
           onChange={(v) => void apply({ ...cfg, enabled: v })}
         />
@@ -2354,24 +2355,23 @@ function BrowserUseSection() {
           <>
             <ToggleRow
               label={t("bu.headless")}
+              desc={t("bu.headlessDesc")}
               on={cfg.headless}
               onChange={(v) => void apply({ ...cfg, headless: v })}
             />
             <ToggleRow
               label={t("bu.privateNet")}
+              desc={t("bu.privateNetDesc")}
               on={cfg.allowPrivateNetworks}
               onChange={(v) => void apply({ ...cfg, allowPrivateNetworks: v })}
             />
             <div className="rounded-lg px-2.5 py-2.5">
-              <p className="text-xs text-halo-muted">{t("bu.privateNetDesc")}</p>
-            </div>
-            <div className="rounded-lg px-2.5 py-2.5">
-              <p className="text-xs text-halo-muted">{t("bu.headlessDesc")}</p>
-            </div>
-            <div className="rounded-lg px-2.5 py-2.5">
               <span className="mb-1.5 block text-xs font-medium text-halo-muted">
                 {t("bu.executable")}
               </span>
+              <p className="mb-2 text-xs leading-relaxed text-halo-muted">
+                {t("bu.executableDesc")}
+              </p>
               <div className="flex gap-2">
                 <input
                   type="text"

@@ -466,12 +466,14 @@ export const en = {
     "bu.desc":
       "Control a real browser via CDP: navigation, page reading, screenshots and coordinate clicks. The browser_* tools are visible to the agent when enabled. Use a model with the “vision” badge for screenshots.",
     "bu.enabled": "Browser tools enabled",
+    "bu.enabledDesc": "Adds the browser_* tools to the agent (navigation, page reading, screenshots, clicks via CDP). Without it, browser calls are rejected.",
     "bu.headless": "Headless mode",
-    "bu.privateNet": "Access private/loopback networks (127.0.0.1, 192.168.*, …)",
-    "bu.privateNetDesc": "Off by default: a web page can prompt-inject the agent into reading internal services. Enable only for local development targets.",
+    "bu.privateNet": "Access private networks",
+    "bu.privateNetDesc": "Lets the agent open addresses like 127.0.0.1, 192.168.*, 169.254.*. Off by default so a web page cannot prompt-inject the agent into reading internal services — enable only for local apps.",
     "bu.headlessDesc":
       "The browser runs without a visible window. Turn off to watch what the agent does.",
     "bu.executable": "Browser executable (optional)",
+    "bu.executableDesc": "Explicit path to Chrome/Edge if installed in a non-standard location; empty = auto-detect.",
     "bu.executablePh": "C:\\…\\msedge.exe — empty = auto-detect Edge/Chrome",
     "bu.save": "Apply",
     "bu.note":
