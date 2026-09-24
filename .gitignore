@@ -18,3 +18,4 @@ Thumbs.db
 
 # Updater signing keypair (никогда не коммитить)
 .keys/
+jobs_tmp.json
