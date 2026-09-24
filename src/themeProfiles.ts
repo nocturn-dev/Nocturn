@@ -6,7 +6,7 @@
  * отбрасываются, частичные добираются дефолтами Appearance.
  */
 
-import type { Appearance } from "./appearance";
+import { AMBIENT_SCENES, type Appearance } from "./appearance";
 import type { Theme } from "./types";
 
 export interface ThemeProfile {
@@ -61,6 +61,11 @@ function parseProfile(raw: unknown): ThemeProfile | null {
       officialContrast: a.officialContrast === true,
       officialMonoCode: a.officialMonoCode === true,
       ambient: a.ambient === true,
+      ambientScene: AMBIENT_SCENES.includes(a.ambientScene as never)
+        ? (a.ambientScene as Appearance["ambientScene"])
+        : "glow",
+      ambientVideo: typeof a.ambientVideo === "string" ? a.ambientVideo : "",
+      ambientIntensity: num(a.ambientIntensity, 0.7, 0.3, 1),
     },
   };
 }

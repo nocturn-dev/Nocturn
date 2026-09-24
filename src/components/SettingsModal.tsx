@@ -38,6 +38,7 @@ import {
 import type { PromptPreset } from "../presets";
 import { ACCENT_PRESETS, appearanceTitleStyle, type Appearance } from "../appearance";
 import type { ThemeProfile } from "../themeProfiles";
+import { pickVideoFile, ambientRegisterVideo } from "../api";
 import ProviderIcon from "./ProviderIcon";
 import {
   SHORTCUT_ACTIONS,
@@ -3185,6 +3186,27 @@ function ThemeSection({
         </>
       )}
 
+      {/* Превью кода: поверхности и подсветка обеих палитр; активная —
+          тема текущего интерфейса (Official всегда тёмная) */}
+      <p className="mb-2 mt-4 text-xs font-medium text-halo-muted">
+        {t("themes.codepv")}
+      </p>
+      <p className="mb-2 text-xs leading-relaxed text-halo-muted/70">
+        {t("themes.codepvDesc")}
+      </p>
+      <div className="grid grid-cols-2 gap-3">
+        <CodePreviewCard
+          variant="light"
+          title={t("themes.codepvLight")}
+          active={!(theme === "dark" || appearance.official)}
+        />
+        <CodePreviewCard
+          variant="dark"
+          title={t("themes.codepvDark")}
+          active={theme === "dark" || appearance.official}
+        />
+      </div>
+
       {/* Масштаб интерфейса */}
       <div className="mt-4 flex items-center gap-3 rounded-xl border border-halo-line px-3.5 py-3">
         <div className="shrink-0">
@@ -3416,8 +3438,8 @@ function ThemeSection({
       </>
       )}
 
-      {/* Ambient-фон: медленно дышащие пятна акцента. Независим от темы —
-          виден и в Halo, и в Official; на стриме ставится на паузу */}
+      {/* Ambient-фон: сцены или своё видео. Независим от темы — виден
+          и в Halo, и в Official; на стриме ставится на паузу */}
       <div className="mt-2.5 flex items-center justify-between rounded-xl border border-halo-line px-3.5 py-3">
         <div className="min-w-0 pr-3">
           <p className="text-sm text-halo-text">{t("themes.ambient")}</p>
@@ -3441,9 +3463,181 @@ function ThemeSection({
           />
         </button>
       </div>
+
+      {appearance.ambient && (
+        <div className="mt-2.5 space-y-2.5 rounded-xl border border-halo-line px-3.5 py-3">
+          <div>
+            <p className="mb-1.5 text-xs font-medium text-halo-muted">
+              {t("themes.ambientScene")}
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {(
+                [
+                  ["glow", "themes.sceneGlow"],
+                  ["fog", "themes.sceneFog"],
+                  ["snow", "themes.sceneSnow"],
+                  ["city", "themes.sceneCity"],
+                  ["stars", "themes.sceneStars"],
+                  ["video", "themes.sceneVideo"],
+                ] as const
+              ).map(([id, key]) => (
+                <button
+                  key={id}
+                  onClick={() => onAppearanceChange({ ...appearance, ambientScene: id })}
+                  className={`rounded-md border px-2.5 py-1 text-xs transition-colors ${
+                    appearance.ambientScene === id
+                      ? "border-halo-accent/60 bg-halo-accent/10 text-halo-accent"
+                      : "border-halo-line text-halo-muted hover:text-halo-text"
+                  }`}
+                >
+                  {t(key as MsgKey)}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <p className="shrink-0 text-xs font-medium text-halo-muted">
+              {t("themes.ambientIntensity")}
+            </p>
+            <input
+              type="range"
+              min={0.3}
+              max={1}
+              step={0.05}
+              value={appearance.ambientIntensity}
+              onChange={(e) =>
+                onAppearanceChange({
+                  ...appearance,
+                  ambientIntensity: Number(e.target.value),
+                })
+              }
+              className="min-w-0 flex-1"
+            />
+            <span className="w-10 shrink-0 text-right text-xs text-halo-muted">
+              {Math.round(appearance.ambientIntensity * 100)}%
+            </span>
+          </div>
+
+          {appearance.ambientScene === "video" && (
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                onClick={async () => {
+                  try {
+                    const path = await pickVideoFile();
+                    if (!path) return;
+                    await ambientRegisterVideo(path);
+                    onAppearanceChange({ ...appearance, ambientVideo: path });
+                  } catch (e) {
+                    window.alert(String(e));
+                  }
+                }}
+                className="rounded-md border border-halo-line px-2.5 py-1 text-xs text-halo-muted transition-colors hover:text-halo-text"
+              >
+                {t("themes.ambientVideoPick")}
+              </button>
+              <span className="min-w-0 truncate font-mono text-[10px] text-halo-muted">
+                {appearance.ambientVideo.split(/[\\/]/).pop() ||
+                  t("themes.ambientVideoNone")}
+              </span>
+            </div>
+          )}
+          {appearance.ambientScene === "video" && (
+            <p className="text-[10px] leading-relaxed text-halo-muted/70">
+              {t("themes.ambientVideoHint")}
+            </p>
+          )}
+        </div>
+      )}
       <p className="mt-3 text-xs text-halo-muted/70">
         {t("themes.note")}
       </p>
+    </div>
+  );
+}
+
+type CpTok = { c: string; v: string };
+const CODEPV_LINES: CpTok[][] = [
+  [
+    { c: "kw", v: "const " },
+    { c: "vr", v: "themePreview" },
+    { c: "pl", v: ": " },
+    { c: "ty", v: "ThemeConfig" },
+    { c: "pl", v: " = {" },
+  ],
+  [
+    { c: "pl", v: "  " },
+    { c: "pr", v: "surface" },
+    { c: "pl", v: ": " },
+    { c: "st", v: '"sidebar"' },
+    { c: "pl", v: "," },
+  ],
+  [
+    { c: "pl", v: "  " },
+    { c: "pr", v: "accent" },
+    { c: "pl", v: ": " },
+    { c: "st", v: '"#339CFF"' },
+    { c: "pl", v: "," },
+  ],
+  [
+    { c: "pl", v: "  " },
+    { c: "pr", v: "contrast" },
+    { c: "pl", v: ": " },
+    { c: "nm", v: "45" },
+    { c: "pl", v: "," },
+  ],
+  [{ c: "pl", v: "}" }],
+];
+
+/** Карточка превью: фиксированный сниппет с подсветкой под палитру.
+    Цвета токенов — GitHub Light / Dark, задаются в index.css (.cp-*) */
+function CodePreviewCard({
+  variant,
+  title,
+  active,
+}: {
+  variant: "light" | "dark";
+  title: string;
+  active: boolean;
+}) {
+  const { t } = useLang();
+  return (
+    <div className="rounded-xl border border-halo-line p-2.5">
+      <div className="mb-2 flex items-center justify-between">
+        <div className="min-w-0">
+          <p className="truncate text-sm text-halo-text">{title}</p>
+          <p className="text-[10px] text-halo-muted/70">GitHub</p>
+        </div>
+        <span
+          className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium ${
+            active
+              ? "bg-halo-accent text-halo-on-accent"
+              : "border border-halo-line text-halo-muted"
+          }`}
+        >
+          {active
+            ? t("themes.codepvActive")
+            : variant === "light"
+              ? "Light"
+              : "Dark"}
+        </span>
+      </div>
+      <pre
+        className={`codepv-pre ${
+          variant === "light" ? "codepv-light" : "codepv-dark"
+        }`}
+      >
+        {CODEPV_LINES.map((line, i) => (
+          <span key={i}>
+            {line.map((tok, j) => (
+              <span key={j} className={`cp-${tok.c}`}>
+                {tok.v}
+              </span>
+            ))}
+            {"\n"}
+          </span>
+        ))}
+      </pre>
     </div>
   );
 }

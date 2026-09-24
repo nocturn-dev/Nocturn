@@ -62,7 +62,16 @@ but stay at the plain-chat level. Nocturn is the missing middle ground:
 - **Image generation** — optional `image_generate` agent tool via your own
   image API (off by default).
 - **Customization** — 8 dark themes + light + **Official** monochrome, accent
-  colors, glass effects, ambient background glow, UI scale, theme profiles, RU / EN / 中文 / 日本語.
+  colors, glass effects, **ambient backgrounds** (procedural scenes — fog,
+  snowfall, neon city, starfield — or your own looped video), UI scale, theme
+  profiles, RU / EN / 中文 / 日本語.
+
+> **A note on ambient video backgrounds:** a looping video behind the chat
+> looks great, but the decoder keeps using GPU/battery while it plays.
+> Playback pauses automatically while the agent is streaming and when the
+> window is minimized, yet on battery-powered laptops the procedural scenes
+> are the friendlier choice. Keep custom clips short (~50 MB) and dim — the
+> app adds a dark overlay on top for text readability.
 
 
 ## Screenshots

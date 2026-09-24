@@ -537,7 +537,7 @@ html.official.official-mono-code .markdown pre {
 /* ---------- Ambient-фон: медленно дышащие пятна акцента (Кастомизация).
    Слой поверх контента с pointer-events:none и крошечной альфой; на паузе
    во время стрима и при prefers-reduced-motion не анимируется ---------- */
-html.ambient body::before {
+html.ambient:not([data-ambient-scene]) body::before {
   content: "";
   position: fixed;
   inset: -20%;
@@ -559,3 +559,75 @@ html.ambient.ambient-paused body::before {
 @media (prefers-reduced-motion: reduce) {
   html.ambient body::before { animation: none; }
 }
+
+/* ---------- Ambient: слой сцен/видео (fog, snow, city, stars, video).
+   Палитра сцен тёмная — в светлой теме слой скрыт. Интенсивность
+   регулируется переменной --ambient-alpha из «Кастомизации» ---------- */
+.ambient-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  pointer-events: none;
+  overflow: hidden;
+  opacity: var(--ambient-alpha, 0.7);
+}
+.ambient-canvas,
+.ambient-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.ambient-video {
+  filter: brightness(0.72) saturate(0.92);
+}
+/* затемняющий градиент: текст поверх видео остаётся читаемым */
+.ambient-layer::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    180deg,
+    rgba(0, 0, 0, 0.32),
+    rgba(0, 0, 0, 0.12) 45%,
+    rgba(0, 0, 0, 0.3)
+  );
+}
+html.light .ambient-layer {
+  display: none;
+}
+
+/* ---------- Превью кода: две палитры (GitHub Light / Dark) рядом ---------- */
+.codepv-pre {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.65;
+  overflow: hidden;
+  white-space: pre;
+}
+.codepv-light {
+  background: #ffffff;
+  color: #24292f;
+  border: 1px solid #d0d7de;
+}
+.codepv-light .cp-kw { color: #cf222e; }
+.codepv-light .cp-ty { color: #953800; }
+.codepv-light .cp-st { color: #0a3069; }
+.codepv-light .cp-nm { color: #0550ae; }
+.codepv-light .cp-vr { color: #953800; }
+.codepv-light .cp-pr { color: #116329; }
+.codepv-dark {
+  background: #0d1117;
+  color: #e6edf3;
+  border: 1px solid #30363d;
+}
+.codepv-dark .cp-kw { color: #ff7b72; }
+.codepv-dark .cp-ty { color: #ffa657; }
+.codepv-dark .cp-st { color: #a5d6ff; }
+.codepv-dark .cp-nm { color: #79c0ff; }
+.codepv-dark .cp-vr { color: #ffa657; }
+.codepv-dark .cp-pr { color: #7ee787; }

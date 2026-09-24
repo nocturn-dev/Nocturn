@@ -729,6 +729,30 @@ pub fn save_sessions(app: tauri::AppHandle, data: String) -> Result<(), String> 
     }
     crate::fsutil::atomic_write(&path, data.as_bytes())
 }
+
+/// Ambient: разрешить вебвью читать выбранное пользователем видео через
+/// asset-протокол. Скоуп расширяется ТОЧКО на выбранный файл (allow_file) —
+/// никаких широких "**"-разрешений; расширение проверяем по whitelist.
+#[tauri::command]
+pub fn ambient_video_register(app: tauri::AppHandle, path: String) -> Result<(), String> {
+    const OK: &[&str] = &["mp4", "webm", "ogv", "ogg", "mov", "m4v", "mkv"];
+    let ext = std::path::Path::new(&path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase())
+        .ok_or("file has no extension")?;
+    if !OK.contains(&ext.as_str()) {
+        return Err(format!("unsupported video format: .{ext} (use mp4/webm)"));
+    }
+    if !std::path::Path::new(&path).exists() {
+        return Err("file does not exist".into());
+    }
+    use tauri::Manager;
+    app.asset_protocol_scope()
+        .allow_file(&path)
+        .map_err(|e| format!("cannot allow video file: {e}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

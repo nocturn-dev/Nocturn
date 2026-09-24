@@ -101,6 +101,7 @@ import {
 } from "./subagents";
 import { loadLimits, saveLimits, type HardLimits } from "./limits";
 import { uid } from "./hooks/useAgentRun";
+import { AmbientLayer } from "./components/AmbientLayer";
 
 const clampNum = (v: number, min: number, max: number) =>
   Math.min(max, Math.max(min, v));
@@ -1942,6 +1943,14 @@ export default function App() {
         sidebarSide === "right" ? "flex-row-reverse" : ""
       }`}
     >
+        {/* Ambient-слой: сцены/видео позади контента, z и паузы — в CSS */}
+        {appearance.ambient && appearance.ambientScene !== "glow" && (
+          <AmbientLayer
+            scene={appearance.ambientScene}
+            videoPath={appearance.ambientVideo}
+            paused={streamingId !== null}
+          />
+        )}
         <button
           onClick={() => setSidebarCollapsed(false)}
           title={t("sidebar.expand")}

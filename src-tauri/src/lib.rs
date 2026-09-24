@@ -131,6 +131,7 @@ pub fn run() {
             chat::detect_ollama,
             tooling::load_sessions,
             tooling::save_sessions,
+            tooling::ambient_video_register,
             tooling::run_tool,
             tooling::get_tool_schemas,
             tooling::perm_set,

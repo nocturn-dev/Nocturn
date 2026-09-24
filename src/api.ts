@@ -404,6 +404,28 @@ export interface FileEntry {
 }
 
 /** Системный диалог выбора папки проекта. null — пользователь отменил */
+/** Ambient: выбрать видеофайл пользователя (mp4/webm/…) */
+export async function pickVideoFile(): Promise<string | null> {
+  if (!inTauri) {
+    throw new Error("Выбор видео работает в нативном приложении (npm run tauri dev)");
+  }
+  const { open } = await import("@tauri-apps/plugin-dialog");
+  const picked = await open({
+    multiple: false,
+    directory: false,
+    filters: [
+      { name: "Video", extensions: ["mp4", "webm", "mov", "m4v", "mkv", "ogv", "ogg"] },
+    ],
+  });
+  return typeof picked === "string" ? picked : null;
+}
+
+/** Ambient: разрешить вебвью читать выбранное видео (asset-протокол,
+ *  скоуп расширяется ровно на этот файл) */
+export async function ambientRegisterVideo(path: string): Promise<void> {
+  return invoke("ambient_video_register", { path });
+}
+
 export async function pickFolder(): Promise<string | null> {
   if (!inTauri) {
     throw new Error("Выбор папки работает в нативном приложении (npm run tauri dev)");

@@ -35,8 +35,14 @@ export interface Appearance {
   officialContrast: boolean;
   /** Official: обесцветить подсветку кода (серая шкала вместо синтакс-цветов) */
   officialMonoCode: boolean;
-  /** Ambient-фон: медленно дышащие пятна акцента поверх интерфейса */
+  /** Ambient-фон: процедурные сцены или своё видео поверх интерфейса */
   ambient: boolean;
+  /** Ambient-сцена: glow — прежнее «дыхание акцента», video — свой файл */
+  ambientScene: "glow" | "fog" | "snow" | "city" | "stars" | "video";
+  /** Путь к видео пользователя (для scene === "video") */
+  ambientVideo: string;
+  /** Яркость ambient-слоя, 0.3–1 */
+  ambientIntensity: number;
 }
 
 export const DEFAULT_APPEARANCE: Appearance = {
@@ -53,9 +59,21 @@ export const DEFAULT_APPEARANCE: Appearance = {
   officialContrast: false,
   officialMonoCode: false,
   ambient: false,
+  ambientScene: "glow",
+  ambientVideo: "",
+  ambientIntensity: 0.7,
 };
 
 const LS_KEY = "haloui-appearance";
+
+export const AMBIENT_SCENES = [
+  "glow",
+  "fog",
+  "snow",
+  "city",
+  "stars",
+  "video",
+] as const;
 
 export const ACCENT_PRESETS: { hex: string; deep: string }[] = [
   { hex: "#d97757", deep: "#bd5d3a" }, // терракота Claude
@@ -88,6 +106,15 @@ export function loadAppearance(): Appearance {
       officialContrast: p.officialContrast ?? DEFAULT_APPEARANCE.officialContrast,
       officialMonoCode: p.officialMonoCode ?? DEFAULT_APPEARANCE.officialMonoCode,
       ambient: p.ambient ?? DEFAULT_APPEARANCE.ambient,
+      ambientScene: AMBIENT_SCENES.includes(p.ambientScene as never)
+        ? (p.ambientScene as Appearance["ambientScene"])
+        : "glow",
+      ambientVideo: typeof p.ambientVideo === "string" ? p.ambientVideo : "",
+      ambientIntensity: clamp(
+        p.ambientIntensity ?? DEFAULT_APPEARANCE.ambientIntensity,
+        0.3,
+        1,
+      ),
     };
   } catch {
     return { ...DEFAULT_APPEARANCE };
@@ -167,6 +194,14 @@ export function applyAppearance(a: Appearance) {
   root.classList.toggle("official", a.official);
   root.classList.toggle("official-mono-code", a.official && a.officialMonoCode);
   root.classList.toggle("ambient", a.ambient);
+  // Сцена: glow — базовое дыхание (body::before), остальные — слой в App.
+  // Интенсивность через переменную, слой читает её из CSS
+  if (a.ambient && a.ambientScene !== "glow") {
+    root.setAttribute("data-ambient-scene", a.ambientScene);
+  } else {
+    root.removeAttribute("data-ambient-scene");
+  }
+  root.style.setProperty("--ambient-alpha", String(a.ambientIntensity));
   if (a.official) {
     const palette = officialPalette(a);
     for (const [k, v] of Object.entries(palette)) {
