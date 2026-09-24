@@ -123,7 +123,7 @@ impl McpConnection {
                 }
                 #[cfg(not(windows))]
                 {
-                    return Err(direct_err);
+                    return Err(direct_err.to_string());
                 }
             }
         };

@@ -55,6 +55,7 @@ const PTY_OUTPUT_LIMIT: usize = 1024 * 1024; // предохранитель н�
 /// find_git_bash(), существующий только на Windows (cfg!() — рантайм-макрос,
 /// обе его ветки обязаны компилироваться на всех ОС).
 fn build_shell_command(shell: Option<&str>, cwd: Option<&str>) -> Result<CommandBuilder, String> {
+    #[cfg(windows)]
     let picked = shell.map(str::to_ascii_lowercase);
     #[cfg(windows)]
     let mut cmd = match picked.as_deref() {

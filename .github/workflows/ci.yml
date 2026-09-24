@@ -52,6 +52,9 @@ jobs:
   build:
     name: Build smoke (${{ matrix.platform }})
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
+    # contents:write — джоба пушит failure-лог в ветку ci-logs
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:

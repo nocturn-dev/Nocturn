@@ -298,7 +298,12 @@ fn parse_key(name: &str) -> Result<enigo::Key, String> {
         "end" => Key::End,
         "pageup" => Key::PageUp,
         "pagedown" => Key::PageDown,
+        // Клавиши Insert в enigo на macOS нет (на Windows/Linux есть) —
+        // иначе не компилируется под darwin
+        #[cfg(not(target_os = "macos"))]
         "insert" => Key::Insert,
+        #[cfg(target_os = "macos")]
+        "insert" => return Err("the Insert key does not exist on macOS keyboards".into()),
         "capslock" => Key::CapsLock,
         f if f.starts_with('f') && f.len() >= 2 && f[1..].parse::<u8>().is_ok() => {
             let n: u8 = f[1..].parse().unwrap();

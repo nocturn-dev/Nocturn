@@ -10,6 +10,8 @@ use crate::{browser, computer, hooks, imagegen, mcp, tools};
 use base64::engine::general_purpose::STANDARD as B64;
 use std::fs;
 use std::sync::atomic::{AtomicBool, Ordering};
+// mpsc нужен только keep-awake воркеру (Windows); на остальных ОС импорт мёртв
+#[cfg(windows)]
 use std::sync::mpsc;
 use std::path::PathBuf;
 /// M2: исполнение инструмента агента (вызывается из агентного цикла / для тестов).
