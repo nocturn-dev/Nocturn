@@ -754,9 +754,10 @@ pub fn build_anthropic_body(
         }
     }
 
+    const ANTHROPIC_DEFAULT_MAX_TOKENS: u64 = 8192;
     let mut body = serde_json::json!({
         "model": model,
-        "max_tokens": 8192,
+        "max_tokens": ANTHROPIC_DEFAULT_MAX_TOKENS,
         "messages": msgs,
         "stream": true,
     });
@@ -764,7 +765,7 @@ pub fn build_anthropic_body(
     if let Some(eff) = reasoning_effort.map(str::trim).filter(|s| !s.is_empty() && *s != "off") {
         let budget: u64 = match eff { "low" => 2048, "high" => 10000, _ => 16000 };
         body["thinking"] = serde_json::json!({ "type": "enabled", "budget_tokens": budget });
-        body["max_tokens"] = serde_json::json!(8192 + budget);
+        body["max_tokens"] = serde_json::json!(ANTHROPIC_DEFAULT_MAX_TOKENS + budget);
     }
     if !system_parts.is_empty() {
         body["system"] = serde_json::Value::String(system_parts.join("\n\n"));

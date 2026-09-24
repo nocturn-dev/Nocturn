@@ -132,6 +132,11 @@ fn check_fs_path(state: &PermState, path: Option<&str>) -> Result<(), String> {
 /// которые не удалось резолвить (несуществующее поддерево), сравниваются
 /// строково — как и раньше. Относительные пути запрещены.
 fn path_allowed(roots: &[String], path: &str) -> bool {
+    // Нормализация написания: на Windows ФС регистронезависима и разделитель
+    // `\`; на Unix (macOS/Linux) ФС регистрозависима — lowercase там УБИВАЛ
+    // корректность (директория-тёзка в другом регистре проходила как «внутри
+    // корня»), поэтому сравнение чувствительно к регистру.
+    #[cfg(windows)]
     let norm = |s: &str| {
         let mut s = s.to_lowercase().replace('/', "\\");
         // canonicalize на Windows возвращает \\?\C:\... (или \\?\UNC\srv\share)
@@ -142,14 +147,26 @@ fn path_allowed(roots: &[String], path: &str) -> bool {
         }
         s
     };
+    #[cfg(not(windows))]
+    let norm = |s: &str| s.replace('\\', "/");
+
     let p = norm(path);
     // Относительный путь (нет диска/UNC-префикса) — сразу запрещаем
+    #[cfg(windows)]
     if !p.contains(':') && !p.starts_with('\\') {
+        return false;
+    }
+    #[cfg(not(windows))]
+    if !p.starts_with('/') {
         return false;
     }
     // Подъём по дереву и «текущая папка» — запрещаем до всякого резолва:
     // ОС резолвит их уже после нашей проверки префикса
-    if p.split('\\').any(|c| c == ".." || c == ".") {
+    #[cfg(windows)]
+    let sep = '\\';
+    #[cfg(not(windows))]
+    let sep = '/';
+    if p.split(sep).any(|c| c == ".." || c == ".") {
         return false;
     }
     let resolved = match canonicalize_for_compare(std::path::Path::new(path)) {
@@ -161,7 +178,7 @@ fn path_allowed(roots: &[String], path: &str) -> bool {
             Some(rr) => norm(&rr.to_string_lossy()),
             None => norm(r),
         };
-        resolved == nr || resolved.starts_with(&format!("{nr}\\"))
+        resolved == nr || resolved.starts_with(&format!("{nr}{sep}"))
     })
 }
 

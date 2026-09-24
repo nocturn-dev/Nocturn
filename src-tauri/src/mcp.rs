@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::fs;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Sender};
@@ -151,19 +151,22 @@ impl McpConnection {
         let pending: PendingMap = Arc::new(Mutex::new(HashMap::new()));
         let last_stderr: Arc<Mutex<String>> = Arc::new(Mutex::new(String::new()));
 
-        // Читатель stdout: маршрутизирует ответы по id, уведомления игнорирует
+        // Читатель stdout: маршрутизирует ответы по id, уведомления игнорирует.
+        // Байтовый цикл с лимитом строки: сервер, шлющий гигабайты без '\n',
+        // раздувал память без ограничений (BufReader::lines() не имеет потолка)
+        const LINE_CAP: usize = 8 * 1024 * 1024; // 8 МБ на одну JSON-строку
         let pending_reader = Arc::clone(&pending);
         std::thread::spawn(move || {
             let reader = BufReader::new(stdout);
-            for line in reader.lines() {
-                let Ok(line) = line else { break };
-                let Ok(v) = serde_json::from_str::<Value>(&line) else {
-                    continue; // мусорная строка (баннеры и т.п.)
+            let mut line: Vec<u8> = Vec::with_capacity(4096);
+            let handle_line = |line: &[u8], pending: &PendingMap| {
+                let Ok(v) = serde_json::from_slice::<Value>(line) else {
+                    return; // мусорная строка (баннеры и т.п.)
                 };
                 let Some(id) = v.get("id").and_then(|i| i.as_u64()) else {
-                    continue; // notification без id
+                    return; // notification без id
                 };
-                if let Some(tx) = pending_reader.lock().ok().and_then(|mut p| p.remove(&id)) {
+                if let Some(tx) = pending.lock().ok().and_then(|mut p| p.remove(&id)) {
                     if let Some(err) = v.get("error") {
                         let msg = err
                             .get("message")
@@ -174,6 +177,18 @@ impl McpConnection {
                     } else {
                         let _ = tx.send(Ok(v.get("result").cloned().unwrap_or(Value::Null)));
                     }
+                }
+            };
+            for byte in reader.bytes() {
+                let Ok(b) = byte else { break };
+                if b == b'\n' {
+                    handle_line(&line, &pending_reader);
+                    line.clear();
+                    continue;
+                }
+                // Сверх лимита байты отбрасываем, но строку дочитываем до '\n'
+                if line.len() < LINE_CAP {
+                    line.push(b);
                 }
             }
         });

@@ -134,7 +134,13 @@ pub(crate) fn checkpoints_dir(app: &tauri::AppHandle, root: &str) -> Result<Path
         .app_data_dir()
         .map_err(|e| e.to_string())?;
     let mut hasher = sha2::Sha256::new();
+    // На Windows корень регистронезависим и разделитель `\`; на Unix —
+    // регистрозависим: Proj и proj — разные каталоги, lowercase валил
+    // коллизии каталогов чекпоинтов между разными проектами
+    #[cfg(windows)]
     hasher.update(root.replace('/', "\\").to_lowercase().as_bytes());
+    #[cfg(not(windows))]
+    hasher.update(root.replace('\\', "/").as_bytes());
     let hash = format!("{:x}", hasher.finalize());
     let dir = base.join("checkpoints").join(&hash[..16]);
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;

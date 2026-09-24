@@ -500,6 +500,8 @@ export const zh = {
       "通过 CDP 控制真实浏览器：导航、读取页面、截图和坐标点击。启用后代理可见 browser_* 工具。截图请选择带「vision」徽标的模型。",
     "bu.enabled": "浏览器工具已启用",
     "bu.headless": "无头模式 (headless)",
+    "bu.privateNet": "访问私有/回环网络 (127.0.0.1、192.168.* 等)",
+    "bu.privateNetDesc": "默认关闭：网页可能通过提示注入让代理读取内部服务。仅针对本地开发目标开启。",
     "bu.headlessDesc":
       "浏览器在无窗口状态下运行。关闭后可以看到代理的操作。",
     "bu.executable": "浏览器路径（可选）",

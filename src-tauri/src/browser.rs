@@ -43,6 +43,16 @@ pub struct BrowserConfig {
     /// Свой путь к браузеру; пусто — автопоиск Edge/Chrome
     #[serde(default)]
     pub executable: String,
+    /// [SECURITY] Разрешить навигацию в private/loopback-сети (127.0.0.1,
+    /// 192.168.*, 169.254.*, …). По умолчанию запрещено: страница-атакер
+    /// через prompt injection заставляла агента читать внутренние сервисы
+    /// (SSRF) и выводить их содержимое в чат.
+    #[serde(default = "default_false")]
+    pub allow_private_networks: bool,
+}
+
+fn default_false() -> bool {
+    false
 }
 
 fn default_true() -> bool {
@@ -59,6 +69,7 @@ impl Default for BrowserConfig {
             enabled: false,
             headless: true,
             executable: String::new(),
+            allow_private_networks: false,
         }
     }
 }
@@ -689,9 +700,75 @@ pub fn browser_tool_schemas() -> Value {
 
 /// Навигация разрешена только на http/https: file:, data:, javascript: и пр.
 /// позволяют добраться до локальных ресурсов или исполнить скрипт — запрещены.
-fn is_navigable_url(url: &str) -> bool {
+/// Дополнительно блокируются private/loopback/link-local адреса (SSRF-защита):
+/// model-read через browser_read не должен доставать внутренние сервисы.
+fn is_navigable_url(url: &str, allow_private_networks: bool) -> bool {
     let lower = url.to_ascii_lowercase();
-    lower.starts_with("http://") || lower.starts_with("https://")
+    if !(lower.starts_with("http://") || lower.starts_with("https://")) {
+        return false;
+    }
+    if !allow_private_networks && is_private_host(&lower) {
+        return false;
+    }
+    true
+}
+
+/// Хост в URL указывает на private/loopback/link-local? Резолв DNS-имени
+/// сознательно не делается: проверяем литеральные формы (остаточный риск —
+/// DNS rebinding, задокументирован).
+fn is_private_host(lower_url: &str) -> bool {
+    // отрезаем схему, берём host[:port] до первого /
+    let rest = match lower_url.split_once("://") {
+        Some((_, r)) => r,
+        None => lower_url,
+    };
+    let host_port = rest.split('/').next().unwrap_or("");
+    let host = host_port
+        .rsplit_once(':')
+        .map(|(h, _)| h)
+        .unwrap_or(host_port)
+        .trim_end_matches('.');
+    if host.is_empty() {
+        return false;
+    }
+    // буквальные loopback/приватные имена
+    if matches!(host, "localhost" | "localhost.localdomain" | "ip6-localhost" | "*.local") {
+        return true;
+    }
+    // IPv4
+    let parts: Vec<&str> = host.split('.').collect();
+    if parts.len() == 4 && parts.iter().all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit())) {
+        let oct: Vec<u32> = parts.iter().filter_map(|p| p.parse::<u32>().ok()).collect();
+        if oct.len() == 4 && oct.iter().all(|&o| o <= 255) {
+            let (a, b) = (oct[0], oct[1]);
+            return a == 127
+                || a == 10
+                || (a == 172 && (16..=31).contains(&b))
+                || (a == 192 && b == 168)
+                || (a == 169 && b == 254)
+                || a == 0
+                || (a == 100 && (64..=127).contains(&b));
+        }
+    }
+    // IPv6-литералы в [..] или без скобок: fc00::/7, fe80::/10, ::1, ::ffff:127.*
+    let v6 = host.trim_start_matches('[').trim_end_matches(']');
+    if v6.contains(':') {
+        let l = v6.to_ascii_lowercase();
+        if l == "::1" || l == "::" {
+            return true;
+        }
+        let first = l.split(':').next().unwrap_or("");
+        if first.starts_with("fc") || first.starts_with("fd") {
+            return true;
+        }
+        if first.starts_with("fe8") || first.starts_with("fe9") || first.starts_with("fea") || first.starts_with("feb") {
+            return true;
+        }
+        if l.starts_with("::ffff:127.") || l.starts_with("::ffff:10.") || l.starts_with("::ffff:192.168.") {
+            return true;
+        }
+    }
+    false
 }
 
 /// Исполнение browser-инструмента на живом соединении (вызывается из lib.rs).
@@ -699,8 +776,11 @@ pub fn execute_on(conn: &BrowserConnection, name: &str, args: &Value) -> Result<
     match name {
         "browser_navigate" => {
             let url = arg_str(args, "url")?;
-            if !is_navigable_url(&url) {
-                return Err("only http/https URLs are allowed".to_string());
+            if !is_navigable_url(&url, config().allow_private_networks) {
+                return Err(
+                    "URL rejected: only public http/https URLs are allowed (private networks are blocked unless enabled in Settings → Browser Use)"
+                        .to_string(),
+                );
             }
             let result = conn.request(
                 "Page.navigate",
@@ -821,12 +901,35 @@ mod tests {
 
     #[test]
     fn navigable_url_http_https_only() {
-        assert!(is_navigable_url("https://example.com"));
-        assert!(is_navigable_url("http://example.com/page"));
-        assert!(!is_navigable_url("file:///C:/x"));
-        assert!(!is_navigable_url("data:text/html,<h1>hi</h1>"));
-        assert!(!is_navigable_url("javascript:alert(1)"));
-        assert!(!is_navigable_url(""));
+        assert!(is_navigable_url("https://example.com", false));
+        assert!(is_navigable_url("http://example.com/page", false));
+        assert!(!is_navigable_url("file:///C:/x", false));
+        assert!(!is_navigable_url("data:text/html,<h1>hi</h1>", false));
+        assert!(!is_navigable_url("javascript:alert(1)", false));
+        assert!(!is_navigable_url("", false));
+    }
+
+    #[test]
+    fn navigable_url_blocks_private_networks() {
+        // SSRF-регресс: browser_read доставлял содержимое внутренних сервисов
+        assert!(!is_navigable_url("http://127.0.0.1:11434/api", false));
+        assert!(!is_navigable_url("http://localhost/admin", false));
+        assert!(!is_navigable_url("http://localhost:8080/", false));
+        assert!(!is_navigable_url("http://192.168.1.10/router", false));
+        assert!(!is_navigable_url("http://10.0.0.5/", false));
+        assert!(!is_navigable_url("http://172.16.0.1/", false));
+        assert!(!is_navigable_url("http://169.254.169.254/latest/meta-data", false));
+        assert!(!is_navigable_url("http://[::1]:9200/", false));
+        assert!(!is_navigable_url("http://[fd00::1]/", false));
+        assert!(!is_navigable_url("http://0.0.0.0/", false));
+        // Публичные адреса проходят
+        assert!(is_navigable_url("http://8.8.8.8/", false));
+        assert!(is_navigable_url("https://172.32.0.1/", false)); // 172.16-31 — приват, 172.32 нет
+        // Хосты, содержащие «127» как подстроку, но не являющиеся loopback
+        assert!(is_navigable_url("https://example.com/127.0.0.1", false));
+        // С включённым тумблером приватные адреса проходят
+        assert!(is_navigable_url("http://127.0.0.1:11434/api", true));
+        assert!(is_navigable_url("http://localhost:8080/", true));
     }
 
     /// Мини-HTTP-сервер для e2e-теста: отдаёт одну тестовую страницу.
@@ -897,7 +1000,14 @@ mod tests {
             return;
         }
         // is_navigable_url пускает только http/https — вместо старого data:-URL
-        // навигируемся на локальный HTTP-сервер с той же тестовой страницей
+        // навигируемся на локальный HTTP-сервер с той же тестовой страницей.
+        // Локальный адрес — private-сеть, для теста явно разрешаем
+        set_config(BrowserConfig {
+            enabled: true,
+            headless: true,
+            executable: String::new(),
+            allow_private_networks: true,
+        });
         let (port, stop_server) = spawn_test_http_server();
         let registry = BrowserRegistry::default();
         let conn = registry.get_or_launch().expect("browser must launch");

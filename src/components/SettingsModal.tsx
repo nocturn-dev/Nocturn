@@ -2307,11 +2307,13 @@ function HooksSection() {
 }
 
 /** Раздел «Browser Use»: тумблеры и путь к браузеру */
-function BrowserUseSection() {  const { t } = useLang();
+function BrowserUseSection() {
+  const { t } = useLang();
   const [cfg, setCfg] = useState<BrowserConfig>({
     enabled: true,
     headless: true,
     executable: "",
+    allowPrivateNetworks: false,
   });
   const [saved, setSaved] = useState(false);
 
@@ -2355,6 +2357,14 @@ function BrowserUseSection() {  const { t } = useLang();
               on={cfg.headless}
               onChange={(v) => void apply({ ...cfg, headless: v })}
             />
+            <ToggleRow
+              label={t("bu.privateNet")}
+              on={cfg.allowPrivateNetworks}
+              onChange={(v) => void apply({ ...cfg, allowPrivateNetworks: v })}
+            />
+            <div className="rounded-lg px-2.5 py-2.5">
+              <p className="text-xs text-halo-muted">{t("bu.privateNetDesc")}</p>
+            </div>
             <div className="rounded-lg px-2.5 py-2.5">
               <p className="text-xs text-halo-muted">{t("bu.headlessDesc")}</p>
             </div>

@@ -52,7 +52,8 @@ import {
 const RETRYABLE_RE =
   /\bHTTP (?:429|500|502|503|504|52\d)\b|failed to fetch|connection|timed?.?out/i;
 
-const uid = () => crypto.randomUUID();
+/** Единый генератор id: раньше дублировался здесь и в App.tsx */
+export const uid = () => crypto.randomUUID();
 
 // Автопродолжение вопроса: без ответа пользователя N минут модель продолжит сама
 const ASK_AUTO_CONTINUE_MS = 5 * 60_000;
@@ -63,7 +64,9 @@ function parseHttpCode(raw: string): number | null {
 }
 
 export interface AgentRunDeps {
-  sessions: Session[];
+  // FIX [dead-prop]: sessions передавался, но внутри хука не читался
+  // ни разу (везде используется sessionsRef) — лишний аргумент на каждый
+  // рендер App
   setSessions: React.Dispatch<React.SetStateAction<Session[]>>;
   sessionsRef: { current: Session[] };
   activeId: string | null;
@@ -337,6 +340,7 @@ export function useAgentRun(deps: AgentRunDeps) {
 
     // Первое сообщение создаёт задачу, если активной ещё нет
     let targetId = overrideTargetId ?? activeId;
+    let sessionJustCreated = false;
     if (!targetId) {
       if (editMsgId) return;
       const session: Session = {
@@ -349,6 +353,7 @@ export function useAgentRun(deps: AgentRunDeps) {
       setSessions((prev) => [session, ...prev]);
       setActiveId(session.id);
       targetId = session.id;
+      sessionJustCreated = true;
     }
 
     // Синхронизация серверного слоя прав: бэкенд должен знать режим и корень
@@ -418,6 +423,27 @@ export function useAgentRun(deps: AgentRunDeps) {
       return;
     }
 
+    // Хук SessionStart: событие объявлено в UI/бэкенде, но раньше фронтом
+    // никогда не вызывалось — мёртвая поверхность конфигурации. Fire-and-forget
+    // на первое сообщение задачи; additionalContext дописывается к промту
+    let sessionStartCtx = "";
+    {
+      const isFirstSend =
+        sessionJustCreated ||
+        sessionsRef.current.find((s) => s.id === targetId)?.messages.length === 0;
+      if (isFirstSend) {
+        try {
+          const outs = await hooksRunEvent("SessionStart", { event: "SessionStart" });
+          sessionStartCtx = outs
+            .map((o) => o.additionalContext)
+            .filter((c) => c.trim() !== "")
+            .join("\n");
+        } catch {
+          // хуки не должны ломать отправку
+        }
+      }
+    }
+
     // Хук UserPromptSubmit: может заблокировать отправку или дополнить промт
     {
       let effective = text;
@@ -437,8 +463,7 @@ export function useAgentRun(deps: AgentRunDeps) {
           );
           return;
         }
-        const extra = outs
-          .map((o) => o.additionalContext)
+        const extra = [...outs.map((o) => o.additionalContext), sessionStartCtx]
           .filter((c) => c.trim() !== "")
           .join("\n");
         if (extra) effective = `${text}\n\n[hook context]\n${extra}`;
@@ -1337,13 +1362,17 @@ ${report}`;
         // агент уже принял решение о запуске
 
         // MCP-инструменты тоже трогают внешние системы — подтверждаем по умолчанию.
-        // Browser/Computer: чтение и скриншоты безопасны, действия — подтверждаются
+        // Browser/Computer: чтение и скриншоты безопасны, действия — подтверждаются.
+        // image_generate — mutating: расход API-кредита + запись файлов,
+        // раньше исполнялся в Plan-режиме без всякого спроса
         const mutating =
           call.name === "shell_run" ||
           call.name === "fs_write" ||
           call.name === "fs_delete" ||
           call.name === "vault_write" ||
-          call.name.startsWith("mcp__") ||          (call.name.startsWith("browser_") &&
+          call.name === "image_generate" ||
+          call.name.startsWith("mcp__") ||
+          (call.name.startsWith("browser_") &&
             call.name !== "browser_read" &&
             call.name !== "browser_screenshot") ||
           (call.name.startsWith("computer_") &&

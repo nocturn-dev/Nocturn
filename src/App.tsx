@@ -100,8 +100,7 @@ import {
   parseSubagentsConfig,
 } from "./subagents";
 import { loadLimits, saveLimits, type HardLimits } from "./limits";
-
-const uid = () => crypto.randomUUID();
+import { uid } from "./hooks/useAgentRun";
 
 const clampNum = (v: number, min: number, max: number) =>
   Math.min(max, Math.max(min, v));
@@ -1148,7 +1147,6 @@ export default function App() {
     handleAskAnswer,
     chainAbortRef,
   } = useAgentRun({
-    sessions,
     setSessions,
     sessionsRef,
     activeId,

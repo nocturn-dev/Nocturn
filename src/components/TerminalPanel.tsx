@@ -38,6 +38,8 @@ interface TerminalPanelProps {
 }
 
 const PTY_ID = "haloui-console";
+/** Потолок строк проекции «Агент»: без него буфер/DOM росли неограниченно */
+const MAX_PANEL_LINES = 2000;
 const PTY_COLS = 120;
 const PTY_ROWS = 33;
 
@@ -188,7 +190,14 @@ export default function TerminalPanel({
     }
     if (idx < s.length) emitText(s.slice(idx));
 
-    setLines([...buf]);
+    // Кольцевой буфер: буфер рос монотонно всю жизнь панели, а
+    // setLines([...buf]) на каждый write копировал ВСЁ — O(n²) аллокаций
+    // и неограниченный рост памяти в длинных агентных сессиях
+    if (buf.length > MAX_PANEL_LINES) {
+      linesRef.current = buf.slice(-MAX_PANEL_LINES);
+    }
+
+    setLines([...linesRef.current]);
   };
 
   // ---------- Приветствие при монтировании ----------
@@ -207,6 +216,13 @@ export default function TerminalPanel({
 
   useEffect(() => {
     const msgs = session?.messages ?? [];
+    // FIX [desync]: после edit-message сообщения срезаются — монотонный
+    // курсор оказывался за концом массива и в проекцию не печаталось
+    // ничего. Clamp: пропущенную переписанную часть не восстанавливаем
+    // (append-only), но новые сообщения продолжают допечатываться
+    if (cursorRef.current > msgs.length) {
+      cursorRef.current = msgs.length;
+    }
     // FIX [perf]: один Map вместо msgs.flatMap(...).find(...) на каждую
     // tool-карточку проекции
     const callById = new Map<string, ToolCallInfo>();

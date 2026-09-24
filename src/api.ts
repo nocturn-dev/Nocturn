@@ -34,9 +34,13 @@ const LS_PROFILES = "haloui-profiles";
 export async function loadProfiles(): Promise<ProfilesStore> {
   if (!inTauri) {
     const raw = localStorage.getItem(LS_PROFILES);
-    return raw
-      ? (JSON.parse(raw) as ProfilesStore)
-      : { profiles: [], active: "" };
+    if (!raw) return { profiles: [], active: "" };
+    try {
+      return JSON.parse(raw) as ProfilesStore;
+    } catch {
+      // битый localStorage (браузерное превью) — не кидаем исключение в загрузчике
+      return { profiles: [], active: "" };
+    }
   }
   return invoke<ProfilesStore>("load_profiles");
 }
@@ -193,11 +197,10 @@ export async function permSet(mode: string, roots: string[]): Promise<void> {
   return invoke("perm_set", { mode, roots });
 }
 
-export interface ToolCallInfo {
-  id: string;
-  name: string;
-  arguments: string;
-}
+// FIX: ToolCallInfo определялся здесь И в types.ts (дублирующие контракты —
+// рассинхрон не ловил компилятор). Единый контракт — в types.ts
+import type { ToolCallInfo } from "./types";
+export type { ToolCallInfo };
 
 /** В браузерном превью (npm run dev) Tauri недоступен — храним в localStorage */
 const inTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -215,7 +218,13 @@ export const DEFAULT_SETTINGS: ApiSettings = {
 export async function loadSettings(): Promise<ApiSettings> {
   if (!inTauri) {
     const raw = localStorage.getItem(LS_SETTINGS);
-    return raw ? (JSON.parse(raw) as ApiSettings) : { ...DEFAULT_SETTINGS };
+    if (!raw) return { ...DEFAULT_SETTINGS };
+    try {
+      return JSON.parse(raw) as ApiSettings;
+    } catch {
+      // битый localStorage — дефолты вместо исключения
+      return { ...DEFAULT_SETTINGS };
+    }
   }
   return invoke<ApiSettings>("load_settings");
 }
@@ -656,6 +665,8 @@ export interface BrowserConfig {
   enabled: boolean;
   headless: boolean;
   executable: string;
+  /** SSRF-защита: разрешить навигацию в private/loopback-сеть */
+  allowPrivateNetworks: boolean;
 }
 
 export interface ComputerConfig {
@@ -663,7 +674,8 @@ export interface ComputerConfig {
 }
 
 export async function browserGetConfig(): Promise<BrowserConfig> {
-  if (!inTauri) return { enabled: true, headless: true, executable: "" };
+  if (!inTauri)
+    return { enabled: true, headless: true, executable: "", allowPrivateNetworks: false };
   return invoke<BrowserConfig>("browser_get_config");
 }
 

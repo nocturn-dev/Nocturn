@@ -141,8 +141,11 @@ export async function runSubagent(opts: SubagentRunOpts): Promise<string> {
   ];
 
   // Schemas: allowlist роли, subagent_run субагентам не выдаётся.
-  // Роль без явного allowlist получает только read-only набор —
-  // для shell/fs_write/computer явный allowlist в role.tools обязателен.
+  // Роль без явного allowlist получает только read-only набор.
+  // [SECURITY] vault_write и mcp__* в дефолтный пул больше НЕ входят:
+  // vault_write мутирует хранилище (лежал в «READ_ONLY» — имя набора лгало),
+  // а семантика MCP-инструментов произвольна (запись/удаление/внешние
+  // транзакции) — выдаются только явным allowlist в role.tools
   const all = (await getToolSchemas()) as Array<{
     function: { name: string };
   }>;
@@ -152,7 +155,6 @@ export async function runSubagent(opts: SubagentRunOpts): Promise<string> {
     "fs_read",
     "vault_search",
     "vault_read",
-    "vault_write",
     "browser_navigate",
     "browser_read",
     "browser_screenshot",
@@ -162,9 +164,7 @@ export async function runSubagent(opts: SubagentRunOpts): Promise<string> {
   const withoutAsk = pool.filter((t) => t.function.name !== "ask_user");
   const allowed = role.tools
     ? withoutAsk.filter((t) => role.tools?.includes(t.function.name))
-    : withoutAsk.filter(
-        (t) => READ_ONLY.has(t.function.name) || t.function.name.startsWith("mcp__"),
-      );
+    : withoutAsk.filter((t) => READ_ONLY.has(t.function.name));
 
   for (let step = 0; step < role.maxSteps; step++) {
     if (opts.aborted?.()) return "(subagent aborted)";

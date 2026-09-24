@@ -467,6 +467,8 @@ export const en = {
       "Control a real browser via CDP: navigation, page reading, screenshots and coordinate clicks. The browser_* tools are visible to the agent when enabled. Use a model with the “vision” badge for screenshots.",
     "bu.enabled": "Browser tools enabled",
     "bu.headless": "Headless mode",
+    "bu.privateNet": "Access private/loopback networks (127.0.0.1, 192.168.*, …)",
+    "bu.privateNetDesc": "Off by default: a web page can prompt-inject the agent into reading internal services. Enable only for local development targets.",
     "bu.headlessDesc":
       "The browser runs without a visible window. Turn off to watch what the agent does.",
     "bu.executable": "Browser executable (optional)",
