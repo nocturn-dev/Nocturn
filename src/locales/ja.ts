@@ -563,6 +563,7 @@ export const ja = {
       "まだコマンドを許可したタスクはありません。エージェントのダイアログで「このタスクでは常に」を押すと、リストがここに現れます。",
     "main.version": "バージョン",
     "main.versionVal": "0.2.0-alpha",
+    "main.versionStage": "Alpha",
     "main.language": "インターフェース言語",
     "main.sidebarSide": "サイドバーを右側に",
     "main.hideStarter": "スターター候補を非表示",

@@ -563,6 +563,7 @@ export const zh = {
       "还没有任务放行过命令。在代理对话中点击「本任务总是允许」，列表会出现在这里。",
     "main.version": "版本",
     "main.versionVal": "0.2.0-alpha",
+    "main.versionStage": "Alpha",
     "main.language": "界面语言",
     "main.sidebarSide": "侧边栏在右侧",
     "main.hideStarter": "隐藏起始建议",

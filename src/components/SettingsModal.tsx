@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { getVersion } from "@tauri-apps/api/app";
 import type { Session, Theme } from "../types";
 import UsageSection from "./UsageSection";
 import {
@@ -850,10 +851,22 @@ function MainSection({
   onLimitsChange: (l: HardLimits) => void;
 }) {
   const { t } = useLang();
+  // Версия — из самого приложения (tauri.conf.json), а не из локали: раньше
+  // «0.2.0-alpha» было захардкожено в четырёх словарях и врало после релиза.
+  // В браузерном превью getVersion() недоступен — показываем фолбэк из локали
+  const [appVersion, setAppVersion] = useState<string | null>(null);
+  useEffect(() => {
+    getVersion()
+      .then(setAppVersion)
+      .catch(() => {});
+  }, []);
+  const versionValue = appVersion
+    ? `${t("main.versionStage")} v${appVersion}`
+    : t("main.versionVal");
   return (
     <div className="space-y-1">
       <h3 className="mb-3 text-sm font-semibold text-halo-text">{t("settings.main")}</h3>
-      <Row label={t("main.version")} value={t("main.versionVal")} />
+      <Row label={t("main.version")} value={versionValue} />
       <Row
         label={t("main.language")}
         desc={t("main.languageDesc")}
