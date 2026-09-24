@@ -75,10 +75,25 @@ jobs:
           sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev libfuse2
       - run: npm ci
       - name: Build Tauri app (no bundle upload)
+        shell: bash
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: npm run tauri build
+        run: |
+          set -eo pipefail
+          npm run tauri build 2>&1 | tee build.log
+      - name: Push failure log to ci-logs branch
+        if: failure()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tail -c 200000 build.log > "failure-${{ matrix.platform }}.log" || true
+          git config user.email "ci@nocturn-lab.dev"
+          git config user.name "nocturn-ci"
+          git add -f "failure-${{ matrix.platform }}.log"
+          git commit -m "ci: failure log — ${{ matrix.platform }} — run ${{ github.run_id }}"
+          git push "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" "HEAD:refs/heads/ci-logs" --force
 
   # Релиз: один тег v* → три платформы в один GitHub Release.
   # tauri-action сам генерирует latest.json для авто-обновлятора
