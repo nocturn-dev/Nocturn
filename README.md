@@ -15,6 +15,27 @@ on top of that. No background services.
 
 > Интерфейс на русском и английском (плюс 中文 / 日本語). Основной язык разработки — TypeScript, нативная часть — Rust.
 
+## Why Nocturn
+
+Most AI desktop apps force a trade-off: hosted clients (Claude Desktop, ChatGPT
+desktop) are polished but require registration and route everything through
+someone's server; BYOK clients (Chatbox, Cherry Studio, Fabric) respect your key
+but stay at the plain-chat level. Nocturn is the missing middle ground:
+
+- **Full anonymity** — no account, no email, no sign-up, no telemetry. The app
+  talks only to the API endpoint you configure. First run is: paste your key, go.
+- **Claude-Desktop-level features, locally** — agent mode with file, shell, PTY,
+  browser and computer tools; permission modes; subagents; checkpoints; MCP;
+  hooks; scheduled automations — all running on your machine against your key.
+- **Provider-agnostic** — any OpenAI-compatible endpoint plus native Anthropic;
+  switch providers mid-project without losing history.
+- **Light and local-first** — ~4.4 MB installer, ~100 MB idle RAM, everything
+  (chats, projects, notes) stored on your disk in plain, inspectable storage.
+- **Safety rails built in** — permission modes, per-task command allowlists and
+  hard token/cost budgets with automatic run abortion.
+
+## Features
+
 ## Features
 
 - **Chat & Agent** — streaming chat with any OpenAI-compatible provider or native
@@ -59,7 +80,9 @@ on top of that. No background services.
 Nocturn never sends anything anywhere except the API provider **you** configured.
 Prompts, files and tool results go straight to your endpoint; there is no
 analytics, no crash reporting, no phone-home. API keys can be encrypted with a
-master password (AES-256-GCM). See [SECURITY.md](SECURITY.md) for the full
+master password (AES-256-GCM). The agent layer is hardened by regular
+deep-audit passes (permission checks, command allowlists, tool-output handling).
+See [SECURITY.md](SECURITY.md) for the full
 breakdown of what is stored and what leaves the machine.
 
 ## Getting started
