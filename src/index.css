@@ -41,6 +41,7 @@ html[data-mark="classic"] .nocturn-mark .mark-bold {
   --halo-muted: #9b9890; /* вторичный текст */
   --halo-accent: #d97757; /* терракота Claude */
   --halo-accent-deep: #bd5d3a;
+  --halo-on-accent: #ffffff; /* цвет контента ПОВЕРХ акцента (в Official — тёмный) */
   --halo-hover: rgba(255, 255, 255, 0.055);
   --halo-hover-strong: rgba(255, 255, 255, 0.085);
   --halo-code-bg: #1a1918;
@@ -152,6 +153,7 @@ html:not(.light)[data-style="rosewood"] {
   --color-halo-muted: var(--halo-muted);
   --color-halo-accent: var(--halo-accent);
   --color-halo-accent-deep: var(--halo-accent-deep);
+  --color-halo-on-accent: var(--halo-on-accent);
   --color-halo-hover: var(--halo-hover);
   --color-halo-hover-strong: var(--halo-hover-strong);
 }
@@ -530,4 +532,30 @@ html.official aside.glass-pane {
 /* Монохромная подсветка кода: серая шкала вместо синтакс-цветов */
 html.official.official-mono-code .markdown pre {
   filter: grayscale(1);
+}
+
+/* ---------- Ambient-фон: медленно дышащие пятна акцента (Кастомизация).
+   Слой поверх контента с pointer-events:none и крошечной альфой; на паузе
+   во время стрима и при prefers-reduced-motion не анимируется ---------- */
+html.ambient body::before {
+  content: "";
+  position: fixed;
+  inset: -20%;
+  z-index: 30;
+  pointer-events: none;
+  background:
+    radial-gradient(42% 42% at 18% 12%, color-mix(in srgb, var(--halo-accent) 8%, transparent), transparent 70%),
+    radial-gradient(38% 38% at 82% 88%, color-mix(in srgb, var(--halo-accent) 6%, transparent), transparent 70%),
+    radial-gradient(50% 50% at 70% 20%, rgba(255, 255, 255, 0.02), transparent 70%);
+  animation: ambient-drift 26s ease-in-out infinite alternate;
+}
+@keyframes ambient-drift {
+  from { transform: translate3d(-2%, -1.5%, 0) scale(1); }
+  to { transform: translate3d(2%, 2%, 0) scale(1.06); }
+}
+html.ambient.ambient-paused body::before {
+  animation-play-state: paused;
+}
+@media (prefers-reduced-motion: reduce) {
+  html.ambient body::before { animation: none; }
 }

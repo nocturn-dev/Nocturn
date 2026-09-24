@@ -158,7 +158,7 @@ export default function AutomationsModal({
               <p className="text-sm text-halo-muted/70">{t("auto.empty")}</p>
               <button
                 onClick={() => setFormOpen(true)}
-                className="flex items-center gap-2 rounded-lg bg-halo-accent px-4 py-2 text-sm font-medium text-white shadow-sm transition-all hover:bg-halo-accent-deep active:scale-95"
+                className="flex items-center gap-2 rounded-lg bg-halo-accent px-4 py-2 text-sm font-medium text-halo-on-accent shadow-sm transition-all hover:bg-halo-accent-deep active:scale-95"
               >
                 {t("auto.create")}
                 <span className="text-xs">·</span>
@@ -362,7 +362,7 @@ export default function AutomationsModal({
                     create(name, prompt, schedule, toVaultNew);
                   }}
                   disabled={!name.trim() || !prompt.trim()}
-                  className="rounded-lg bg-halo-accent px-3 py-1.5 font-medium text-white transition-all hover:bg-halo-accent-deep disabled:cursor-not-allowed disabled:opacity-40"
+                  className="rounded-lg bg-halo-accent px-3 py-1.5 font-medium text-halo-on-accent transition-all hover:bg-halo-accent-deep disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   {t("auto.save")}
                 </button>
@@ -388,7 +388,7 @@ export default function AutomationsModal({
             }`}
           >
             <span
-              className={`absolute top-0.5 size-4 rounded-full bg-white transition-all ${
+              className={`absolute top-0.5 size-4 rounded-full bg-halo-on-accent transition-all ${
                 keepAwakeOn ? "left-4.5" : "left-0.5"
               }`}
             />

@@ -60,6 +60,7 @@ function parseProfile(raw: unknown): ThemeProfile | null {
       officialOled: a.officialOled === true,
       officialContrast: a.officialContrast === true,
       officialMonoCode: a.officialMonoCode === true,
+      ambient: a.ambient === true,
     },
   };
 }

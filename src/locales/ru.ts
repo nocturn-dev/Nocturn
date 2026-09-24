@@ -639,6 +639,8 @@ export const ru = {
     "themes.officialContrastDesc": "Ярче границы и вторичный текст, если монохром кажется слишком тихим.",
     "themes.officialMonoCode": "Монохромная подсветка кода",
     "themes.officialMonoCodeDesc": "Код в серой шкале: синтакс-цвета исчезают, структура подсветки остаётся.",
+    "themes.ambient": "Ambient-фон",
+    "themes.ambientDesc": "Медленно дышащие пятна акцента поверх интерфейса. На время стрима анимация ставится на паузу; при системной настройке «уменьшить движение» не анимируется вовсе.",
     "themes.style": "Стиль тёмной темы",
     "themes.styleClaude": "Клод",
     "themes.styleMidnight": "Полночь",

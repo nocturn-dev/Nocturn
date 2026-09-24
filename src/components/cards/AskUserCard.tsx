@@ -172,7 +172,7 @@ export function AskPanel({
         <button
           onClick={submit}
           disabled={!canSubmit}
-          className="shrink-0 rounded-lg bg-halo-accent px-3 py-1.5 text-xs font-medium text-white shadow-sm transition-colors hover:bg-halo-accent-deep disabled:opacity-40"
+          className="shrink-0 rounded-lg bg-halo-accent px-3 py-1.5 text-xs font-medium text-halo-on-accent shadow-sm transition-colors hover:bg-halo-accent-deep disabled:opacity-40"
         >
           {t("ask.submit")}
         </button>

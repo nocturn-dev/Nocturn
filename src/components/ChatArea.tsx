@@ -1468,7 +1468,7 @@ export default function ChatArea({
                   onClick={submit}
                   disabled={!draft.trim() && pendingImages.length === 0}
                   title={t("composer.send")}
-                  className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-halo-accent text-white shadow-sm transition-all duration-150 hover:bg-halo-accent-deep active:scale-95 disabled:cursor-not-allowed disabled:opacity-40"
+                  className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-halo-accent text-halo-on-accent shadow-sm transition-all duration-150 hover:bg-halo-accent-deep active:scale-95 disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   <ArrowUpIcon />
                 </button>

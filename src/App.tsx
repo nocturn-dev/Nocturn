@@ -1173,6 +1173,12 @@ export default function App() {
   // Для автосейва: активный стрим (объявлен ниже декларации ref — см. эффект автосейва)
   streamingActiveRef.current = streamingId !== null;
 
+  // Ambient-фон: во время стрима анимация на паузе — батарея и FPS важнее
+  // (эффект здесь, ниже деструктуризации streamingId)
+  useEffect(() => {
+    document.documentElement.classList.toggle("ambient-paused", streamingId !== null);
+  }, [streamingId]);
+
   const menuSession = menu ? sessions.find((s) => s.id === menu.id) : null;
 
   // Файлы, изменённые агентом в активной задаче (M4.3) — для подсветки в дереве

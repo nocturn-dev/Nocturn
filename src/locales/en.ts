@@ -623,6 +623,8 @@ export const en = {
     "themes.officialContrastDesc": "Brighter borders and secondary text if the monochrome feels too quiet.",
     "themes.officialMonoCode": "Monochrome code highlighting",
     "themes.officialMonoCodeDesc": "Code in greyscale: syntax colors fade, the highlight structure remains.",
+    "themes.ambient": "Ambient background",
+    "themes.ambientDesc": "Slowly breathing accent glows over the interface. The animation pauses while streaming and never runs with the system reduce-motion setting.",
     "themes.style": "Dark theme style",
     "themes.styleClaude": "Claude",
     "themes.styleMidnight": "Midnight",

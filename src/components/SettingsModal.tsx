@@ -2799,7 +2799,7 @@ export function ToggleRow({
         } ${disabled ? "cursor-not-allowed opacity-50" : ""}`}
       >
         <span
-          className={`absolute top-0.5 size-4 rounded-full bg-white transition-all ${
+          className={`absolute top-0.5 size-4 rounded-full bg-halo-on-accent transition-all ${
             value ? "left-4.5" : "left-0.5"
           }`}
         />
@@ -2836,7 +2836,7 @@ function MemorySection({
           }`}
         >
           <span
-            className={`absolute top-0.5 size-4 rounded-full bg-white transition-all ${
+            className={`absolute top-0.5 size-4 rounded-full bg-halo-on-accent transition-all ${
               enabled ? "left-4.5" : "left-0.5"
             }`}
           />
@@ -2964,7 +2964,7 @@ function ThemeSection({
           }`}
         >
           <span
-            className={`absolute top-0.5 size-4 rounded-full bg-white transition-all ${
+            className={`absolute top-0.5 size-4 rounded-full bg-halo-on-accent transition-all ${
               appearance.official ? "left-4.5" : "left-0.5"
             }`}
           />
@@ -3019,7 +3019,7 @@ function ThemeSection({
                 }`}
               >
                 <span
-                  className={`absolute top-0.5 size-4 rounded-full bg-white transition-all ${
+                  className={`absolute top-0.5 size-4 rounded-full bg-halo-on-accent transition-all ${
                     appearance[row.key] ? "left-4.5" : "left-0.5"
                   }`}
                 />
@@ -3326,7 +3326,7 @@ function ThemeSection({
           }`}
         >
           <span
-            className={`absolute top-0.5 size-4 rounded-full bg-white transition-all ${
+            className={`absolute top-0.5 size-4 rounded-full bg-halo-on-accent transition-all ${
               appearance.sidebarGlass ? "left-4.5" : "left-0.5"
             }`}
           />
@@ -3348,7 +3348,7 @@ function ThemeSection({
           }`}
         >
           <span
-            className={`absolute top-0.5 size-4 rounded-full bg-white transition-all ${
+            className={`absolute top-0.5 size-4 rounded-full bg-halo-on-accent transition-all ${
               glass ? "left-4.5" : "left-0.5"
             }`}
           />
@@ -3386,7 +3386,7 @@ function ThemeSection({
           }`}
         >
           <span
-            className={`absolute top-0.5 size-4 rounded-full bg-white transition-all ${
+            className={`absolute top-0.5 size-4 rounded-full bg-halo-on-accent transition-all ${
               chatMark ? "left-4.5" : "left-0.5"
             }`}
           />
@@ -3407,7 +3407,7 @@ function ThemeSection({
           }`}
         >
           <span
-            className={`absolute top-0.5 size-4 rounded-full bg-white transition-all ${
+            className={`absolute top-0.5 size-4 rounded-full bg-halo-on-accent transition-all ${
               msgGlass ? "left-4.5" : "left-0.5"
             }`}
           />
@@ -3415,6 +3415,32 @@ function ThemeSection({
       </div>
       </>
       )}
+
+      {/* Ambient-фон: медленно дышащие пятна акцента. Независим от темы —
+          виден и в Halo, и в Official; на стриме ставится на паузу */}
+      <div className="mt-2.5 flex items-center justify-between rounded-xl border border-halo-line px-3.5 py-3">
+        <div className="min-w-0 pr-3">
+          <p className="text-sm text-halo-text">{t("themes.ambient")}</p>
+          <p className="mt-0.5 text-xs leading-relaxed text-halo-muted">
+            {t("themes.ambientDesc")}
+          </p>
+        </div>
+        <button
+          onClick={() =>
+            onAppearanceChange({ ...appearance, ambient: !appearance.ambient })
+          }
+          title={t("themes.ambient")}
+          className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${
+            appearance.ambient ? "bg-halo-accent" : "bg-halo-line"
+          }`}
+        >
+          <span
+            className={`absolute top-0.5 size-4 rounded-full bg-halo-on-accent transition-all ${
+              appearance.ambient ? "left-4.5" : "left-0.5"
+            }`}
+          />
+        </button>
+      </div>
       <p className="mt-3 text-xs text-halo-muted/70">
         {t("themes.note")}
       </p>
@@ -3950,7 +3976,7 @@ function ApiSection({
           } disabled:opacity-50`}
         >
           <span
-            className={`absolute top-0.5 size-4 rounded-full bg-white transition-all ${
+            className={`absolute top-0.5 size-4 rounded-full bg-halo-on-accent transition-all ${
               settings.encrypt_keys ? "left-4.5" : "left-0.5"
             }`}
           />

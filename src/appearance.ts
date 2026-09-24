@@ -35,6 +35,8 @@ export interface Appearance {
   officialContrast: boolean;
   /** Official: обесцветить подсветку кода (серая шкала вместо синтакс-цветов) */
   officialMonoCode: boolean;
+  /** Ambient-фон: медленно дышащие пятна акцента поверх интерфейса */
+  ambient: boolean;
 }
 
 export const DEFAULT_APPEARANCE: Appearance = {
@@ -50,6 +52,7 @@ export const DEFAULT_APPEARANCE: Appearance = {
   officialOled: false,
   officialContrast: false,
   officialMonoCode: false,
+  ambient: false,
 };
 
 const LS_KEY = "haloui-appearance";
@@ -84,6 +87,7 @@ export function loadAppearance(): Appearance {
       officialOled: p.officialOled ?? DEFAULT_APPEARANCE.officialOled,
       officialContrast: p.officialContrast ?? DEFAULT_APPEARANCE.officialContrast,
       officialMonoCode: p.officialMonoCode ?? DEFAULT_APPEARANCE.officialMonoCode,
+      ambient: p.ambient ?? DEFAULT_APPEARANCE.ambient,
     };
   } catch {
     return { ...DEFAULT_APPEARANCE };
@@ -128,6 +132,7 @@ function officialPalette(a: Appearance): Record<string, string> {
     "--halo-code-bg": "#0f0f0f",
     "--halo-accent": "#ececec",
     "--halo-accent-deep": "#8f8f8f",
+    "--halo-on-accent": "#111111",
   };
   if (!a.officialOled) return soft;
   return {
@@ -161,6 +166,7 @@ export function applyAppearance(a: Appearance) {
   // переопределения снимаются, обычные темы живут как раньше.
   root.classList.toggle("official", a.official);
   root.classList.toggle("official-mono-code", a.official && a.officialMonoCode);
+  root.classList.toggle("ambient", a.ambient);
   if (a.official) {
     const palette = officialPalette(a);
     for (const [k, v] of Object.entries(palette)) {

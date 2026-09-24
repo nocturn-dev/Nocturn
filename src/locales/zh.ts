@@ -656,6 +656,8 @@ export const zh = {
     "themes.officialContrastDesc": "让边框和次级文本更亮，如果觉得黑白过于沉闷。",
     "themes.officialMonoCode": "黑白代码高亮",
     "themes.officialMonoCodeDesc": "代码以灰阶显示：语法色淡出，高亮结构保留。",
+    "themes.ambient": "氛围背景",
+    "themes.ambientDesc": "缓慢呼吸的强调色光斑。流式输出时动画暂停；系统开启“减弱动态效果”时完全不动。",
     "themes.style": "深色主题风格",
     "themes.styleClaude": "Claude",
     "themes.styleMidnight": "午夜",

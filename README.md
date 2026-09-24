@@ -62,7 +62,7 @@ but stay at the plain-chat level. Nocturn is the missing middle ground:
 - **Image generation** — optional `image_generate` agent tool via your own
   image API (off by default).
 - **Customization** — 8 dark themes + light + **Official** monochrome, accent
-  colors, glass effects, UI scale, theme profiles, RU / EN / 中文 / 日本語.
+  colors, glass effects, ambient background glow, UI scale, theme profiles, RU / EN / 中文 / 日本語.
 
 
 ## Screenshots

@@ -656,6 +656,8 @@ export const ja = {
     "themes.officialContrastDesc": "モノクロが物足りない場合に、境界とサブテキストを明るくします。",
     "themes.officialMonoCode": "モノクロのコードハイライト",
     "themes.officialMonoCodeDesc": "コードをグレースケールに。シンタックスカラーは消え、ハイライト構造は残ります。",
+    "themes.ambient": "アンビエント背景",
+    "themes.ambientDesc": "アクセント色がゆっくりと呼吸するように漂う背景。ストリーミング中はアニメーションを一時停止し、システムの「動作を減らす」設定時は動きません。",
     "themes.style": "ダークテーマのスタイル",
     "themes.styleClaude": "Claude",
     "themes.styleMidnight": "ミッドナイト",

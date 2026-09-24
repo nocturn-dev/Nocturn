@@ -126,7 +126,7 @@ export default function CryptoGate({
         <button
           onClick={submit}
           disabled={busy}
-          className="mt-5 w-full rounded-lg bg-halo-accent py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-halo-accent-deep disabled:opacity-50"
+          className="mt-5 w-full rounded-lg bg-halo-accent py-2 text-sm font-medium text-halo-on-accent shadow-sm transition-colors hover:bg-halo-accent-deep disabled:opacity-50"
         >
           {setup
             ? t("gate.createBtn")
