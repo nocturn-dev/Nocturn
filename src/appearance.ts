@@ -45,6 +45,8 @@ export interface Appearance {
   ambientBrightness: number;
   /** Плотность сцены: количество частиц/пятен/окон, 0.3–1.5 */
   ambientDensity: number;
+  /** Слой рендера: front — поверх интерфейса (с оверлеем), behind — за ним */
+  ambientRender: "front" | "behind";
 }
 
 export const DEFAULT_APPEARANCE: Appearance = {
@@ -65,6 +67,7 @@ export const DEFAULT_APPEARANCE: Appearance = {
   ambientVideo: "",
   ambientBrightness: 0.7,
   ambientDensity: 0.7,
+  ambientRender: "front",
 };
 
 const LS_KEY = "haloui-appearance";
@@ -123,6 +126,7 @@ export function loadAppearance(): Appearance {
         0.3,
         1.5,
       ),
+      ambientRender: p.ambientRender === "behind" ? "behind" : "front",
     };
   } catch {
     return { ...DEFAULT_APPEARANCE };
@@ -210,6 +214,7 @@ export function applyAppearance(a: Appearance) {
     root.removeAttribute("data-ambient-scene");
   }
   root.style.setProperty("--ambient-alpha", String(a.ambientBrightness));
+  root.setAttribute("data-ambient-render", a.ambientRender);
   if (a.official) {
     const palette = officialPalette(a);
     for (const [k, v] of Object.entries(palette)) {

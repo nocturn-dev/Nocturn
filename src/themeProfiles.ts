@@ -67,6 +67,7 @@ function parseProfile(raw: unknown): ThemeProfile | null {
       ambientVideo: typeof a.ambientVideo === "string" ? a.ambientVideo : "",
       ambientBrightness: num(a.ambientBrightness, 0.7, 0.3, 1),
       ambientDensity: num(a.ambientDensity, 0.7, 0.3, 1.5),
+      ambientRender: a.ambientRender === "behind" ? "behind" : "front",
     },
   };
 }

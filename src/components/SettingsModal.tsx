@@ -3497,6 +3497,36 @@ function ThemeSection({
             </div>
           </div>
 
+          {/* Слой рендера: поверх интерфейса (с оверлеем) или за ним */}
+          <div>
+            <p className="mb-1.5 text-xs font-medium text-halo-muted">
+              {t("themes.ambientRender")}
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {(
+                [
+                  ["front", "themes.ambientFront"],
+                  ["behind", "themes.ambientBehind"],
+                ] as const
+              ).map(([id, key]) => (
+                <button
+                  key={id}
+                  onClick={() => onAppearanceChange({ ...appearance, ambientRender: id })}
+                  className={`rounded-md border px-2.5 py-1 text-xs transition-colors ${
+                    appearance.ambientRender === id
+                      ? "border-halo-accent/60 bg-halo-accent/10 text-halo-accent"
+                      : "border-halo-line text-halo-muted hover:text-halo-text"
+                  }`}
+                >
+                  {t(key as MsgKey)}
+                </button>
+              ))}
+            </div>
+            <p className="mt-1.5 text-[10px] leading-relaxed text-halo-muted/70">
+              {t("themes.ambientRenderHint")}
+            </p>
+          </div>
+
           {/* Яркость: сила свечения слоя (для видео — его прозрачность) */}
           <div className="flex items-center gap-3">
             <p className="shrink-0 text-xs font-medium text-halo-muted">

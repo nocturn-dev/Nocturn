@@ -631,3 +631,16 @@ html.light .ambient-layer {
 .codepv-dark .cp-nm { color: #79c0ff; }
 .codepv-dark .cp-vr { color: #ffa657; }
 .codepv-dark .cp-pr { color: #7ee787; }
+
+/* Ambient «за интерфейсом»: слой уходит под контент — сцену видно сквозь
+   полупрозрачные панели и в зазорах; оверлей в этом режиме не нужен */
+html[data-ambient-render="behind"] .ambient-layer {
+  z-index: -1;
+}
+html[data-ambient-render="behind"] .ambient-layer::after {
+  content: none;
+}
+/* то же для сцены glow (body::before) */
+html[data-ambient-render="behind"]:not([data-ambient-scene]) body::before {
+  z-index: -1;
+}
