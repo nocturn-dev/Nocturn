@@ -142,7 +142,7 @@ function AssistantCardBase({
     <div
       data-mid={mid}
       className={`anim-fade-up group relative mr-auto w-fit max-w-[85%] rounded-xl border border-halo-line/70 px-4 py-3 shadow-sm ${
-        glassEffect ? "glass-pane bg-halo-surface/40" : "ai-card-solid"
+        glassEffect ? "glass-pane msg-glass bg-halo-surface/40" : "ai-card-solid"
       }`}
     >
       <CollapseButton onClick={() => setCollapsed(true)} />

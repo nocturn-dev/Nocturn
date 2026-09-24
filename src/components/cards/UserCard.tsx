@@ -56,7 +56,7 @@ function UserCardBase({
       data-mid={mid}
       className={`anim-fade-up group relative ml-auto w-fit max-w-[85%] rounded-2xl rounded-br-md px-4 py-3 shadow-sm ${
         correction ? "border-l-2 border-amber-400/50 " : ""
-      }${glassEffect ? "glass-pane bg-halo-surface/40" : "bg-halo-raised"}`}
+      }${glassEffect ? "glass-pane msg-glass bg-halo-surface/40" : "bg-halo-raised"}`}
     >
       <CollapseButton onClick={() => setCollapsed(true)} />
       {/* Карандаш: редактирование отправленного сообщения */}

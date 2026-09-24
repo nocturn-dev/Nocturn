@@ -650,3 +650,12 @@ html[data-ambient-render="behind"]:not([data-ambient-scene]) body::before {
 .ai-card-solid {
   background: var(--halo-surface) !important;
 }
+
+/* «Стекло в ответах ИИ» самодостаточно: работает и при выключенном общем
+   «Эффекте стекла» — матует карточку (deep@70% + blur) независимо.
+   Official сильнее (его правило ниже по файлу делает карточку плотной). */
+html:not(.glass) .msg-glass {
+  background: color-mix(in srgb, var(--halo-deep) 70%, transparent);
+  backdrop-filter: blur(var(--halo-blur, 14px)) saturate(1.25);
+  -webkit-backdrop-filter: blur(var(--halo-blur, 14px)) saturate(1.25);
+}
