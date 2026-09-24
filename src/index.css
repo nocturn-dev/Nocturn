@@ -644,3 +644,9 @@ html[data-ambient-render="behind"] .ambient-layer::after {
 html[data-ambient-render="behind"]:not([data-ambient-scene]) body::before {
   z-index: -1;
 }
+
+/* Стекло выключено → карточка ответа строго плотная: html.glass-правила
+   (.bg-halo-surface и пр.) не должны делать её полупрозрачной без blur */
+.ai-card-solid {
+  background: var(--halo-surface) !important;
+}
