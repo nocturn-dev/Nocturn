@@ -121,11 +121,21 @@ pub fn hex_encode(bytes: &[u8]) -> String {
 }
 
 pub fn hex_decode(s: &str) -> Option<Vec<u8>> {
-    if !s.len().is_multiple_of(2) {
+    let bytes = s.as_bytes();
+    if !bytes.len().is_multiple_of(2) {
         return None;
     }
-    (0..s.len() / 2)
-        .map(|i| u8::from_str_radix(&s[i * 2..i * 2 + 2], 16).ok())
+    // Байтовый проход вместо слайсинга строки: не-ASCII символы в битом
+    // crypto.json раньше паниковали на нечётной char-границе
+    bytes
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|pair| {
+            let hi = (pair[0] as char).to_digit(16)?;
+            let lo = (pair[1] as char).to_digit(16)?;
+            Some(((hi << 4) | lo) as u8)
+        })
         .collect()
 }
 
@@ -163,6 +173,16 @@ pub fn verify_check(key: &[u8], check: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hex_decode_rejects_non_ascii_without_panic() {
+        // Регресс: не-ASCII с чётной байтовой длиной паниковал на char-границе
+        assert_eq!(hex_decode("deadBEEF"), Some(vec![0xde, 0xad, 0xbe, 0xef]));
+        assert_eq!(hex_decode("abc"), None);
+        assert_eq!(hex_decode("zzzz"), None);
+        assert_eq!(hex_decode("日日"), None); // 6 байт, не hex
+        assert_eq!(hex_decode("д"), None);
+    }
 
     #[test]
     fn roundtrip_with_key() {

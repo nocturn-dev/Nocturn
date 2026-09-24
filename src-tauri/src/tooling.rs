@@ -145,7 +145,14 @@ pub async fn execute_tool_inner(
             browser_registry.kill_all();
             return Ok("Browser closed.".to_string());
         }
-        let conn = browser_registry.get_or_launch()?;
+        // get_or_launch (запуск браузера до ~20 с) — тоже в отдельном потоке,
+        // иначе блокирующий launch оккупировал бы воркер tokio
+        let browser_reg = browser_registry.0.clone();
+        let conn = tauri::async_runtime::spawn_blocking(move || {
+            browser::BrowserRegistry(browser_reg).get_or_launch()
+        })
+        .await
+        .map_err(|e| format!("tool task failed: {e}"))??;
         let args: serde_json::Value = serde_json::from_str(&arguments)
             .map_err(|e| format!("invalid arguments JSON: {e}"))?;
         return tauri::async_runtime::spawn_blocking(move || {
@@ -421,9 +428,15 @@ pub fn browser_view_stop() {
     BROWSER_VIEW_ACTIVE.store(false, Ordering::SeqCst);
 }
 
-/// Размер вьюпорта агентовского браузера (null/null — вернуть как есть)
+/// Размер вьюпорта агентовского браузера (null/null — вернуть как есть).
+/// CDP-запрос блокирующий и мог висеть до 120 с — выполняем в отдельном
+/// потоке и режем таймаут до 10 с: смена вьюпорта не должна подвешивать UI
 #[tauri::command(async)]
-pub fn browser_view_size(app: tauri::AppHandle, w: Option<i64>, h: Option<i64>) -> Result<(), String> {
+pub async fn browser_view_size(
+    app: tauri::AppHandle,
+    w: Option<i64>,
+    h: Option<i64>,
+) -> Result<(), String> {
     use tauri::Manager;
     let conn = {
         let reg = app.state::<browser::BrowserRegistry>();
@@ -431,7 +444,9 @@ pub fn browser_view_size(app: tauri::AppHandle, w: Option<i64>, h: Option<i64>) 
         guard.clone()
     };
     if let Some(conn) = conn {
-        conn.set_viewport(w, h)?;
+        tauri::async_runtime::spawn_blocking(move || conn.set_viewport_short(w, h))
+            .await
+            .map_err(|e| format!("join error: {e}"))??;
     }
     Ok(())
 }
@@ -669,7 +684,7 @@ pub fn save_sessions(app: tauri::AppHandle, data: String) -> Result<(), String> 
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
-    fs::write(&path, data).map_err(|e| e.to_string())
+    crate::fsutil::atomic_write(&path, data.as_bytes())
 }
 #[cfg(test)]
 mod tests {

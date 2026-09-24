@@ -108,7 +108,7 @@ pub fn load(dir: &std::path::Path) -> HookFile {
 pub fn save(dir: &std::path::Path, file: &HookFile) -> Result<(), String> {
     std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     let json = serde_json::to_string_pretty(file).map_err(|e| e.to_string())?;
-    std::fs::write(hooks_path(dir), json).map_err(|e| e.to_string())
+    crate::fsutil::atomic_write(&hooks_path(dir), json.as_bytes())
 }
 
 /// Совпадает ли хук с событием/инструментом

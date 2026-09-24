@@ -92,9 +92,11 @@ fn finish(mut child: Child, timeout: Duration) -> ProcOutput {
                 std::thread::sleep(Duration::from_millis(50));
             }
             Err(e) => {
-                // try_wait не смог получить статус (сбой ОС). Возвращаем текст
-                // ошибки в stderr, а пайпы всё равно забираем с grace-периодом
-                // — иначе потоки-читатели останутся заблокированными навсегда.
+                // try_wait не смог получить статус (сбой ОС). Убиваем ребёнка,
+                // чтобы не оставить процесс-сироту, собираем пайпы с
+                // grace-периодом и возвращаем текст ошибки в stderr
+                let _ = child.kill();
+                let _ = child.wait();
                 let _ = out_rx.recv_timeout(DRAIN_GRACE);
                 let _ = err_rx.recv_timeout(DRAIN_GRACE);
                 return ProcOutput {

@@ -80,7 +80,9 @@ pub fn set_config(cfg: BrowserConfig) {
 // ---------------------------------------------------------------------------
 
 #[derive(Default)]
-pub struct BrowserRegistry(pub Mutex<Option<Arc<BrowserConnection>>>);
+/// Arc внутри — реестр можно клонировать в spawn_blocking (запуск браузера
+/// до ~20 с не должен оккупировать воркер tokio)
+pub struct BrowserRegistry(pub Arc<Mutex<Option<Arc<BrowserConnection>>>>);
 
 impl BrowserRegistry {
     /// Текущее живое соединение или запуск нового (ленивая инициализация)
@@ -137,7 +139,24 @@ fn find_browser_executable() -> Option<String> {
             return Some(c.to_string());
         }
     }
-    // Не-Windows: бинарники из PATH
+    // macOS: бинарники Chrome/Edge не лежат в PATH — проверяем /Applications
+    // явно, иначе Browser Use всегда отвечал «Browser not found»
+    #[cfg(target_os = "macos")]
+    {
+        const MAC_CANDIDATES: &[&str] = &[
+            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+            "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+            "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
+            "/Applications/Chromium.app/Contents/MacOS/Chromium",
+        ];
+        for c in MAC_CANDIDATES {
+            if std::path::Path::new(c).exists() {
+                return Some(c.to_string());
+            }
+        }
+    }
+    // Не-Windows: бинарники из PATH (Linux; macOS fallback, если приложение
+    // установлено нестандартно и есть симлинк в PATH)
     for name in ["google-chrome", "chromium", "chromium-browser", "msedge"] {
         if which_exists(name) {
             return Some(name.to_string());
@@ -536,6 +555,24 @@ impl BrowserConnection {
             }
             _ => {
                 self.request("Emulation.clearDeviceMetricsOverride", json!({}))?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Смена вьюпорта мягким запросом: короткий таймаут и просрочка не
+    /// помечает соединение мёртвым. Команда browser_view_size раньше шла
+    /// жёстким request и могла блокировать воркер до 120 с
+    pub fn set_viewport_short(&self, w: Option<i64>, h: Option<i64>) -> Result<(), String> {
+        match (w, h) {
+            (Some(w), Some(h)) => {
+                self.request_soft(
+                    "Emulation.setDeviceMetricsOverride",
+                    json!({ "width": w, "height": h, "deviceScaleFactor": 0, "mobile": false }),
+                )?;
+            }
+            _ => {
+                self.request_soft("Emulation.clearDeviceMetricsOverride", json!({}))?;
             }
         }
         Ok(())

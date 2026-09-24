@@ -11,6 +11,7 @@ pub mod chat;
 mod crypto;
 pub mod computer;
 mod files;
+mod fsutil;
 pub mod hooks;
 pub mod imagegen;
 mod network;
@@ -89,9 +90,24 @@ pub fn run() {
                 app_id.push(0);
                 unsafe { SetCurrentProcessExplicitAppUserModelID(app_id.as_ptr()) };
             }
-            build_tray(app.handle())?;
+            // Трей не критичен для запуска: на Linux DE без StatusNotifier
+            // (GNOME без AppIndicator, часть Wayland-композиторов) его
+            // построение падает — не разваливаем весь старт приложения
+            if let Err(e) = build_tray(app.handle()) {
+                eprintln!("tray unavailable: {e}");
+            }
             Ok(())
         })
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            // Второй запуск: фокусируем существующее окно вместо открытия
+            // копии. Заодно закрывает конфликт cleanup_browser_profiles,
+            // когда два экземпляра чистили профили друг друга
+            use tauri::Manager;
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.unminimize();
+                let _ = w.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             settings::load_settings,

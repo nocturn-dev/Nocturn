@@ -3,8 +3,7 @@
 
 use crate::hooks;
 use crate::settings::{config_file, rejects_sensitive_path};
-use std::fs;
-// ---------- Хуки ----------
+use std::fs;// ---------- Хуки ----------
 
 pub fn hooks_dir(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
     use tauri::Manager;
@@ -78,7 +77,7 @@ pub fn shortcuts_save(app: tauri::AppHandle, binds: serde_json::Value) -> Result
         fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
     let json = serde_json::to_string_pretty(&binds).map_err(|e| e.to_string())?;
-    fs::write(&path, json).map_err(|e| e.to_string())
+    crate::fsutil::atomic_write(&path, json.as_bytes())
 }
 
 /// Прочитать манифест плагина (plugin.json) из папки или файла
@@ -110,7 +109,7 @@ pub fn plugins_save(app: tauri::AppHandle, file: serde_json::Value) -> Result<()
         fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
     let json = serde_json::to_string_pretty(&file).map_err(|e| e.to_string())?;
-    fs::write(&path, json).map_err(|e| e.to_string())
+    crate::fsutil::atomic_write(&path, json.as_bytes())
 }
 
 /// Пользовательские slash-команды (commands.json): { commands: [{name, description, template}] }
@@ -131,7 +130,7 @@ pub fn commands_save(app: tauri::AppHandle, file: serde_json::Value) -> Result<(
         fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
     let json = serde_json::to_string_pretty(&file).map_err(|e| e.to_string())?;
-    fs::write(&path, json).map_err(|e| e.to_string())
+    crate::fsutil::atomic_write(&path, json.as_bytes())
 }
 
 /// Конфиг субагентов (subagents.json): { enabled, maxParallel, roles: [...] }
@@ -152,7 +151,7 @@ pub fn subagents_save(app: tauri::AppHandle, config: serde_json::Value) -> Resul
         fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
     let json = serde_json::to_string_pretty(&config).map_err(|e| e.to_string())?;
-    fs::write(&path, json).map_err(|e| e.to_string())
+    crate::fsutil::atomic_write(&path, json.as_bytes())
 }
 
 /// Цвета моделей в статистике (colors.json): { "<model>": "#rrggbb" }
@@ -173,5 +172,5 @@ pub fn usage_colors_save(app: tauri::AppHandle, colors: serde_json::Value) -> Re
         fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
     let json = serde_json::to_string_pretty(&colors).map_err(|e| e.to_string())?;
-    fs::write(&path, json).map_err(|e| e.to_string())
+    crate::fsutil::atomic_write(&path, json.as_bytes())
 }

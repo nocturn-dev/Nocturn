@@ -100,7 +100,7 @@ pub fn save_profiles(
         "active": active,
     }))
     .map_err(|e| e.to_string())?;
-    fs::write(&path, json).map_err(|e| e.to_string())
+    crate::fsutil::atomic_write(&path, json.as_bytes())
 }
 
 /// Метa-файл шифрования crypto.json: соль KDF + маркер-проверка пароля.
@@ -153,7 +153,7 @@ pub fn crypto_write_meta(
         "kdf": kdf,
     }))
     .map_err(|e| e.to_string())?;
-    fs::write(&path, json).map_err(|e| e.to_string())
+    crate::fsutil::atomic_write(&path, json.as_bytes())
 }
 
 /// Состояние шифрования для окна входа на старте
@@ -275,8 +275,12 @@ pub(crate) fn rekey_all(app: &tauri::AppHandle, old_key: &[u8], new_key: &[u8]) 
                 }
             }
         }
-        fs::write(&path, serde_json::to_string_pretty(&v).map_err(|e| e.to_string())?)
-            .map_err(|e| e.to_string())?;
+        crate::fsutil::atomic_write(
+            &path,
+            serde_json::to_string_pretty(&v)
+                .map_err(|e| e.to_string())?
+                .as_bytes(),
+        )?;
     }
     Ok(())
 }
@@ -317,8 +321,12 @@ pub fn crypto_reset(app: tauri::AppHandle, confirm: String) -> Result<(), String
                 p["api_key"] = serde_json::Value::String(String::new());
             }
         }
-        fs::write(&path, serde_json::to_string_pretty(&v).map_err(|e| e.to_string())?)
-            .map_err(|e| e.to_string())?;
+        crate::fsutil::atomic_write(
+            &path,
+            serde_json::to_string_pretty(&v)
+                .map_err(|e| e.to_string())?
+                .as_bytes(),
+        )?;
     }
     Ok(())
 }
@@ -393,8 +401,12 @@ pub fn settings_write_all(
         let Some(value) = files.get(*name) else {
             continue;
         };
-        let json = serde_json::to_string_pretty(value).map_err(|e| e.to_string())?;
-        fs::write(dir.join(name), json).map_err(|e| e.to_string())?;
+        crate::fsutil::atomic_write(
+            &dir.join(name),
+            serde_json::to_string_pretty(value)
+                .map_err(|e| e.to_string())?
+                .as_bytes(),
+        )?;
         written += 1;
     }
     Ok(written)
@@ -427,7 +439,7 @@ pub fn settings_export_write(path: String, content: String) -> Result<(), String
     // Проверка, что это валидный JSON — защита от мусора
     serde_json::from_str::<serde_json::Value>(&content)
         .map_err(|e| format!("export content is not valid JSON: {e}"))?;
-    fs::write(&path, content).map_err(|e| e.to_string())
+    crate::fsutil::atomic_write(std::path::Path::new(&path), content.as_bytes())
 }
 
 /// Прочитать импорт-файл
@@ -468,8 +480,12 @@ pub fn set_key_encryption(app: tauri::AppHandle, enable: bool) -> Result<(), Str
             v["api_key"] = serde_json::Value::String(new_key);
         }
         v["encrypt_keys"] = serde_json::Value::Bool(enable);
-        fs::write(&spath, serde_json::to_string_pretty(&v).map_err(|e| e.to_string())?)
-            .map_err(|e| e.to_string())?;
+        crate::fsutil::atomic_write(
+            &spath,
+            serde_json::to_string_pretty(&v)
+                .map_err(|e| e.to_string())?
+                .as_bytes(),
+        )?;
     }
 
     // profiles.json: ключи всех профилей
@@ -494,8 +510,12 @@ pub fn set_key_encryption(app: tauri::AppHandle, enable: bool) -> Result<(), Str
                 }
             }
         }
-        fs::write(&ppath, serde_json::to_string_pretty(&v).map_err(|e| e.to_string())?)
-            .map_err(|e| e.to_string())?;
+        crate::fsutil::atomic_write(
+            &ppath,
+            serde_json::to_string_pretty(&v)
+                .map_err(|e| e.to_string())?
+                .as_bytes(),
+        )?;
     }
     Ok(())
 }
@@ -527,7 +547,7 @@ pub fn save_projects(app: tauri::AppHandle, projects: Vec<ProjectRec>) -> Result
         fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
     let json = serde_json::to_string_pretty(&projects).map_err(|e| e.to_string())?;
-    fs::write(&path, json).map_err(|e| e.to_string())
+    crate::fsutil::atomic_write(&path, json.as_bytes())
 }
 pub(crate) fn config_file(app: &tauri::AppHandle, name: &str) -> Result<std::path::PathBuf, String> {
     use tauri::Manager;
@@ -581,7 +601,7 @@ pub fn save_settings(app: tauri::AppHandle, settings: ApiSettings) -> Result<(),
         s.api_key = crypto::encrypt(&s.api_key)?;
     }
     let json = serde_json::to_string_pretty(&s).map_err(|e| e.to_string())?;
-    fs::write(&path, json).map_err(|e| e.to_string())
+    crate::fsutil::atomic_write(&path, json.as_bytes())
 }
 pub(crate) fn save_json_config<T: serde::Serialize>(
     app: &tauri::AppHandle,
@@ -595,7 +615,7 @@ pub(crate) fn save_json_config<T: serde::Serialize>(
         .map_err(|e| format!("failed to determine config directory: {e}"))?;
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let json = serde_json::to_string_pretty(value).map_err(|e| e.to_string())?;
-    fs::write(dir.join(file), json).map_err(|e| e.to_string())
+    crate::fsutil::atomic_write(&dir.join(file), json.as_bytes())
 }
 
 // ---------- Серверный слой прав (perm.rs) ----------

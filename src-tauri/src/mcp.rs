@@ -75,17 +75,58 @@ pub struct McpConnection {
     last_stderr: Arc<Mutex<String>>,
 }
 
+/// Прямой запуск серверного процесса (пайпы на stdin/stdout/stderr)
+fn spawn_server(cfg: &McpServerConfig) -> std::io::Result<Child> {
+    Command::new(&cfg.command)
+        .args(&cfg.args)
+        .envs(&cfg.env)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+}
+
+/// Windows-fallback: npx/uvx и компания — это .cmd-файлы, CreateProcess их
+/// не исполняет («program not found»). Запуск через cmd /C: std сам
+/// корректно экранирует аргументы для cmd.exe (фикс BatBadBut).
+#[cfg(windows)]
+fn spawn_via_cmd(cfg: &McpServerConfig) -> std::io::Result<Child> {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    Command::new("cmd")
+        .arg("/C")
+        .arg(&cfg.command)
+        .args(&cfg.args)
+        .envs(&cfg.env)
+        .creation_flags(CREATE_NO_WINDOW)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+}
+
 impl McpConnection {
-    /// Запуск процесса сервера + рукопожатие
+    /// Запуск процесса сервера + рукопожатие.
+    /// Windows: CreateProcess не исполняет .cmd/.bat (npx, uvx — это .cmd),
+    /// а канонические MCP-конфиги пишут "command": "npx" — при фейле прямого
+    /// запуска ретраим через `cmd /C` (как hooks.rs).
     pub fn connect(cfg: &McpServerConfig) -> Result<Arc<Self>, String> {
-        let mut child = Command::new(&cfg.command)
-            .args(&cfg.args)
-            .envs(&cfg.env)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|e| format!("failed to spawn {}: {e}", cfg.command))?;
+        let mut child = match spawn_server(cfg) {
+            Ok(c) => c,
+            Err(direct_err) => {
+                #[cfg(windows)]
+                {
+                    match spawn_via_cmd(cfg) {
+                        Ok(c) => c,
+                        Err(_) => return Err(direct_err.to_string()),
+                    }
+                }
+                #[cfg(not(windows))]
+                {
+                    return Err(direct_err);
+                }
+            }
+        };
 
         let stdout = child
             .stdout
@@ -327,7 +368,9 @@ impl Drop for McpConnection {
 
 /// Реестр живых соединений: имя сервера → соединение
 #[derive(Default)]
-pub struct McpRegistry(pub Mutex<HashMap<String, Arc<McpConnection>>>);
+/// Arc внутри — реестр клонируется в spawn_blocking: коннект/рукопожатие
+/// MCP-сервера (до ~45 с) не должен оккупировать воркер tokio
+pub struct McpRegistry(pub Arc<Mutex<HashMap<String, Arc<McpConnection>>>>);
 
 impl McpRegistry {
     pub fn kill_all(&self) {
@@ -407,7 +450,7 @@ fn save_servers(
         fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
     let json = serde_json::to_string_pretty(servers).map_err(|e| e.to_string())?;
-    fs::write(&path, json).map_err(|e| e.to_string())
+    crate::fsutil::atomic_write(&path, json.as_bytes())
 }
 
 /// Список настроенных серверов (конфиг, не соединения)
@@ -443,17 +486,30 @@ pub fn mcp_save_servers(
 
 /// Подключить сервер: рукопожатие + tools/list. Повторный вызов для живого
 /// соединения просто возвращает его инструменты.
+/// Тело — в spawn_blocking: рукопожатие держит воркер десятки секунд.
 #[tauri::command(async)]
-pub fn mcp_connect(
+pub async fn mcp_connect(
     app: tauri::AppHandle,
     registry: tauri::State<'_, McpRegistry>,
     name: String,
 ) -> Result<Vec<McpToolInfo>, String> {
+    let registry = registry.0.clone();
+    tauri::async_runtime::spawn_blocking(move || mcp_connect_impl(app, registry, name))
+        .await
+        .map_err(|e| format!("join error: {e}"))?
+}
+
+fn mcp_connect_impl(
+    app: tauri::AppHandle,
+    registry: Arc<Mutex<HashMap<String, Arc<McpConnection>>>>,
+    name: String,
+) -> Result<Vec<McpToolInfo>, String> {
+    if let Some(conn) = registry
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .get(&name)
     {
-        let map = registry.0.lock().unwrap_or_else(|p| p.into_inner());
-        if let Some(conn) = map.get(&name) {
-            return Ok(conn.tools.lock().unwrap_or_else(|p| p.into_inner()).clone());
-        }
+        return Ok(conn.tools.lock().unwrap_or_else(|p| p.into_inner()).clone());
     }
     let cfg = load_servers(&app)?
         .into_iter()
@@ -463,8 +519,16 @@ pub fn mcp_connect(
         return Err(format!("MCP server \"{name}\" is disabled"));
     }
     let conn = McpConnection::connect(&cfg)?;
+    let mut map = registry.lock().unwrap_or_else(|p| p.into_inner());
+    // Двойная проверка: параллельный mcp_autoconnect/mcp_connect мог вставить
+    // соединение, пока мы соединялись. Лишний процесс гасим, чужой возвращаем —
+    // иначе второй insert перезаписал бы живое соединение
+    if let Some(existing) = map.get(&name) {
+        conn.kill();
+        return Ok(existing.tools.lock().unwrap_or_else(|p| p.into_inner()).clone());
+    }
     let tools = conn.tools.lock().unwrap_or_else(|p| p.into_inner()).clone();
-    registry.0.lock().unwrap_or_else(|p| p.into_inner()).insert(name, conn);
+    map.insert(name, conn);
     Ok(tools)
 }
 
@@ -495,10 +559,21 @@ pub fn mcp_status(registry: tauri::State<'_, McpRegistry>) -> Vec<McpServerStatu
 
 /// Автоконнект всех включённых серверов при старте приложения.
 /// Ошибки отдельных серверов не роняют остальные — просто не подключены.
+/// Тело — в spawn_blocking (join потоков коннекта держит воркер до ~45 с).
 #[tauri::command(async)]
-pub fn mcp_autoconnect(
+pub async fn mcp_autoconnect(
     app: tauri::AppHandle,
     registry: tauri::State<'_, McpRegistry>,
+) -> Result<usize, String> {
+    let registry = registry.0.clone();
+    tauri::async_runtime::spawn_blocking(move || mcp_autoconnect_impl(app, registry))
+        .await
+        .map_err(|e| format!("join error: {e}"))?
+}
+
+fn mcp_autoconnect_impl(
+    app: tauri::AppHandle,
+    registry: Arc<Mutex<HashMap<String, Arc<McpConnection>>>>,
 ) -> Result<usize, String> {
     let configs = load_servers(&app)?;
     let mut to_connect: Vec<McpServerConfig> = Vec::new();
@@ -507,7 +582,10 @@ pub fn mcp_autoconnect(
         if !cfg.enabled {
             continue;
         }
-        let already = registry.0.lock().unwrap_or_else(|p| p.into_inner()).contains_key(&cfg.name);
+        let already = registry
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .contains_key(&cfg.name);
         if already {
             connected += 1;
             continue;
@@ -522,11 +600,14 @@ pub fn mcp_autoconnect(
         .collect();
     for h in handles {
         if let Ok((name, Ok(conn))) = h.join() {
-            registry
-                .0
-                .lock()
-                .unwrap_or_else(|p| p.into_inner())
-                .insert(name, conn);
+            let mut map = registry.lock().unwrap_or_else(|p| p.into_inner());
+            // Двойная проверка: параллельный mcp_connect мог вставить первым
+            if map.contains_key(&name) {
+                conn.kill();
+                connected += 1;
+                continue;
+            }
+            map.insert(name, conn);
             connected += 1;
         }
     }

@@ -25,8 +25,16 @@ pub struct GitEntry {
 
 /// Git-статус папки проекта для подсветки дерева файлов.
 /// Не-repo или отсутствие git — просто ошибка, фронт молча игнорирует.
+/// Тело — в spawn_blocking: подпроцесс git на медленном/сетевом диске
+/// блокировал бы воркер tokio.
 #[tauri::command(async)]
-pub fn git_status(path: String) -> Result<Vec<GitEntry>, String> {
+pub async fn git_status(path: String) -> Result<Vec<GitEntry>, String> {
+    tauri::async_runtime::spawn_blocking(move || git_status_impl(path))
+        .await
+        .map_err(|e| format!("join error: {e}"))?
+}
+
+fn git_status_impl(path: String) -> Result<Vec<GitEntry>, String> {
     let output = std::process::Command::new("git")
         .args(["status", "--porcelain"])
         .current_dir(&path)
@@ -52,9 +60,25 @@ pub fn git_status(path: String) -> Result<Vec<GitEntry>, String> {
         if let Some(idx) = p.find(" -> ") {
             p = p[idx + 4..].to_string();
         }
-        // git берёт пути с не-ASCII в кавычки
+        // git берёт пути с не-ASCII/спецсимволами в кавычки и экранирует
+        // содержимое: разворачиваем \", \\, \n, \t, иначе подсветка врёт
         if p.starts_with('"') && p.ends_with('"') && p.len() >= 2 {
-            p = p[1..p.len() - 1].to_string();
+            let inner = &p[1..p.len() - 1];
+            let mut unescaped = String::with_capacity(inner.len());
+            let mut chars = inner.chars();
+            while let Some(c) = chars.next() {
+                if c == '\\' {
+                    match chars.next() {
+                        Some('n') => unescaped.push('\n'),
+                        Some('t') => unescaped.push('\t'),
+                        Some(other) => unescaped.push(other),
+                        None => unescaped.push('\\'),
+                    }
+                } else {
+                    unescaped.push(c);
+                }
+            }
+            p = unescaped;
         }
         out.push(GitEntry { path: p, code });
     }
@@ -188,7 +212,18 @@ pub fn cp_id_ok(id: &str) -> bool {
 }
 
 #[tauri::command(async)]
-pub fn checkpoint_save(
+pub async fn checkpoint_save(
+    app: tauri::AppHandle,
+    path: String,
+    label: String,
+) -> Result<CheckpointMeta, String> {
+    tauri::async_runtime::spawn_blocking(move || checkpoint_save_impl(app, path, label))
+        .await
+        .map_err(|e| format!("join error: {e}"))?
+}
+
+/// Обход дерева + base64 до 25 МБ — секунды работы, только вне tokio-воркера
+fn checkpoint_save_impl(
     app: tauri::AppHandle,
     path: String,
     label: String,
@@ -251,7 +286,16 @@ pub fn checkpoint_save(
 }
 
 #[tauri::command(async)]
-pub fn checkpoint_list(app: tauri::AppHandle, path: String) -> Result<Vec<CheckpointMeta>, String> {
+pub async fn checkpoint_list(
+    app: tauri::AppHandle,
+    path: String,
+) -> Result<Vec<CheckpointMeta>, String> {
+    tauri::async_runtime::spawn_blocking(move || checkpoint_list_impl(app, path))
+        .await
+        .map_err(|e| format!("join error: {e}"))?
+}
+
+fn checkpoint_list_impl(app: tauri::AppHandle, path: String) -> Result<Vec<CheckpointMeta>, String> {
     let dir = checkpoints_dir(&app, &path)?;
     let mut out: Vec<CheckpointMeta> = Vec::new();
     let rd = fs::read_dir(&dir).map_err(|e| e.to_string())?;
@@ -275,7 +319,17 @@ pub fn checkpoint_list(app: tauri::AppHandle, path: String) -> Result<Vec<Checkp
 }
 
 #[tauri::command(async)]
-pub fn checkpoint_restore(
+pub async fn checkpoint_restore(
+    app: tauri::AppHandle,
+    path: String,
+    id: String,
+) -> Result<usize, String> {
+    tauri::async_runtime::spawn_blocking(move || checkpoint_restore_impl(app, path, id))
+        .await
+        .map_err(|e| format!("join error: {e}"))?
+}
+
+fn checkpoint_restore_impl(
     app: tauri::AppHandle,
     path: String,
     id: String,
@@ -448,7 +502,7 @@ mod git_status_tests {
             .current_dir(&dir)
             .output();
 
-        let res = git_status(dir.to_string_lossy().to_string()).unwrap();
+        let res = git_status_impl(dir.to_string_lossy().to_string()).unwrap();
         assert_eq!(res.len(), 1);
         assert_eq!(res[0].path, "hello.txt");
         assert_eq!(res[0].code, "A");
@@ -461,7 +515,7 @@ mod git_status_tests {
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         // если git есть — не-repo должен дать ошибку; если git нет — тоже Err
-        assert!(git_status(dir.to_string_lossy().to_string()).is_err());
+        assert!(git_status_impl(dir.to_string_lossy().to_string()).is_err());
         let _ = fs::remove_dir_all(&dir);
     }
 }

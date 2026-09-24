@@ -46,22 +46,34 @@ impl PtyRegistry {
 
 const PTY_OUTPUT_LIMIT: usize = 1024 * 1024; // предохранитель на накопитель декодера
 
-/// Команда шелла по выбору пользователя: None/auto — PowerShell (как было),
-/// "cmd" — cmd.exe, "gitbash" — Git Bash (--login -i; путь ищется стандартно)
+/// Команда шелла по выбору пользователя.
+/// Windows: None/auto — PowerShell, "cmd" — cmd.exe, "gitbash" — Git Bash.
+/// macOS/Linux: None/auto — $SHELL (fallback bash → zsh → sh); "cmd" и
+/// "gitbash" — Windows-специфичные, трактуются как auto. Без ветки для Unix
+/// дефолтный `powershell` не находился и весь терминал был неработоспособен.
 fn build_shell_command(shell: Option<&str>, cwd: Option<&str>) -> Result<CommandBuilder, String> {
-    let mut cmd = match shell.map(str::to_ascii_lowercase).as_deref() {
-        Some("cmd") => CommandBuilder::new("cmd.exe"),
-        Some("gitbash") => {
-            let bash = find_git_bash()
-                .ok_or("Git Bash not found: install Git for Windows or pick another shell")?;
-            let mut c = CommandBuilder::new(bash);
-            c.args(["--login", "-i"]);
-            c
+    let picked = shell.map(str::to_ascii_lowercase);
+    let mut cmd = if cfg!(windows) {
+        match picked.as_deref() {
+            Some("cmd") => CommandBuilder::new("cmd.exe"),
+            Some("gitbash") => {
+                let bash = find_git_bash().ok_or(
+                    "Git Bash not found: install Git for Windows or pick another shell",
+                )?;
+                let mut c = CommandBuilder::new(bash);
+                c.args(["--login", "-i"]);
+                c
+            }
+            _ => {
+                let mut c = CommandBuilder::new("powershell");
+                c.args(["-NoLogo", "-NoProfile"]);
+                c
+            }
         }
-        _ => {
-            let mut c = CommandBuilder::new("powershell");
-            c.args(["-NoLogo", "-NoProfile"]);
-            c
+    } else {
+        match unix_shell() {
+            Some(s) => CommandBuilder::new(s),
+            None => return Err("no shell found: set $SHELL or install bash/zsh/sh".into()),
         }
     };
     if let Some(dir) = cwd {
@@ -70,7 +82,30 @@ fn build_shell_command(shell: Option<&str>, cwd: Option<&str>) -> Result<Command
     Ok(cmd)
 }
 
+/// Shell по умолчанию для macOS/Linux: $SHELL пользователя, затем
+/// стандартные места установки bash/zsh/sh
+fn unix_shell() -> Option<String> {
+    if let Ok(s) = std::env::var("SHELL") {
+        if std::path::Path::new(&s).exists() {
+            return Some(s);
+        }
+    }
+    let candidates = [
+        "/bin/bash",
+        "/usr/bin/bash",
+        "/bin/zsh",
+        "/usr/bin/zsh",
+        "/bin/sh",
+        "/usr/bin/sh",
+    ];
+    candidates
+        .into_iter()
+        .find(|c| std::path::Path::new(c).exists())
+        .map(str::to_string)
+}
+
 /// Поиск bash.exe из Git for Windows в стандартных местах установки
+#[cfg(windows)]
 fn find_git_bash() -> Option<String> {
     let pf = std::env::var("ProgramFiles").unwrap_or_else(|_| "C:\\Program Files".into());
     let pf86 =
