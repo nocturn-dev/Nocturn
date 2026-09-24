@@ -61,8 +61,8 @@ but stay at the plain-chat level. Nocturn is the missing middle ground:
   password.
 - **Image generation** — optional `image_generate` agent tool via your own
   image API (off by default).
-- **Customization** — 6 dark themes + light, accent colors, glass effects, UI
-  scale, theme profiles, RU / EN / 中文 / 日本語.
+- **Customization** — 8 dark themes + light + **Official** monochrome, accent
+  colors, glass effects, UI scale, theme profiles, RU / EN / 中文 / 日本語.
 
 
 ## Screenshots
@@ -74,6 +74,16 @@ but stay at the plain-chat level. Nocturn is the missing middle ground:
 <p align="center">
   <img src="docs/screenshots/automations.png" width="560" alt="Automations: scheduled agent tasks" />
 </p>
+
+## Themes
+
+Two looks, one toggle — **Settings → Customization**. The theme applies
+instantly and is remembered.
+
+| Theme | What it is |
+|---|---|
+| **Halo** (default) | Warm dark palette in the spirit of Claude: 8 dark styles + light, 6 accent presets + custom color, glass effects, theme profiles. |
+| **Official** | Strict black / grey / white monochrome in the Linear-Vercel spirit. Hierarchy comes from brightness and borders, color is reserved for semantics — diffs, tool statuses, errors. Extras: true-black OLED background, higher-contrast mode, greyscale code highlighting. Always dark, opt-in. |
 
 ## Privacy & Security
 
@@ -94,8 +104,18 @@ npm run dev          # quick browser preview without Tauri
 npm run build        # frontend build (tsc + vite)
 ```
 
-Requirements: **Node 20+** and **Rust** (for the native build). Windows is the
-primary platform; macOS/Linux are not tested yet — expect rough edges.
+Requirements: **Node 20+** and **Rust** (for the native build).
+
+Windows, Linux and macOS builds are produced automatically for every release —
+grab an installer from
+[Releases](https://github.com/nocturn-lab/Nocturn-AI/releases). Notes per
+platform:
+
+- **Windows** — the most tested platform.
+- **macOS** — builds are unsigned; on first launch right-click the app →
+  *Open*, or allow it in System Settings → Privacy & Security.
+- **Linux** — use the `.AppImage` for automatic in-app updates (`.deb` updates
+  manually); Computer Use (screen capture / input) requires an **X11** session.
 
 ## Project layout
 

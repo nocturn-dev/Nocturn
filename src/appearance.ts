@@ -27,6 +27,14 @@ export interface Appearance {
   sidebarGlass: boolean;
   /** Своё приветствие на пустом экране чата (пусто — стандартное по времени суток) */
   customGreeting?: string;
+  /** Тема Official: строгий монохром (чёрный/серый/белый), одним тумблером */
+  official: boolean;
+  /** Official: чистый чёрный фон #000 (OLED-экраны) вместо #0a0a0a */
+  officialOled: boolean;
+  /** Official: ярче границы и вторичный текст (высокий контраст) */
+  officialContrast: boolean;
+  /** Official: обесцветить подсветку кода (серая шкала вместо синтакс-цветов) */
+  officialMonoCode: boolean;
 }
 
 export const DEFAULT_APPEARANCE: Appearance = {
@@ -38,6 +46,10 @@ export const DEFAULT_APPEARANCE: Appearance = {
   markStyle: "bold",
   sidebarGlass: false,
   customGreeting: "",
+  official: false,
+  officialOled: false,
+  officialContrast: false,
+  officialMonoCode: false,
 };
 
 const LS_KEY = "haloui-appearance";
@@ -68,6 +80,10 @@ export function loadAppearance(): Appearance {
         typeof p.customGreeting === "string"
           ? p.customGreeting
           : DEFAULT_APPEARANCE.customGreeting,
+      official: p.official ?? DEFAULT_APPEARANCE.official,
+      officialOled: p.officialOled ?? DEFAULT_APPEARANCE.officialOled,
+      officialContrast: p.officialContrast ?? DEFAULT_APPEARANCE.officialContrast,
+      officialMonoCode: p.officialMonoCode ?? DEFAULT_APPEARANCE.officialMonoCode,
     };
   } catch {
     return { ...DEFAULT_APPEARANCE };
@@ -93,6 +109,38 @@ function darken(hex: string, factor: number): string {
   return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, "0")}`;
 }
 
+/**
+ * Палитра темы Official — строгий монохром. Иерархия поверхностей
+ * строится ступенями яркости (границы вместо теней), цвет остаётся
+ * только для семантики: diff, статусы инструментов, ошибки.
+ */
+function officialPalette(a: Appearance): Record<string, string> {
+  const soft = {
+    "--halo-bg": "#0a0a0a",
+    "--halo-deep": "#060606",
+    "--halo-surface": "#141414",
+    "--halo-raised": "#1d1d1d",
+    "--halo-line": a.officialContrast ? "#3d3d3d" : "#262626",
+    "--halo-text": "#fafafa",
+    "--halo-muted": a.officialContrast ? "#c6c6c6" : "#a3a3a3",
+    "--halo-hover": "rgba(255, 255, 255, 0.06)",
+    "--halo-hover-strong": "rgba(255, 255, 255, 0.1)",
+    "--halo-code-bg": "#0f0f0f",
+    "--halo-accent": "#ececec",
+    "--halo-accent-deep": "#8f8f8f",
+  };
+  if (!a.officialOled) return soft;
+  return {
+    ...soft,
+    "--halo-bg": "#000000",
+    "--halo-deep": "#000000",
+    "--halo-surface": "#0d0d0d",
+    "--halo-raised": "#161616",
+    "--halo-line": a.officialContrast ? "#333333" : "#1f1f1f",
+    "--halo-code-bg": "#050505",
+  };
+}
+
 /** Применяем кастомизацию к <html>; theme нужен дляrem-масштаба (не конфликтует) */
 export function applyAppearance(a: Appearance) {
   const root = document.documentElement;
@@ -106,6 +154,29 @@ export function applyAppearance(a: Appearance) {
   root.classList.toggle("sidebar-glass", a.sidebarGlass);
   if (a.style === "claude") root.removeAttribute("data-style");
   else root.setAttribute("data-style", a.style);
+
+  // Тема Official: монохромная палитра инлайном — inline-стили сильнее
+  // и html.light, и data-style, и акцента выше, так что никакой каскадной
+  // борьбы. Официальная тема всегда тёмная; при выключении все инлайн
+  // переопределения снимаются, обычные темы живут как раньше.
+  root.classList.toggle("official", a.official);
+  root.classList.toggle("official-mono-code", a.official && a.officialMonoCode);
+  if (a.official) {
+    const palette = officialPalette(a);
+    for (const [k, v] of Object.entries(palette)) {
+      root.style.setProperty(k, v);
+    }
+    // Принудительно тёмный color-scheme (перекрывает html.light)
+    root.style.colorScheme = "dark";
+  } else {
+    root.classList.remove("official-oled", "official-contrast");
+    // Акцент и его производную НЕ снимаем: они установлены выше для обычных тем
+    for (const k of Object.keys(officialPalette(a))) {
+      if (k === "--halo-accent" || k === "--halo-accent-deep") continue;
+      root.style.removeProperty(k);
+    }
+    root.style.removeProperty("color-scheme");
+  }
 }
 
 export function appearanceTitleStyle(style: DarkStyle, theme: Theme): { bg: string; panel: string; text: string } {

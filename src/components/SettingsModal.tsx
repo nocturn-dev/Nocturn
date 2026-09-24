@@ -2945,6 +2945,92 @@ function ThemeSection({
     <div className="mx-auto max-w-2xl">
       <h3 className="mb-3 text-sm font-semibold text-halo-text">{t("settings.themes")}</h3>
 
+      {/* Тема Official: строгий монохром одним тумблером. Включённой теме
+          принадлежат только её настройки ниже; обычные контролы темы скрыты */}
+      <div className="mb-4 flex items-center justify-between rounded-xl border border-halo-line px-3.5 py-3">
+        <div className="min-w-0 pr-3">
+          <p className="text-sm text-halo-text">{t("themes.official")}</p>
+          <p className="mt-0.5 text-xs leading-relaxed text-halo-muted">
+            {t("themes.officialDesc")}
+          </p>
+        </div>
+        <button
+          onClick={() =>
+            onAppearanceChange({ ...appearance, official: !appearance.official })
+          }
+          title={t("themes.official")}
+          className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${
+            appearance.official ? "bg-halo-accent" : "bg-halo-line"
+          }`}
+        >
+          <span
+            className={`absolute top-0.5 size-4 rounded-full bg-white transition-all ${
+              appearance.official ? "left-4.5" : "left-0.5"
+            }`}
+          />
+        </button>
+      </div>
+
+      {/* Настройки самой Official: только то, что относится к ней */}
+      {appearance.official && (
+        <div className="mb-4 space-y-1 rounded-xl border border-halo-line px-3.5 py-3">
+          <p className="text-xs font-medium text-halo-muted">
+            {t("themes.officialSettings")}
+          </p>
+          {(
+            [
+              {
+                key: "officialOled" as const,
+                label: t("themes.officialOled"),
+                desc: t("themes.officialOledDesc"),
+              },
+              {
+                key: "officialContrast" as const,
+                label: t("themes.officialContrast"),
+                desc: t("themes.officialContrastDesc"),
+              },
+              {
+                key: "officialMonoCode" as const,
+                label: t("themes.officialMonoCode"),
+                desc: t("themes.officialMonoCodeDesc"),
+              },
+            ] as const
+          ).map((row) => (
+            <div
+              key={row.key}
+              className="mt-1 flex items-center justify-between gap-3 rounded-lg px-1 py-2"
+            >
+              <div className="min-w-0">
+                <p className="text-sm text-halo-text">{row.label}</p>
+                <p className="mt-0.5 text-xs leading-relaxed text-halo-muted">
+                  {row.desc}
+                </p>
+              </div>
+              <button
+                onClick={() =>
+                  onAppearanceChange({
+                    ...appearance,
+                    [row.key]: !appearance[row.key],
+                  })
+                }
+                title={row.label}
+                className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${
+                  appearance[row.key] ? "bg-halo-accent" : "bg-halo-line"
+                }`}
+              >
+                <span
+                  className={`absolute top-0.5 size-4 rounded-full bg-white transition-all ${
+                    appearance[row.key] ? "left-4.5" : "left-0.5"
+                  }`}
+                />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {!appearance.official && (
+        <>
       {/* Профили внешнего вида: переключение пресета одним кликом */}
       <div className="mb-4 rounded-xl border border-halo-line px-3.5 py-3">
         <div className="flex items-center justify-between gap-2">
@@ -3096,6 +3182,8 @@ function ThemeSection({
           {t("themes.accentCustom")}
         </label>
       </div>
+        </>
+      )}
 
       {/* Масштаб интерфейса */}
       <div className="mt-4 flex items-center gap-3 rounded-xl border border-halo-line px-3.5 py-3">
@@ -3115,6 +3203,8 @@ function ThemeSection({
         <span className="w-12 shrink-0 text-right text-xs text-halo-muted">{appearance.scale}%</span>
       </div>
 
+      {!appearance.official && (
+      <>
       {/* Знак приложения: новая широкая N или классическая */}
       <div className="mt-2.5 flex items-center gap-3 rounded-xl border border-halo-line px-3.5 py-3">
         <div className="min-w-0 flex-1">
@@ -3141,6 +3231,8 @@ function ThemeSection({
           ))}
         </div>
       </div>
+      </>
+      )}
 
       {/* Оболочка терминала */}
       <div className="mt-2.5 flex items-center gap-3 rounded-xl border border-halo-line px-3.5 py-3">
@@ -3189,6 +3281,8 @@ function ThemeSection({
         </span>
       </div>
 
+      {!appearance.official && (
+      <>
       {glass && (
         <div className="mt-2.5 flex items-center gap-3 rounded-xl border border-halo-line px-3.5 py-3">
           <div className="shrink-0">
@@ -3319,6 +3413,8 @@ function ThemeSection({
           />
         </button>
       </div>
+      </>
+      )}
       <p className="mt-3 text-xs text-halo-muted/70">
         {t("themes.note")}
       </p>

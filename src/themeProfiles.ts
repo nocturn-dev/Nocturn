@@ -55,6 +55,11 @@ function parseProfile(raw: unknown): ThemeProfile | null {
       markStyle: a.markStyle === "classic" ? "classic" : "bold",
       sidebarGlass: a.sidebarGlass === true,
       customGreeting: typeof a.customGreeting === "string" ? a.customGreeting : "",
+      // Official-поля сохраняем, иначе применение профиля молча выключало бы тему
+      official: a.official === true,
+      officialOled: a.officialOled === true,
+      officialContrast: a.officialContrast === true,
+      officialMonoCode: a.officialMonoCode === true,
     },
   };
 }

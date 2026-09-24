@@ -339,11 +339,13 @@ export default function App() {
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [renamingId, setRenamingId] = useState<string | null>(null);
 
-  // Тема применяется мгновенно и запоминается
+  // Тема применяется мгновенно и запоминается.
+  // Official-тема всегда тёмная: светлая не применяется, пока она включена
   useEffect(() => {
-    document.documentElement.classList.toggle("light", theme === "light");
+    const forceDark = appearance.official;
+    document.documentElement.classList.toggle("light", theme === "light" && !forceDark);
     localStorage.setItem("haloui-theme", theme);
-  }, [theme]);
+  }, [theme, appearance.official]);
 
   // «Не давать ПК уснуть»: тумблер переживает перезапуск, но ОС-уровневый
   // флаг сбрасывается вместе с процессом — восстанавливаем при старте

@@ -511,3 +511,23 @@ input[type="range"]::-webkit-slider-thumb:active {
 @media (prefers-reduced-motion: reduce) {
   .usage-arc { animation: none !important; }
 }
+
+/* ---------- Тема Official: строгий монохром (Кастомизация → тумблер).
+   Палитра (--halo-*) задаётся инлайн в applyAppearance и перекрывает
+   html.light и data-style; здесь — только структурные отличия ----------
+   Иерархия поверхностей = ступени яркости, цвет остаётся семантикой:
+   diff, статусы инструментов, ошибки не обесцвечиваются. */
+
+/* Стекло в монохроме выключаем: чёткая граница вместо размытия */
+html.official .glass-pane {
+  background: var(--halo-deep);
+}
+/* Сайдбар-стекло тоже гасится (переменная сильнее класса прозрачности) */
+html.official aside.glass-pane {
+  background: var(--halo-deep);
+}
+
+/* Монохромная подсветка кода: серая шкала вместо синтакс-цветов */
+html.official.official-mono-code .markdown pre {
+  filter: grayscale(1);
+}
