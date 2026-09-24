@@ -3225,30 +3225,6 @@ function ThemeSection({
         <span className="w-12 shrink-0 text-right text-xs text-halo-muted">{appearance.scale}%</span>
       </div>
 
-      {/* Яркость поверхностей тёмных тем: некоторые стили темнят сильнее,
-          чем хочется; текст и акцент не трогаются — контраст чтения прежний */}
-      <div className="mt-2.5 flex items-center gap-3 rounded-xl border border-halo-line px-3.5 py-3">
-        <div className="shrink-0">
-          <p className="whitespace-nowrap text-sm text-halo-text">
-            {t("themes.brightness")}
-          </p>
-          <p className="text-[10px] text-halo-muted/60">{t("themes.brightnessDesc")}</p>
-        </div>
-        <input
-          type="range"
-          min={80}
-          max={120}
-          step={5}
-          value={appearance.brightness}
-          onChange={(e) =>
-            onAppearanceChange({ ...appearance, brightness: Number(e.target.value) })
-          }
-          className="min-w-0 flex-1"
-        />
-        <span className="w-12 shrink-0 text-right text-xs text-halo-muted">
-          {appearance.brightness}%
-        </span>
-      </div>
 
       {!appearance.official && (
       <>
@@ -3521,28 +3497,55 @@ function ThemeSection({
             </div>
           </div>
 
+          {/* Яркость: сила свечения слоя (для видео — его прозрачность) */}
           <div className="flex items-center gap-3">
             <p className="shrink-0 text-xs font-medium text-halo-muted">
-              {t("themes.ambientIntensity")}
+              {t("themes.ambientBrightness")}
             </p>
             <input
               type="range"
               min={0.3}
               max={1}
               step={0.05}
-              value={appearance.ambientIntensity}
+              value={appearance.ambientBrightness}
               onChange={(e) =>
                 onAppearanceChange({
                   ...appearance,
-                  ambientIntensity: Number(e.target.value),
+                  ambientBrightness: Number(e.target.value),
                 })
               }
               className="min-w-0 flex-1"
             />
             <span className="w-10 shrink-0 text-right text-xs text-halo-muted">
-              {Math.round(appearance.ambientIntensity * 100)}%
+              {Math.round(appearance.ambientBrightness * 100)}%
             </span>
           </div>
+
+          {/* Плотность: количество частиц/пятен/окон; для видео не имеет смысла */}
+          {appearance.ambientScene !== "video" && (
+            <div className="flex items-center gap-3">
+              <p className="shrink-0 text-xs font-medium text-halo-muted">
+                {t("themes.ambientDensity")}
+              </p>
+              <input
+                type="range"
+                min={0.3}
+                max={1.5}
+                step={0.05}
+                value={appearance.ambientDensity}
+                onChange={(e) =>
+                  onAppearanceChange({
+                    ...appearance,
+                    ambientDensity: Number(e.target.value),
+                  })
+                }
+                className="min-w-0 flex-1"
+              />
+              <span className="w-10 shrink-0 text-right text-xs text-halo-muted">
+                {Math.round(appearance.ambientDensity * 100)}%
+              </span>
+            </div>
+          )}
 
           {appearance.ambientScene === "video" && (
             <div className="flex flex-wrap items-center gap-2">

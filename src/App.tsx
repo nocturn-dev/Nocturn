@@ -58,7 +58,6 @@ import {
   loadAppearance,
   saveAppearance,
   applyAppearance,
-  applyBrightness,
   type Appearance,
 } from "./appearance";
 import {
@@ -394,12 +393,6 @@ export default function App() {
     // Иконка трея следует за знаком приложения (bold/classic)
     void setTrayVariant(appearance.markStyle).catch(() => {});
   }, [appearance]);
-
-  // Яркость поверхностей: пересчёт ПОСЛЕ applyAppearance (палитра Official
-  // уже на месте) и после смены темы — читает актуальные значения переменных
-  useEffect(() => {
-    applyBrightness(appearance, theme);
-  }, [appearance, theme]);
 
   // Профили внешнего вида: персистентность
   useEffect(() => {
@@ -1955,6 +1948,8 @@ export default function App() {
           <AmbientLayer
             scene={appearance.ambientScene}
             videoPath={appearance.ambientVideo}
+            brightness={appearance.ambientBrightness}
+            density={appearance.ambientDensity}
             paused={streamingId !== null}
           />
         )}

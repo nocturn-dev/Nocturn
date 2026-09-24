@@ -65,8 +65,8 @@ function parseProfile(raw: unknown): ThemeProfile | null {
         ? (a.ambientScene as Appearance["ambientScene"])
         : "glow",
       ambientVideo: typeof a.ambientVideo === "string" ? a.ambientVideo : "",
-      ambientIntensity: num(a.ambientIntensity, 0.7, 0.3, 1),
-      brightness: num(a.brightness, 100, 80, 120),
+      ambientBrightness: num(a.ambientBrightness, 0.7, 0.3, 1),
+      ambientDensity: num(a.ambientDensity, 0.7, 0.3, 1.5),
     },
   };
 }

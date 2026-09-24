@@ -59,10 +59,16 @@ function rng(seed: number) {
 export function AmbientLayer({
   scene,
   videoPath,
+  brightness,
+  density,
   paused,
 }: {
   scene: AmbientScene;
   videoPath: string;
+  /** Яркость слоя — дублирует CSS var --ambient-alpha (для <video> тоже) */
+  brightness: number;
+  /** Плотность сцены: множитель числа частиц/пятен/окон, 0.3–1.5 */
+  density: number;
   paused: boolean;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -125,7 +131,7 @@ export function AmbientLayer({
           "rgba(50, 80, 150, ",
           "rgba(110, 130, 200, ",
         ];
-        blobs = Array.from({ length: 6 }, (_, i) => ({
+        blobs = Array.from({ length: Math.max(3, Math.round(6 * density)) }, (_, i) => ({
           x: Math.random() * w,
           y: Math.random() * h,
           r: (0.28 + Math.random() * 0.22) * Math.max(w, h),
@@ -135,7 +141,7 @@ export function AmbientLayer({
         }));
       }
       if (scene === "snow") {
-        flakes = Array.from({ length: 150 }, () => ({
+        flakes = Array.from({ length: Math.max(30, Math.round(150 * density)) }, () => ({
           x: Math.random() * w,
           y: Math.random() * h,
           r: 0.8 + Math.random() * 2.2,
@@ -155,7 +161,7 @@ export function AmbientLayer({
           const rows = Math.floor(bh / 18);
           for (let cx = 0; cx < cols; cx++) {
             for (let cy = 0; cy < rows; cy++) {
-              if (rand() < 0.22) {
+              if (rand() < Math.min(0.22 * density, 0.6)) {
                 lit.push({ x: x + 6 + cx * 14, y: h - bh + 8 + cy * 18, phase: rand() * Math.PI * 2 });
               }
             }
@@ -165,7 +171,7 @@ export function AmbientLayer({
         }
       }
       if (scene === "stars") {
-        stars = Array.from({ length: 130 }, () => ({
+        stars = Array.from({ length: Math.max(30, Math.round(130 * density)) }, () => ({
           x: Math.random() * w,
           y: Math.random() * h * 0.85,
           r: 0.5 + Math.random() * 1.4,
@@ -334,19 +340,19 @@ export function AmbientLayer({
       cancelAnimationFrame(raf);
       window.removeEventListener("resize", resize);
     };
-  }, [scene, isVideo]);
+  }, [scene, isVideo, density]);
 
   if (isVideo) {
     if (!src) return null;
     return (
-      <div className="ambient-layer" aria-hidden>
+      <div className="ambient-layer" style={{ opacity: brightness }} aria-hidden>
         <video ref={videoRef} className="ambient-video" src={src} autoPlay muted loop playsInline />
       </div>
     );
   }
 
   return (
-    <div className="ambient-layer" aria-hidden>
+    <div className="ambient-layer" style={{ opacity: brightness }} aria-hidden>
       <canvas ref={canvasRef} className="ambient-canvas" />
     </div>
   );

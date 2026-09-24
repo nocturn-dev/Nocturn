@@ -35,16 +35,16 @@ export interface Appearance {
   officialContrast: boolean;
   /** Official: обесцветить подсветку кода (серая шкала вместо синтакс-цветов) */
   officialMonoCode: boolean;
-  /** Яркость поверхностей тёмных тем, 80–120% (100 — как задумано) */
-  brightness: number;
   /** Ambient-фон: процедурные сцены или своё видео поверх интерфейса */
   ambient: boolean;
   /** Ambient-сцена: glow — прежнее «дыхание акцента», video — свой файл */
   ambientScene: "glow" | "fog" | "snow" | "city" | "stars" | "video";
   /** Путь к видео пользователя (для scene === "video") */
   ambientVideo: string;
-  /** Яркость ambient-слоя, 0.3–1 */
-  ambientIntensity: number;
+  /** Яркость ambient-слоя: сила свечения, 0.3–1 */
+  ambientBrightness: number;
+  /** Плотность сцены: количество частиц/пятен/окон, 0.3–1.5 */
+  ambientDensity: number;
 }
 
 export const DEFAULT_APPEARANCE: Appearance = {
@@ -60,11 +60,11 @@ export const DEFAULT_APPEARANCE: Appearance = {
   officialOled: false,
   officialContrast: false,
   officialMonoCode: false,
-  brightness: 100,
   ambient: false,
   ambientScene: "glow",
   ambientVideo: "",
-  ambientIntensity: 0.7,
+  ambientBrightness: 0.7,
+  ambientDensity: 0.7,
 };
 
 const LS_KEY = "haloui-appearance";
@@ -108,16 +108,20 @@ export function loadAppearance(): Appearance {
       officialOled: p.officialOled ?? DEFAULT_APPEARANCE.officialOled,
       officialContrast: p.officialContrast ?? DEFAULT_APPEARANCE.officialContrast,
       officialMonoCode: p.officialMonoCode ?? DEFAULT_APPEARANCE.officialMonoCode,
-      brightness: clamp(p.brightness ?? DEFAULT_APPEARANCE.brightness, 80, 120),
       ambient: p.ambient ?? DEFAULT_APPEARANCE.ambient,
       ambientScene: AMBIENT_SCENES.includes(p.ambientScene as never)
         ? (p.ambientScene as Appearance["ambientScene"])
         : "glow",
       ambientVideo: typeof p.ambientVideo === "string" ? p.ambientVideo : "",
-      ambientIntensity: clamp(
-        p.ambientIntensity ?? DEFAULT_APPEARANCE.ambientIntensity,
+      ambientBrightness: clamp(
+        p.ambientBrightness ?? DEFAULT_APPEARANCE.ambientBrightness,
         0.3,
         1,
+      ),
+      ambientDensity: clamp(
+        p.ambientDensity ?? DEFAULT_APPEARANCE.ambientDensity,
+        0.3,
+        1.5,
       ),
     };
   } catch {
@@ -142,55 +146,6 @@ function darken(hex: string, factor: number): string {
   const g = Math.round(((v >> 8) & 255) * factor);
   const b = Math.round((v & 255) * factor);
   return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, "0")}`;
-}
-
-/** Смешать hex-цвет с target (k = 0..1): 0 — исходный, 1 — полностью target */
-function mixHex(hex: string, target: [number, number, number], k: number): string {
-  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
-  if (!m) return hex;
-  const v = parseInt(m[1], 16);
-  const ch = (shift: number) => (v >> shift) & 255;
-  const mix = (i: number) =>
-    Math.round(ch(i * 8) + (target[i] - ch(i * 8)) * k);
-  return `#${((mix(0) << 16) | (mix(1) << 8) | mix(2)).toString(16).padStart(6, "0")}`;
-}
-
-const WHITE: [number, number, number] = [255, 255, 255];
-const BLACK: [number, number, number] = [0, 0, 0];
-
-/** Ключи палитры, которые регулирует слайдер яркости. Текст, muted и акцент
-    не трогаем — иначе падает контраст чтения */
-const BRIGHTNESS_KEYS = [
-  "--halo-bg",
-  "--halo-deep",
-  "--halo-surface",
-  "--halo-raised",
-  "--halo-line",
-  "--halo-code-bg",
-];
-
-/**
- * Яркость поверхностей тёмных тем: >100 — смеси поверхностей к белому,
- * <100 — к чёрному. Читает АКТУАЛЬНЫЕ значения переменных (учитывает
- * html.light, data-style и инлайн-палитру Official), поэтому вызывается
- * строго после applyAppearance и смены темы.
- */
-export function applyBrightness(a: Appearance, theme: Theme) {
-  const root = document.documentElement;
-  const dark = theme === "dark" || a.official;
-  if (!dark || a.brightness === 100) {
-    // Снимаем инлайн-переопределения — палитра темы живёт в стилях
-    for (const k of BRIGHTNESS_KEYS) root.style.removeProperty(k);
-    return;
-  }
-  const cs = getComputedStyle(root);
-  const k = Math.abs(a.brightness - 100) / 100;
-  const target = a.brightness > 100 ? WHITE : BLACK;
-  for (const key of BRIGHTNESS_KEYS) {
-    const raw = cs.getPropertyValue(key).trim();
-    if (!/^#[0-9a-f]{6}$/i.test(raw)) continue; // не-hex (rgba и пр.) не трогаем
-    root.style.setProperty(key, mixHex(raw, target, k));
-  }
 }
 
 /**
@@ -248,13 +203,13 @@ export function applyAppearance(a: Appearance) {
   root.classList.toggle("official-mono-code", a.official && a.officialMonoCode);
   root.classList.toggle("ambient", a.ambient);
   // Сцена: glow — базовое дыхание (body::before), остальные — слой в App.
-  // Интенсивность через переменную, слой читает её из CSS
+  // Яркость слоя через переменную, CSS читает её
   if (a.ambient && a.ambientScene !== "glow") {
     root.setAttribute("data-ambient-scene", a.ambientScene);
   } else {
     root.removeAttribute("data-ambient-scene");
   }
-  root.style.setProperty("--ambient-alpha", String(a.ambientIntensity));
+  root.style.setProperty("--ambient-alpha", String(a.ambientBrightness));
   if (a.official) {
     const palette = officialPalette(a);
     for (const [k, v] of Object.entries(palette)) {
@@ -263,7 +218,6 @@ export function applyAppearance(a: Appearance) {
     // Принудительно тёмный color-scheme (перекрывает html.light)
     root.style.colorScheme = "dark";
   } else {
-    root.classList.remove("official-oled", "official-contrast");
     // Акцент и его производную НЕ снимаем: они установлены выше для обычных тем
     for (const k of Object.keys(officialPalette(a))) {
       if (k === "--halo-accent" || k === "--halo-accent-deep") continue;
