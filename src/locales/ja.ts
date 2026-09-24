@@ -562,7 +562,7 @@ export const ja = {
     "agent.allowlistAllEmpty":
       "まだコマンドを許可したタスクはありません。エージェントのダイアログで「このタスクでは常に」を押すと、リストがここに現れます。",
     "main.version": "バージョン",
-    "main.versionVal": "0.2.0-alpha",
+    "main.versionVal": "0.2.1",
     "main.versionStage": "Alpha",
     "main.language": "インターフェース言語",
     "main.sidebarSide": "サイドバーを右側に",

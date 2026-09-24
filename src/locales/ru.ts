@@ -545,7 +545,7 @@ export const ru = {
     "agent.allowlistAllEmpty":
       "Ни одна задача пока не разрешала команды. Нажимай «Всегда для задачи» в диалогах агента — список появится здесь.",
     "main.version": "Версия",
-    "main.versionVal": "0.2.0-alpha",
+    "main.versionVal": "0.2.1",
     "main.versionStage": "Alpha",
     "main.language": "Язык интерфейса",
     "main.sidebarSide": "Сайдбар справа",
