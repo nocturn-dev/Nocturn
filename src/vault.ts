@@ -83,7 +83,7 @@ export function resolveLinks(
 export function parseNotePrompt(content: string): { prompt: string; agent: boolean } {
   let text = content;
   let agent = false;
-  const m = /^---\r?\n([[\s\S]]*?)\r?\n---\r?\n?/.exec(text);
+  const m = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(text);
   if (m) {
     agent = /^\s*agent\s*:\s*true\s*$/m.test(m[1]);
     text = text.slice(m[0].length);

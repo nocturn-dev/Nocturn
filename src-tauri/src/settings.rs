@@ -367,12 +367,25 @@ pub fn settings_read_all(app: tauri::AppHandle) -> Result<serde_json::Value, Str
 }
 
 /// Записать набор конфиг-файлов (импорт). Имена жёстко из whitelist.
+/// hooks.json/mcp.json исполняемы по своей природе (команды хуков через
+/// cmd /C, запуск серверов) — пишутся только при явном подтверждении с
+/// фронтенда, иначе импорт «поделенного конфига» был бы RCE.
 #[tauri::command(async)]
 pub fn settings_write_all(
     app: tauri::AppHandle,
     files: std::collections::HashMap<String, serde_json::Value>,
+    allow_executable_configs: bool,
 ) -> Result<usize, String> {
     use tauri::Manager;
+    const EXECUTABLE_CONFIGS: &[&str] = &["hooks.json", "mcp.json"];
+    if !allow_executable_configs
+        && EXECUTABLE_CONFIGS.iter().any(|name| files.contains_key(*name))
+    {
+        return Err(
+            "import contains executable configs (hooks/mcp) that require explicit user confirmation"
+                .to_string(),
+        );
+    }
     let dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let mut written = 0usize;

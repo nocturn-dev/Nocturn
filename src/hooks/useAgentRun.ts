@@ -838,6 +838,10 @@ export function useAgentRun(deps: AgentRunDeps) {
             );
           },
           onToolCalls: (calls) => {
+            // Кривой провайдер может прислать пустой массив с
+            // finish_reason:"tool_calls" — трактуем как «вызовов нет»,
+            // иначе calls[0].name кидает TypeError внутри слушателя события
+            if (calls.length === 0) return;
             toolCallsHolder.calls = calls;
             setActivity(
               t("activity.toolCall", {

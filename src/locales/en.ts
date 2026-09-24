@@ -564,6 +564,7 @@ export const en = {
     "main.importBtn": "Import",
     "main.importConfirm": "Import settings? Current configurations will be overwritten and the app will reload.",
     "main.importDone": "Imported {n} configuration files. Reloading…",
+    "main.importExecutableWarn": "This config installs hooks and MCP servers that run arbitrary commands on this machine:\n\n{list}\n\nImport anyway?",
     "upd.available": "Nocturn v{v} is available. Download and install?",
     "upd.installed": "Update installed — restart the app",
     "browserPanel.noPage": "The agent has not opened a page yet",

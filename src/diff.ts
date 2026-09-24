@@ -23,8 +23,10 @@ const MAX_LINES = 1500;
  * по объёму без общих строк — возвращает грубый блок «удалено всё / добавлено всё».
  */
 export function diffLines(before: string, after: string): DiffLine[] {
-  const a = before.split("\n");
-  const b = after.split("\n");
+  // CRLF-файлы: без нормализации каждая строка сравнивается с хвостовым \r,
+  // LCS не находит совпадений и весь файл красится как полная перезапись
+  const a = before.replace(/\r\n/g, "\n").split("\n");
+  const b = after.replace(/\r\n/g, "\n").split("\n");
   // Убираем хвостовой пустой элемент от финального \n
   if (a.length > 1 && a[a.length - 1] === "") a.pop();
   if (b.length > 1 && b[b.length - 1] === "") b.pop();

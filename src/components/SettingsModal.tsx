@@ -1064,7 +1064,20 @@ function MainSection({
                 const data = await settingsImportRead(path);
                 let n = 0;
                 if (data.files && Object.keys(data.files).length > 0) {
-                  n = await settingsWriteAll(data.files);
+                  // hooks.json/mcp.json исполняют произвольные команды:
+                  // импорт «поделенного конфига» без явного подтверждения = RCE
+                  const execList = describeExecutableConfigs(data.files);
+                  if (execList) {
+                    if (
+                      !window.confirm(
+                        t("main.importExecutableWarn", { list: execList }),
+                      )
+                    )
+                      return;
+                    n = await settingsWriteAll(data.files, true);
+                  } else {
+                    n = await settingsWriteAll(data.files);
+                  }
                 }
                 if (data.local) restoreLocal(data.local);
                 window.alert(t("main.importDone", { n }));
@@ -1081,6 +1094,45 @@ function MainSection({
       </div>
     </div>
   );
+}
+
+/**
+ * Список исполняемых конфигов во входном файле импорта: команды хуков
+ * и команды запуска MCP-серверов. null — исполняемых конфигов нет.
+ * Используется для явного подтверждения перед импортом (защита от RCE
+ * через импорт «поделенного конфига»).
+ */
+function describeExecutableConfigs(
+  files: Record<string, unknown>,
+): string | null {
+  const lines: string[] = [];
+  const hooks = (
+    files["hooks.json"] as
+      | { hooks?: Array<{ command?: unknown; event?: unknown }> }
+      | undefined
+  )?.hooks;
+  if (Array.isArray(hooks)) {
+    for (const h of hooks) {
+      if (h && typeof h.command === "string" && h.command.trim() !== "") {
+        lines.push(
+          `• hook [${typeof h.event === "string" ? h.event : "*"}]: ${h.command}`,
+        );
+      }
+    }
+  }
+  const servers = files["mcp.json"];
+  if (Array.isArray(servers)) {
+    for (const s of servers) {
+      if (s && typeof s.command === "string" && s.command.trim() !== "") {
+        const args = Array.isArray(s.args) ? s.args.join(" ") : "";
+        lines.push(
+          `• mcp [${typeof s.name === "string" ? s.name : "?"}]: ${s.command}${args ? ` ${args}` : ""}`,
+        );
+      }
+    }
+  }
+  if (lines.length === 0) return null;
+  return lines.slice(0, 20).join("\n");
 }
 
 /** Раздел «MCP»: управление серверами внешних инструментов (M2-MCP) */

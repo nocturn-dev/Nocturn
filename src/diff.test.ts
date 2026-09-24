@@ -25,6 +25,18 @@ describe("diffLines", () => {
     expect(out).toHaveLength(2);
   });
 
+  it("CRLF before does not turn the whole file into a rewrite", () => {
+    // Регресс: строки с хвостовым \r не совпадали со строками after,
+    // и весь файл красился как полная перезапись
+    const out = diffLines("a\r\nb\r\nc\r\n", "a\nx\nc\n");
+    expect(out.filter((l) => l.type === "ctx").map((l) => l.text)).toEqual([
+      "a",
+      "c",
+    ]);
+    const s = diffStats(out);
+    expect(s).toEqual({ added: 1, removed: 1 });
+  });
+
   it("empty vs non-empty → only adds (plus the phantom empty line)", () => {
     const out = diffLines("", "one\ntwo");
     expect(out.filter((l) => l.type === "add").map((l) => l.text)).toEqual(["one", "two"]);

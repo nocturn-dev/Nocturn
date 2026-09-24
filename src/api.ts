@@ -320,7 +320,9 @@ export async function chatStream(opts: {
       model: opts.model,
       messages: opts.messages,
       tools: opts.tools ?? null,
-      reasoning_effort:
+      // Ключ аргумента должен быть camelCase: Tauri 2 ищет параметры команды
+      // по to_lower_camel_case(rust_name), snake_case молча превращался в null
+      reasoningEffort:
         opts.reasoningEffort && opts.reasoningEffort !== "off"
           ? opts.reasoningEffort
           : null,
@@ -980,8 +982,10 @@ export async function settingsReadAll(): Promise<Record<string, unknown>> {
 
 export async function settingsWriteAll(
   files: Record<string, unknown>,
+  /** hooks.json/mcp.json исполняемы — пишутся только после явного подтверждения */
+  allowExecutableConfigs = false,
 ): Promise<number> {
-  return invoke<number>("settings_write_all", { files });
+  return invoke<number>("settings_write_all", { files, allowExecutableConfigs });
 }
 
 export async function settingsExportWrite(path: string, content: string): Promise<void> {

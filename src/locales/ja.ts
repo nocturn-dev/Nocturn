@@ -587,6 +587,7 @@ export const ja = {
     "main.importBtn": "インポート",
     "main.importConfirm": "設定をインポートしますか？現在の設定は上書きされ、アプリが再読み込みされます。",
     "main.importDone": "{n} 件の設定をインポートしました。再読み込み中…",
+    "main.importExecutableWarn": "この設定には、このマシンで任意のコマンドを実行するフックとMCPサーバーが含まれています：\n\n{list}\n\nそれでもインポートしますか？",
     "upd.available": "Nocturn v{v} が利用可能です。ダウンロードしてインストールしますか？",
     "upd.installed": "更新をインストールしました——アプリを再起動してください",
     "browserPanel.noPage": "エージェントはまだページを開いていません",

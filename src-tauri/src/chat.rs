@@ -345,8 +345,9 @@ pub async fn chat_stream(
         }
     }
 
-    // Хвост аккумулятора (подозрительный на частичный тег) — дочитываем:
-    // flush может отдать только Content/Thought
+    // Хвост аккумулятора (подозрительный на частичный тег) — дочитываем.
+    // AnthropicAccumulator::flush может ещё отдать накопленные tool-calls,
+    // если стрим оборвался до message_delta
     for event in acc.flush() {
         match event {
             FeedEvent::Content { delta } => {
@@ -360,6 +361,13 @@ pub async fn chat_stream(
                 app.emit(
                     "chat-thought",
                     serde_json::json!({ "requestId": request_id, "thought": delta }),
+                )
+                .map_err(|e| e.to_string())?;
+            }
+            FeedEvent::ToolCallsFinished { calls } => {
+                app.emit(
+                    "chat-tool-calls",
+                    serde_json::json!({ "requestId": request_id, "calls": calls }),
                 )
                 .map_err(|e| e.to_string())?;
             }
@@ -659,6 +667,10 @@ pub fn build_anthropic_body(
 ) -> serde_json::Value {
     let mut system_parts: Vec<String> = Vec::new();
     let mut msgs: Vec<serde_json::Value> = Vec::new();
+    // Результаты инструментов за один ход группируются в ОДНО user-сообщение
+    // с несколькими tool_result-блоками: Messages API отвечает 400 на
+    // несколько user-сообщений подряд
+    let mut last_is_tool_result = false;
 
     for m in messages {
         match m.role.as_str() {
@@ -666,15 +678,25 @@ pub fn build_anthropic_body(
                 if let Some(text) = m.content.as_str() {
                     system_parts.push(text.to_string());
                 }
+                last_is_tool_result = false;
             }
             "tool" => {
-                // Результат инструмента → user-сообщение с tool_result
                 let tool_use_id = m.tool_call_id.clone().unwrap_or_default();
                 let content = m.content.as_str().unwrap_or("").to_string();
-                msgs.push(serde_json::json!({
-                    "role": "user",
-                    "content": [{ "type": "tool_result", "tool_use_id": tool_use_id, "content": content }]
-                }));
+                let block = serde_json::json!({
+                    "type": "tool_result", "tool_use_id": tool_use_id, "content": content
+                });
+                if last_is_tool_result {
+                    if let Some(arr) = msgs
+                        .last_mut()
+                        .and_then(|last| last["content"].as_array_mut())
+                    {
+                        arr.push(block);
+                        continue;
+                    }
+                }
+                msgs.push(serde_json::json!({ "role": "user", "content": [block] }));
+                last_is_tool_result = true;
             }
             "assistant" => {
                 let mut blocks: Vec<serde_json::Value> = Vec::new();
@@ -699,6 +721,7 @@ pub fn build_anthropic_body(
                     continue;
                 }
                 msgs.push(serde_json::json!({ "role": "assistant", "content": blocks }));
+                last_is_tool_result = false;
             }
             _ => {
                 // user: строка или массив с картинками — конвертируем vision-формат
@@ -726,6 +749,7 @@ pub fn build_anthropic_body(
                     m.content.clone()
                 };
                 msgs.push(serde_json::json!({ "role": m.role, "content": content }));
+                last_is_tool_result = false;
             }
         }
     }
@@ -785,6 +809,11 @@ pub struct AnthropicAccumulator {
     tool_json: String,
     in_tool: bool,
     input_tokens: u64,
+    /// Все tool_use текущего ответа. Параллельные вызовы приходят отдельными
+    /// блоками со своим content_block_stop, а фронт перезаписывает holder
+    /// на каждое событие — поэтому эмитим ОДНО ToolCallsFinished со всеми
+    /// вызовами на message_delta (контракт OpenAI-пути).
+    pending_calls: Vec<StreamToolCall>,
 }
 
 impl StreamFeed for AnthropicAccumulator {
@@ -797,14 +826,13 @@ impl StreamFeed for AnthropicAccumulator {
 
         match value.get("type").and_then(|v| v.as_str()).unwrap_or("") {
             "message_start" => {
+                // Usage-событие здесь НЕ эмитим: фронт суммирует каждое
+                // chat-usage в накопитель задачи, и дубль из message_start
+                // удваивал prompt-токены (Hard Limit срабатывал вдвое раньше).
+                // input_tokens уйдут единожды в message_delta.
                 self.input_tokens = value["message"]["usage"]["input_tokens"]
                     .as_u64()
                     .unwrap_or(0);
-                events.push(FeedEvent::Usage {
-                    prompt: self.input_tokens,
-                    completion: 0,
-                    total: self.input_tokens,
-                });
             }
             "content_block_start" => {
                 let block = &value["content_block"];
@@ -847,13 +875,11 @@ impl StreamFeed for AnthropicAccumulator {
                     if arguments.trim().is_empty() {
                         arguments = "{}".to_string();
                     }
-                    events.push(FeedEvent::ToolCallsFinished {
-                        calls: vec![StreamToolCall {
-                            index: 0,
-                            id: std::mem::take(&mut self.tool_id),
-                            name: std::mem::take(&mut self.tool_name),
-                            arguments,
-                        }],
+                    self.pending_calls.push(StreamToolCall {
+                        index: self.pending_calls.len(),
+                        id: std::mem::take(&mut self.tool_id),
+                        name: std::mem::take(&mut self.tool_name),
+                        arguments,
                     });
                 }
             }
@@ -864,10 +890,26 @@ impl StreamFeed for AnthropicAccumulator {
                     completion: output,
                     total: self.input_tokens + output,
                 });
+                if !self.pending_calls.is_empty() {
+                    events.push(FeedEvent::ToolCallsFinished {
+                        calls: std::mem::take(&mut self.pending_calls),
+                    });
+                }
             }
             _ => {}
         }
         events
+    }
+
+    /// Страховка: протокол гарантирует message_delta перед концом стрима,
+    /// но если соединение оборвалось раньше — не теряем накопленные вызовы
+    fn flush(&mut self) -> Vec<FeedEvent> {
+        if self.pending_calls.is_empty() {
+            return Vec::new();
+        }
+        vec![FeedEvent::ToolCallsFinished {
+            calls: std::mem::take(&mut self.pending_calls),
+        }]
     }
 }
 
@@ -916,6 +958,8 @@ mod anthropic_tests {
                 r#"{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"path\":"}}"#,
                 r#"{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"\"a.txt\"}"}}"#,
                 r#"{"type":"content_block_stop","index":0}"#,
+                // Вызовы эмитятся на message_delta, одним событием со всеми calls
+                r#"{"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":57}}"#,
             ],
         );
         let calls = events
@@ -930,6 +974,127 @@ mod anthropic_tests {
         assert_eq!(calls[0].id, "toolu_1");
         assert_eq!(calls[0].name, "fs_write");
         assert_eq!(calls[0].arguments, r#"{"path":"a.txt"}"#);
+    }
+
+    #[test]
+    fn anthropic_parallel_tool_calls_survive() {
+        // Регресс: параллельные tool_use раньше затирали друг друга —
+        // фронт получал только последний вызов
+        let mut acc = AnthropicAccumulator::default();
+        let events = feed_lines(
+            &mut acc,
+            &[
+                r#"{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_1","name":"fs_read"}}"#,
+                r#"{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"path\":\"a\"}"}}"#,
+                r#"{"type":"content_block_stop","index":0}"#,
+                r#"{"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"toolu_2","name":"fs_list"}}"#,
+                r#"{"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\"path\":\"b\"}"}}"#,
+                r#"{"type":"content_block_stop","index":1}"#,
+                r#"{"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":42}}"#,
+            ],
+        );
+        let call_events: Vec<&Vec<StreamToolCall>> = events
+            .iter()
+            .filter_map(|e| match e {
+                FeedEvent::ToolCallsFinished { calls } => Some(calls),
+                _ => None,
+            })
+            .collect();
+        // Ровно одно событие с обоими вызовами — никакой перезаписи
+        assert_eq!(call_events.len(), 1);
+        assert_eq!(call_events[0].len(), 2);
+        assert_eq!(call_events[0][0].id, "toolu_1");
+        assert_eq!(call_events[0][0].name, "fs_read");
+        assert_eq!(call_events[0][1].id, "toolu_2");
+        assert_eq!(call_events[0][1].name, "fs_list");
+    }
+
+    #[test]
+    fn anthropic_usage_emitted_once() {
+        // Регресс: message_start + message_delta удваивали prompt-токены
+        let mut acc = AnthropicAccumulator::default();
+        let events = feed_lines(
+            &mut acc,
+            &[
+                r#"{"type":"message_start","message":{"usage":{"input_tokens":120}}}"#,
+                r#"{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":42}}"#,
+            ],
+        );
+        let usage: Vec<_> = events
+            .iter()
+            .filter_map(|e| match e {
+                FeedEvent::Usage { prompt, completion, total } => Some((*prompt, *completion, *total)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(usage.len(), 1);
+        assert_eq!(usage[0], (120, 42, 162));
+    }
+
+    #[test]
+    fn anthropic_flush_preserves_calls_on_truncated_stream() {
+        // Стрим оборвался до message_delta — flush не теряет накопленные вызовы
+        let mut acc = AnthropicAccumulator::default();
+        let _ = feed_lines(
+            &mut acc,
+            &[
+                r#"{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_1","name":"fs_read"}}"#,
+                r#"{"type":"content_block_stop","index":0}"#,
+            ],
+        );
+        let flushed = acc.flush();
+        assert_eq!(flushed.len(), 1);
+        match &flushed[0] {
+            FeedEvent::ToolCallsFinished { calls } => {
+                assert_eq!(calls.len(), 1);
+                assert_eq!(calls[0].name, "fs_read");
+            }
+            _ => panic!("expected ToolCallsFinished from flush"),
+        }
+    }
+
+    #[test]
+    fn anthropic_body_groups_consecutive_tool_results() {
+        // Регресс: каждый tool-результат становился отдельным user-сообщением —
+        // Messages API отвечает 400 на несколько user подряд
+        let messages = vec![
+            ChatMessage {
+                role: "user".into(),
+                content: serde_json::json!("сделай"),
+                tool_call_id: None,
+                tool_calls: None,
+            },
+            ChatMessage {
+                role: "assistant".into(),
+                content: serde_json::json!(""),
+                tool_call_id: None,
+                tool_calls: Some(serde_json::json!([
+                    {"id":"toolu_1","type":"function","function":{"name":"fs_read","arguments":"{\"path\":\"a\"}"}},
+                    {"id":"toolu_2","type":"function","function":{"name":"fs_read","arguments":"{\"path\":\"b\"}"}}
+                ])),
+            },
+            ChatMessage {
+                role: "tool".into(),
+                content: serde_json::json!("результат 1"),
+                tool_call_id: Some("toolu_1".into()),
+                tool_calls: None,
+            },
+            ChatMessage {
+                role: "tool".into(),
+                content: serde_json::json!("результат 2"),
+                tool_call_id: Some("toolu_2".into()),
+                tool_calls: None,
+            },
+        ];
+        let body = build_anthropic_body("claude-x", &messages, None, None);
+        let msgs = body["messages"].as_array().unwrap();
+        // user → assistant(tool_use) → один user с двумя tool_result
+        assert_eq!(msgs.len(), 3);
+        assert_eq!(msgs[2]["role"], "user");
+        let blocks = msgs[2]["content"].as_array().unwrap();
+        assert_eq!(blocks.len(), 2);
+        assert_eq!(blocks[0]["tool_use_id"], "toolu_1");
+        assert_eq!(blocks[1]["tool_use_id"], "toolu_2");
     }
 
     #[test]

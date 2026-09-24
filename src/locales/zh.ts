@@ -587,6 +587,7 @@ export const zh = {
     "main.importBtn": "导入",
     "main.importConfirm": "导入设置？当前配置将被覆盖，应用将重新加载。",
     "main.importDone": "已导入 {n} 个配置文件。正在重新加载…",
+    "main.importExecutableWarn": "此配置将安装会在本机执行任意命令的钩子和 MCP 服务器：\n\n{list}\n\n仍要导入吗？",
     "upd.available": "Nocturn v{v} 可用。下载并安装？",
     "upd.installed": "更新已安装——请重启应用",
     "browserPanel.noPage": "代理还没有打开页面",
