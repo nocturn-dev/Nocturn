@@ -2,9 +2,9 @@ import { useLang } from "../../locales";
 import { type Attachment } from "../../types";
 import { CollapseButton } from "./CollapseButton";
 import { PlusIcon, QuoteIcon, ReuseImgIcon } from "./icons";
-import { useState } from "react";
+import { memo, useState } from "react";
 
-export function UserCard({
+function UserCardBase({
   mid,
   content,
   attachments,
@@ -21,8 +21,9 @@ export function UserCard({
   /** Поправка агенту на ходу: мягкая amber-подсветка слева */
   correction?: boolean;
   glassEffect?: boolean;
-  /** Карандаш: сохранить → переспросить с места правки */
-  onEdit?: (newText: string) => void;
+  /** Карандаш: сохранить → переспросить с места правки.
+   * Сигнатура (mid, text) — колбэк стабилен для memo (mid уже пропс) */
+  onEdit?: (mid: string, newText: string) => void;
   /** Вернуть изображение из сообщения в композер (pendingImages) */
   onReuseAttachment: (a: Attachment) => void;
 }) {
@@ -83,7 +84,7 @@ export function UserCard({
                 const text = draft.trim();
                 if (!text) return;
                 setEditing(false);
-                onEdit?.(text);
+                onEdit?.(mid, text);
               } else if (e.key === "Escape") {
                 setEditing(false);
               }
@@ -107,7 +108,7 @@ export function UserCard({
                   const text = draft.trim();
                   if (!text) return;
                   setEditing(false);
-                  onEdit?.(text);
+                  onEdit?.(mid, text);
                 }}
                 className="rounded-md bg-halo-accent px-2.5 py-1 text-[10px] font-medium text-white transition-colors hover:bg-halo-accent-deep"
               >
@@ -165,3 +166,5 @@ export function UserCard({
     </div>
   );
 }
+
+export const UserCard = memo(UserCardBase);

@@ -1,7 +1,9 @@
 import {
   createContext,
+  useCallback,
   useContext,
   useEffect,
+  useMemo,
   useState,
   type ReactNode,
 } from "react";
@@ -72,10 +74,11 @@ export function LangProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     localStorage.setItem("haloui-lang", lang);
   }, [lang]);
+  // Стабильный value: новый объект на каждый рендер провайдера
+  // инвалидал бы всех потребителей контекста
+  const value = useMemo(() => ({ lang, setLang }), [lang]);
   return (
-    <LangContext.Provider value={{ lang, setLang }}>
-      {children}
-    </LangContext.Provider>
+    <LangContext.Provider value={value}>{children}</LangContext.Provider>
   );
 }
 
@@ -84,7 +87,13 @@ export type TFn = (key: MsgKey, vars?: Record<string, string | number>) => strin
 /** Хук перевода: t("key", {vars}) */
 export function useLang(): { lang: Lang; t: TFn } {
   const { lang } = useContext(LangContext);
-  const t: TFn = (key, vars) => translate(lang, key, vars);
+  // Стабильная идентичность t: новая стрелка на каждый рендер ломала
+  // все useMemo/useEffect с t в зависимостях — они перезапускались
+  // на каждый рендер (т.е. на каждый токен стрима)
+  const t = useCallback<TFn>(
+    (key, vars) => translate(lang, key, vars),
+    [lang],
+  );
   return { lang, t };
 }
 

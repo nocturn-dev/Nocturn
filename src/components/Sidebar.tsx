@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Project, Session } from "../types";
 import WindowControls from "./WindowControls";
 import { pickFolder, listDir, gitStatus, checkpointList, checkpointRestore, checkpointDelete, type CheckpointMeta, type FileEntry, type NoteInfo } from "../api";
@@ -138,27 +138,35 @@ export default function Sidebar({
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(
     () => new Set(),
   );
-  const visible = (activeProjectId
-    ? sessions.filter((s) => s.projectId === activeProjectId)
-    : sessions
-  ).filter((s) => !!s.archived === showArchived);
+  // Фильтр/сортировка/группировка — useMemo: без него это выполнялось
+  // на каждый рендер App (т.е. на каждый токен стрима)
+  const visible = useMemo(
+    () =>
+      (activeProjectId
+        ? sessions.filter((s) => s.projectId === activeProjectId)
+        : sessions
+      ).filter((s) => !!s.archived === showArchived),
+    [sessions, activeProjectId, showArchived],
+  );
   // Закреплённые задачи всегда сверху
-  const sorted = [...visible].sort(
-    (a, b) => Number(!!b.pinned) - Number(!!a.pinned),
+  const sorted = useMemo(
+    () => [...visible].sort((a, b) => Number(!!b.pinned) - Number(!!a.pinned)),
+    [visible],
   );
   // Группы для режима «по проектам»: все проекты в порядке списка
   // (включая пустые), в конце — задачи без проекта
-  const projectGroups: { project: Project | null; items: Session[] }[] = (() => {
-    const groups: { project: Project | null; items: Session[] }[] = [];
-    for (const p of projects) {
-      groups.push({ project: p, items: sorted.filter((s) => s.projectId === p.id) });
-    }
-    const rest = sorted.filter(
-      (s) => !s.projectId || !projects.some((p) => p.id === s.projectId),
-    );
-    if (rest.length > 0) groups.push({ project: null, items: rest });
-    return groups;
-  })();
+  const projectGroups: { project: Project | null; items: Session[] }[] =
+    useMemo(() => {
+      const groups: { project: Project | null; items: Session[] }[] = [];
+      for (const p of projects) {
+        groups.push({ project: p, items: sorted.filter((s) => s.projectId === p.id) });
+      }
+      const rest = sorted.filter(
+        (s) => !s.projectId || !projects.some((p) => p.id === s.projectId),
+      );
+      if (rest.length > 0) groups.push({ project: null, items: rest });
+      return groups;
+    }, [sorted, projects]);
   // Строка задачи: общий рендер для обоих режимов списка; на ховере —
   // быстрые действия: архив (или вернуть), тег, удалить
   const sessionRow = (s: Session) => (

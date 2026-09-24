@@ -507,6 +507,7 @@ export default function App() {
   // активная зона выбирается рефом на mousedown
   const resizeRef = useRef<"sidebar" | "terminal" | null>(null);
   useEffect(() => {
+    let resizeRaf = 0;
     const clearResize = () => {
       if (resizeRef.current) {
         resizeRef.current = null;
@@ -523,14 +524,20 @@ export default function App() {
         clearResize();
         return;
       }
-      if (resizeRef.current === "sidebar") {
-        const x = sidebarSide === "right" ? window.innerWidth - e.clientX : e.clientX;
-        setSidebarWidth(clampNum(x, 220, 440));
-      } else if (resizeRef.current === "terminal") {
-        // Секция чата занимает всю высоту окна
-        const pct = ((window.innerHeight - e.clientY) / window.innerHeight) * 100;
-        setTerminalHeight(clampNum(Math.round(pct), 25, 70));
-      }
+      // rAF-троттлинг: setState на каждый mousemove ре-рендерил всё
+      // дерево App на каждый пиксель перетаскивания
+      if (resizeRaf !== 0) return;
+      resizeRaf = requestAnimationFrame(() => {
+        resizeRaf = 0;
+        if (resizeRef.current === "sidebar") {
+          const x = sidebarSide === "right" ? window.innerWidth - e.clientX : e.clientX;
+          setSidebarWidth(clampNum(x, 220, 440));
+        } else if (resizeRef.current === "terminal") {
+          // Секция чата занимает всю высоту окна
+          const pct = ((window.innerHeight - e.clientY) / window.innerHeight) * 100;
+          setTerminalHeight(clampNum(Math.round(pct), 25, 70));
+        }
+      });
     };
     const onUp = () => clearResize();
     const onBlur = () => clearResize();
@@ -538,6 +545,7 @@ export default function App() {
     window.addEventListener("mouseup", onUp);
     window.addEventListener("blur", onBlur);
     return () => {
+      if (resizeRaf !== 0) cancelAnimationFrame(resizeRaf);
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
       window.removeEventListener("blur", onBlur);
@@ -724,9 +732,16 @@ export default function App() {
     if (!historyLoadedRef.current) return;
     sessionsDirtyRef.current = true;
   }, [sessions]);
+  // Во время активного стрима stringify всего стора (с base64-вложениями)
+  // каждые 3с давал регулярные фризы: дельты держат стор «грязным»
+  // постоянно. Стримим → пропускаем, dirty остаётся; сбросим на finalize
+  // (следующий тик после окончания) или на beforeunload.
+  // streamingId объявлен ниже (useAgentRun) — пишем в ref там же.
+  const streamingActiveRef = useRef(false);
   useEffect(() => {
     const flush = () => {
       if (!sessionsDirtyRef.current) return;
+      if (streamingActiveRef.current) return;
       sessionsDirtyRef.current = false;
       void saveSessions(JSON.stringify(sessionsRef.current)).catch(() => {});
     };
@@ -737,8 +752,15 @@ export default function App() {
       window.clearInterval(id);
       window.removeEventListener("beforeunload", flush);
       // Размонтирование (StrictMode/HMR): не теряем накопленное
-      flush();
+      const wasStreaming = streamingActiveRef.current;
+      streamingActiveRef.current = false;
+      if (wasStreaming) {
+        void saveSessions(JSON.stringify(sessionsRef.current)).catch(() => {});
+      } else {
+        flush();
+      }
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Автосохранение настроек API: любое изменение (включая смену профиля
@@ -1051,10 +1073,24 @@ export default function App() {
       .then(setPlugins)
       .catch(() => {});
   }, []);
-  const enabledPlugins = plugins.filter((p) => p.enabled);
-  const pluginCommands = enabledPlugins.flatMap((p) => p.commands ?? []);
-  const pluginSkills = enabledPlugins.flatMap((p) => p.skills ?? []);
-  const pluginRoles = enabledPlugins.flatMap((p) => p.roles ?? []);
+  // Производные сущности плагинов — useMemo: без него четыре flatMap
+  // выполнялись на каждый рендер App и уезжали вниз новыми ссылками
+  const enabledPlugins = useMemo(
+    () => plugins.filter((p) => p.enabled),
+    [plugins],
+  );
+  const pluginCommands = useMemo(
+    () => enabledPlugins.flatMap((p) => p.commands ?? []),
+    [enabledPlugins],
+  );
+  const pluginSkills = useMemo(
+    () => enabledPlugins.flatMap((p) => p.skills ?? []),
+    [enabledPlugins],
+  );
+  const pluginRoles = useMemo(
+    () => enabledPlugins.flatMap((p) => p.roles ?? []),
+    [enabledPlugins],
+  );
   // Эффективный конфиг субагентов: свои роли + роли из плагинов
   const subConfigEffective = useMemo(
     () => ({ ...subConfig, roles: [...subConfig.roles, ...pluginRoles] }),
@@ -1066,6 +1102,12 @@ export default function App() {
 
   // Пользовательские slash-команды (commands.json)
   const [userCommands, setUserCommands] = useState<UserCommand[]>([]);
+  // Стабильная ссылка: [...a, ...b] в пропсах на каждый рендер ломал бы
+  // будущую мемоизацию потребителей
+  const mergedUserCommands = useMemo(
+    () => [...pluginCommands, ...userCommands],
+    [pluginCommands, userCommands],
+  );
   useEffect(() => {
     commandsLoad()
       .then(setUserCommands)
@@ -1128,6 +1170,8 @@ export default function App() {
     limitsRef,
     memoryEnabled,
   });
+  // Для автосейва: активный стрим (объявлен ниже декларации ref — см. эффект автосейва)
+  streamingActiveRef.current = streamingId !== null;
 
   const menuSession = menu ? sessions.find((s) => s.id === menu.id) : null;
 
@@ -1516,9 +1560,13 @@ export default function App() {
   };
 
   // Глобальный просмотр allowlist'ов: правка разрешений любой задачи
-  const agentAllowlists = sessions
-    .filter((s) => (s.allowedCommands?.length ?? 0) > 0)
-    .map((s) => ({ id: s.id, title: s.title, commands: s.allowedCommands ?? [] }));
+  const agentAllowlists = useMemo(
+    () =>
+      sessions
+        .filter((s) => (s.allowedCommands?.length ?? 0) > 0)
+        .map((s) => ({ id: s.id, title: s.title, commands: s.allowedCommands ?? [] })),
+    [sessions],
+  );
 
   const handleSetSessionAllowed = (id: string, list: string[]) => {
     setSessions((prev) =>
@@ -1956,7 +2004,7 @@ export default function App() {
         onUndoWrite={handleUndoWrite}
         subRuns={subRuns}
         plan={activeSession?.plan}
-        userCommands={[...pluginCommands, ...userCommands]}
+        userCommands={mergedUserCommands}
         extraSkills={pluginSkills}
         onEditMessage={(msgId, text) =>
           void handleSend(text, undefined, activeId ?? undefined, undefined, msgId)

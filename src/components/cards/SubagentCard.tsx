@@ -1,9 +1,9 @@
 import { useLang } from "../../locales";
 import { type SubRunState } from "../../subagents";
 import { type ToolCallInfo } from "../../types";
-import { useState } from "react";
+import { memo, useState } from "react";
 
-export function SubagentCard({
+function SubagentCardBase({
   mid,
   call,
   content,
@@ -87,3 +87,5 @@ export function SubagentCard({
     </div>
   );
 }
+
+export const SubagentCard = memo(SubagentCardBase);

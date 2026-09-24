@@ -39,6 +39,10 @@ export default function NotesModal({
   const [preview, setPreview] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // Таймер подтверждения удаления: снимаем при размонтировании и повторном
+  // клике, чтобы колбэк не срабатывал вхолостую после закрытия модалки
+  const confirmTimerRef = useRef(0);
+  useEffect(() => () => window.clearTimeout(confirmTimerRef.current), []);
 
   useEffect(() => {
     setDraft(note?.content ?? "");
@@ -123,7 +127,11 @@ export default function NotesModal({
                 onDelete(note.file);
               } else {
                 setConfirmDelete(true);
-                window.setTimeout(() => setConfirmDelete(false), 3000);
+                window.clearTimeout(confirmTimerRef.current);
+                confirmTimerRef.current = window.setTimeout(
+                  () => setConfirmDelete(false),
+                  3000,
+                );
               }
             }}
             title={t("notes.delete")}

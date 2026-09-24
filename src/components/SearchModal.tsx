@@ -35,6 +35,10 @@ export default function SearchModal({
   }, [open, onClose]);
 
   const results = useMemo(() => {
+    // Модалка закрыта: поиск по всем сообщениям всех сессий не нужен,
+    // но без guard он выполнялся на каждое изменение sessions
+    // (т.е. на каждый токен стрима) даже в скрытом состоянии
+    if (!open) return [];
     const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
     const list = [...sessions].sort(
       (a, b) => Number(!!b.pinned) - Number(!!a.pinned),
@@ -51,7 +55,7 @@ export default function SearchModal({
         return words.every((w) => haystack.includes(w));
       })
       .slice(0, 20);
-  }, [sessions, query]);
+  }, [open, sessions, query]);
 
   if (!open) return null;
 

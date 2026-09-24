@@ -2,7 +2,7 @@ import type * as React from "react";
 import { useLang } from "../../locales";
 import { type Message } from "../../types";
 import { shortModelName } from "../ProviderIcon";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 export function MessageNav({
   messages,
@@ -20,7 +20,9 @@ export function MessageNav({
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
-    const onScroll = () => {
+    let raf = 0;
+    const measure = () => {
+      raf = 0;
       const nodes = el.querySelectorAll<HTMLElement>("[data-mid]");
       if (nodes.length === 0) return;
       const top = el.getBoundingClientRect().top;
@@ -32,8 +34,16 @@ export function MessageNav({
       });
       setActiveId(current);
     };
+    const onScroll = () => {
+      // rAF-троттлинг: без него каждое событие скролла давало
+      // querySelectorAll + getBoundingClientRect на каждый узел (forced reflow)
+      if (raf === 0) raf = requestAnimationFrame(measure);
+    };
     el.addEventListener("scroll", onScroll, { passive: true });
-    return () => el.removeEventListener("scroll", onScroll);
+    return () => {
+      if (raf !== 0) cancelAnimationFrame(raf);
+      el.removeEventListener("scroll", onScroll);
+    };
   }, [scrollRef, messages.length]);
 
   const jump = (id: string) => {
@@ -47,29 +57,32 @@ export function MessageNav({
 
   // Засечка — на запрос и ОДИН ход агента (каким бы длинным он ни был):
   // tool-шаги и промежуточные ответы не плодят отдельные «-»
-  const ticks: { msg: Message; preview: string }[] = [];
-  for (let i = 0; i < messages.length; i++) {
-    const m = messages[i];
-    if (m.role === "user") {
-      ticks.push({ msg: m, preview: m.content });
-      continue;
-    }
-    if (m.role !== "assistant") continue;
-    const prev = i > 0 ? messages[i - 1] : null;
-    if (prev && prev.role !== "user") continue; // не первый шаг хода
-    // Превью хода: первый осмысленный текст/мысль от модели
-    let preview = "";
-    for (let j = i; j < messages.length; j++) {
-      const x = messages[j];
-      if (x.role === "user") break;
-      if (x.role === "assistant" && (x.content || x.thought)) {
-        preview = x.content || x.thought || "";
-        break;
+  // useMemo: раньше пересобиралось на каждый рендер (каждый токен)
+  const visibleTicks = useMemo(() => {
+    const ticks: { msg: Message; preview: string }[] = [];
+    for (let i = 0; i < messages.length; i++) {
+      const m = messages[i];
+      if (m.role === "user") {
+        ticks.push({ msg: m, preview: m.content });
+        continue;
       }
+      if (m.role !== "assistant") continue;
+      const prev = i > 0 ? messages[i - 1] : null;
+      if (prev && prev.role !== "user") continue; // не первый шаг хода
+      // Превью хода: первый осмысленный текст/мысль от модели
+      let preview = "";
+      for (let j = i; j < messages.length; j++) {
+        const x = messages[j];
+        if (x.role === "user") break;
+        if (x.role === "assistant" && (x.content || x.thought)) {
+          preview = x.content || x.thought || "";
+          break;
+        }
+      }
+      ticks.push({ msg: m, preview });
     }
-    ticks.push({ msg: m, preview });
-  }
-  const visibleTicks = ticks.slice(-60);
+    return ticks.slice(-60);
+  }, [messages]);
 
   return (
     <div className="no-scrollbar absolute right-3 top-1/2 z-10 flex max-h-[80%] -translate-y-1/2 flex-col items-end gap-2.5">

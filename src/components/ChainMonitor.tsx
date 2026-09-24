@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo } from "react";
 import type { Note } from "../vault";
 import { extractLinks } from "../vault";
 import { useLang } from "../locales";
@@ -28,14 +28,9 @@ const STEP_H = 120;
 
 export default function ChainMonitor({ chain, onClose }: ChainMonitorProps) {
   const { t } = useLang();
-  const [, setTick] = useState(0);
-
-  // Пульс текущего узла
-  useEffect(() => {
-    if (!chain) return;
-    const iv = window.setInterval(() => setTick((v) => v + 1), 600);
-    return () => window.clearInterval(iv);
-  }, [chain]);
+  // Пульсация текущего узла реализована CSS/SMIL-анимацией — раньше здесь
+  // был ещё и setState-тик 600 мс, перерисовывавший всю модалку с SVG-графом
+  // 1.6 раза в секунду без какой-либо пользы.
 
   // Esc — закрыть
   useEffect(() => {

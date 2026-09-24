@@ -3,9 +3,9 @@ import { useLang } from "../../locales";
 import { type ToolCallInfo } from "../../types";
 import { DiffView } from "./DiffView";
 import { ChevronDownIcon, ToolIcon } from "./icons";
-import { useState } from "react";
+import { memo, useMemo, useState } from "react";
 
-export function ToolStepCard({
+function ToolStepCardBase({
   mid,
   call,
   content,
@@ -34,15 +34,21 @@ export function ToolStepCard({
   }
   const failed = denied || toolError || (exitCode !== null && exitCode !== 0);
 
-  // fs_write: новый формат — JSON с before/after, старый — просто текст
-  const write =
-    name === "fs_write" && !denied && !toolError
-      ? parseWriteResult(content)
-      : null;
-  const diff = write
-    ? diffLines(write.before ?? "", write.after)
-    : null;
-  const stats = diff ? diffStats(diff) : null;
+  // fs_write: новый формат — JSON с before/after, старый — просто текст.
+  // JSON.parse и LCS-дифф (до 1500×1500) — только при смене контента,
+  // а не на каждый рендер (каждый токен стрима ре-рендерит карточку)
+  const write = useMemo(
+    () =>
+      name === "fs_write" && !denied && !toolError
+        ? parseWriteResult(content)
+        : null,
+    [name, denied, toolError, content],
+  );
+  const diff = useMemo(
+    () => (write ? diffLines(write.before ?? "", write.after) : null),
+    [write],
+  );
+  const stats = useMemo(() => (diff ? diffStats(diff) : null), [diff]);
 
   const summary = call ? summarizeArguments(name, call.arguments) : "";
 
@@ -134,5 +140,6 @@ export function ToolStepCard({
   );
 }
 
-/** Сводка изменённых файлов за ход (как «N files changed» в агентских CLI):
-    заголовок с +X −Y, список файлов, клик — дифф, ↩ — откат к «до» */
+// Мемоизация: карточка получает тяжёлый контент (JSON before/after) — без
+// memo рендер срабатывал на каждый токен стрима соседних сообщений
+export const ToolStepCard = memo(ToolStepCardBase);

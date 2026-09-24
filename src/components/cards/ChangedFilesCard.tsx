@@ -1,11 +1,11 @@
-import { diffLines, normalizePath } from "../../diff";
+import { diffLines, diffStats, normalizePath } from "../../diff";
 import { useLang } from "../../locales";
 import { type ChangedFile } from "../../types";
 import { DiffView } from "./DiffView";
 import { ChevronDownIcon, ToolIcon } from "./icons";
-import { useMemo, useState } from "react";
+import { memo, useMemo, useState } from "react";
 
-export function ChangedFilesCard({
+function ChangedFilesCardBase({
   files,
   onUndo,
 }: {
@@ -19,13 +19,12 @@ export function ChangedFilesCard({
 
   const stats = useMemo(
     () =>
-      files.map((f) => ({
-        added: diffLines(f.before ?? "", f.after).filter((l) => l.type === "add")
-          .length,
-        removed: diffLines(f.before ?? "", f.after).filter(
-          (l) => l.type === "del",
-        ).length,
-      })),
+      files.map((f) => {
+        // Один проход LCS на файл: раньше дифф считался дважды
+        // (отдельно для added и removed)
+        const s = diffStats(diffLines(f.before ?? "", f.after));
+        return { added: s.added, removed: s.removed };
+      }),
     [files],
   );
   const total = stats.reduce(
@@ -136,5 +135,7 @@ export function ChangedFilesCard({
     </div>
   );
 }
+
+export const ChangedFilesCard = memo(ChangedFilesCardBase);
 
 /** Дифф-подсветка: удалённые строки красным, добавленные зелёным, контекст серым */

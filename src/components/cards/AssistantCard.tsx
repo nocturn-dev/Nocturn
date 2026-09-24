@@ -6,13 +6,34 @@ import { CollapseButton } from "./CollapseButton";
 import { ErrorNote } from "./ErrorNote";
 import { ToolStepCard } from "./ToolStepCard";
 import { ChevronDownIcon, PlusIcon, SubagentIcon, ToolIcon } from "./icons";
-import { useEffect, useRef, useState } from "react";
+import {
+  memo,
+  useEffect,
+  useRef,
+  useState,
+  type ComponentPropsWithoutRef,
+} from "react";
 import ProviderIcon from "../ProviderIcon";
 import ReactMarkdown from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
 import remarkGfm from "remark-gfm";
 
-export function AssistantCard({
+// Плагины markdown — константы уровня модуля: новые массивы на каждый
+// рендер ломали внутренние сравнения ReactMarkdown
+const MD_PLUGINS = [remarkGfm];
+const REHYPE_PLUGINS = [rehypeHighlight];
+
+function MarkdownLink({
+  node: _node,
+  ...props
+}: ComponentPropsWithoutRef<"a"> & { node?: unknown }) {
+  // Ссылки из ответа модели — во внешнем окно: обычный <a> уводил
+  // вебвью приложения на произвольный URL (фишинг в доверенном окне)
+  return <a {...props} target="_blank" rel="noopener noreferrer" />;
+}
+const MD_COMPONENTS = { a: MarkdownLink };
+
+function AssistantCardBase({
   mid,
   message,
   model,
@@ -219,8 +240,9 @@ export function AssistantCard({
 
       <div className="markdown text-sm leading-relaxed text-halo-text">
         <ReactMarkdown
-          remarkPlugins={[remarkGfm]}
-          rehypePlugins={[rehypeHighlight]}
+          remarkPlugins={MD_PLUGINS}
+          rehypePlugins={REHYPE_PLUGINS}
+          components={MD_COMPONENTS}
         >
           {displayContent}
         </ReactMarkdown>
@@ -256,5 +278,9 @@ export function AssistantCard({
     </div>
   );
 }
+
+// Мемоизация: без неё карточка ре-рендерилась (и ре-парсила markdown всей
+// истории) на каждый токен стрима, даже когда её собственный контент не менялся
+export const AssistantCard = memo(AssistantCardBase);
 
 /** Ошибка запроса: короткий человекочитаемый заголовок, сырое тело — по клику */

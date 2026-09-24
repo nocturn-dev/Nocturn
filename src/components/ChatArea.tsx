@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { AskQuestion, Attachment, ChangedFile, Message, PermissionMode, PlanTask, Session, ToolCallInfo } from "../types";
 import type { PromptPreset } from "../presets";
 import { normalizePath, parseWriteResult } from "../diff";
@@ -253,6 +253,20 @@ export default function ChatArea({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [draft, setDraft] = useState("");
   const [pendingImages, setPendingImages] = useState<Attachment[]>([]);
+  // Стабильные колбэки для memo-карточек: новая стрелка на каждый рендер
+  // пробивала мемоизацию
+  const reuseAttachment = useCallback(
+    (a: Attachment) => setPendingImages((prev) => [...prev, a]),
+    [],
+  );
+  // onEditMessage из App нестабилен (замыкает handleSend/activeId) —
+  // держим в ref, чтобы колбэк для UserCard не менялся никогда
+  const onEditMessageRef = useRef(onEditMessage);
+  onEditMessageRef.current = onEditMessage;
+  const editMessage = useCallback(
+    (mid: string, text: string) => void onEditMessageRef.current?.(mid, text),
+    [],
+  );
   const [sysOpen, setSysOpen] = useState(false);
   const [slashIndex, setSlashIndex] = useState(0);
   const [quickOpen, setQuickOpen] = useState(false);
@@ -321,17 +335,129 @@ export default function ChatArea({
   // Пустые ассистентские карточки — placeholders активного стрима;
   // сообщения пользователя можно скрыть тумблером в «Основном».
   // Карточка с ошибкой видима всегда — иначе ответ «исчезает» молча
-  const visible = messages.filter(
-    (m) =>
-      !(m.role === "user" && !showUserMsgs) &&
-      !(
-        m.role === "assistant" &&
-        m.content === "" &&
-        !m.thought &&
-        !m.toolCalls &&
-        !m.error
+  const visible = useMemo(
+    () =>
+      messages.filter(
+        (m) =>
+          !(m.role === "user" && !showUserMsgs) &&
+          !(
+            m.role === "assistant" &&
+            m.content === "" &&
+            !m.thought &&
+            !m.toolCalls &&
+            !m.error
+          ),
       ),
+    [messages, showUserMsgs],
   );
+
+  // ── Производные данные ленты ──
+  // IIFE рендера исполняется на каждый рендер; без кэша он пересоздавал
+  // merged/results/writes (JSON.parse больших before/after) и ломал memo
+  // карточек новыми ссылками. Сообщения иммутабельны — производные хода
+  // валидны, пока ссылки его сообщений не изменились.
+  interface TurnDerived {
+    assistants: Message[];
+    toolMsgs: Message[];
+    merged: Message | null;
+    results: { id: string; content: string }[];
+    resultsOf: Map<string, { id: string; content: string }[]>;
+    writesFiles: ChangedFile[];
+  }
+  const turnCacheRef = useRef(new Map<string, TurnDerived>());
+  const ribbon = useMemo(() => {
+    const cache = turnCacheRef.current;
+    const nextCache = new Map<string, TurnDerived>();
+    const turns: { user: Message | null; items: Message[] }[] = [];
+    for (const m of messages) {
+      if (m.role === "user") turns.push({ user: m, items: [] });
+      else if (turns.length === 0) turns.push({ user: null, items: [m] });
+      else turns[turns.length - 1].items.push(m);
+    }
+    const callById = new Map<string, ToolCallInfo>();
+    for (const m of messages) {
+      for (const tc of m.toolCalls ?? []) callById.set(tc.id, tc);
+    }
+    const sameRefs = (a: Message[], b: Message[]) =>
+      a.length === b.length && a.every((m, i) => m === b[i]);
+    const out = turns.map((turn, ti) => {
+      const key = turn.items[0]?.id ?? `head-${ti}`;
+      const assistants = turn.items.filter((m) => m.role === "assistant");
+      const toolMsgs = turn.items.filter((m) => m.role === "tool");
+      const prev = cache.get(key);
+      if (
+        prev &&
+        sameRefs(prev.assistants, assistants) &&
+        sameRefs(prev.toolMsgs, toolMsgs)
+      ) {
+        nextCache.set(key, prev);
+        return { ...turn, derived: prev };
+      }
+      // Файлы, записанные агентом в этом ходе
+      const writes = new Map<string, ChangedFile>();
+      for (const m of toolMsgs) {
+        const w = parseWriteResult(m.content);
+        if (!w?.path) continue;
+        const p = writes.get(normalizePath(w.path));
+        writes.set(normalizePath(w.path), {
+          path: w.path,
+          created: p?.created ?? w.created,
+          before: p?.before ?? w.before,
+          after: w.after,
+        });
+      }
+      const results = toolMsgs.map((m) => ({ id: m.id, content: m.content }));
+      const resultsOf = new Map<string, { id: string; content: string }[]>();
+      const ownerOf = new Map<string, string>();
+      for (const a of assistants) {
+        for (const tc of a.toolCalls ?? []) ownerOf.set(tc.id, a.id);
+      }
+      for (const m of toolMsgs) {
+        if (!m.toolCallId) continue;
+        const owner = ownerOf.get(m.toolCallId);
+        if (!owner) continue;
+        const arr = resultsOf.get(owner) ?? [];
+        arr.push({ id: m.id, content: m.content });
+        resultsOf.set(owner, arr);
+      }
+      // merged: весь ход одной карточкой (режим groupTurns)
+      let merged: Message | null = null;
+      if (assistants.length > 0) {
+        const first = assistants[0];
+        const contents = assistants.map((a) => a.content).filter(Boolean);
+        const thoughts = assistants.map((a) => a.thought ?? "").filter(Boolean);
+        const calls = assistants.flatMap((a) => a.toolCalls ?? []);
+        const lastUsage = [...assistants].reverse().find((a) => a.usage)?.usage;
+        const workedMs = assistants.reduce(
+          (acc, a) => acc + (a.workedMs ?? 0),
+          0,
+        );
+        merged = {
+          id: first.id,
+          role: "assistant",
+          content: contents.join("\n\n"),
+          thought: thoughts.length ? thoughts.join("\n\n") : undefined,
+          toolCalls: calls.length ? calls : undefined,
+          usage: lastUsage,
+          workedMs: workedMs > 0 ? workedMs : undefined,
+          model: [...assistants].reverse().find((a) => a.model)?.model,
+          error: assistants.find((a) => a.error)?.error,
+        };
+      }
+      const derived: TurnDerived = {
+        assistants,
+        toolMsgs,
+        merged,
+        results,
+        resultsOf,
+        writesFiles: [...writes.values()],
+      };
+      nextCache.set(key, derived);
+      return { ...turn, derived };
+    });
+    turnCacheRef.current = nextCache;
+    return { turns: out, callById };
+  }, [messages]);
 
   // Контекст окна: prompt последнего ответа ≈ текущее заполнение
   const contextUsed = useMemo(() => {
@@ -908,22 +1034,9 @@ export default function ChatArea({
                 В конце хода — сводка изменённых файлов */}
             {(() => {
               const nodes: ReactNode[] = [];
-              // FIX [perf]: один Map всех вызовов инструментов вместо
-              // messages.flatMap(...).find(...) на каждую tool-карточку —
-              // раньше это был полный проход по всей истории на каждую
-              // карточку на каждый рендер (т.е. на каждый чанк стрима)
-              const callById = new Map<string, ToolCallInfo>();
-              for (const m of messages) {
-                for (const tc of m.toolCalls ?? []) callById.set(tc.id, tc);
-              }
-              // Разбивка на ходы
-              const turns: { user: Message | null; items: Message[] }[] = [];
-              for (const m of messages) {
-                if (m.role === "user") turns.push({ user: m, items: [] });
-                else if (turns.length === 0)
-                  turns.push({ user: null, items: [m] });
-                else turns[turns.length - 1].items.push(m);
-              }
+              // Производные хода (callById/merged/results/writes) считаются
+              // в useMemo «ribbon» выше — здесь только раскладка по нодам
+              const { turns, callById } = ribbon;
               const isHidden = (m: Message) =>
                 (m.role === "user" && !showUserMsgs) ||
                 (m.role === "assistant" &&
@@ -956,20 +1069,7 @@ export default function ChatArea({
 
               turns.forEach((turn, ti) => {
                 if (ti < visibleFrom) return; // свёрнуто для экономии памяти
-                // Файлы, записанные агентом в этом ходе
-                const writes = new Map<string, ChangedFile>();
-                for (const m of turn.items) {
-                  if (m.role !== "tool") continue;
-                  const w = parseWriteResult(m.content);
-                  if (!w?.path) continue;
-                  const prev = writes.get(normalizePath(w.path));
-                  writes.set(normalizePath(w.path), {
-                    path: w.path,
-                    created: prev?.created ?? w.created,
-                    before: prev?.before ?? w.before,
-                    after: w.after,
-                  });
-                }
+                const { derived } = turn;
 
                 // Сообщение пользователя
                 const turnUser = turn.user;
@@ -983,55 +1083,18 @@ export default function ChatArea({
                       quote={turnUser.quote}
                       correction={turnUser.correction}
                       glassEffect={msgGlass}
-                      onEdit={
-                        onEditMessage
-                          ? (text) => onEditMessage(turnUser.id, text)
-                          : undefined
-                      }
-                      onReuseAttachment={(a) =>
-                        setPendingImages((prev) => [...prev, a])
-                      }
+                      onEdit={onEditMessage ? editMessage : undefined}
+                      onReuseAttachment={reuseAttachment}
                     />,
                   );
                 }
 
-                const assistants = turn.items.filter(
-                  (m) => m.role === "assistant",
-                );
-                const toolMsgs = turn.items.filter((m) => m.role === "tool");
+                const assistants = derived.assistants;
 
                 if (groupTurns) {
                   // —— Весь ход одной карточкой ——
-                  if (assistants.length > 0) {
-                    const first = assistants[0];
-                    const contents = assistants
-                      .map((a) => a.content)
-                      .filter(Boolean);
-                    const thoughts = assistants
-                      .map((a) => a.thought ?? "")
-                      .filter(Boolean);
-                    const calls = assistants.flatMap((a) => a.toolCalls ?? []);
-                    const lastUsage = [...assistants]
-                      .reverse()
-                      .find((a) => a.usage)?.usage;
-                    const workedMs = assistants.reduce(
-                      (acc, a) => acc + (a.workedMs ?? 0),
-                      0,
-                    );
-                    const merged: Message = {
-                      id: first.id,
-                      role: "assistant",
-                      content: contents.join("\n\n"),
-                      thought: thoughts.length
-                        ? thoughts.join("\n\n")
-                        : undefined,
-                      toolCalls: calls.length ? calls : undefined,
-                      usage: lastUsage,
-                      workedMs: workedMs > 0 ? workedMs : undefined,
-                      model:
-                        [...assistants].reverse().find((a) => a.model)?.model,
-                      error: assistants.find((a) => a.error)?.error,
-                    };
+                  if (assistants.length > 0 && derived.merged) {
+                    const merged = derived.merged;
                     const emptyMerged =
                       !merged.content &&
                       !merged.thought &&
@@ -1045,15 +1108,12 @@ export default function ChatArea({
                           mid={merged.id}
                           message={merged}
                           model={merged.model ?? model}
-                          results={toolMsgs.map((m) => ({
-                            id: m.id,
-                            content: m.content,
-                          }))}
+                          results={derived.results}
                           hint={ti === turns.length - 1 ? activity : null}
                           glassEffect={msgGlass}
                           isStreaming={merged.id === streamingMsgId}
                           smooth={streamSmooth}
-showReasoning={showReasoning}
+                          showReasoning={showReasoning}
                           caret={streamCaret}
                         />,
                       );
@@ -1067,23 +1127,8 @@ showReasoning={showReasoning}
                   }
                 } else {
                   // —— Каждый шаг отдельно: результаты при своей карточке ——
-                  const ownerOf = new Map<string, string>();
-                  for (const a of assistants) {
-                    for (const tc of a.toolCalls ?? [])
-                      ownerOf.set(tc.id, a.id);
-                  }
-                  const resultsOf = new Map<
-                    string,
-                    { id: string; content: string }[]
-                  >();
-                  for (const m of toolMsgs) {
-                    if (!m.toolCallId) continue;
-                    const owner = ownerOf.get(m.toolCallId);
-                    if (!owner) continue;
-                    const arr = resultsOf.get(owner) ?? [];
-                    arr.push({ id: m.id, content: m.content });
-                    resultsOf.set(owner, arr);
-                  }
+                  // resultsOf считается в derived (кэш производных хода)
+                  const { resultsOf } = derived;
                   for (const m of turn.items) {
                     if (isHidden(m)) continue;
                     nodes.push(
@@ -1111,7 +1156,7 @@ showReasoning={showReasoning}
                           status={m.status}
                         />
                         )
-                      ) : m.role === "assistant" ? (
+                        ) : m.role === "assistant" ? (
                         // Сообщение-карточка вопроса (ask_user) без своего
                         // текста — рендерится только AskUserCard ниже
                         m.ask && !m.content && !m.thought && !m.toolCalls && !m.error ? null : (
@@ -1124,7 +1169,7 @@ showReasoning={showReasoning}
                             glassEffect={msgGlass}
                             isStreaming={m.id === streamingMsgId}
                             smooth={streamSmooth}
-showReasoning={showReasoning}
+                            showReasoning={showReasoning}
                             caret={streamCaret}
                           />
                         )
@@ -1141,11 +1186,11 @@ showReasoning={showReasoning}
                 }
 
                 // Сводка изменённых файлов — в конце хода
-                if (writes.size > 0) {
+                if (derived.writesFiles.length > 0) {
                   nodes.push(
                     <ChangedFilesCard
                       key={`changes-${turn.user?.id ?? ti}`}
-                      files={[...writes.values()]}
+                      files={derived.writesFiles}
                       onUndo={onUndoWrite}
                     />,
                   );

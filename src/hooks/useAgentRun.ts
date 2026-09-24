@@ -19,6 +19,7 @@ import {
 // FIX: trimContextWindow заменяет голый .slice(-30), который разрывал
 // пары «assistant tool_calls ↔ tool-результаты» на границе окна (→ 400 от провайдера)
 import { trimContextWindow } from "../agent/history";
+import { StreamDeltaBuffer, applyMainDeltas } from "./streamBuffer";
 import { notifyTaskDone, type NotifyPrefs } from "../notify";
 import { useLang } from "../locales";
 import { dayKeyLocal } from "../time";
@@ -473,7 +474,49 @@ export function useAgentRun(deps: AgentRunDeps) {
       }
     };
 
+    // ── Батчинг дельт стрима ──
+    // Каждая дельта — отдельное Tauri-событие: setSessions на каждую дельту
+    // ре-рендерил всё дерево до ~100 раз/сек (React между событиями не батчит).
+    // Дельты копятся и сбрасываются одним обновлением раз на кадр.
+    const deltaBuf = new StreamDeltaBuffer();
+    let deltaRaf = 0;
+    const flushDeltas = () => {
+      if (deltaRaf) {
+        cancelAnimationFrame(deltaRaf);
+        deltaRaf = 0;
+      }
+      if (deltaBuf.isEmpty) return;
+      const { main, subThoughts } = deltaBuf.drain();
+      if (main.length > 0) {
+        setSessions((prev) =>
+          prev.map((s) =>
+            s.id === targetId
+              ? { ...s, messages: applyMainDeltas(s.messages, main) }
+              : s,
+          ),
+        );
+      }
+      if (subThoughts.length > 0) {
+        setSubRuns((prev) => {
+          let next = prev;
+          for (const [callId, thought] of subThoughts) {
+            const run = next[callId];
+            if (!run) continue;
+            next = { ...next, [callId]: { ...run, thought } };
+          }
+          return next;
+        });
+      }
+    };
+    const scheduleFlush = () => {
+      if (!deltaRaf && typeof requestAnimationFrame === "function") {
+        deltaRaf = requestAnimationFrame(flushDeltas);
+      }
+    };
+
     const finalize = () => {
+      // Независимо от пути завершения — дельты обязаны попасть в стор
+      flushDeltas();
       setTyping(false);
       setActivity(null);
       setStreamingId(null);
@@ -563,30 +606,10 @@ export function useAgentRun(deps: AgentRunDeps) {
       // Текст уже печатается в карточке — статус-бабл скрываем;
       // идёт поток размышлений — показываем «Размышляет…»
       setActivity(thought ? t("activity.thinking") : null);
-      // FIX [CRITICAL]: раньше map шёл по ВСЕМ сессиям и клонировал каждый
-      // объект и каждый массив сообщений на каждую дельту стрима. Теперь
-      // маппится только целевая сессия: O(сообщения одной сессии) на дельту
-      // вместо O(все сессии × все сообщения), ревансиляция — одной сессии.
-      setSessions((prev) =>
-        prev.map((s) =>
-          s.id === targetId
-            ? {
-                ...s,
-                messages: s.messages.map((m) =>
-                  m.id === assistantId
-                    ? {
-                        ...m,
-                        content: m.content + delta,
-                        thought: thought
-                          ? (m.thought ?? "") + thought
-                          : m.thought,
-                      }
-                    : m,
-                ),
-              }
-            : s,
-        ),
-      );
+      // Батчинг: дельта копится в буфере, сброс на rAF — setSessions
+      // раз на кадр вместо раз на токен (см. flushDeltas выше)
+      deltaBuf.append(assistantId, delta, thought);
+      scheduleFlush();
     };
 
     const pushMessage = (msg: Message) => {
@@ -842,6 +865,8 @@ export function useAgentRun(deps: AgentRunDeps) {
             // finish_reason:"tool_calls" — трактуем как «вызовов нет»,
             // иначе calls[0].name кидает TypeError внутри слушателя события
             if (calls.length === 0) return;
+            // Сначала сброс буфера, чтобы tool-calls не обогнали текст
+            flushDeltas();
             toolCallsHolder.calls = calls;
             setActivity(
               t("activity.toolCall", {
@@ -1209,14 +1234,22 @@ export function useAgentRun(deps: AgentRunDeps) {
                 report: null,
               },
             }));
-            const onStep = (st: SubagentStep) =>
+            const onStep = (st: SubagentStep) => {
+              // Thought-дельты субагента батчим так же, как основной стрим.
+              // Текст/инструмент — после принудительного сброса, иначе
+              // отложенный flush вернёт стёртый инструментальным шагом thought
+              if (st.type === "thought") {
+                deltaBuf.appendSubThought(call.id, st.text);
+                scheduleFlush();
+                return;
+              }
+              flushDeltas();
               patchSubRun(call.id, (r) => {
-                if (st.type === "thought")
-                  return { ...r, thought: r.thought + st.text };
                 if (st.type === "tool")
                   return { ...r, tools: [...r.tools, st.text], thought: "" };
                 return { ...r, report: st.text };
               });
+            };
             const report = await runSubagent({
               role,
               task,
