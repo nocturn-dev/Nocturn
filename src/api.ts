@@ -174,12 +174,17 @@ export function invalidateToolSchemas(): void {
   cachedSchemas = null;
 }
 
-/** M3: исполнение инструмента агента в Rust */
-export async function runTool(name: string, args: string): Promise<string> {
+/** M3: исполнение инструмента агента в Rust. requestId связывает вызов с
+ * прогоном: Stop поднимает флаг отмены и Rust убивает процесс немедленно */
+export async function runTool(
+  name: string,
+  args: string,
+  requestId?: string,
+): Promise<string> {
   if (!inTauri) {
     throw new Error("Agent mode works in the native app (npm run tauri dev)");
   }
-  return invoke<string>("run_tool", { name, arguments: args });
+  return invoke<string>("run_tool", { name, arguments: args, requestId });
 }
 
 /** Синхронизация серверного слоя прав (PermMode + project roots) */

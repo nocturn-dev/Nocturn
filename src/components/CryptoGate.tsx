@@ -30,6 +30,10 @@ export default function CryptoGate({
   const [pw, setPw] = useState("");
   const [pw2, setPw2] = useState("");
   const [error, setError] = useState(false);
+  // «Забыли пароль» — разрушающая операция: сначала показываем подтверждение
+  // с обязательным вводом RESET, один клик по ссылке больше не стирает ключи
+  const [resetArmed, setResetArmed] = useState(false);
+  const [resetText, setResetText] = useState("");
 
   useEffect(() => {
     if (!onCancel) return;
@@ -132,12 +136,52 @@ export default function CryptoGate({
         </button>
 
         {!setup && onReset && (
-          <button
-            onClick={onReset}
-            className="mt-4 text-[11px] text-halo-muted/60 transition-colors hover:text-red-400"
-          >
-            {t("gate.reset")}
-          </button>
+          resetArmed ? (
+            <div className="mt-4 w-full">
+              <p className="text-center text-[10px] leading-relaxed text-red-400">
+                {t("gate.resetWarn")}
+              </p>
+              <input
+                value={resetText}
+                autoFocus
+                onChange={(e) => setResetText(e.target.value)}
+                onKeyDown={(e) =>
+                  e.key === "Enter" && resetText === "RESET" && onReset()
+                }
+                placeholder="RESET"
+                className="mt-2 w-full rounded-lg border border-red-400/40 bg-halo-surface px-3 py-1.5 text-center text-xs text-halo-text outline-none focus:border-red-400"
+              />
+              <div className="mt-1.5 flex gap-2">
+                <button
+                  disabled={resetText !== "RESET" || busy}
+                  onClick={() => {
+                    setResetArmed(false);
+                    setResetText("");
+                    onReset();
+                  }}
+                  className="flex-1 rounded-lg border border-red-400/50 py-1.5 text-[11px] text-red-400 transition-colors hover:bg-red-500/10 disabled:opacity-40"
+                >
+                  {t("gate.resetConfirm")}
+                </button>
+                <button
+                  onClick={() => {
+                    setResetArmed(false);
+                    setResetText("");
+                  }}
+                  className="rounded-lg px-3 py-1.5 text-[11px] text-halo-muted transition-colors hover:text-halo-text"
+                >
+                  {t("gate.resetCancel")}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              onClick={() => setResetArmed(true)}
+              className="mt-4 text-[11px] text-halo-muted/60 transition-colors hover:text-red-400"
+            >
+              {t("gate.reset")}
+            </button>
+          )
         )}
         <p className="mt-4 text-center text-[10px] leading-relaxed text-halo-muted/50">
           {t("gate.note")}

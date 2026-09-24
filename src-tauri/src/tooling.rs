@@ -21,10 +21,24 @@ pub async fn run_tool(
     app: tauri::AppHandle,
     mcp_registry: tauri::State<'_, mcp::McpRegistry>,
     browser_registry: tauri::State<'_, browser::BrowserRegistry>,
+    abort_registry: tauri::State<'_, crate::chat::AbortRegistry>,
     name: String,
     arguments: String,
+    // requestId прогона: по нему Stop находит флаг отмены и убивает
+    // исполняющийся процесс немедленно (shell_run, хуки)
+    request_id: Option<String>,
 ) -> Result<String, String> {
     use tauri::Manager;
+
+    // Флаг отмены прогона: chat_abort/Stop поднимают его в реестре
+    let abort_flag: Option<std::sync::Arc<std::sync::atomic::AtomicBool>> =
+        request_id.and_then(|id| {
+            abort_registry
+                .0
+                .lock()
+                .ok()
+                .and_then(|m| m.get(&id).cloned())
+        });
 
     let args: serde_json::Value =
         serde_json::from_str(&arguments).map_err(|e| format!("invalid arguments JSON: {e}"))?;
@@ -41,8 +55,15 @@ pub async fn run_tool(
             "arguments": args,
         });
         let tool_name = name.clone();
+        let pre_abort = abort_flag.clone();
         for out in tauri::async_runtime::spawn_blocking(move || {
-            hooks::run_event(&cfg_dir, "PreToolUse", &tool_name, &payload)
+            hooks::run_event_with_abort(
+                &cfg_dir,
+                "PreToolUse",
+                &tool_name,
+                &payload,
+                pre_abort.as_deref(),
+            )
         })
         .await
         .map_err(|e| format!("hook task failed: {e}"))?
@@ -54,6 +75,13 @@ pub async fn run_tool(
                     if out.reason.is_empty() { "no reason given" } else { &out.reason }
                 ));
             }
+        }
+        // Прогон отменили, пока выполнялся хук: сам инструмент не запускаем
+        if abort_flag
+            .as_ref()
+            .is_some_and(|f| f.load(std::sync::atomic::Ordering::Relaxed))
+        {
+            return Err("aborted by user".to_string());
         }
     }
 
@@ -79,8 +107,17 @@ pub async fn run_tool(
         args.clone(),
         notes,
         data_dir,
+        abort_flag.clone(),
     )
     .await?;
+
+    // Прогон отменили во время исполнения инструмента: результат уже не нужен
+    if abort_flag
+        .as_ref()
+        .is_some_and(|f| f.load(std::sync::atomic::Ordering::Relaxed))
+    {
+        return Err("aborted by user".to_string());
+    }
 
     // Хуки PostToolUse: additionalContext дописывается к результату
     {
@@ -120,6 +157,7 @@ pub async fn execute_tool_inner(
     args: serde_json::Value,
     notes_dir: std::path::PathBuf,
     data_dir: std::path::PathBuf,
+    abort_flag: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
 ) -> Result<String, String> {
     let arguments = args.to_string();
     // Computer-инструменты: скриншот быстрый, мышь/клавиатура — блокирующие
@@ -203,10 +241,13 @@ pub async fn execute_tool_inner(
         return imagegen::generate(&data_dir, &prompt, size.as_deref()).await;
     }
     // Инструменты блокирующие (shell_run — до 300 сек): исполняем в
-    // отдельном потоке, иначе главный поток окна замирает на весь таймаут
-    tauri::async_runtime::spawn_blocking(move || tools::execute_tool(&name, &arguments))
-        .await
-        .map_err(|e| format!("tool task failed: {e}"))?
+    // отдельном потоке, иначе главный поток окна замирает на весь таймаут.
+    // abort-флаг: Stop убивает процесс немедленно
+    tauri::async_runtime::spawn_blocking(move || {
+        tools::execute_tool_with_abort(&name, &arguments, abort_flag.as_deref())
+    })
+    .await
+    .map_err(|e| format!("tool task failed: {e}"))?
 }
 
 /// Текущий конфиг Browser Use (для вкладки настроек)

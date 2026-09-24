@@ -125,15 +125,24 @@ pub fn matches(hook: &Hook, event: &str, tool: &str) -> bool {
 
 /// Запустить один хук: stdin = payload JSON, stdout/stderr собираются.
 fn exec(hook: &Hook, payload: &serde_json::Value) -> HookOutcome {
+    exec_with_abort(hook, payload, None)
+}
+
+fn exec_with_abort(
+    hook: &Hook,
+    payload: &serde_json::Value,
+    abort: Option<&std::sync::atomic::AtomicBool>,
+) -> HookOutcome {
     let mut out = HookOutcome::skipped(&hook.id);
     out.ran = true;
 
-    // timeout 0 — без таймаута (ждём завершения хука), иначе ограничение 1..600 с
-    let timeout = if hook.timeout == 0 {
-        Duration::MAX
+    // timeout 0 — «без таймаута», но потолок 1 час: зависший хук с 0 раньше
+    // блокировал движок навсегда (Duration::MAX); иначе ограничение 1..600 с
+    let timeout = Duration::from_secs(if hook.timeout == 0 {
+        3600
     } else {
-        Duration::from_secs(hook.timeout.clamp(1, 600))
-    };
+        hook.timeout.clamp(1, 600)
+    });
 
     let (shell, flag) = if cfg!(windows) {
         ("cmd", "/C")
@@ -164,16 +173,16 @@ fn exec(hook: &Hook, payload: &serde_json::Value) -> HookOutcome {
     // единый примитив proc. stdin-писатель внутри отсоединённый: если хук не
     // читает stdin (типичный `echo ok`), write_all заблокируется до смерти
     // процесса и получит broken pipe — дедлок невозможен.
-    let proc_out = match crate::proc::run_command_with_stdin(&mut cmd, timeout, Some(payload_bytes))
-    {
-        Ok(o) => o,
-        Err(e) => {
-            out.stderr = e;
-            out.blocked = true;
-            out.reason = out.stderr.clone();
-            return out;
-        }
-    };
+    let proc_out =
+        match crate::proc::run_command_opts(&mut cmd, timeout, Some(payload_bytes), abort) {
+            Ok(o) => o,
+            Err(e) => {
+                out.stderr = e;
+                out.blocked = true;
+                out.reason = out.stderr.clone();
+                return out;
+            }
+        };
 
     out.exit_code = proc_out.status;
     out.timed_out = proc_out.timed_out;
@@ -247,11 +256,22 @@ pub fn run_event(
     tool: &str,
     payload: &serde_json::Value,
 ) -> Vec<HookOutcome> {
+    run_event_with_abort(dir, event, tool, payload, None)
+}
+
+/// Как run_event, но с abort-флагом прогона: Stop убивает запущенный хук
+pub fn run_event_with_abort(
+    dir: &std::path::Path,
+    event: &str,
+    tool: &str,
+    payload: &serde_json::Value,
+    abort: Option<&std::sync::atomic::AtomicBool>,
+) -> Vec<HookOutcome> {
     let file = load(dir);
     file.hooks
         .iter()
         .filter(|h| matches(h, event, tool))
-        .map(|h| exec(h, payload))
+        .map(|h| exec_with_abort(h, payload, abort))
         .collect()
 }
 

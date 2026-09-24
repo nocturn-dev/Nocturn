@@ -1488,7 +1488,9 @@ export default function App() {
   const runChain = async (file: string, list?: Note[]) => {
     const src = list ?? notes;
     const start = src.find((n) => n.file === file);
-    if (!start || chainRunning) return;
+    // Движок однопоточный: занятый прогон не перебиваем, иначе step-запросы
+    // цепочки отклонялись guard'ом handleSend после уже созданной сессии
+    if (!start || chainRunning || activeRunRef.current !== null) return;
     const plan = buildChainPlan(src, file, 12);
     if (plan.length === 0) return;
     const anyAgent = plan.some((n) => parseNotePrompt(n.content).agent);

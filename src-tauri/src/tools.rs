@@ -92,7 +92,19 @@ pub fn tool_schemas() -> Value {
 
 /// Исполнение инструмента по имени с JSON-аргументами.
 /// Возвращает строку-результат (текст для модели).
+/// Обёртка для тестов: без abort-флага
+#[cfg(test)]
 pub fn execute_tool(name: &str, arguments: &str) -> Result<String, String> {
+    execute_tool_with_abort(name, arguments, None)
+}
+
+/// Как execute_tool, но с abort-флагом прогона: Stop убивает длинный
+/// shell_run немедленно, вместо ожидания его собственного таймаута
+pub fn execute_tool_with_abort(
+    name: &str,
+    arguments: &str,
+    abort: Option<&std::sync::atomic::AtomicBool>,
+) -> Result<String, String> {
     let args: Value = serde_json::from_str(arguments)
         .map_err(|e| format!("invalid arguments JSON: {e}"))?;
 
@@ -125,7 +137,7 @@ pub fn execute_tool(name: &str, arguments: &str) -> Result<String, String> {
                 .and_then(|v| v.as_u64())
                 .unwrap_or(SHELL_DEFAULT_TIMEOUT)
                 .clamp(1, 300);
-            shell_run(&command, cwd.as_deref(), timeout)
+            shell_run(&command, cwd.as_deref(), timeout, abort)
         }
         other => Err(format!("unknown tool: {other}")),
     }
@@ -487,7 +499,12 @@ fn fs_delete(path: &Path) -> Result<String, String> {
     Ok(json!({ "ok": true, "deleted": path.display().to_string() }).to_string())
 }
 
-fn shell_run(command: &str, cwd: Option<&str>, timeout_sec: u64) -> Result<String, String> {
+fn shell_run(
+    command: &str,
+    cwd: Option<&str>,
+    timeout_sec: u64,
+    abort: Option<&std::sync::atomic::AtomicBool>,
+) -> Result<String, String> {
     let mut cmd = if cfg!(windows) {
         let mut c = Command::new("powershell");
         // PowerShell 5.1 пишет в пайп в OEM-кодировке (cp866 на русской
@@ -510,8 +527,8 @@ fn shell_run(command: &str, cwd: Option<&str>, timeout_sec: u64) -> Result<Strin
     }
 
     // Запуск, параллельное чтение пайпов, таймаут с kill и сбор вывода —
-    // единый примитив proc
-    let out = crate::proc::run_command(&mut cmd, Duration::from_secs(timeout_sec))?;
+    // единый примитив proc; abort-флаг позволяет Stop убить процесс сразу
+    let out = crate::proc::run_command_opts(&mut cmd, Duration::from_secs(timeout_sec), None, abort)?;
     let (stdout, stderr) = (&out.stdout, &out.stderr);
 
     if out.timed_out {

@@ -282,6 +282,9 @@ export const zh = {
     "gate.disableBtn": "停用加密",
     "gate.wrong": "两次输入不一致或密码错误。",
     "gate.reset": "忘记密码？重置加密（密钥将丢失）",
+    "gate.resetWarn": "所有加密的 API 密钥将永久丢失。输入 RESET 以确认。",
+    "gate.resetConfirm": "清除密钥",
+    "gate.resetCancel": "取消",
     "gate.note": "没有密码就无法解密数据 — 请妥善保管。",
     "gate.cancel": "取消 — 不会启用加密",
     // Сводка изменённых файлов за ход агента

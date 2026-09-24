@@ -326,6 +326,15 @@ export function useAgentRun(deps: AgentRunDeps) {
     const images = attachments ?? [];
     if (!text && images.length === 0) return;
 
+    // Guard от параллельных прогонов: движок однопоточный, второй вызов
+    // (цепочка заметок, таймер автоматизаций, edit-message) перезаписывал
+    // activeRunRef, и finalize первого прогона гасил индикаторы живого
+    // второго. UI-пути (ChatArea) уже маршрутизируют в очередь/поправку —
+    // это защита для остальных точек входа
+    if (activeRunRef.current !== null) {
+      return;
+    }
+
     // Первое сообщение создаёт задачу, если активной ещё нет
     let targetId = overrideTargetId ?? activeId;
     if (!targetId) {
@@ -519,8 +528,12 @@ export function useAgentRun(deps: AgentRunDeps) {
       flushDeltas();
       setTyping(false);
       setActivity(null);
-      setStreamingId(null);
-      activeRunRef.current = null; // FIX [re-entrancy]: движок свободен
+      // Сброс общей движковой state — только если прогон всё ещё владеет
+      // ею: за время долгого ожидания владелец мог смениться
+      setStreamingId((cur) => (cur === requestId ? null : cur));
+      if (activeRunRef.current === requestId) {
+        activeRunRef.current = null; // FIX [re-entrancy]: движок свободен
+      }
       streamingRef.current.delete(requestId);
       abortedRef.current.delete(requestId);
       // Прогон завершён — метка последней активности (для авто-архива)
@@ -931,7 +944,8 @@ export function useAgentRun(deps: AgentRunDeps) {
         ) {
           setBrowserPanelOpen(true);
         }
-        return runTool(name, args);
+        // requestId связывает вызов с прогоном: Stop убьёт процесс немедленно
+        return runTool(name, args, requestId);
       };
 
       // Чекпоинт проекта перед первой правкой прогона: снимок файлов,
@@ -1208,8 +1222,11 @@ export function useAgentRun(deps: AgentRunDeps) {
             (await askConfirm(call)) === "deny"
           ) {
             // Автономность выключена: запуск субагента требует подтверждения
-            // как mutating-инструмент; отказ пишется в отчёт прогона
+            // как mutating-инструмент; отказ пишется в отчёт прогона.
+            // Машинный статус обязателен — иначе карточка рендерится как
+            // успешная, вопреки контракту "denied" (см. status: subStatus)
             subContent = "user denied subagent run";
+            subStatus = "denied";
             setSubRuns((prev) => ({
               ...prev,
               [call.id]: {
@@ -1463,15 +1480,22 @@ ${report}`;
     cancelInteractions();
     const msgId = streamingRef.current.get(streamingId);
     if (msgId) {
+      // Клонируем только целевую сессию: {...s} на ВСЕ сессии и все их
+      // массивы сообщений ломало memo-карточки неповреждённых задач
+      const stopped = t("card.stoppedByUser");
       setSessions((prev) =>
-        prev.map((s) => ({
-          ...s,
-          messages: s.messages.map((m) =>
-            m.id === msgId
-              ? { ...m, content: m.content + `\n\n*${t("card.stoppedByUser")}*` }
-              : m,
-          ),
-        })),
+        prev.map((s) =>
+          s.messages.some((m) => m.id === msgId)
+            ? {
+                ...s,
+                messages: s.messages.map((m) =>
+                  m.id === msgId
+                    ? { ...m, content: m.content + `\n\n*${stopped}*` }
+                    : m,
+                ),
+              }
+            : s,
+        ),
       );
     }
     streamingRef.current.delete(streamingId);

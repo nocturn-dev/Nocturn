@@ -20,19 +20,16 @@ pub(crate) struct ProcOutput {
     pub stderr: String,
 }
 
-/// Запустить команду и собрать вывод с таймаутом (stdin не используется).
-pub(crate) fn run_command(cmd: &mut Command, timeout: Duration) -> Result<ProcOutput, String> {
-    run_command_with_stdin(cmd, timeout, None)
-}
-
-/// Как run_command, но с опциональным payload в stdin (хуки передают через
-/// него контекст события). stdin пишется отсоединённым потоком: если процесс
-/// его не читает, write_all блокируется на заполненном пайпе, но kill/смерть
-/// процесса закрывает пайп и даёт broken pipe — дедлок невозможен.
-pub(crate) fn run_command_with_stdin(
+/// Единый примитив: таймаут с kill + опциональный stdin-payload + опциональный
+/// abort-флаг (Stop убивает исполняющийся процесс, не дожидаясь таймаута).
+/// stdin пишется отсоединённым потоком: если процесс его не читает, write_all
+/// блокируется на заполненном пайпе, но kill/смерть процесса закрывает пайп
+/// и даёт broken pipe — дедлок невозможен.
+pub(crate) fn run_command_opts(
     cmd: &mut Command,
     timeout: Duration,
     stdin_payload: Option<Vec<u8>>,
+    abort: Option<&std::sync::atomic::AtomicBool>,
 ) -> Result<ProcOutput, String> {
     cmd.stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -55,11 +52,11 @@ pub(crate) fn run_command_with_stdin(
         });
     }
 
-    Ok(finish(child, timeout))
+    Ok(finish(child, timeout, abort))
 }
 
 /// Ожидание с таймаутом + сбор вывода из пайпов.
-fn finish(mut child: Child, timeout: Duration) -> ProcOutput {
+fn finish(mut child: Child, timeout: Duration, abort: Option<&std::sync::atomic::AtomicBool>) -> ProcOutput {
     // stdout/stderr читаем двумя фоновыми потоками ПАРАЛЛЕЛЬНО с ожиданием
     // завершения: иначе команда с выводом больше буфера пайпа (~64 КБ)
     // блокируется на записи, try_wait не видит завершения — ложный TIMEOUT.
@@ -83,6 +80,13 @@ fn finish(mut child: Child, timeout: Duration) -> ProcOutput {
         match child.try_wait() {
             Ok(Some(st)) => break Some(st),
             Ok(None) => {
+                // Stop: гасим процесс немедленно, не дожидаясь таймаута
+                if abort.is_some_and(|f| f.load(std::sync::atomic::Ordering::Relaxed)) {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    timed_out = true;
+                    break None;
+                }
                 if started.elapsed() > timeout {
                     let _ = child.kill();
                     let _ = child.wait();
