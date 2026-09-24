@@ -8,7 +8,7 @@ on:
 
 jobs:
   frontend:
-    name: Frontend (tsc + vite)
+    name: Frontend (tsc + vite + eslint + vitest)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -17,17 +17,24 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - run: npm run lint
+      - run: npm test
       - run: npm run build
 
   rust:
-    name: Rust (check + tests)
+    name: Rust (clippy + tests)
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
+      - name: cargo clippy
+        working-directory: src-tauri
+        run: cargo clippy --lib -- -D warnings
       - name: cargo test
         working-directory: src-tauri
         run: cargo test --lib

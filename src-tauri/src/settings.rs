@@ -122,7 +122,7 @@ pub fn crypto_read_meta(app: &tauri::AppHandle) -> Result<Option<CryptoMeta>, St
     let salt = v
         .get("salt")
         .and_then(|x| x.as_str())
-        .and_then(|s| crypto::hex_decode(s))
+        .and_then(crypto::hex_decode)
         .ok_or("crypto.json corrupted")?;
     let check = v
         .get("check")
@@ -356,14 +356,11 @@ pub fn settings_read_all(app: tauri::AppHandle) -> Result<serde_json::Value, Str
         if !path.exists() {
             continue;
         }
-        match fs::read_to_string(&path) {
-            Ok(data) => match serde_json::from_str::<serde_json::Value>(&data) {
-                Ok(v) => {
-                    files.insert((*name).to_string(), v);
-                }
-                Err(_) => {} // битый файл не тащим
-            },
-            Err(_) => {}
+        if let Ok(data) = fs::read_to_string(&path) {
+            // битый файл не тащим
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&data) {
+                files.insert((*name).to_string(), v);
+            }
         }
     }
     Ok(serde_json::Value::Object(files))

@@ -1113,7 +1113,7 @@ function McpSection() {
       return null;
     }
     if (typeof parsed !== "object" || parsed === null) return null;
-    let map: unknown = (parsed as Record<string, unknown>).mcpServers ?? parsed;
+    const map: unknown = (parsed as Record<string, unknown>).mcpServers ?? parsed;
     if (typeof map !== "object" || map === null) return null;
     const out: McpServerCfg[] = [];
     for (const [srvName, rawCfg] of Object.entries(map as Record<string, unknown>)) {

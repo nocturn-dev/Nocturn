@@ -16,6 +16,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default)]
 pub struct ImageGenConfig {
     /// Выключено по умолчанию — инструмент появляется у модели только
     /// после явного включения
@@ -32,17 +33,6 @@ pub struct ImageGenConfig {
     pub size: String,
 }
 
-impl Default for ImageGenConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            base_url: String::new(),
-            api_key: String::new(),
-            model: String::new(),
-            size: String::new(),
-        }
-    }
-}
 
 pub static CONFIG: Mutex<Option<ImageGenConfig>> = Mutex::new(None);
 

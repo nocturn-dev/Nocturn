@@ -35,7 +35,7 @@ impl PtyRegistry {
     /// Гасим все сессии при выходе приложения — иначе возможен осиротевший PowerShell
     pub fn kill_all(&self) {
         let map = self.0.lock().unwrap_or_else(|p| p.into_inner());
-        for (_, s) in map.iter() {
+        for s in map.values() {
             // FIX: убиваем через отдельный child-лок — без ожидания io
             if let Ok(mut c) = s.child.lock() {
                 let _ = c.kill();
@@ -106,7 +106,7 @@ pub fn spawn_pty(
         })
         .map_err(|e| format!("openpty failed: {e}"))?;
 
-    let mut cmd = build_shell_command(shell.as_deref(), cwd.as_deref())?;
+    let cmd = build_shell_command(shell.as_deref(), cwd.as_deref())?;
     let child = pair
         .slave
         .spawn_command(cmd)
@@ -198,8 +198,8 @@ pub async fn pty_create(
         spawn_pty(
             cwd,
             shell,
-            cols.max(20).min(500),
-            rows.max(5).min(200),
+            cols.clamp(20, 500),
+            rows.clamp(5, 200),
             move |s| {
                 use tauri::Emitter;
                 let _ = app_out.emit("pty-output", PtyEvent { id: out_id.clone(), data: s });
@@ -281,8 +281,8 @@ pub async fn pty_resize(
         let io = session.io.lock().map_err(|e| e.to_string())?;
         io.master
             .resize(PtySize {
-                rows: rows.max(5).min(200),
-                cols: cols.max(20).min(500),
+                rows: rows.clamp(5, 200),
+                cols: cols.clamp(20, 500),
                 pixel_width: 0,
                 pixel_height: 0,
             })

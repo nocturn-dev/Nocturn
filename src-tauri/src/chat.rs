@@ -171,6 +171,8 @@ pub struct ChatMessage {
 ///   "chat-usage"   { requestId, promptTokens, completionTokens, totalTokens }
 /// Прерывание: chat_abort(request_id) поднимает флаг — поток аккуратно гаснет.
 #[tauri::command]
+// Tauri-команда со всеми параметрами стрима; свёртка в структуру сломала бы JSON-контракт фронтенда
+#[allow(clippy::too_many_arguments)]
 pub async fn chat_stream(
     app: tauri::AppHandle,
     registry: tauri::State<'_, AbortRegistry>,

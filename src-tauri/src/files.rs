@@ -76,7 +76,7 @@ const CP_MAX_TOTAL: u64 = 25 * 1024 * 1024;
 const CP_KEEP: usize = 20;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-struct CheckpointFile {
+pub(crate) struct CheckpointFile {
     /// Путь относительно корня проекта, всегда с "\"
     rel: String,
     /// Содержимое файла в base64 (бинарники тоже пишем без разбора)
@@ -270,7 +270,7 @@ pub fn checkpoint_list(app: tauri::AppHandle, path: String) -> Result<Vec<Checkp
             bytes: 0,
         });
     }
-    out.sort_by(|a, b| b.ts.cmp(&a.ts));
+    out.sort_by_key(|c| std::cmp::Reverse(c.ts));
     Ok(out)
 }
 

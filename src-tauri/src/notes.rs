@@ -69,7 +69,7 @@ pub fn notes_list(app: tauri::AppHandle) -> Result<Vec<NoteInfo>, String> {
             updated,
         });
     }
-    out.sort_by(|a, b| b.updated.cmp(&a.updated));
+    out.sort_by_key(|n| std::cmp::Reverse(n.updated));
     Ok(out)
 }
 

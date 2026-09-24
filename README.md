@@ -109,8 +109,9 @@ docs/           screenshots, internal dev notes
 
 ## Contributing
 
-Issues and PRs are welcome. `npm run build` and `cargo test` (in `src-tauri/`)
-must pass — CI enforces both. Internal development notes live in
+Issues and PRs are welcome. `npm run lint`, `npm test`, `npm run build` and
+`cargo clippy --lib -- -D warnings` / `cargo test --lib` (in `src-tauri/`)
+must pass — CI enforces all of them. Internal development notes live in
 [docs/internal/SESSION_NOTES.md](docs/internal/SESSION_NOTES.md).
 
 ## License

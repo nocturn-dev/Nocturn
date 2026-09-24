@@ -61,6 +61,9 @@ const INIT_TIMEOUT: Duration = Duration::from_secs(30);
 const LIST_TIMEOUT: Duration = Duration::from_secs(15);
 const CALL_TIMEOUT: Duration = Duration::from_secs(120);
 
+/// Карта ожидающих JSON-RPC запросов: id → одноразовый канал ответа
+type PendingMap = Arc<Mutex<HashMap<u64, Sender<Result<Value, String>>>>>;
+
 /// Живое соединение с одним MCP-сервером.
 pub struct McpConnection {
     pub server: String,
@@ -68,7 +71,7 @@ pub struct McpConnection {
     stdin: Mutex<ChildStdin>,
     child: Mutex<Child>,
     next_id: AtomicU64,
-    pending: Arc<Mutex<HashMap<u64, Sender<Result<Value, String>>>>>,
+    pending: PendingMap,
     last_stderr: Arc<Mutex<String>>,
 }
 
@@ -104,8 +107,7 @@ impl McpConnection {
         stdout: std::process::ChildStdout,
         stderr: std::process::ChildStderr,
     ) -> Result<Arc<Self>, String> {
-        let pending: Arc<Mutex<HashMap<u64, Sender<Result<Value, String>>>>> =
-            Arc::new(Mutex::new(HashMap::new()));
+        let pending: PendingMap = Arc::new(Mutex::new(HashMap::new()));
         let last_stderr: Arc<Mutex<String>> = Arc::new(Mutex::new(String::new()));
 
         // Читатель stdout: маршрутизирует ответы по id, уведомления игнорирует

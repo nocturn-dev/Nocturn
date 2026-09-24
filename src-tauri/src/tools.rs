@@ -99,11 +99,11 @@ pub fn execute_tool(name: &str, arguments: &str) -> Result<String, String> {
     match name {
         "fs_list" => {
             let path = arg_str(&args, "path")?;
-            fs_list(&Path::new(&path))
+            fs_list(Path::new(&path))
         }
         "fs_read" => {
             let path = arg_str(&args, "path")?;
-            fs_read(&Path::new(&path))
+            fs_read(Path::new(&path))
         }
         "fs_write" => {
             let path = arg_str(&args, "path")?;
@@ -111,11 +111,11 @@ pub fn execute_tool(name: &str, arguments: &str) -> Result<String, String> {
                 .get("content")
                 .and_then(|v| v.as_str())
                 .ok_or("missing required argument: content")?;
-            fs_write(&Path::new(&path), content)
+            fs_write(Path::new(&path), content)
         }
         "fs_delete" => {
             let path = arg_str(&args, "path")?;
-            fs_delete(&Path::new(&path))
+            fs_delete(Path::new(&path))
         }
         "shell_run" => {
             let command = arg_str(&args, "command")?;
@@ -299,7 +299,7 @@ fn vault_search(notes_dir: &Path, query: &str) -> Result<String, String> {
         }
     }
     // Совпадения по заголовку — выше
-    rows.sort_by(|a, b| b.0.cmp(&a.0));
+    rows.sort_by_key(|r| std::cmp::Reverse(r.0));
     if rows.is_empty() {
         return Ok(if query.is_empty() {
             "The vault is empty.".to_string()

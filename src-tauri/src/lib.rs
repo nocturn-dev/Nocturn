@@ -199,7 +199,7 @@ static TRAY_CLASSIC: &[u8] = include_bytes!("../icons/tray-classic.png");
 /// Сменить иконку трея (Кастомизация → знак приложения: bold/classic)
 #[tauri::command]
 fn set_tray_variant(app: tauri::AppHandle, kind: String) -> Result<(), String> {
-    use tauri::Manager;
+    
     let bytes: &[u8] = if kind == "classic" {
         TRAY_CLASSIC
     } else {

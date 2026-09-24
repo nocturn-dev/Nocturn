@@ -17,6 +17,7 @@ use std::sync::Mutex;
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Default)]
 pub struct ComputerConfig {
     #[serde(default = "default_computer_enabled")]
     pub enabled: bool,
@@ -27,11 +28,6 @@ fn default_computer_enabled() -> bool {
     false
 }
 
-impl Default for ComputerConfig {
-    fn default() -> Self {
-        Self { enabled: false }
-    }
-}
 
 pub static CONFIG: Mutex<Option<ComputerConfig>> = Mutex::new(None);
 
@@ -243,7 +239,7 @@ fn press_key(args: &Value) -> Result<String, String> {
             .collect::<Result<_, _>>()?;
 
         for m in &modifiers {
-            e.key(m.clone(), Direction::Press)
+            e.key(*m, Direction::Press)
                 .map_err(|err| format!("press failed: {err}"))?;
         }
         let result = parse_key(main).and_then(|key| {
@@ -251,7 +247,7 @@ fn press_key(args: &Value) -> Result<String, String> {
                 .map_err(|err| format!("press failed: {err}"))
         });
         for m in modifiers.iter().rev() {
-            let _ = e.key(m.clone(), Direction::Release);
+            let _ = e.key(*m, Direction::Release);
         }
         result?;
         Ok(format!("pressed {combo}"))
