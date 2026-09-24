@@ -66,6 +66,7 @@ function parseProfile(raw: unknown): ThemeProfile | null {
         : "glow",
       ambientVideo: typeof a.ambientVideo === "string" ? a.ambientVideo : "",
       ambientIntensity: num(a.ambientIntensity, 0.7, 0.3, 1),
+      brightness: num(a.brightness, 100, 80, 120),
     },
   };
 }

@@ -641,6 +641,8 @@ export const en = {
     "themes.codepvLight": "Light code",
     "themes.codepvDark": "Dark code",
     "themes.codepvActive": "Active",
+    "themes.brightness": "Dark theme brightness",
+    "themes.brightnessDesc": "Lighten or darken surfaces; text and accent stay untouched",
     "themes.style": "Dark theme style",
     "themes.styleClaude": "Claude",
     "themes.styleMidnight": "Midnight",

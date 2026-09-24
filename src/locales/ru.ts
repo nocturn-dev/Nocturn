@@ -657,6 +657,8 @@ export const ru = {
     "themes.codepvLight": "Светлый код",
     "themes.codepvDark": "Тёмный код",
     "themes.codepvActive": "Активная",
+    "themes.brightness": "Яркость тёмных тем",
+    "themes.brightnessDesc": "Осветлить или затемнить поверхности; текст и акцент не меняются",
     "themes.style": "Стиль тёмной темы",
     "themes.styleClaude": "Клод",
     "themes.styleMidnight": "Полночь",

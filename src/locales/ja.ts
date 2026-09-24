@@ -674,6 +674,8 @@ export const ja = {
     "themes.codepvLight": "ライトコード",
     "themes.codepvDark": "ダークコード",
     "themes.codepvActive": "アクティブ",
+    "themes.brightness": "ダークテーマの明るさ",
+    "themes.brightnessDesc": "表面を明るく/暗くします。テキストとアクセントは変わりません",
     "themes.style": "ダークテーマのスタイル",
     "themes.styleClaude": "Claude",
     "themes.styleMidnight": "ミッドナイト",

@@ -674,6 +674,8 @@ export const zh = {
     "themes.codepvLight": "浅色代码",
     "themes.codepvDark": "深色代码",
     "themes.codepvActive": "当前使用",
+    "themes.brightness": "深色主题亮度",
+    "themes.brightnessDesc": "调亮或调暗表面；文本和强调色保持不变",
     "themes.style": "深色主题风格",
     "themes.styleClaude": "Claude",
     "themes.styleMidnight": "午夜",
