@@ -30,6 +30,9 @@
     "active": true,
     "targets": "all",
     "createUpdaterArtifacts": true,
+    "category": "Development",
+    "shortDescription": "Nocturn — универсальный ИИ-клиент (BYOK)",
+    "longDescription": "Nocturn — локальный ИИ-клиент BYOK: чат с любыми провайдерами, агентные инструменты (файлы, shell, браузер, Computer Use), MCP-серверы, субагенты, заметки-хранилище и автоматизации. Ключи хранятся локально и могут быть зашифрованы.",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

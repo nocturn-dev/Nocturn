@@ -120,9 +120,35 @@ pub fn computer_tool_schemas() -> Value {
 // ---------------------------------------------------------------------------
 
 pub fn execute_computer_tool(name: &str, arguments: &str) -> Result<String, String> {
+    ensure_session_supported()?;
     let args: Value = serde_json::from_str(arguments)
         .map_err(|e| format!("invalid arguments JSON: {e}"))?;
     execute(name, &args)
+}
+
+/// Computer Use строится на xcap (скриншоты) и enigo (ввод), которые на Linux
+/// работают только через X11. На Wayland (стандарт Ubuntu 22.04+/Fedora) ввод
+/// и захват экрана невозможны — даём честную ошибку вместо молчаливого фейла.
+#[cfg(target_os = "linux")]
+fn ensure_session_supported() -> Result<(), String> {
+    let wayland = std::env::var("WAYLAND_DISPLAY")
+        .map(|v| !v.is_empty())
+        .unwrap_or(false)
+        || std::env::var("XDG_SESSION_TYPE")
+            .map(|v| v.eq_ignore_ascii_case("wayland"))
+            .unwrap_or(false);
+    if wayland {
+        return Err(
+            "Computer Use requires an X11 session. On Wayland (default in Ubuntu 22.04+/Fedora) screen capture and input are not available — log out and pick 'Ubuntu on Xorg', or run the app on Windows/macOS."
+                .to_string(),
+        );
+    }
+    Ok(())
+}
+
+#[cfg(not(target_os = "linux"))]
+fn ensure_session_supported() -> Result<(), String> {
+    Ok(())
 }
 
 fn execute(name: &str, args: &Value) -> Result<String, String> {
