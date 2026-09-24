@@ -2441,6 +2441,7 @@ function ImageGenSection() {
       <div className="space-y-1">
         <ToggleRow
           label={t("ig.enabled")}
+          desc={t("ig.enabledDesc")}
           on={cfg.enabled}
           onChange={(v) => void apply({ ...cfg, enabled: v })}
         />
@@ -2450,6 +2451,9 @@ function ImageGenSection() {
               <span className="mb-1.5 block text-xs font-medium text-halo-muted">
                 {t("ig.baseUrl")}
               </span>
+              <p className="mb-2 text-xs leading-relaxed text-halo-muted">
+                {t("ig.baseUrlDesc")}
+              </p>
               <input
                 type="text"
                 value={cfg.base_url}
@@ -2462,6 +2466,9 @@ function ImageGenSection() {
               <span className="mb-1.5 block text-xs font-medium text-halo-muted">
                 API key
               </span>
+              <p className="mb-2 text-xs leading-relaxed text-halo-muted">
+                {t("ig.apiKeyDesc")}
+              </p>
               <input
                 type="password"
                 value={cfg.api_key}
@@ -2473,6 +2480,9 @@ function ImageGenSection() {
               <span className="mb-1.5 block text-xs font-medium text-halo-muted">
                 {t("ig.model")}
               </span>
+              <p className="mb-2 text-xs leading-relaxed text-halo-muted">
+                {t("ig.modelDesc")}
+              </p>
               <div className="flex gap-2">
                 <input
                   type="text"
@@ -2493,6 +2503,9 @@ function ImageGenSection() {
               <span className="mb-1.5 block text-xs font-medium text-halo-muted">
                 {t("ig.size")}
               </span>
+              <p className="mb-2 text-xs leading-relaxed text-halo-muted">
+                {t("ig.sizeDesc")}
+              </p>
               <input
                 type="text"
                 value={cfg.size}
@@ -2544,6 +2557,7 @@ function ComputerUseSection() {
 
       <ToggleRow
         label={t("cu.enabled")}
+        desc={t("cu.enabledDesc")}
         on={cfg.enabled}
         onChange={(v) => void apply({ ...cfg, enabled: v })}
       />
@@ -3746,6 +3760,9 @@ function ApiSection({
         <span className="mb-1 block text-xs font-medium text-halo-muted">
           {t("api.key")}
         </span>
+        <p className="mb-2 text-xs leading-relaxed text-halo-muted">
+          {t("api.keyDesc")}
+        </p>
         <input
           type="password"
           value={settings.api_key}
@@ -3760,6 +3777,9 @@ function ApiSection({
         <span className="mb-1.5 block text-xs font-medium text-halo-muted">
           {t("api.provider")}
         </span>
+        <p className="mb-2 text-xs leading-relaxed text-halo-muted">
+          {t("api.providerDesc")}
+        </p>
         <div className="flex flex-wrap gap-1.5">
           {PROVIDERS.map((p) => {
             const active = settings.provider === p.id;

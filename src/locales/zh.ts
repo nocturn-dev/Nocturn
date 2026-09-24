@@ -425,6 +425,11 @@ export const zh = {
     "ig.desc":
       "可选的代理工具 image_generate：模型将能够根据文字描述生成图片。默认关闭 — 只能在这里手动启用。",
     "ig.enabled": "启用图片生成",
+    "ig.enabledDesc": "为代理添加 image_generate 工具：根据文字描述生成图片。",
+    "ig.baseUrlDesc": "图片提供商的 Base URL（OpenAI 兼容或 Gemini）。",
+    "ig.apiKeyDesc": "该提供商专用的密钥：仅保存在本地，开启加密后会加密存储。",
+    "ig.modelDesc": "生成模型名称，如 dall-e-3 或 gemini-2.5-flash-image。",
+    "ig.sizeDesc": "图片尺寸，如 1024x1024；留空使用提供商默认值。",
     "ig.baseUrl": "Base URL（兼容 OpenAI Images API 的提供商）",
     "ig.model": "图片生成模型",
     "ig.size": "默认尺寸（可留空）",
@@ -515,6 +520,7 @@ export const zh = {
     "cu.desc":
       "屏幕截图并控制真实的鼠标和键盘（computer_* 工具）。模型通过截图查看屏幕并按坐标操作。",
     "cu.enabled": "电脑控制工具已启用",
+    "cu.enabledDesc": "为代理提供 computer_* 工具：在本机截屏、移动鼠标和输入文字。",
     "cu.note":
       "这些是在你的机器上执行的真实操作：点击会移动真实的光标。如果不确定任务，请不要关闭确认（完全访问）。",
     // MCP-серверы
@@ -664,6 +670,8 @@ export const zh = {
     "api.desc":
       "BYOK 原则：使用你自己的密钥和 Base URL 接入任何兼容 OpenAI 的提供商。密钥只保存在你的电脑上。粘贴密钥后模型列表会自动加载。",
     "api.key": "API 密钥",
+    "api.keyDesc": "所选提供商的密钥：仅保存在本机，开启加密后会加密存储。",
+    "api.providerDesc": "预设会自动填入 Base URL；「自定义」为任意 OpenAI 兼容端点。",
     "api.keyPh": "sk-…",
     "api.baseUrl": "Base URL",
     "api.provider": "提供商",

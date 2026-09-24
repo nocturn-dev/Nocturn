@@ -392,6 +392,11 @@ export const en = {
     "ig.desc":
       "Optional agent tool image_generate: the model will be able to create pictures from a text prompt. Off by default — enabled only here, manually.",
     "ig.enabled": "Enable image generation",
+    "ig.enabledDesc": "Adds the image_generate tool: the agent can generate images from a text description.",
+    "ig.baseUrlDesc": "Image provider's base URL (OpenAI-compatible or Gemini).",
+    "ig.apiKeyDesc": "API key for this exact provider: stored locally, encrypted when encryption is on.",
+    "ig.modelDesc": "Generation model name, e.g. dall-e-3 or gemini-2.5-flash-image.",
+    "ig.sizeDesc": "Image size, e.g. 1024x1024; empty = provider default.",
     "ig.baseUrl": "Base URL (OpenAI Images-compatible provider)",
     "ig.model": "Image model",
     "ig.size": "Default size (may be left empty)",
@@ -482,6 +487,7 @@ export const en = {
     "cu.desc":
       "Screen screenshots and control of the real mouse and keyboard (computer_* tools). The model sees the screen through screenshots and acts by coordinates.",
     "cu.enabled": "Computer control tools enabled",
+    "cu.enabledDesc": "Gives the agent computer_* tools: screen screenshots, mouse movement and typing on this computer.",
     "cu.note":
       "These are real actions on your machine: clicks move the actual cursor. Do not disable confirmations (Full access) unless you trust the task.",
     // MCP servers
@@ -631,6 +637,8 @@ export const en = {
     "api.desc":
       "BYOK principle: your own key and Base URL for any OpenAI-compatible provider. The key is stored on your machine only. Models load automatically once the key is pasted.",
     "api.key": "API key",
+    "api.keyDesc": "Key for the selected provider: stored only on this computer, encrypted when encryption is on.",
+    "api.providerDesc": "Presets fill in the Base URL automatically; 'Custom' — any OpenAI-compatible endpoint.",
     "api.keyPh": "sk-…",
     "api.baseUrl": "Base URL",
     "api.provider": "Provider",

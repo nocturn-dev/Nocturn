@@ -425,6 +425,11 @@ export const ja = {
     "ig.desc":
       "オプションのエージェントツール image_generate：モデルがテキストの説明から画像を生成できるようになります。デフォルトはオフ — ここで手動で有効にした場合のみ使われます。",
     "ig.enabled": "画像生成を有効化",
+    "ig.enabledDesc": "エージェントに image_generate ツールを追加します：テキストの説明から画像を生成します。",
+    "ig.baseUrlDesc": "画像プロバイダーの Base URL（OpenAI 互換または Gemini）。",
+    "ig.apiKeyDesc": "このプロバイダー専用のキー。ローカルに保存され、暗号化が有効なら暗号化されます。",
+    "ig.modelDesc": "生成モデル名（例：dall-e-3、gemini-2.5-flash-image）。",
+    "ig.sizeDesc": "画像サイズ（例：1024x1024）。空欄ならプロバイダーのデフォルト。",
     "ig.baseUrl": "Base URL（OpenAI Images API 互換のプロバイダー）",
     "ig.model": "画像生成モデル",
     "ig.size": "デフォルトサイズ（空欄でも可）",
@@ -515,6 +520,7 @@ export const ja = {
     "cu.desc":
       "画面のスクリーンショットと、実際のマウス・キーボードの操作（computer_* ツール）。モデルはスクリーンショットで画面を見て、座標で操作します。",
     "cu.enabled": "PC 操作ツールが有効",
+    "cu.enabledDesc": "エージェントに computer_* ツールを与えます：この PC でのスクリーンショット、マウス操作、文字入力。",
     "cu.note":
       "これらはあなたのマシン上での実際の操作です：クリックは実際のカーソルを動かします。タスクに確信がない限り、確認（フルアクセス）を無効にしないでください。",
     // MCP-серверы
@@ -664,6 +670,8 @@ export const ja = {
     "api.desc":
       "BYOK の原則：自分のキーと Base URL で、OpenAI 互換の任意のプロバイダーを利用できます。キーはあなたのマシンにのみ保存されます。キーを貼り付けるとモデル一覧が自動で読み込まれます。",
     "api.key": "API キー",
+    "api.keyDesc": "選択したプロバイダーのキー。この PC にのみ保存され、暗号化が有効なら暗号化されます。",
+    "api.providerDesc": "プリセットは Base URL を自動入力します。「カスタム」は任意の OpenAI 互換エンドポイント。",
     "api.keyPh": "sk-…",
     "api.baseUrl": "Base URL",
     "api.provider": "プロバイダー",
