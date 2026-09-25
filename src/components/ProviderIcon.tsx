@@ -1,10 +1,13 @@
-import { useEffect, useState } from "react";
+import { PROVIDER_ICONS } from "./providerIconsData";
 
 /**
- * Бренды: simple-icons (slug + фирменный цвет) и/или домен официального
- * сайта — из него через favicon-CDN достаётся логотип для нишевых провайдеров.
+ * Логотип провайдера: локальный брендовый SVG (данные simple-icons, CC0),
+ * затем цветная буква-фолбэк. D2: раньше SVG тянулся с cdn.simpleicons.org,
+ * а favicon нишевых провайдеров — с icons.duckduckgo.com, но CSP
+ * `img-src 'self' data: blob:` блокировала оба — в проде фича была мертва,
+ * а в dev модельные имена утекали сторонним CDN. Теперь всё локально.
  */
-const BRANDS: Record<string, { slug?: string; color?: string; domain?: string }> = {
+const BRANDS: Record<string, { slug?: string; color?: string }> = {
   deepseek: { slug: "deepseek", color: "4D6BFE" },
   openai: { slug: "openai", color: "74AA9C" },
   google: { slug: "googlegemini", color: "4796E3" },
@@ -15,35 +18,26 @@ const BRANDS: Record<string, { slug?: string; color?: string; domain?: string }>
   mistral: { slug: "mistralai", color: "FF7000" },
   nvidia: { slug: "nvidia", color: "76B900" },
   microsoft: { slug: "microsoft", color: "5E5E5E" },
-  xai: { slug: "xai", color: "E8E6DC" },
-  qwen: { slug: "qwen", color: "615CED", domain: "qwen.ai" },
-  zhipu: { slug: "zhipu", color: "3B82F6", domain: "zhipuai.cn" },
-  moonshot: { slug: "moonshotai", color: "1B1B1B", domain: "moonshot.cn" },
-  kimi: { slug: "moonshotai", color: "1B1B1B", domain: "moonshot.cn" },
-  cohere: { slug: "cohere", color: "39594D" },
+  xai: { color: "E8E6DC" },
+  qwen: { slug: "qwen", color: "615CED" },
+  zhipu: { color: "3B82F6" },
+  glm: { color: "3B82F6" },
+  thudm: { color: "3B82F6" },
+  moonshot: { slug: "moonshotai", color: "1B1B1B" },
+  kimi: { slug: "moonshotai", color: "1B1B1B" },
+  cohere: { color: "39594D" },
   perplexity: { slug: "perplexity", color: "20808D" },
-  ai21: { slug: "ai21", color: "E03C31", domain: "ai21.com" },
-  liquid: { slug: "liquidai", color: "8B5CF6", domain: "liquid.ai" },
-  // Нишевые провайдеры — логотип через favicon официального сайта
-  grok: { domain: "x.ai" },
-  thudm: { domain: "zhipuai.cn" },
-  glm: { domain: "zhipuai.cn" },
-  inclusionai: { domain: "inclusionai.com" },
-  ling: { domain: "inclusionai.com" },
-  minimax: { domain: "minimax.io" },
-  baichuan: { domain: "baichuan.com" },
-  internlm: { domain: "intern-ai.org.cn" },
-  stepfun: { domain: "stepfun.com" },
-  "01ai": { domain: "01.ai" },
-  upstage: { domain: "upstage.ai" },
-  nousresearch: { domain: "nousresearch.com" },
-  nous: { domain: "nousresearch.com" },
-  together: { domain: "together.ai" },
-  fireworks: { domain: "fireworks.ai" },
-  groq: { domain: "groq.com" },
-  cerebras: { domain: "cerebras.ai" },
-  featherless: { domain: "featherless.ai" },
-  arliai: { domain: "arliai.com" },
+  ai21: { color: "E03C31" },
+  liquid: { color: "8B5CF6" },
+  grok: { color: "E8E6DC" },
+  minimax: { color: "E8402A" },
+  baichuan: { color: "E8402A" },
+  internlm: { color: "B33A3A" },
+  stepfun: { color: "4D6BFE" },
+  together: { color: "0F6FFF" },
+  fireworks: { color: "FF7000" },
+  groq: { color: "F55036" },
+  cerebras: { color: "FF7A00" },
   openrouter: { slug: "openrouter", color: "8B5CF6" },
   huggingface: { slug: "huggingface", color: "FFD21E" },
 };
@@ -82,42 +76,18 @@ export function brandName(modelId: string): string {
   return seg.charAt(0).toUpperCase() + seg.slice(1, 14);
 }
 
-function candidateUrls(modelId: string): string[] {
-  const family = familyOf(modelId);
-  const brand = BRANDS[family];
-  const urls: string[] = [];
-  if (brand?.slug) {
-    urls.push(
-      `https://cdn.simpleicons.org/${brand.slug}/${brand.color ?? "E8E6DC"}`,
-    );
-  }
-  if (brand?.domain) {
-    urls.push(`https://icons.duckduckgo.com/ip3/${brand.domain}.ico`);
-  }
-  return urls;
-}
-
 interface ProviderIconProps {
   modelId: string;
   size?: number;
 }
 
 /**
- * Логотип провайдера модели: сначала брендовый SVG (simple-icons),
- * затем favicon официального сайта (нишевые провайдеры),
- * затем буквенный фолбэк — если ничто не загрузилось.
+ * Логотип провайдера модели: локальный брендовый SVG, иначе цветная буква.
  */
 export default function ProviderIcon({ modelId, size = 18 }: ProviderIconProps) {
   const family = familyOf(modelId);
-  const candidates = candidateUrls(modelId);
-  const [idx, setIdx] = useState(0);
-  const [failed, setFailed] = useState(false);
-
-  // Сброс цепочки при смене модели
-  useEffect(() => {
-    setIdx(0);
-    setFailed(false);
-  }, [modelId]);
+  const brand = BRANDS[family];
+  const icon = brand?.slug ? PROVIDER_ICONS[brand.slug] : undefined;
 
   const circleStyle = {
     width: size,
@@ -125,16 +95,16 @@ export default function ProviderIcon({ modelId, size = 18 }: ProviderIconProps) 
     fontSize: Math.max(9, Math.round(size * 0.5)),
   };
 
-  const url = candidates[idx];
-
-  if (failed || !url) {
+  if (!icon) {
+    // Фолбэк: первая буква семейства в фирменном цвете бренда
+    const color = brand?.color ? `#${brand.color}` : undefined;
     return (
       <span
         style={circleStyle}
         title={family || "провайдер"}
         className="flex shrink-0 items-center justify-center rounded-full bg-halo-raised font-semibold uppercase text-halo-text"
       >
-        {(family || "?").charAt(0)}
+        <span style={color ? { color } : undefined}>{(family || "?").charAt(0)}</span>
       </span>
     );
   }
@@ -145,15 +115,16 @@ export default function ProviderIcon({ modelId, size = 18 }: ProviderIconProps) 
       title={family}
       className="flex shrink-0 items-center justify-center overflow-hidden rounded-full bg-halo-raised"
     >
-      <img
-        src={url}
-        alt={family}
+      <svg
+        role="img"
+        aria-label={family}
         width={size}
         height={size}
-        loading="lazy"
-        onError={() => setIdx((i) => i + 1)}
-        className="size-full object-contain"
-      />
+        viewBox="0 0 24 24"
+        className="size-full"
+      >
+        <path d={icon.path} fill={`#${brand?.color ?? icon.hex}`} />
+      </svg>
     </span>
   );
 }

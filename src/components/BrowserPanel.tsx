@@ -37,7 +37,21 @@ export default function BrowserPanel({ open, onClose }: BrowserPanelProps) {
   useEffect(() => {
     if (!open) return;
     let alive = true;
-    void browserViewStart();
+    // D19: start больше не void — cleanup при быстром закрытии раньше
+    // вызывался ДО завершения start, stop обгонял start, и CDP-трансляция
+    // оставалась жить в Rust с мёртвым подписчиком. Ждём start и гасим
+    // по флагу, если панель уже закрылась
+    (async () => {
+      try {
+        await browserViewStart();
+      } catch {
+        return;
+      }
+      if (!alive) {
+        void browserViewStop().catch(() => {});
+        return;
+      }
+    })();
     void listenBrowserFrame((f) => {
       if (!alive) return;
       if (f.data) setFrame(f.data);
@@ -50,7 +64,7 @@ export default function BrowserPanel({ open, onClose }: BrowserPanelProps) {
       alive = false;
       unlistenRef.current?.();
       unlistenRef.current = null;
-      void browserViewStop();
+      void browserViewStop().catch(() => {});
     };
   }, [open]);
 

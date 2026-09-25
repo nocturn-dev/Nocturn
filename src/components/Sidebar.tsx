@@ -889,14 +889,32 @@ function ColorPalette({
   );
 }
 
-/** Относительное время: «5м / 3ч / 2д» (компактно, как в IDE-сайдбарах) */
+/** Относительное время: «5м / 3ч / 2д» (компактно, как в IDE-сайдбарах).
+ *  D14: zh/ja раньше показывали русские слова («5 минут») — родные единицы */
 function relTime(ts: number, lang: "ru" | "en" | "zh" | "ja"): string {
   const m = Math.max(1, Math.floor((Date.now() - ts) / 60000));
-  if (m < 60) return lang === "ru" ? `${m}м` : lang === "zh" || lang === "ja" ? `${m} минут` : `${m}m`;
+  if (lang === "zh") {
+    if (m < 60) return `${m} 分`;
+    const h = Math.floor(m / 60);
+    if (h < 24) return `${h} 时`;
+    return `${Math.floor(h / 24)} 天`;
+  }
+  if (lang === "ja") {
+    if (m < 60) return `${m} 分`;
+    const h = Math.floor(m / 60);
+    if (h < 24) return `${h} 時間`;
+    return `${Math.floor(h / 24)} 日`;
+  }
+  if (m < 60) return lang === "ru" ? `${m}м` : `${m}m`;
   const h = Math.floor(m / 60);
-  if (h < 24) return lang === "ru" ? `${h}ч` : lang === "zh" || lang === "ja" ? `${h} 小时` : `${h}h`;
-  const d = Math.floor(h / 24);
-  return lang === "ru" ? `${d}д` : lang === "zh" || lang === "ja" ? `${d} 天` : `${d}d`;
+  if (h < 24) return lang === "ru" ? `${h}ч` : `${h}h`;
+  return lang === "ru" ? `${Math.floor(h / 24)}д` : `${Math.floor(h / 24)}d`;
+}
+
+/** D14: соединение сегментов пути в нормализованной форме (разделитель "\",
+ *  как в normalizePath, без хвостовых слэшей базового сегмента) */
+function joinNorm(base: string, name: string): string {
+  return `${base.replace(/[\\/]+$/, "")}\\${name}`;
 }
 
 function ClockIcon() {
@@ -1058,7 +1076,9 @@ function FileTree({
       );
     }
     return entries.map((e) => {
-      const childPath = `${path.replace(/[\\/]+$/, "")}\\${e.name}`;
+      // D14: соединение через утилиту joinNorm (см. ниже) — явный бэкслэш
+      // в шаблоне держал соглашение normalizePath только неявно
+      const childPath = joinNorm(path, e.name);
       const isOpen = open.has(childPath);
       // Подсветка (M4.3): файл — точное совпадение пути, папка — если
       // внутри неё есть хоть один изменённый файл (по префиксу)

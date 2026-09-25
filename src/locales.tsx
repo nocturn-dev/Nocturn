@@ -74,6 +74,11 @@ export function LangProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     localStorage.setItem("haloui-lang", lang);
   }, [lang]);
+  // D20: lang у <html> синхронно с локалью — скринридеры и IME раньше
+  // получали захардкоженный ru при любой выбранной языке
+  useEffect(() => {
+    document.documentElement.lang = lang === "zh" ? "zh-CN" : lang;
+  }, [lang]);
   // Стабильный value: новый объект на каждый рендер провайдера
   // инвалидал бы всех потребителей контекста
   const value = useMemo(() => ({ lang, setLang }), [lang]);

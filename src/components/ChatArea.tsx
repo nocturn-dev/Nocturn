@@ -32,7 +32,7 @@ import { TypingBubble } from "./cards/TypingBubble";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { UserCard } from "./cards/UserCard";
 import { ArrowUpIcon, ChevronDownIcon, CorrectIcon, PaperclipIcon, PermModeIcon, QueueIcon, QuoteIcon, RobotIcon, ShieldIcon, SlidersIcon, SparkIcon, StopIcon, SystemPromptIcon, TerminalIcon, TrashIcon, WrenchIcon, XSmallIcon } from "./cards/icons";
-import { fmtK } from "./cards/util";
+import { fmtInt, fmtK } from "./cards/util";
 
 interface ChatAreaProps {
   session: Session | null;
@@ -139,51 +139,101 @@ interface ChatAreaProps {
 }
 
 /** Компактный формат счётчика: 1234 → 1,2k */
-const SUGGESTIONS = (lang: "ru" | "en" | "zh" | "ja") =>  lang === "ru"
-    ? [
-        {
-          title: "Объясни просто",
-          hint: "Объяснит сложную тему простыми словами и с примерами",
-          prompt: "Объясни просто: ",
-        },
-        {
-          title: "Придумай идеи",
-          hint: "Предложит варианты и идеи под любую твою задачу",
-          prompt: "Придумай идеи: ",
-        },
-        {
-          title: "Помощь с кодом",
-          hint: "Напишет код, найдёт баг и подскажет, как исправить",
-          prompt: "Помощь с кодом: ",
-        },
-        {
-          title: "Наведи порядок",
-          hint: "Составит план рефакторинга или разберёт твою задачу по шагам",
-          prompt: "Наведи порядок: ",
-        },
-      ]
-    : [
-        {
-          title: "Explain simply",
-          hint: "Explains complex topics in plain words with examples",
-          prompt: "Explain simply: ",
-        },
-        {
-          title: "Brainstorm",
-          hint: "Offers options and ideas for any task you have",
-          prompt: "Brainstorm: ",
-        },
-        {
-          title: "Code help",
-          hint: "Writes code, finds bugs and suggests fixes",
-          prompt: "Code help: ",
-        },
-        {
-          title: "Clean it up",
-          hint: "Drafts a refactoring plan or breaks your task into steps",
-          prompt: "Clean it up: ",
-        },
-      ];
+// D16: стартовые подсказки на всех четырёх языках — раньше zh/ja
+// получали английские чипы (строки не в словарях)
+const SUGGESTIONS = (lang: "ru" | "en" | "zh" | "ja") => {
+  if (lang === "ru")
+    return [
+      {
+        title: "Объясни просто",
+        hint: "Объяснит сложную тему простыми словами и с примерами",
+        prompt: "Объясни просто: ",
+      },
+      {
+        title: "Придумай идеи",
+        hint: "Предложит варианты и идеи под любую твою задачу",
+        prompt: "Придумай идеи: ",
+      },
+      {
+        title: "Помощь с кодом",
+        hint: "Напишет код, найдёт баг и подскажет, как исправить",
+        prompt: "Помощь с кодом: ",
+      },
+      {
+        title: "Наведи порядок",
+        hint: "Составит план рефакторинга или разберёт твою задачу по шагам",
+        prompt: "Наведи порядок: ",
+      },
+    ];
+  if (lang === "zh")
+    return [
+      {
+        title: "简单解释",
+        hint: "用通俗的语言和例子解释复杂的话题",
+        prompt: "简单解释: ",
+      },
+      {
+        title: "头脑风暴",
+        hint: "为你的任何任务提供方案和创意",
+        prompt: "头脑风暴: ",
+      },
+      {
+        title: "代码帮助",
+        hint: "编写代码、定位 Bug 并给出修复建议",
+        prompt: "代码帮助: ",
+      },
+      {
+        title: "整理优化",
+        hint: "制定重构计划，或把任务拆解成步骤",
+        prompt: "整理优化: ",
+      },
+    ];
+  if (lang === "ja")
+    return [
+      {
+        title: "やさしく解説",
+        hint: "難しい話題を平易な言葉と例で解説します",
+        prompt: "やさしく解説: ",
+      },
+      {
+        title: "アイデア出し",
+        hint: "どんなタスクにも選択肢とアイデアを提案します",
+        prompt: "アイデア出し: ",
+      },
+      {
+        title: "コード支援",
+        hint: "コードを書き、バグを見つけて修正案を提示します",
+        prompt: "コード支援: ",
+      },
+      {
+        title: "整理整頓",
+        hint: "リファクタリング計画やタスクの手順分解を作成します",
+        prompt: "整理整頓: ",
+      },
+    ];
+  return [
+    {
+      title: "Explain simply",
+      hint: "Explains complex topics in plain words with examples",
+      prompt: "Explain simply: ",
+    },
+    {
+      title: "Brainstorm",
+      hint: "Offers options and ideas for any task you have",
+      prompt: "Brainstorm: ",
+    },
+    {
+      title: "Code help",
+      hint: "Writes code, finds bugs and suggests fixes",
+      prompt: "Code help: ",
+    },
+    {
+      title: "Clean it up",
+      hint: "Drafts a refactoring plan or breaks your task into steps",
+      prompt: "Clean it up: ",
+    },
+  ];
+};
 
 /** A15: пережимает вложение-картинку, чтобы data-URL уложился в лимит
  *  (~1.2 МБ). Пропорции сохраняются: длинная сторона ужимается шагами *0.75,
@@ -950,20 +1000,20 @@ export default function ChatArea({
         {/* Суммарные токены задачи (M5.3) */}
         {totals.all > 0 && (
           <span
-            title={`${t("tokens.up")}: ${totals.up.toLocaleString("ru-RU")} · ${t("tokens.down")}: ${totals.down.toLocaleString("ru-RU")} · ${t("tokens.total")}: ${totals.all.toLocaleString("ru-RU")}`}
+            title={`${t("tokens.up")}: ${fmtInt(totals.up, lang)} · ${t("tokens.down")}: ${fmtInt(totals.down, lang)} · ${t("tokens.total")}: ${fmtInt(totals.all, lang)}`}
             className="mr-2 shrink-0 text-[10px] text-halo-muted/70"
           >
-            <span className="text-halo-muted">↑{fmtK(totals.up)}</span>{" "}
-            <span className="text-halo-muted">↓{fmtK(totals.down)}</span>{" "}
+            <span className="text-halo-muted">↑{fmtK(totals.up, lang)}</span>{" "}
+            <span className="text-halo-muted">↓{fmtK(totals.down, lang)}</span>{" "}
             <span className="font-medium text-halo-accent/80">
-              Σ{fmtK(totals.all)}
+              Σ{fmtK(totals.all, lang)}
             </span>
           </span>
         )}
         <button
           onClick={() => setSysOpen(true)}
           disabled={!session}
-          title={hasSystemPrompt ? t("sysprompt.title") : t("sysprompt.title")}
+          title={t("sysprompt.title")}
           className={`mr-1 rounded-md p-1.5 transition-all duration-150 hover:bg-halo-hover disabled:cursor-not-allowed disabled:opacity-40 ${
             hasSystemPrompt
               ? "text-halo-accent"
@@ -1108,7 +1158,9 @@ export default function ChatArea({
             {/* Ход = сообщение пользователя + всё, что агент сделал до следующего.
                 groupTurns: весь ход в ОДНОЙ карточке; иначе каждый шаг отдельно.
                 В конце хода — сводка изменённых файлов */}
-            <ErrorBoundary title={t("err.boundary")} action={t("err.boundaryRetry")}>
+            {/* D3: key по сессии — одна битая карточка больше не кладёт границу
+                в error-state навсегда: смена задачи сбрасывает фолбэк */}
+            <ErrorBoundary key={session?.id ?? "none"} title={t("err.boundary")} action={t("err.boundaryRetry")}>
             {(() => {
               const nodes: ReactNode[] = [];
               // Производные хода (callById/merged/results/writes) считаются

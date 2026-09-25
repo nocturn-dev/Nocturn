@@ -1,4 +1,5 @@
 import { useLang } from "../../locales";
+import { fmtInt } from "./util";
 import { useState } from "react";
 
 export function ContextRing({
@@ -12,7 +13,7 @@ export function ContextRing({
   rows: { label: string; tokens: number; color: string }[];
   isEstimate: boolean;
 }) {
-  const { t } = useLang();
+  const { lang, t } = useLang();
   const [open, setOpen] = useState(false);
   const pct = limit > 0 ? Math.min(1, used / limit) : 0;
   const color = pct >= 0.85 ? "#d14b4b" : pct >= 0.6 ? "#d4aa50" : "#5fbe82";
@@ -71,7 +72,7 @@ export function ContextRing({
                 <p
                   key={r.label}
                   className="flex items-center gap-2"
-                  title={`${r.tokens.toLocaleString("ru-RU")} ~tokens`}
+                  title={`${fmtInt(r.tokens, lang)} ~tokens`}
                 >
                   <span
                     className="size-2 shrink-0 rounded-full"

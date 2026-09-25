@@ -180,7 +180,9 @@ export default function NotesModal({
                         </button>
                       );
                     }
-                    return <a href={href}>{children}</a>;
+                    // D4: обычный <a> уводил вебвью приложения на внешний URL (фишинг
+                    // в доверенном окне) — как в AssistantCard, открываем в новом окне
+                    return <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>;
                   },
                 }}
               >

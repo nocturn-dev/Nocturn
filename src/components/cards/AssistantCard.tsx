@@ -2,6 +2,7 @@ import { summarizeArguments } from "../../diff";
 import { thinkingPhases, useLang } from "../../locales";
 import { type Message } from "../../types";
 import { shortModelName } from "../ProviderIcon";
+import { fmtInt } from "./util";
 import { CollapseButton } from "./CollapseButton";
 import { ErrorNote } from "./ErrorNote";
 import { ToolStepCard } from "./ToolStepCard";
@@ -323,13 +324,13 @@ function AssistantCardBase({
       {message.usage && (
         <div className="mt-2 flex items-center gap-3 border-t border-halo-line/50 pt-2 text-[10px] text-halo-muted/70">
           <span title={t("tokens.up")}>
-            ↑ {message.usage.prompt.toLocaleString("ru-RU")}
+            ↑ {fmtInt(message.usage.prompt, lang)}
           </span>
           <span title={t("tokens.down")}>
-            ↓ {message.usage.completion.toLocaleString("ru-RU")}
+            ↓ {fmtInt(message.usage.completion, lang)}
           </span>
           <span title={t("tokens.total")}>
-            Σ {message.usage.total.toLocaleString("ru-RU")}
+            Σ {fmtInt(message.usage.total, lang)}
           </span>
         </div>
       )}
