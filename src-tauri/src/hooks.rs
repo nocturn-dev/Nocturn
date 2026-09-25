@@ -8,7 +8,9 @@
 //! Ответ процесса: stdout. Если это JSON вида
 //!   { "decision": "block", "reason": "..." }  — PreToolUse блокирует вызов;
 //!   { "additionalContext": "..." }            — текст добавляется к результату.
-//! Ненулевой exit-код у PreToolUse также блокирует вызов (reason = stderr/stdout).
+//! Блокирует ТОЛЬКО явный decision=block: ненулевой exit/сбой spawn/мусор в
+//! stdout записываются в outcome, но не замыкают вызовы (один сломанный хук
+//! раньше блокировал все инструменты). timeout=0 — хук отключён.
 //!
 //! Хранилище: hooks.json в app_config_dir. Матчер — подстрока имени
 //! инструмента (регистронезависимо), пустая строка = все инструменты
@@ -94,21 +96,50 @@ pub fn hooks_path(dir: &std::path::Path) -> PathBuf {
     dir.join("hooks.json")
 }
 
+/// Кэш hooks.json: load() вызывается дважды на каждый тулл-колл (PreToolUse
+/// + PostToolUse) — чтение+парсинг с диска на горячем пути давали постоянный
+/// оверхед.
+///
+/// Ключ — (mtime, len): правка файла моментально инвалидирует кэш.
+type HookCacheEntry = (PathBuf, std::time::SystemTime, u64);
+static LOAD_CACHE: std::sync::Mutex<Option<(HookCacheEntry, HookFile)>> =
+    std::sync::Mutex::new(None);
+
 pub fn load(dir: &std::path::Path) -> HookFile {
     let path = hooks_path(dir);
-    if !path.exists() {
+    let Ok(md) = std::fs::metadata(&path) else {
         return HookFile::default();
+    };
+    let Ok(mtime) = md.modified() else {
+        return HookFile::default();
+    };
+    let key = (path.clone(), mtime, md.len());
+    if let Ok(guard) = LOAD_CACHE.lock() {
+        if let Some((cached_key, cached)) = guard.as_ref() {
+            if cached_key == &key {
+                return cached.clone();
+            }
+        }
     }
-    std::fs::read_to_string(&path)
+    let parsed = std::fs::read_to_string(&path)
         .ok()
-        .and_then(|d| serde_json::from_str(&d).ok())
-        .unwrap_or_default()
+        .and_then(|d| serde_json::from_str::<HookFile>(&d).ok())
+        .unwrap_or_default();
+    if let Ok(mut guard) = LOAD_CACHE.lock() {
+        *guard = Some((key, parsed.clone()));
+    }
+    parsed
 }
 
 pub fn save(dir: &std::path::Path, file: &HookFile) -> Result<(), String> {
     std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     let json = serde_json::to_string_pretty(file).map_err(|e| e.to_string())?;
-    crate::fsutil::atomic_write(&hooks_path(dir), json.as_bytes())
+    crate::fsutil::atomic_write(&hooks_path(dir), json.as_bytes())?;
+    // Кэш мог остаться с прежним (mtime, len) — сбрасываем принудительно
+    if let Ok(mut guard) = LOAD_CACHE.lock() {
+        *guard = None;
+    }
+    Ok(())
 }
 
 /// Совпадает ли хук с событием/инструментом
@@ -134,15 +165,14 @@ fn exec_with_abort(
     abort: Option<&std::sync::atomic::AtomicBool>,
 ) -> HookOutcome {
     let mut out = HookOutcome::skipped(&hook.id);
+    // timeout 0 — хук отключён: раньше «без ожидания» маппилось в 3600 с,
+    // и зависший хук держал весь шаг агента до часа на каждом тулл-колле
+    if hook.timeout == 0 {
+        return out;
+    }
     out.ran = true;
 
-    // timeout 0 — «без таймаута», но потолок 1 час: зависший хук с 0 раньше
-    // блокировал движок навсегда (Duration::MAX); иначе ограничение 1..600 с
-    let timeout = Duration::from_secs(if hook.timeout == 0 {
-        3600
-    } else {
-        hook.timeout.clamp(1, 600)
-    });
+    let timeout = Duration::from_secs(hook.timeout.clamp(1, 600));
 
     let (shell, flag) = if cfg!(windows) {
         ("cmd", "/C")
@@ -177,9 +207,10 @@ fn exec_with_abort(
         match crate::proc::run_command_opts(&mut cmd, timeout, Some(payload_bytes), abort) {
             Ok(o) => o,
             Err(e) => {
+                // Сбой spawn больше НЕ блокирует вызов: один опечатанный хук
+                // раньше блокировал ВСЕ инструменты с невнятной ошибкой.
+                // Хук — удобство, а не граница безопасности (это perm-слой)
                 out.stderr = e;
-                out.blocked = true;
-                out.reason = out.stderr.clone();
                 return out;
             }
         };
@@ -192,7 +223,10 @@ fn exec_with_abort(
         out.stderr = format!("hook timed out after {}s", timeout.as_secs());
     }
 
-    // Разбор ответа: JSON { decision, reason, additionalContext } поверх stdout
+    // Разбор ответа: блокировка — ТОЛЬКО явный JSON { "decision": "block" }.
+    // Ненулевой exit-код и мусор в stdout раньше тоже считались блокировкой:
+    // пустой/опечатанный хук (cmd /C "" → exit 1) замыкал все вызовы
+    // инструментов с сообщением «blocked by hook»
     if let Ok(v) = serde_json::from_str::<serde_json::Value>(out.stdout.trim()) {
         if v.get("decision").and_then(|d| d.as_str()) == Some("block") {
             out.blocked = true;
@@ -205,14 +239,6 @@ fn exec_with_abort(
         if let Some(ctx) = v.get("additionalContext").and_then(|c| c.as_str()) {
             out.additional_context = ctx.to_string();
         }
-    } else if out.exit_code != Some(0) {
-        // Ненулевой exit-код без внятного JSON — считаем блокировкой
-        out.blocked = true;
-        out.reason = if !out.stderr.trim().is_empty() {
-            out.stderr.trim().to_string()
-        } else {
-            format!("hook exited with code {:?}", out.exit_code)
-        };
     }
     out
 }

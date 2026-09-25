@@ -148,22 +148,29 @@ fn check_fs_path(state: &PermState, path: Option<&str>) -> Result<(), String> {
 /// которые не удалось резолвить (несуществующее поддерево), сравниваются
 /// строково — как и раньше. Относительные пути запрещены.
 fn path_allowed(roots: &[String], path: &str) -> bool {
-    // Нормализация написания: на Windows ФС регистронезависима и разделитель
-    // `\`; на Unix (macOS/Linux) ФС регистрозависима — lowercase там УБИВАЛ
-    // корректность (директория-тёзка в другом регистре проходила как «внутри
-    // корня»), поэтому сравнение чувствительно к регистру.
-    #[cfg(windows)]
+    // Регистронезависимость сравнения — по поведению ФС: на Windows NTFS
+    // регистр не учитывается; на macOS дефолтная APFS ТОЖЕ регистронезависима
+    // (раньше lowercase был только на Windows, и корень ~/Projects/App
+    // отвергал легитимный путь ~/projects/app); на Linux (ext4/btrfs) ФС
+    // регистрозависима — lowercase там УБИВАЛ корректность (директория-тёзка
+    // в другом регистре проходила как «внутри корня»)
+    #[cfg(any(windows, target_os = "macos"))]
     let norm = |s: &str| {
-        let mut s = s.to_lowercase().replace('/', "\\");
-        // canonicalize на Windows возвращает \\?\C:\... (или \\?\UNC\srv\share)
-        if let Some(rest) = s.strip_prefix("\\\\?\\unc\\") {
-            s = format!("\\\\{rest}");
-        } else if let Some(rest) = s.strip_prefix("\\\\?\\") {
-            s = rest.to_string();
+        let mut s = s.to_lowercase();
+        #[cfg(windows)]
+        {
+            // разделитель `\`; canonicalize на Windows возвращает
+            // \\?\C:\... (или \\?\UNC\srv\share) — срезаем префикс
+            s = s.replace('/', "\\");
+            if let Some(rest) = s.strip_prefix("\\\\?\\unc\\") {
+                s = format!("\\\\{rest}");
+            } else if let Some(rest) = s.strip_prefix("\\\\?\\") {
+                s = rest.to_string();
+            }
         }
         s
     };
-    #[cfg(not(windows))]
+    #[cfg(not(any(windows, target_os = "macos")))]
     let norm = |s: &str| s.replace('\\', "/");
 
     let p = norm(path);

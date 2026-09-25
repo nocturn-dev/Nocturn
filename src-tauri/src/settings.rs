@@ -157,21 +157,27 @@ pub fn crypto_write_meta(
     crate::fsutil::atomic_write(&path, json.as_bytes())
 }
 
-/// Состояние шифрования для окна входа на старте
-#[tauri::command]
-pub fn crypto_status(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
-    let enabled = config_file(&app, "settings.json")
-        .ok()
-        .filter(|p| p.exists())
-        .and_then(|p| fs::read_to_string(p).ok())
-        .and_then(|d| serde_json::from_str::<serde_json::Value>(&d).ok())
-        .and_then(|v| v.get("encrypt_keys").and_then(|x| x.as_bool()))
-        .unwrap_or(false);
-    Ok(serde_json::json!({
-        "enabled": enabled,
-        "setup": crypto_read_meta(&app)?.is_some(),
-        "unlocked": crypto::has_key(),
-    }))
+/// Состояние шифрования для окна входа на старте.
+/// async + spawn_blocking: sync-команда в Tauri 2 исполнялась на главном
+/// потоке, а читает settings.json с диска (медленный диск = фриз UI)
+#[tauri::command(async)]
+pub async fn crypto_status(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let enabled = config_file(&app, "settings.json")
+            .ok()
+            .filter(|p| p.exists())
+            .and_then(|p| fs::read_to_string(p).ok())
+            .and_then(|d| serde_json::from_str::<serde_json::Value>(&d).ok())
+            .and_then(|v| v.get("encrypt_keys").and_then(|x| x.as_bool()))
+            .unwrap_or(false);
+        Ok(serde_json::json!({
+            "enabled": enabled,
+            "setup": crypto_read_meta(&app)?.is_some(),
+            "unlocked": crypto::has_key(),
+        }))
+    })
+    .await
+    .map_err(|e| format!("crypto status task failed: {e}"))?
 }
 
 /// Первое создание мастер-пароля: соль + маркер, ключ в память (Argon2id).
@@ -337,48 +343,54 @@ fn restore_rekey_backups(paths: &[std::path::PathBuf]) {
 
 /// Забыли пароль: полный сброс шифрования (зашифрованные ключи утеряны).
 /// Разрушающая операция — требует явного подтверждения confirm="RESET".
-#[tauri::command]
-pub fn crypto_reset(app: tauri::AppHandle, confirm: String) -> Result<(), String> {
+/// async + spawn_blocking: файловый IO больше не на главном потоке
+#[tauri::command(async)]
+pub async fn crypto_reset(app: tauri::AppHandle, confirm: String) -> Result<(), String> {
     if confirm != "RESET" {
         return Err("confirmation required: pass confirm=\"RESET\" to wipe stored keys".into());
     }
     crypto::clear_key();
-    let meta = crypto_meta_path(&app)?;
-    if meta.exists() {
-        fs::remove_file(&meta).map_err(|e| e.to_string())?;
-    }
-    // Чистим зашифрованные поля — восстановить их без пароля невозможно
-    for (path, _fields) in [
-        (
-            config_file(&app, "settings.json")?,
-            vec!["api_key".to_string()],
-        ),
-        (
-            config_file(&app, "profiles.json")?,
-            vec!["api_key".to_string()],
-        ),
-    ] {
-        if !path.exists() {
-            continue;
+    tauri::async_runtime::spawn_blocking(move || {
+        let meta = crypto_meta_path(&app)?;
+        if meta.exists() {
+            fs::remove_file(&meta).map_err(|e| e.to_string())?;
         }
-        let data = fs::read_to_string(&path).map_err(|e| e.to_string())?;
-        let mut v: serde_json::Value = serde_json::from_str(&data).unwrap_or(serde_json::json!({}));
-        if path.ends_with("settings.json") {
-            v["api_key"] = serde_json::Value::String(String::new());
-            v["encrypt_keys"] = serde_json::Value::Bool(false);
-        } else if let Some(arr) = v.get_mut("profiles").and_then(|x| x.as_array_mut()) {
-            for p in arr {
-                p["api_key"] = serde_json::Value::String(String::new());
+        // Чистим зашифрованные поля — восстановить их без пароля невозможно
+        for (path, _fields) in [
+            (
+                config_file(&app, "settings.json")?,
+                vec!["api_key".to_string()],
+            ),
+            (
+                config_file(&app, "profiles.json")?,
+                vec!["api_key".to_string()],
+            ),
+        ] {
+            if !path.exists() {
+                continue;
             }
+            let data = fs::read_to_string(&path).map_err(|e| e.to_string())?;
+            let mut v: serde_json::Value =
+                serde_json::from_str(&data).unwrap_or(serde_json::json!({}));
+            if path.ends_with("settings.json") {
+                v["api_key"] = serde_json::Value::String(String::new());
+                v["encrypt_keys"] = serde_json::Value::Bool(false);
+            } else if let Some(arr) = v.get_mut("profiles").and_then(|x| x.as_array_mut()) {
+                for p in arr {
+                    p["api_key"] = serde_json::Value::String(String::new());
+                }
+            }
+            crate::fsutil::atomic_write(
+                &path,
+                serde_json::to_string_pretty(&v)
+                    .map_err(|e| e.to_string())?
+                    .as_bytes(),
+            )?;
         }
-        crate::fsutil::atomic_write(
-            &path,
-            serde_json::to_string_pretty(&v)
-                .map_err(|e| e.to_string())?
-                .as_bytes(),
-        )?;
-    }
-    Ok(())
+        Ok(())
+    })
+    .await
+    .map_err(|e| format!("crypto reset task failed: {e}"))?
 }
 
 // ---------- Экспорт/импорт настроек одним файлом ----------
@@ -609,11 +621,12 @@ pub fn settings_export_write(
     crate::fsutil::atomic_write(target, content.as_bytes())
 }
 
-/// Прочитать импорт-файл
+/// Прочитать импорт-файл (путь контролируется фронтом: потолок 32 МБ —
+/// pagefile.sys раньше читался в память целиком)
 #[tauri::command(async)]
 pub fn settings_import_read(path: String) -> Result<serde_json::Value, String> {
     rejects_sensitive_path(&path)?;
-    let data = fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    let data = crate::fsutil::read_capped_string(std::path::Path::new(&path), 0)?;
     serde_json::from_str(&data).map_err(|e| format!("import file corrupted: {e}"))
 }
 

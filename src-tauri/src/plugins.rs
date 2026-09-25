@@ -66,7 +66,7 @@ pub fn shortcuts_load(app: tauri::AppHandle) -> Result<serde_json::Value, String
     if !path.exists() {
         return Ok(serde_json::json!({}));
     }
-    let data = fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    let data = crate::fsutil::read_capped_string(&path, 0)?;
     serde_json::from_str(&data).map_err(|e| format!("shortcuts file corrupted: {e}"))
 }
 
@@ -80,15 +80,21 @@ pub fn shortcuts_save(app: tauri::AppHandle, binds: serde_json::Value) -> Result
     crate::fsutil::atomic_write(&path, json.as_bytes())
 }
 
-/// Прочитать манифест плагина (plugin.json) из папки или файла
-#[tauri::command]
-pub fn plugin_read(path: String) -> Result<serde_json::Value, String> {
+/// Прочитать манифест плагина (plugin.json) из папки или файла.
+/// async + spawn_blocking: sync-команда в Tauri 2 исполняется на главном
+/// потоке — чтение с сетевого диска замораживало весь UI. Потолок размера:
+/// путь контролируется фронтом, pagefile.sys раньше читался целиком (OOM)
+#[tauri::command(async)]
+pub async fn plugin_read(path: String) -> Result<serde_json::Value, String> {
     rejects_sensitive_path(&path)?;
-    let p = std::path::PathBuf::from(&path);
-    let manifest = if p.is_dir() { p.join("plugin.json") } else { p };
-    let data = fs::read_to_string(&manifest)
-        .map_err(|e| format!("cannot read {}: {e}", manifest.display()))?;
-    serde_json::from_str(&data).map_err(|e| format!("plugin.json corrupted: {e}"))
+    tauri::async_runtime::spawn_blocking(move || {
+        let p = std::path::PathBuf::from(&path);
+        let manifest = if p.is_dir() { p.join("plugin.json") } else { p };
+        let data = crate::fsutil::read_capped_string(&manifest, 0)?;
+        serde_json::from_str(&data).map_err(|e| format!("plugin.json corrupted: {e}"))
+    })
+    .await
+    .map_err(|e| format!("plugin read task failed: {e}"))?
 }
 
 /// Реестр установленных плагинов (plugins.json)
@@ -98,7 +104,7 @@ pub fn plugins_load(app: tauri::AppHandle) -> Result<serde_json::Value, String> 
     if !path.exists() {
         return Ok(serde_json::json!({}));
     }
-    let data = fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    let data = crate::fsutil::read_capped_string(&path, 0)?;
     serde_json::from_str(&data).map_err(|e| format!("plugins file corrupted: {e}"))
 }
 
@@ -119,7 +125,7 @@ pub fn commands_load(app: tauri::AppHandle) -> Result<serde_json::Value, String>
     if !path.exists() {
         return Ok(serde_json::json!({}));
     }
-    let data = fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    let data = crate::fsutil::read_capped_string(&path, 0)?;
     serde_json::from_str(&data).map_err(|e| format!("commands file corrupted: {e}"))
 }
 
@@ -140,7 +146,7 @@ pub fn subagents_load(app: tauri::AppHandle) -> Result<serde_json::Value, String
     if !path.exists() {
         return Ok(serde_json::json!({}));
     }
-    let data = fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    let data = crate::fsutil::read_capped_string(&path, 0)?;
     serde_json::from_str(&data).map_err(|e| format!("subagents file corrupted: {e}"))
 }
 
@@ -161,7 +167,7 @@ pub fn usage_colors_load(app: tauri::AppHandle) -> Result<serde_json::Value, Str
     if !path.exists() {
         return Ok(serde_json::json!({}));
     }
-    let data = fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    let data = crate::fsutil::read_capped_string(&path, 0)?;
     serde_json::from_str(&data).map_err(|e| format!("colors file corrupted: {e}"))
 }
 

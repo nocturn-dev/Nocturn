@@ -36,9 +36,12 @@ impl PtyRegistry {
     pub fn kill_all(&self) {
         let map = self.0.lock().unwrap_or_else(|p| p.into_inner());
         for s in map.values() {
-            // FIX: убиваем через отдельный child-лок — без ожидания io
+            // FIX: убиваем через отдельный child-лок — без ожидания io.
+            // wait() reap'ит процесс: на Unix без него shell оставался зомби
+            // до выхода приложения
             if let Ok(mut c) = s.child.lock() {
                 let _ = c.kill();
+                let _ = c.wait();
             }
         }
     }
@@ -245,8 +248,25 @@ pub async fn pty_create(
                 let _ = app_out.emit("pty-output", PtyEvent { id: out_id.clone(), data: s });
             },
             move || {
-                use tauri::Emitter;
+                use tauri::{Emitter, Manager};
                 let _ = app.emit("pty-exit", exit_id.clone());
+                // Мёртвая сессия покидает реестр: записи раньше копились до
+                // перезапуска, а pty_create с тем же id молча возвращал «ок»
+                // для мёртвой сессии. Удаляем только если child действительно
+                // завершился и это не перезапуск под тем же id
+                if let Some(reg) = app.try_state::<PtyRegistry>() {
+                    if let Ok(mut map) = reg.0.lock() {
+                        let dead = map
+                            .get(&exit_id)
+                            .and_then(|s| s.child.lock().ok())
+                            .and_then(|mut c| c.try_wait().ok())
+                            .flatten()
+                            .is_some();
+                        if dead {
+                            map.remove(&exit_id);
+                        }
+                    }
+                }
             },
         )
     })
@@ -263,6 +283,7 @@ pub async fn pty_create(
         // FIX: отдельный child-лок — kill больше не соревнуется с io
         if let Ok(mut c) = session.child.lock() {
             let _ = c.kill();
+            let _ = c.wait();
         }
         return Ok(());
     }
@@ -338,9 +359,11 @@ pub async fn pty_kill(state: tauri::State<'_, PtyRegistry>, id: String) -> Resul
     if let Some(s) = session {
         tauri::async_runtime::spawn_blocking(move || {
             // FIX: отдельный child-лок — kill срабатывает, даже если
-            // pty_write застрял в write_all на io-локе
+            // pty_write застрял в write_all на io-локе. wait() reap'ит:
+            // на Unix без него шелл оставался зомби до выхода приложения
             if let Ok(mut c) = s.child.lock() {
                 let _ = c.kill();
+                let _ = c.wait();
             }
         })
         .await

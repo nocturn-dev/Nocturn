@@ -462,12 +462,19 @@ pub async fn chat_stream(
 /// конвертируется из UTF-8 ровно один раз, поэтому многобайтный символ,
 /// разрезанный границей сетевых чанков, не превращается в U+FFFD. Хвост без
 /// '\n' остаётся в буфере до следующего куска.
+///
+/// Один проход с индексом старта и ОДИН drain в конце: раньше drain(..=pos)
+/// в цикле сдвигал остаток буфера на каждой строке — O(N·L) memcpy на чанк
+/// просаживал приём на скоростных моделях и локальных LLM.
 pub fn take_complete_lines(buf: &mut Vec<u8>) -> Vec<String> {
     let mut out = Vec::new();
-    while let Some(pos) = buf.iter().position(|&b| b == b'\n') {
-        let line: Vec<u8> = buf.drain(..=pos).collect();
-        out.push(String::from_utf8_lossy(&line).to_string());
+    let mut start = 0;
+    while let Some(pos) = buf[start..].iter().position(|&b| b == b'\n') {
+        let end = start + pos;
+        out.push(String::from_utf8_lossy(&buf[start..=end]).to_string());
+        start = end + 1;
     }
+    buf.drain(..start);
     out
 }
 

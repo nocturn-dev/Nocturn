@@ -21,6 +21,12 @@ pub struct NetworkConfig {
 
 pub static CONFIG: Mutex<Option<NetworkConfig>> = Mutex::new(None);
 
+/// PEM, прочитанный при set_config: apply() вызывается на КАЖДЫЙ запрос
+/// (chat_stream/test_connection/detect_ollama) — синхронный fs::read там
+/// висел на UNC-пути/отвалившемся диске до SMB-таймаута и стоял целый
+/// tokio-воркер со всеми стримами. Читаем один раз при смене конфига.
+static CA_PEM: Mutex<Option<Result<Vec<u8>, String>>> = Mutex::new(None);
+
 pub fn config() -> NetworkConfig {
     CONFIG
         .lock()
@@ -30,6 +36,17 @@ pub fn config() -> NetworkConfig {
 }
 
 pub fn set_config(cfg: NetworkConfig) {
+    let ca = if cfg.ca_path.trim().is_empty() {
+        None
+    } else {
+        Some(
+            std::fs::read(cfg.ca_path.trim())
+                .map_err(|e| format!("cannot read CA file: {e}")),
+        )
+    };
+    let mut slot = CA_PEM.lock().unwrap_or_else(|p| p.into_inner());
+    *slot = ca;
+    drop(slot);
     *CONFIG.lock().unwrap_or_else(|p| p.into_inner()) = Some(cfg);
 }
 
@@ -47,9 +64,12 @@ pub fn apply(builder: reqwest::ClientBuilder) -> Result<reqwest::ClientBuilder, 
         }
         b = b.proxy(proxy);
     }
-    if !cfg.ca_path.trim().is_empty() {
-        let pem = std::fs::read(cfg.ca_path.trim())
-            .map_err(|e| format!("cannot read CA file: {e}"))?;
+    let ca = CA_PEM
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .clone();
+    if let Some(pem) = ca {
+        let pem = pem?;
         let cert = reqwest::Certificate::from_pem(&pem)
             .map_err(|e| format!("invalid CA certificate: {e}"))?;
         b = b.add_root_certificate(cert);
