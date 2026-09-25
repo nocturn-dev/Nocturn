@@ -256,6 +256,8 @@ export const zh = {
     "err.rate": "请求频率受限 (HTTP {code})。请稍候或更换模型。",
     "err.server": "提供商暂时不可用 (HTTP {code})。请稍后再试，或更换模型/配置。",
     "err.generic": "请求失败。请查看详情。",
+    "err.boundary": "此区块渲染失败",
+    "err.boundaryRetry": "重新显示",
     "err.details": "详情",
     // Профили ключей (BYOK)
     "api.profiles": "密钥配置",

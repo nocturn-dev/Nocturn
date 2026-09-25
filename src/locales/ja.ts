@@ -256,6 +256,8 @@ export const ja = {
     "err.rate": "レート制限 (HTTP {code})。少し待つか、モデルを切り替えてください。",
     "err.server": "プロバイダーが一時的に利用できません (HTTP {code})。後で試すか、モデル/プロファイルを切り替えてください。",
     "err.generic": "リクエストに失敗しました。詳細をご確認ください。",
+    "err.boundary": "このブロックの描画に失敗しました",
+    "err.boundaryRetry": "再表示",
     "err.details": "詳細",
     // Профили ключей (BYOK)
     "api.profiles": "キープロファイル",

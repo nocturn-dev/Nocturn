@@ -229,6 +229,8 @@ export const en = {
     "err.rate": "Rate limited (HTTP {code}). Wait a moment or switch models.",
     "err.server": "Provider temporarily unavailable (HTTP {code}). Try again later or switch model/profile.",
     "err.generic": "Request failed. See details.",
+    "err.boundary": "This block failed to render",
+    "err.boundaryRetry": "Show again",
     "err.details": "Details",
     "api.profiles": "Key profiles",
     "api.profilesSub": "Save a key + provider + model bundle and switch with one click.",

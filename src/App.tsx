@@ -102,6 +102,7 @@ import {
 import { loadLimits, saveLimits, type HardLimits } from "./limits";
 import { uid } from "./hooks/useAgentRun";
 import { AmbientLayer } from "./components/AmbientLayer";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 
 const clampNum = (v: number, min: number, max: number) =>
   Math.min(max, Math.max(min, v));
@@ -2145,6 +2146,7 @@ export default function App() {
         onOpenNote={(f) => void handleOpenNote(f)}
         onClose={() => setOpenNoteFile(null)}
       />
+      <ErrorBoundary title={t("err.boundary")} action={t("err.boundaryRetry")}>
       <SettingsModal
         open={settingsOpen}
         theme={theme}
@@ -2244,6 +2246,7 @@ export default function App() {
         onUseLocalModel={handleUseLocalModel}
         onClose={() => setSettingsOpen(false)}
       />
+      </ErrorBoundary>
       <AutomationsModal
         open={automationsOpen}
         onClose={() => setAutomationsOpen(false)}

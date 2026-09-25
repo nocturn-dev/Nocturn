@@ -28,6 +28,7 @@ import { PlanPanel } from "./cards/PlanPanel";
 import { SubagentCard } from "./cards/SubagentCard";
 import { ToolStepCard } from "./cards/ToolStepCard";
 import { TypingBubble } from "./cards/TypingBubble";
+import { ErrorBoundary } from "./ErrorBoundary";
 import { UserCard } from "./cards/UserCard";
 import { ArrowUpIcon, ChevronDownIcon, CorrectIcon, PaperclipIcon, PermModeIcon, QueueIcon, QuoteIcon, RobotIcon, ShieldIcon, SlidersIcon, SparkIcon, StopIcon, SystemPromptIcon, TerminalIcon, TrashIcon, WrenchIcon, XSmallIcon } from "./cards/icons";
 import { fmtK } from "./cards/util";
@@ -1032,6 +1033,7 @@ export default function ChatArea({
             {/* Ход = сообщение пользователя + всё, что агент сделал до следующего.
                 groupTurns: весь ход в ОДНОЙ карточке; иначе каждый шаг отдельно.
                 В конце хода — сводка изменённых файлов */}
+            <ErrorBoundary title={t("err.boundary")} action={t("err.boundaryRetry")}>
             {(() => {
               const nodes: ReactNode[] = [];
               // Производные хода (callById/merged/results/writes) считаются
@@ -1231,6 +1233,7 @@ export default function ChatArea({
               }
               return nodes;
             })()}
+            </ErrorBoundary>
             {pendingConfirm && !terminalOpen && (
               <ConfirmCard
                 call={pendingConfirm.call}
