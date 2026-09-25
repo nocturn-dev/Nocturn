@@ -426,7 +426,10 @@ export default function ChatArea({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const messages = session?.messages ?? [];
+  // `session?.messages ?? []` — новый массив на каждый рендер: он тянул за
+  // собой пересчёт ВСЕХ useMemo/useEffect, зависящих от messages (deps
+  // меняли идентичность каждый кадр). Мемоизируем саму нормализацию
+  const messages = useMemo(() => session?.messages ?? [], [session]);
   // Пустые ассистентские карточки — placeholders активного стрима;
   // сообщения пользователя можно скрыть тумблером в «Основном».
   // Карточка с ошибкой видима всегда — иначе ответ «исчезает» молча
@@ -778,12 +781,15 @@ export default function ChatArea({
 
     document.addEventListener("mouseup", onMouseUp);
     document.addEventListener("mousedown", onMouseDown);
-    scrollRef.current?.addEventListener("scroll", onScroll, { passive: true });
+    // Фиксируем узел на момент монтирования: cleanup с scrollRef.current
+    // снимал бы слушатель с УЖЕ ДРУГОГО узла (ref мог смениться)
+    const scrollEl = scrollRef.current;
+    scrollEl?.addEventListener("scroll", onScroll, { passive: true });
     document.addEventListener("keydown", onKey);
     return () => {
       document.removeEventListener("mouseup", onMouseUp);
       document.removeEventListener("mousedown", onMouseDown);
-      scrollRef.current?.removeEventListener("scroll", onScroll);
+      scrollEl?.removeEventListener("scroll", onScroll);
       document.removeEventListener("keydown", onKey);
     };
   }, []);

@@ -137,6 +137,9 @@ export default function App() {
       });
     }, 8000);
     return () => window.clearTimeout(timer);
+    // mount-only: разовая проверка за сессию — t/addToast сознательно не
+    // в deps, иначе смена языка перезапускала бы проверку обновления
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Экран «Автоматизации»
@@ -745,6 +748,10 @@ export default function App() {
       projectsReady,
       historyReady,
     ]).then(() => setSplashDone(true));
+    // mount-only: загрузка выполняется один раз за сессию; autoArchive/
+    // archiveRetention/addToast/t — снимок на момент старта, повторный
+    // запуск эффекта при их смене перечитывал бы хранилища заново
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Автосохранение истории.
@@ -888,7 +895,7 @@ export default function App() {
         }),
       )
       .catch((e) => setApiStatus({ kind: "error", message: String(e) }));
-  }, [apiSettings.base_url, apiSettings.api_key]);
+  }, [apiSettings.base_url, apiSettings.api_key, t]);
 
   const handleSaveSettings = async () => {
     await saveSettings(apiSettings);
@@ -1406,6 +1413,9 @@ export default function App() {
       void send(prompt, undefined, session.id);
     }, 30000);
     return () => clearInterval(timer);
+    // activeRunRef/handleSendRef — рефы со стабильной идентичностью;
+    // тикер автоматизаций mount-only по замыслу
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Диспетчер действий биндов — актуальные обработчики через реф

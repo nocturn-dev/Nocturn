@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Session, UsageEvent } from "../types";
 import { dayKeyLocal } from "../time";
 import { useLang, type TFn } from "../locales";
@@ -52,8 +52,13 @@ export default function UsageSection({ sessions }: { sessions: Session[] }) {
     setColors(next);
     usageColorsSave(next).catch(() => {});
   };
-  const colorOf = (model: string) =>
-    colors[model] ?? MODEL_COLORS[hashString(model) % MODEL_COLORS.length];
+  // useCallback: memo статистики ниже зависит от colorOf — без стабильной
+  // идентичности кэш пересчитывался бы на каждый рендер
+  const colorOf = useCallback(
+    (model: string) =>
+      colors[model] ?? MODEL_COLORS[hashString(model) % MODEL_COLORS.length],
+    [colors],
+  );
 
   const events = useMemo(() => {
     void tick;
@@ -159,7 +164,7 @@ export default function UsageSection({ sessions }: { sessions: Session[] }) {
       cumByDay,
       maxDay: Math.max(1, ...[...byDay.values()]),
     };
-  }, [events, tick, colors]);
+  }, [events, tick, colorOf]);
 
   // Дневной тренд за выбранный диапазон: топ-2 модели
   const trend = useMemo(() => {
