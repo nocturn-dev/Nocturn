@@ -56,8 +56,10 @@ export function newId(): string {
 }
 
 function parseTime(time: string): [number, number] {
-  const [h, m] = time.split(":").map((x) => parseInt(x, 10));
-  return [isNaN(h) ? 9 : h, isNaN(m) ? 0 : m];
+  const parts = time.split(":").map((x) => parseInt(x, 10));
+  const h = parts[0];
+  const m = parts[1];
+  return [h === undefined || isNaN(h) ? 9 : h, m === undefined || isNaN(m) ? 0 : m];
 }
 
 /** Ближайший запуск расписания после момента from */

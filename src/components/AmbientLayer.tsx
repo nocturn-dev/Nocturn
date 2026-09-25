@@ -138,13 +138,15 @@ export function AmbientLayer({
           "rgba(50, 80, 150, ",
           "rgba(110, 130, 200, ",
         ];
+        const fogColor = (i: number): string =>
+          colors[i % colors.length] ?? colors[0] ?? colors[1]!;
         blobs = Array.from({ length: Math.max(3, Math.round(6 * density)) }, (_, i) => ({
           x: Math.random() * w,
           y: Math.random() * h,
           r: (0.28 + Math.random() * 0.22) * Math.max(w, h),
           dx: (Math.random() - 0.5) * 0.12,
           dy: (Math.random() - 0.5) * 0.08,
-          color: colors[i % colors.length],
+          color: fogColor(i),
         }));
       }
       if (scene === "snow") {
@@ -271,7 +273,10 @@ export function AmbientLayer({
         }
       }
       // неоновое свечение самого высокого здания
-      const tallest = buildings.reduce((a, b) => (b.h > a.h ? b : a), buildings[0]);
+      const tallest = buildings.reduce<Building | undefined>(
+        (a, b) => (b.h > (a?.h ?? -1) ? b : a),
+        undefined,
+      );
       if (tallest) {
         const grad = ctx.createRadialGradient(
           tallest.x + tallest.w / 2,

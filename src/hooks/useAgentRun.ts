@@ -1057,8 +1057,8 @@ export function useAgentRun(deps: AgentRunDeps) {
               t("activity.toolCall", {
                 name:
                   calls.length === 1
-                    ? calls[0].name
-                    : `${calls[0].name} +${calls.length - 1}`,
+                    ? (calls[0]?.name ?? "?")
+                    : `${calls[0]?.name ?? "?"} +${calls.length - 1}`,
               }),
             );
             // FIX: клонируем только целевую сессию, а не все сессии стора
@@ -1390,7 +1390,10 @@ export function useAgentRun(deps: AgentRunDeps) {
           const role: SubagentRole =
             mergeRoles(subConfigRef.current.roles).find(
               (r) => r.id === parsed.role,
-            ) ?? SUBAGENT_ROLES[0];
+            ) ?? SUBAGENT_ROLES[0]
+            // SUBAGENT_ROLES непустой по построению; строгие индексы требуют
+            // явности — последний фолбэк даёт валидную безопасную роль
+            ?? { id: "researcher", name: "Researcher", tools: null, maxSteps: 8, systemPrompt: "" };
           const task = (parsed.task ?? "").trim();
           if (!task) {
             subContent = "error: empty task";

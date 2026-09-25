@@ -49,11 +49,11 @@ describe("applyMainDeltas", () => {
       ["a1", { content: " +часть2", thought: " ещё" }],
       ["a2", { content: "новый", thought: "" }],
     ]);
-    expect(out[1].content).toBe("часть1 +часть2");
-    expect(out[1].thought).toBe("мысль ещё");
-    expect(out[2].content).toBe("новый");
-    expect(out[2].thought).toBeUndefined();
-    expect(out[0]).toBe(messages[0]); // незатронутые переиспользуются по ссылке
+    expect(out[1]!.content).toBe("часть1 +часть2");
+    expect(out[1]!.thought).toBe("мысль ещё");
+    expect(out[2]!.content).toBe("новый");
+    expect(out[2]!.thought).toBeUndefined();
+    expect(out[0]!).toBe(messages[0]); // незатронутые переиспользуются по ссылке
   });
 
   it("empty deltas → same array reference", () => {
@@ -64,6 +64,6 @@ describe("applyMainDeltas", () => {
   it("thought-less delta keeps existing thought untouched", () => {
     const messages = [{ id: "a", content: "x", thought: "t" }];
     const out = applyMainDeltas(messages, [["a", { content: "y", thought: "" }]]);
-    expect(out[0].thought).toBe("t");
+    expect(out[0]!.thought).toBe("t");
   });
 });

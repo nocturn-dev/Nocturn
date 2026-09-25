@@ -167,7 +167,9 @@ export default function TerminalPanel({
   const write = (s: string) => {
     const buf = linesRef.current;
     if (buf.length === 0) buf.push([]);
-    let cur = buf[buf.length - 1];
+    // Строгие индексы: последняя строка существует (push выше), но
+    // замыкание emitText переназначает cur — тип объявляем definite
+    let cur: Line = buf[buf.length - 1] ?? [];
 
     const emitText = (text: string) => {
       const parts = text.split("\r\n");
@@ -186,7 +188,7 @@ export default function TerminalPanel({
     while ((m = re.exec(s))) {
       if (m.index > idx) emitText(s.slice(idx, m.index));
       idx = re.lastIndex;
-      if (m[2] === "m") applySgr(m[1], sgrRef.current);
+      if (m[2] === "m") applySgr(m[1] ?? "", sgrRef.current);
     }
     if (idx < s.length) emitText(s.slice(idx));
 
@@ -277,7 +279,7 @@ export default function TerminalPanel({
 
       // shell_run: команда + exit-код; остальное — первые строки вывода
       const exitMatch = m.content.match(/exit code: (-?\d+)/);
-      const exit = exitMatch ? parseInt(exitMatch[1], 10) : null;
+      const exit = exitMatch ? parseInt(exitMatch[1] ?? "", 10) : null;
       const failed = exit !== null && exit !== 0;
       const statusColor = failed ? C.red : C.green;
       const args =
@@ -335,6 +337,7 @@ export default function TerminalPanel({
         const calls = m.toolCalls ?? [];
         for (; st.calls < calls.length; st.calls++) {
           const tc = calls[st.calls];
+          if (!tc) break;
           write(
             `\r\n  ${C.cyan}◆ ${tc.name}${C.reset} ${C.dim}${esc(summarizeArguments(tc.name, tc.arguments))}${C.reset}`,
           );
@@ -348,6 +351,7 @@ export default function TerminalPanel({
 
     for (let i = cursorRef.current; i < msgs.length; i++) {
       const m = msgs[i];
+      if (!m) continue;
       if (liveRef.current.id !== m.id) {
         // Запечатываем предыдущее живое сообщение и начинаем новое
         if (liveRef.current.header) write("\r\n");

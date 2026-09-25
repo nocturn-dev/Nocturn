@@ -62,6 +62,7 @@ export function MessageNav({
     const ticks: { msg: Message; preview: string }[] = [];
     for (let i = 0; i < messages.length; i++) {
       const m = messages[i];
+      if (!m) continue;
       if (m.role === "user") {
         ticks.push({ msg: m, preview: m.content });
         continue;
@@ -73,7 +74,7 @@ export function MessageNav({
       let preview = "";
       for (let j = i; j < messages.length; j++) {
         const x = messages[j];
-        if (x.role === "user") break;
+        if (!x || x.role === "user") break;
         if (x.role === "assistant" && (x.content || x.thought)) {
           preview = x.content || x.thought || "";
           break;

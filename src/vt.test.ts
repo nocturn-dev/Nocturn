@@ -3,7 +3,9 @@ import { Vt } from "./vt";
 
 /** Видимый текст строки терминала */
 function rowText(vt: Vt, row: number): string {
-  return vt.rows[row].map((c) => c.ch).join("").trimEnd();
+  const cells = vt.rows[row];
+  expect(cells).toBeDefined();
+  return cells!.map((c) => c.ch).join("").trimEnd();
 }
 
 describe("Vt", () => {
@@ -23,10 +25,10 @@ describe("Vt", () => {
   it("applies SGR bold and resets it", () => {
     const vt = new Vt(40, 5);
     vt.feed("\x1b[1mbold\x1b[0m plain");
-    const row = vt.rows[0];
-    expect(row[0].style.bold).toBe(true);
-    expect(row[3].style.bold).toBe(true);
-    expect(row[5].style.bold).toBe(false);
+    const row = vt.rows[0]!;
+    expect(row[0]!.style.bold).toBe(true);
+    expect(row[3]!.style.bold).toBe(true);
+    expect(row[5]!.style.bold).toBe(false);
     expect(rowText(vt, 0)).toBe("bold plain");
   });
 

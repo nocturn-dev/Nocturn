@@ -1680,7 +1680,8 @@ export default function App() {
           setChain({ ...state, status: [...status] });
           break;
         }
-        const { prompt } = parseNotePrompt(plan[i].content);
+        const stepPlan = plan[i];
+        const { prompt } = parseNotePrompt(stepPlan?.content ?? "");
         if (!prompt) {
           status[i] = "skipped";
           setChain({ ...state, current: i + 1, status: [...status] });

@@ -35,6 +35,7 @@ export default function CommandsSection() {
 
   const startEdit = (idx: number) => {
     const c = commands[idx];
+    if (!c) return;
     setName(c.name);
     setDescription(c.description);
     setTemplate(c.template);

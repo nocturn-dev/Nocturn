@@ -10,6 +10,7 @@ import { getToolSchemas, contextLimitFor, type ModelInfo } from "../api";
 import type { Theme } from "../types";
 import SystemPromptModal from "./SystemPromptModal";
 import TerminalPanel from "./TerminalPanel";
+import { uid } from "../hooks/useAgentRun";
 import WindowControls from "./WindowControls";
 import ProviderIcon, { brandName } from "./ProviderIcon";
 import { useLang } from "../locales";
@@ -489,7 +490,7 @@ export default function ChatArea({
     for (const m of messages) {
       if (m.role === "user") turns.push({ user: m, items: [] });
       else if (turns.length === 0) turns.push({ user: null, items: [m] });
-      else turns[turns.length - 1].items.push(m);
+      else turns[turns.length - 1]?.items.push(m);
     }
     const callById = new Map<string, ToolCallInfo>();
     for (const m of messages) {
@@ -550,7 +551,7 @@ export default function ChatArea({
           0,
         );
         merged = {
-          id: first.id,
+          id: first?.id ?? uid(),
           role: "assistant",
           content: contents.join("\n\n"),
           thought: thoughts.length ? thoughts.join("\n\n") : undefined,
@@ -579,7 +580,8 @@ export default function ChatArea({
   // Контекст окна: prompt последнего ответа ≈ текущее заполнение
   const contextUsed = useMemo(() => {
     for (let i = messages.length - 1; i >= 0; i--) {
-      if (messages[i].usage?.prompt) return messages[i].usage!.prompt;
+      const usage = messages[i]?.usage;
+      if (usage?.prompt) return usage.prompt;
     }
     return 0;
   }, [messages]);
@@ -917,7 +919,7 @@ export default function ChatArea({
       }
       if (e.key === "Tab") {
         e.preventDefault();
-        setDraft(`&${skillMatches[skillIndex].id} `);
+        setDraft(`&${skillMatches[skillIndex]?.id ?? ""} `);
         return;
       }
       if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {

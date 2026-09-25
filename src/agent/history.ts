@@ -17,7 +17,7 @@ export function trimContextWindow(history: ChatMsgParam[], keep: number): ChatMs
   // 1) Осиротевшие tool-результаты в начале окна: их assistant-родитель
   //    не влез в окно. Выбрасываем все ведущие role:"tool" подряд.
   let start = 0;
-  while (start < window.length && window[start].role === "tool") start++;
+  while (start < window.length && window[start]?.role === "tool") start++;
   const kept = window.slice(start);
 
   // 2) Обратный случай: assistant с tool_calls, чьи ответы не влезли в окно.

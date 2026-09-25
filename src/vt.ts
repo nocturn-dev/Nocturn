@@ -46,9 +46,14 @@ const PALETTE = [
   "#7fa7ef", "#d498ef", "#7fd8ef", "#f5f3ee",
 ];
 
+/** Достать базовый цвет: мусорный индекс из SGR даёт дефолт, не undefined */
+function paletteAt(i: number): string {
+  return PALETTE[i] ?? "#d6d3cc";
+}
+
 /** Цвет из 256-палитры (16 базовых + куб 6×6×6 + градации серого) */
 function color256(n: number): string {
-  if (n < 16) return PALETTE[n];
+  if (n >= 0 && n < 16) return paletteAt(n);
   if (n < 232) {
     const c = n - 16;
     const steps = [0, 95, 135, 175, 215, 255];
@@ -140,7 +145,12 @@ export class Vt {
       this.col = 0;
       this.lineFeed();
     }
-    const row = this.rows[this.row];
+    let row = this.rows[this.row];
+    if (!row) {
+      // Инвариант: строка курсора обязана существовать — восстанавливаем
+      row = this.blankRow();
+      this.rows[this.row] = row;
+    }
     row[this.col] = { ch: c, style: { ...this.style } };
     if (w === 2 && this.col + 1 < this.cols) {
       row[this.col + 1] = { ch: "", style: { ...this.style } };
@@ -180,6 +190,7 @@ export class Vt {
     let params = "";
     while (i < data.length) {
       const c = data[i];
+      if (c === undefined) break; // обрыв посреди последовательности
       if (c >= "0" && c <= "9") {
         params += c;
         i++;
@@ -202,8 +213,10 @@ export class Vt {
     const nums = params
       .split(";")
       .map((p) => (p === "" ? NaN : parseInt(p, 10)));
-    const n = (idx: number, dflt: number) =>
-      isNaN(nums[idx] ?? NaN) ? dflt : nums[idx];
+    const n = (idx: number, dflt: number): number => {
+      const v = nums[idx];
+      return v === undefined || isNaN(v) ? dflt : v;
+    };
 
     if (private_) {
       // Режимы ?25 (курсор), ?1049/?1047/?47 (альт. экран) — игнорируем
@@ -288,7 +301,11 @@ export class Vt {
   }
 
   private eraseLine(mode: number) {
-    const row = this.rows[this.row];
+    let row = this.rows[this.row];
+    if (!row) {
+      row = this.blankRow();
+      this.rows[this.row] = row;
+    }
     if (mode === 0) {
       for (let c = this.col; c < this.cols; c++) row[c] = { ch: " ", style: DEFAULT_STYLE };
     } else if (mode === 1) {
@@ -314,12 +331,13 @@ export class Vt {
 
   /** SGR: 16/256/truecolor для fg (38) и bg (48) */
   private sgr(nums: number[]) {
-    if (nums.length === 0 || isNaN(nums[0])) {
+    if (nums.length === 0 || nums[0] === undefined || isNaN(nums[0])) {
       this.style = { ...DEFAULT_STYLE };
       return;
     }
     for (let i = 0; i < nums.length; i++) {
       const p = nums[i];
+      if (p === undefined) continue;
       if (p === 0) {
         this.style = { ...DEFAULT_STYLE };
       } else if (p === 1) this.style.bold = true;
@@ -328,10 +346,10 @@ export class Vt {
       else if (p === 22) { this.style.bold = false; this.style.dim = false; }
       else if (p === 23) this.style.italic = false;
       else if ((p >= 30 && p <= 37) || (p >= 90 && p <= 97)) {
-        this.style.color = PALETTE[(p >= 90 ? p - 90 + 8 : p - 30)];
+        this.style.color = paletteAt(p >= 90 ? p - 90 + 8 : p - 30);
       } else if (p === 39) this.style.color = undefined;
       else if ((p >= 40 && p <= 47) || (p >= 100 && p <= 107)) {
-        this.style.bg = PALETTE[(p >= 100 ? p - 100 + 8 : p - 40)];
+        this.style.bg = paletteAt(p >= 100 ? p - 100 + 8 : p - 40);
       } else if (p === 49) this.style.bg = undefined;
       else if (p === 38 || p === 48) {
         const target = p === 38 ? "color" : "bg";

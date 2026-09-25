@@ -18,10 +18,8 @@
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
-    "noFallthroughCasesInSwitch": true
-    // noUncheckedIndexedAccess: ~180 срабатываний — включать отдельным
-    // рефакторингом с настоящими гвардями (аудит D20), а не механическими ??
-    // "noUncheckedIndexedAccess": true
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedIndexedAccess": true
   },
   "include": [
     "src"

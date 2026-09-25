@@ -34,7 +34,7 @@ function UserCardBase({
   const preview =
     content.replace(/\s+/g, " ").slice(0, 70) ||
     (attachments?.length
-      ? `${t("card.imageOf")}: ${attachments[0].name}`
+      ? `${t("card.imageOf")}: ${attachments[0]?.name ?? ""}`
       : "");
 
   if (collapsed) {

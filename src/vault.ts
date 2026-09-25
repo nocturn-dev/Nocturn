@@ -19,7 +19,7 @@ export function extractLinks(content: string): string[] {
   const re = /\[\[([^\[\]\n]+?)\]\]/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(content))) {
-    const target = m[1].trim();
+    const target = (m[1] ?? "").trim();
     if (target && !out.some((x) => x.toLowerCase() === target.toLowerCase())) {
       out.push(target);
     }
@@ -85,7 +85,7 @@ export function parseNotePrompt(content: string): { prompt: string; agent: boole
   let agent = false;
   const m = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(text);
   if (m) {
-    agent = /^\s*agent\s*:\s*true\s*$/m.test(m[1]);
+    agent = /^\s*agent\s*:\s*true\s*$/m.test(m[1] ?? "");
     text = text.slice(m[0].length);
   }
   return { prompt: text.trim(), agent };

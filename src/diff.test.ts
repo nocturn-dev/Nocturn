@@ -6,8 +6,8 @@ describe("diffLines", () => {
     const out = diffLines("a\nb\nc", "a\nb\nc");
     expect(out).toHaveLength(3);
     expect(out.every((l) => l.type === "ctx")).toBe(true);
-    expect(out[0].oldNo).toBe(1);
-    expect(out[0].newNo).toBe(1);
+    expect(out[0]!.oldNo).toBe(1);
+    expect(out[0]!.newNo).toBe(1);
   });
 
   it("marks removed and added lines", () => {
@@ -16,8 +16,8 @@ describe("diffLines", () => {
     const add = out.filter((l) => l.type === "add");
     expect(del.map((l) => l.text)).toEqual(["b"]);
     expect(add.map((l) => l.text)).toEqual(["x"]);
-    expect(del[0].oldNo).toBe(2);
-    expect(add[0].newNo).toBe(2);
+    expect(del[0]!.oldNo).toBe(2);
+    expect(add[0]!.newNo).toBe(2);
   });
 
   it("trailing newline does not create a phantom empty line", () => {
