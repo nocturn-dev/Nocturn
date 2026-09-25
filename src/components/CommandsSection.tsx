@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { useLang } from "../locales";
 import { commandsLoad, commandsSave, type UserCommand } from "../api";
-import { MiniTrashIcon } from "./SettingsModal";
+import { MiniTrashIcon } from "./settings/parts";
 import { BUILTIN_COMMANDS } from "../commands";
 
 export default function CommandsSection() {
