@@ -1014,9 +1014,11 @@ export function restoreLocal(data: Record<string, string>): void {
   }
 }
 
-export async function settingsReadAll(): Promise<Record<string, unknown>> {
+export async function settingsReadAll(includeSecrets = false): Promise<Record<string, unknown>> {
   if (!inTauri) return {};
-  return invoke<Record<string, unknown>>("settings_read_all");
+  // include_secrets: API-ключи маскируются на бэкенде — файлом настроек
+  // можно делиться, не отдавая ключи провайдеров
+  return invoke<Record<string, unknown>>("settings_read_all", { includeSecrets });
 }
 
 export async function settingsWriteAll(

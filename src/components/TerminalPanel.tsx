@@ -400,6 +400,9 @@ export default function TerminalPanel({
   useEffect(() => {
     if (!awaiting) return;
     const onKey = (e: KeyboardEvent) => {
+      // Модификаторы: Ctrl+A (выделить всё), Ctrl+C и им подобным место —
+      // в своих редакторах, а не в ответе «всегда разрешать» агенту
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
       const tgt = e.target as HTMLElement | null;
       if (
         tgt &&

@@ -584,6 +584,10 @@ export const en = {
     "main.exportHint":
       "Providers, keys, prompts, themes, automations and chats in one file. Encrypted keys revive only with the same master password.",
     "main.exportBtn": "Export",
+    "main.exportSecrets":
+      "Include API keys in the export file",
+    "main.exportSecretsWarn":
+      "The export file will contain API keys in plaintext. Anyone with this file gets access to your provider accounts. Include them?",
     "main.importBtn": "Import",
     "main.importConfirm": "Import settings? Current configurations will be overwritten and the app will reload.",
     "main.importDone": "Imported {n} configuration files. Reloading…",

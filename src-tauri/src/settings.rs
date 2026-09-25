@@ -4,6 +4,7 @@
 use crate::crypto;
 use serde::{Deserialize, Serialize};
 use std::fs;
+use zeroize::Zeroizing;
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct ApiSettings {
     pub api_key: String,
@@ -180,6 +181,9 @@ pub async fn crypto_setup(app: tauri::AppHandle, password: String) -> Result<(),
     if password.len() < 8 {
         return Err("password too short (minimum 8 characters)".into());
     }
+    // Zeroizing: мастер-пароль затирается при выходе из команды,
+    // а не остаётся в освободившейся heap-памяти
+    let password = Zeroizing::new(password);
     let (salt, key, check) = tauri::async_runtime::spawn_blocking(move || {
         let salt = crypto::new_salt();
         let key = crypto::derive_key_argon2(&password, &salt);
@@ -200,8 +204,10 @@ pub async fn crypto_unlock(app: tauri::AppHandle, password: String) -> Result<()
     let (salt, check, kdf) =
         crypto_read_meta(&app)?.ok_or("encryption is not set up")?;
     let is_argon2 = kdf == "argon2id";
-    // Пароль и app нужны в обоих spawn_blocking (легаси-миграция второй)
-    let password2 = password.clone();
+    // Пароль и app нужны в обоих spawn_blocking (легаси-миграция второй).
+    // Обе копии — Zeroizing: обычный String-клон оставлял пароль в heap
+    let password = Zeroizing::new(password);
+    let password2 = Zeroizing::new((*password).clone());
     let app2 = app.clone();
     // Argon2id/PBKDF2 в spawn_blocking: сотни миллисекций CPU не фризят UI
     let verified = tauri::async_runtime::spawn_blocking(move || {
@@ -240,9 +246,22 @@ pub async fn crypto_unlock(app: tauri::AppHandle, password: String) -> Result<()
 }
 
 /// Перешифровать все зашифрованные поля (settings.json, profiles.json)
-/// со старого ключа на новый. Поля, не расшифровавшиеся старым ключом,
-/// оставляются как есть (потеря уже произошла ранее).
-pub(crate) fn rekey_all(app: &tauri::AppHandle, old_key: &[u8], new_key: &[u8]) -> Result<(), String> {
+/// со старого ключа на новый.
+///
+/// Транзакция: оба файла готовятся в памяти; поле, не расшифровавшееся
+/// старым ключом, АБОРТИТ миграцию целиком — раньше такие поля оставлялись
+/// под старым шифрованием при meta=argon2id и безвозвратно терялись, а
+/// сбой между перезаписью settings.json и profiles.json оставлял
+/// настройки зашифрованными новым ключом при meta, всё ещё объявляющей
+/// pbkdf2 со старой солью (потеря всех ключей на следующем анлоке).
+/// Оригиналы сохраняются в *.bak до перезаписи; сбой любой записи
+/// откатывает уже перезаписанные файлы.
+pub(crate) fn rekey_all(
+    app: &tauri::AppHandle,
+    old_key: &[u8],
+    new_key: &[u8],
+) -> Result<(), String> {
+    let mut staged: Vec<(std::path::PathBuf, Vec<u8>)> = Vec::new();
     for name in ["settings.json", "profiles.json"] {
         let path = config_file(app, name)?;
         if !path.exists() {
@@ -263,26 +282,57 @@ pub(crate) fn rekey_all(app: &tauri::AppHandle, old_key: &[u8], new_key: &[u8]) 
                 }
             }
         }
+        let mut lost = 0usize;
         for f in fields {
             if let Some(stored) = f.as_str() {
                 if !crypto::is_encrypted(stored) {
                     continue;
                 }
-                if let Some(plain) = crypto::decrypt_with(old_key, stored) {
-                    *f = serde_json::Value::String(
-                        crypto::encrypt_with(new_key, &plain)?,
-                    );
+                match crypto::decrypt_with(old_key, stored) {
+                    Some(plain) => {
+                        *f = serde_json::Value::String(crypto::encrypt_with(new_key, &plain)?)
+                    }
+                    None => lost += 1,
                 }
             }
         }
-        crate::fsutil::atomic_write(
-            &path,
-            serde_json::to_string_pretty(&v)
-                .map_err(|e| e.to_string())?
-                .as_bytes(),
-        )?;
+        if lost > 0 {
+            return Err(format!(
+                "migration aborted: {lost} stored field(s) cannot be decrypted with the current password — vault is already inconsistent, nothing was written"
+            ));
+        }
+        let bytes = serde_json::to_string_pretty(&v)
+            .map_err(|e| e.to_string())?
+            .into_bytes();
+        staged.push((path, bytes));
+    }
+    // Фаза записи: .bak → swap; сбой откатывает уже перезаписанные файлы
+    let mut done: Vec<std::path::PathBuf> = Vec::new();
+    for (path, bytes) in &staged {
+        let bak = path.with_extension("json.bak");
+        if fs::copy(path, &bak).is_err() {
+            restore_rekey_backups(&done);
+            return Err(format!("cannot back up {} — migration aborted", path.display()));
+        }
+        match crate::fsutil::atomic_write(path, bytes) {
+            Ok(()) => done.push(path.clone()),
+            Err(e) => {
+                restore_rekey_backups(&done);
+                return Err(e);
+            }
+        }
     }
     Ok(())
+}
+
+/// Откат rekey_all: вернуть содержимое из *.bak (если бэкап есть)
+fn restore_rekey_backups(paths: &[std::path::PathBuf]) {
+    for path in paths {
+        let bak = path.with_extension("json.bak");
+        if bak.exists() {
+            let _ = fs::copy(&bak, path);
+        }
+    }
 }
 
 /// Забыли пароль: полный сброс шифрования (зашифрованные ключи утеряны).
@@ -353,11 +403,18 @@ const EXPORT_FILES: &[&str] = &[
     "crypto.json",
 ];
 
-/// Собрать содержимое всех конфиг-файлов (отсутствующие пропускаются)
+/// Собрать содержимое всех конфиг-файлов (отсутствующие пропускаются).
+/// API-ключи по умолчанию маскируются: файлом настроек можно делиться,
+/// не отдавая ключи провайдеров; include_secrets=true — осознанный экспорт
+/// для переноса на другую машину.
 #[tauri::command(async)]
-pub fn settings_read_all(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
+pub fn settings_read_all(
+    app: tauri::AppHandle,
+    include_secrets: Option<bool>,
+) -> Result<serde_json::Value, String> {
     use tauri::Manager;
     let dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
+    let include_secrets = include_secrets.unwrap_or(false);
     let mut files = serde_json::Map::new();
     for name in EXPORT_FILES {
         let path = dir.join(name);
@@ -366,12 +423,38 @@ pub fn settings_read_all(app: tauri::AppHandle) -> Result<serde_json::Value, Str
         }
         if let Ok(data) = fs::read_to_string(&path) {
             // битый файл не тащим
-            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&data) {
+            if let Ok(mut v) = serde_json::from_str::<serde_json::Value>(&data) {
+                if !include_secrets {
+                    mask_secrets(name, &mut v);
+                }
                 files.insert((*name).to_string(), v);
             }
         }
     }
     Ok(serde_json::Value::Object(files))
+}
+
+/// Маскирование API-ключей в экспорте (пустая строка: обратный импорт
+/// даёт рабочие, но пустые поля — без «мусорных» полуключей)
+fn mask_secrets(file: &str, v: &mut serde_json::Value) {
+    let blank = || serde_json::Value::String(String::new());
+    match file {
+        "settings.json" => {
+            if let Some(k) = v.get_mut("api_key") {
+                *k = blank();
+            }
+        }
+        "profiles.json" => {
+            if let Some(arr) = v.get_mut("profiles").and_then(|x| x.as_array_mut()) {
+                for p in arr {
+                    if let Some(k) = p.get_mut("api_key") {
+                        *k = blank();
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
 }
 
 /// Записать набор конфиг-файлов (импорт). Имена жёстко из whitelist.
@@ -415,31 +498,115 @@ pub fn settings_write_all(
 /// произвольный путь с фронта (экспорт/импорт настроек, плагины, звуки):
 /// там вебвью нечего ни читать, ни перезаписывать. Пользовательские папки
 /// (включая репозитории на любом диске) не ограничиваются.
+///
+/// Сравнение по компонентам пути, а не подстрокой: `contains` давал и
+/// ложные срабатывания (репозиторий `C:\repo\windows\`), и обходы —
+/// 8.3-имена (`PROGRA~1`), хвостовая точка/пробел (`C:\Windows.\`, Win32
+/// нормализует), подъём `..`. На Windows блокируются системные топ-уровневые
+/// каталоги диска, на Unix — системные префиксы и ~/.ssh.
 pub(crate) fn rejects_sensitive_path(path: &str) -> Result<(), String> {
-    let norm = path.to_lowercase().replace('/', "\\");
-    const BLOCKED: &[&str] = &[
-        "\\windows\\",
-        "\\program files",
-        "\\programdata\\microsoft\\",
-        "\\microsoft\\windows\\start menu\\",
-    ];
-    if BLOCKED.iter().any(|b| norm.contains(b)) {
-        return Err("path points to a protected system location".into());
+    // Хвостовые точки/пробелы/разделители Win32 отбрасывает при нормализации
+    let trimmed = path.trim_end_matches(['.', ' ', '\\', '/']);
+    #[cfg(windows)]
+    {
+        let norm = trimmed.to_lowercase().replace('/', "\\");
+        let comps: Vec<&str> = norm.split('\\').filter(|c| !c.is_empty()).collect();
+        // `..` запрещаем целиком: легитимному экспорту подъём не нужен,
+        // а он уводит проверку топ-уровня мимо целевого каталога
+        if comps.contains(&"..") {
+            return Err("path must not contain '..'".into());
+        }
+        // comps[0] — диск ("c:") или UNC-хост, comps[1] — топ-каталог
+        let top = short83(comps.get(1).copied().unwrap_or(""));
+        // "progra" ловит 8.3-алиасы Program Files (PROGRA~1/PROGRA~2):
+        // короткое имя генерируется на томе, длинное по нему не восстановить
+        if matches!(
+            top,
+            "windows" | "program files" | "program files (x86)" | "progra" | "programdata"
+        ) {
+            return Err("path points to a protected system location".into());
+        }
+        // ProgramData\Microsoft — глубже топ-уровня
+        if top == "programdata"
+            && comps
+                .get(2)
+                .map(|c| short83(c) == "microsoft")
+                .unwrap_or(false)
+        {
+            return Err("path points to a protected system location".into());
+        }
+        Ok(())
     }
-    Ok(())
+    #[cfg(not(windows))]
+    {
+        let norm = trimmed.replace('\\', "/");
+        let comps: Vec<&str> = norm.split('/').filter(|c| !c.is_empty()).collect();
+        if comps
+            .first()
+            .is_some_and(|c| matches!(*c, "etc" | "proc" | "sys" | "dev" | "boot" | "root"))
+        {
+            return Err("path points to a protected system location".into());
+        }
+        if comps.iter().any(|c| *c == ".ssh") {
+            return Err("path points to a protected location (SSH keys)".into());
+        }
+        Ok(())
+    }
 }
 
-/// Сохранить экспорт-файл (содержимое собрано на фронте)
+/// 8.3-короткое имя → база: "progra~1" → "progra" (хвост ~N — только цифры)
+#[cfg(windows)]
+fn short83(comp: &str) -> &str {
+    match comp.split_once('~') {
+        Some((base, tail)) if !base.is_empty() && tail.chars().all(|d| d.is_ascii_digit()) => base,
+        _ => comp,
+    }
+}
+
+/// Сохранить экспорт-файл (содержимое собрано на фронте).
+/// Запись в каталог конфигов приложения запрещена: hooks.json/mcp.json
+/// исполняемы по своей природе — произвольная перезапись через эту команду
+/// обходила гейт settings_write_all и давала RCE из скомпрометированного
+/// вебвью. Экспорт живёт только вне конфиг-каталога.
 #[tauri::command(async)]
-pub fn settings_export_write(path: String, content: String) -> Result<(), String> {
+pub fn settings_export_write(
+    app: tauri::AppHandle,
+    path: String,
+    content: String,
+) -> Result<(), String> {
+    use tauri::Manager;
     if !path.ends_with(".json") {
         return Err("export file must be .json".into());
     }
     rejects_sensitive_path(&path)?;
+    let cfg = app.path().app_config_dir().map_err(|e| e.to_string())?;
+    let target = std::path::Path::new(&path);
+    // Лексическое сравнение + канонизация существующего родителя (перекрывает
+    // 8.3-имена и синонимы каталога); несуществующий таргет сравнивается как есть
+    let canon_dir = |p: Option<&std::path::Path>| -> Option<std::path::PathBuf> {
+        let p = p?;
+        if p.exists() {
+            std::fs::canonicalize(p).ok()
+        } else {
+            Some(p.to_path_buf())
+        }
+    };
+    #[cfg(windows)]
+    let norm = |p: std::path::PathBuf| p.to_string_lossy().to_lowercase();
+    #[cfg(not(windows))]
+    let norm = |p: std::path::PathBuf| p.to_string_lossy().to_string();
+    let cfg_n = norm(cfg.clone());
+    let target_inside = norm(target.to_path_buf()).starts_with(&cfg_n)
+        || canon_dir(target.parent())
+            .map(|d| norm(d).starts_with(&cfg_n))
+            .unwrap_or(false);
+    if target_inside {
+        return Err("export target must be outside the application config directory".into());
+    }
     // Проверка, что это валидный JSON — защита от мусора
     serde_json::from_str::<serde_json::Value>(&content)
         .map_err(|e| format!("export content is not valid JSON: {e}"))?;
-    crate::fsutil::atomic_write(std::path::Path::new(&path), content.as_bytes())
+    crate::fsutil::atomic_write(target, content.as_bytes())
 }
 
 /// Прочитать импорт-файл

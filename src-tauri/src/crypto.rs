@@ -10,14 +10,15 @@ use aes_gcm::{Aes256Gcm, KeyInit, Nonce};
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use rand::RngCore;
 use std::sync::Mutex;
-use zeroize::Zeroize;
+use zeroize::Zeroizing;
 
 const PREFIX: &str = "enc:v1:";
 const KEY_LEN: usize = 32; // AES-256
 const PBKDF2_ITERS: u32 = 200_000;
 
 /// Производный ключ в памяти. None — «хранилище» заперто.
-static VAULT_KEY: Mutex<Option<Vec<u8>>> = Mutex::new(None);
+/// Zeroizing: ключ затирается при любом drop (замена, авто-лок, выход)
+static VAULT_KEY: Mutex<Option<Zeroizing<Vec<u8>>>> = Mutex::new(None);
 
 /// Авто-запирание: 15 минут без операций шифрования/расшифровки —
 /// ключ стирается из памяти. Окно времени фикс: настройки на этот счёт
@@ -32,8 +33,11 @@ fn touch_vault() {
     }
 }
 
-/// Прошло ли окно бездействия — ключ пора стереть
-fn vault_idle_expired() -> bool {
+/// Прошло ли окно бездействия — ключ пора стереть.
+/// pub(crate): активный свипер в lib.rs опрашивает её раз в минуту —
+/// ленивая проверка (только на крипто-операциях) оставляла ключ AES
+/// в памяти, пока приложение свернуто
+pub(crate) fn vault_idle_expired() -> bool {
     matches!(
         LAST_USE.lock().map(|g| *g).unwrap_or(None),
         Some(t) if t.elapsed() > VAULT_IDLE
@@ -49,24 +53,19 @@ pub fn has_key() -> bool {
     VAULT_KEY.lock().map(|g| g.is_some()).unwrap_or(false)
 }
 
-pub fn set_key(key: Vec<u8>) {
+pub fn set_key(key: Zeroizing<Vec<u8>>) {
     if let Ok(mut g) = VAULT_KEY.lock() {
-        // Старый ключ (если был) затираем, а не оставляем в памяти
-        if let Some(mut old) = g.take() {
-            old.zeroize();
-        }
+        // Старый ключ (если был) затираем, а не оставляем в памяти:
+        // Zeroizing затирает буфер в своём Drop
         *g = Some(key);
     }
     touch_vault();
 }
 
 pub fn clear_key() {
+    // Zeroizing внутри Option затирает буфер в Drop при take()
     if let Ok(mut g) = VAULT_KEY.lock() {
-        if let Some(mut key) = g.take() {
-            // Затирание через zeroize: compiler fences не дают LLVM
-            // выкинуть запись как dead store
-            key.zeroize();
-        }
+        g.take();
     }
     if let Ok(mut g) = LAST_USE.lock() {
         *g = None;
@@ -75,22 +74,23 @@ pub fn clear_key() {
 
 /// PBKDF2-HMAC-SHA256: пароль + соль → 32-байтный ключ AES.
 /// Легаси-KDF: нужен только для чтения старых crypto.json (до Argon2id).
-pub fn derive_key(password: &str, salt: &[u8]) -> Vec<u8> {
+/// Ключ обёрнут в Zeroizing — затирается при любом drop
+pub fn derive_key(password: &str, salt: &[u8]) -> Zeroizing<Vec<u8>> {
     let mut out = vec![0u8; KEY_LEN];
     pbkdf2::pbkdf2_hmac::<sha2::Sha256>(password.as_bytes(), salt, PBKDF2_ITERS, &mut out);
-    out
+    Zeroizing::new(out)
 }
 
 /// Argon2id (параметры OWASP: 19 MiB, t=2) — актуальный KDF хранилища.
 /// Детерминирован: тот же пароль+соль → тот же ключ.
-pub fn derive_key_argon2(password: &str, salt: &[u8]) -> Vec<u8> {
+pub fn derive_key_argon2(password: &str, salt: &[u8]) -> Zeroizing<Vec<u8>> {
     use argon2::{Algorithm, Argon2, Params, Version};
     let mut out = vec![0u8; KEY_LEN];
     let argon = Argon2::new(Algorithm::Argon2id, Version::V0x13, Params::default());
     argon
         .hash_password_into(password.as_bytes(), salt, &mut out)
         .expect("argon2 derive failed (fixed output size)");
-    out
+    Zeroizing::new(out)
 }
 
 pub fn new_salt() -> Vec<u8> {

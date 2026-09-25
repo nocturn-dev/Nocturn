@@ -75,6 +75,17 @@ pub fn run() {
                 // в generate()/imagegen_get_config, когда хранилище уже разблокировано
                 imagegen::set_config(serde_json::from_value(v).unwrap_or_default());
             }
+            // Активный авто-лок хранилища: без таймера ключ AES жил в памяти,
+            // пока приложение свернуто (ленивая проверка срабатывала только
+            // на крипто-операциях). Раз в минуту — свип просроченного ключа
+            tauri::async_runtime::spawn(async {
+                loop {
+                    tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+                    if crypto::vault_idle_expired() {
+                        crypto::clear_key();
+                    }
+                }
+            });
             // Windows: привязка источника toast-уведомлений к Nocturn (в dev-режиме без
             // инсталлятора тосты иначе атрибуцируются хост-процессу).
             #[cfg(windows)]
