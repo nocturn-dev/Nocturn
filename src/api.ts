@@ -561,6 +561,16 @@ export async function ptyWrite(id: string, data: string): Promise<void> {
   return invoke("pty_write", { id, data });
 }
 
+/** D7: ресайз PTY под текущий размер панели (сигнал SIGWINCH для шелла) */
+export async function ptyResize(
+  id: string,
+  cols: number,
+  rows: number,
+): Promise<void> {
+  if (!inTauri) return;
+  return invoke("pty_resize", { id, cols, rows });
+}
+
 export async function ptyKill(id: string): Promise<void> {
   if (!inTauri) return;
   return invoke("pty_kill", { id });

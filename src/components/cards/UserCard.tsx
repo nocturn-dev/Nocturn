@@ -132,8 +132,10 @@ function UserCardBase({
         <div
           className={`flex flex-wrap gap-2 ${content ? "mb-2" : ""}`}
         >
-          {attachments.map((a) => (
-            <div key={a.dataUrl} className="group/img relative">
+          {attachments.map((a, i) => (
+            // D17: ключ по имени+индексу — base64 data-URL в сотни КБ–МБ
+            // сравнивался строково на каждой сверке списка
+            <div key={`${a.name}-${i}`} className="group/img relative">
               <img
                 src={a.dataUrl}
                 alt={a.name}

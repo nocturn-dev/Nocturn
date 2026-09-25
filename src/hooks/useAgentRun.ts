@@ -584,6 +584,9 @@ export function useAgentRun(deps: AgentRunDeps) {
     const flushDeltas = () => {
       if (deltaRaf) {
         cancelAnimationFrame(deltaRaf);
+        // Фолбэк-таймер (см. scheduleFlush): cancelAnimationFrame на
+        // setTimeout-id — no-op, гасим оба
+        window.clearTimeout(deltaRaf);
         deltaRaf = 0;
       }
       if (deltaBuf.isEmpty) return;
@@ -610,8 +613,13 @@ export function useAgentRun(deps: AgentRunDeps) {
       }
     };
     const scheduleFlush = () => {
-      if (!deltaRaf && typeof requestAnimationFrame === "function") {
+      if (deltaRaf) return;
+      if (typeof requestAnimationFrame === "function" && !document.hidden) {
         deltaRaf = requestAnimationFrame(flushDeltas);
+      } else if (typeof setTimeout === "function") {
+        // C17: WebView2 не тикает rAF в свёрнутом/перекрытом окне — дельты
+        // копились без сброса, чат «замерзал» на часы фоновых прогонов
+        deltaRaf = window.setTimeout(flushDeltas, 250);
       }
     };
 
@@ -1260,15 +1268,22 @@ export function useAgentRun(deps: AgentRunDeps) {
         // дополнительные (редкий батч) — на отдельных сообщениях-карточках
         const askMsgId = call === askCalls[0] ? assistantId : uid();
         if (call === askCalls[0]) {
+          // C6: клонируем только целевую сессию — {...s} на ВСЕ сессии и их
+          // массивы сообщений обнуляло reference-равенство всего стора
+          // (ломало memo карточек/сайдбара и помечало всё грязным для сейва)
           setSessions((prev) =>
-            prev.map((s) => ({
-              ...s,
-              messages: s.messages.map((m) =>
-                m.id === assistantId
-                  ? { ...m, ask: { ...spec, answer: null } }
-                  : m,
-              ),
-            })),
+            prev.map((s) =>
+              s.id === targetId
+                ? {
+                    ...s,
+                    messages: s.messages.map((m) =>
+                      m.id === assistantId
+                        ? { ...m, ask: { ...spec, answer: null } }
+                        : m,
+                    ),
+                  }
+                : s,
+            ),
           );
         } else {
           pushMessage({
@@ -1311,18 +1326,22 @@ export function useAgentRun(deps: AgentRunDeps) {
         });
         setActivity(null);
 
-        if (answer === "timeout") {
+        if (answer === 'timeout') {
           // Автопродолжение: карточка закрывается, модель получает указание
-          // продолжить самостоятельно
+          // продолжить самостоятельно. C6: клонируем только целевую сессию
           setSessions((prev) =>
-            prev.map((s) => ({
-              ...s,
-              messages: s.messages.map((m) =>
-                m.id === askMsgId && m.ask
-                  ? { ...m, ask: { ...m.ask, cancelled: true } }
-                  : m,
-              ),
-            })),
+            prev.map((s) =>
+              s.id === targetId
+                ? {
+                    ...s,
+                    messages: s.messages.map((m) =>
+                      m.id === askMsgId && m.ask
+                        ? { ...m, ask: { ...m.ask, cancelled: true } }
+                        : m,
+                    ),
+                  }
+                : s,
+            ),
           );
           finishAsk(
             `no answer within ${ASK_AUTO_CONTINUE_MS / 60_000} minutes — continue autonomously using your best judgment`,
@@ -1331,16 +1350,21 @@ export function useAgentRun(deps: AgentRunDeps) {
         }
 
         if (!answer || abortedRef.current.has(requestId)) {
-          // Закрыто без ответа (Stop): карточка помечается, модель получает отказ
+          // Закрыто без ответа (Stop): карточка помечается, модель получает отказ.
+          // C6: клонируем только целевую сессию
           setSessions((prev) =>
-            prev.map((s) => ({
-              ...s,
-              messages: s.messages.map((m) =>
-                m.id === askMsgId && m.ask
-                  ? { ...m, ask: { ...m.ask, cancelled: true } }
-                  : m,
-              ),
-            })),
+            prev.map((s) =>
+              s.id === targetId
+                ? {
+                    ...s,
+                    messages: s.messages.map((m) =>
+                      m.id === askMsgId && m.ask
+                        ? { ...m, ask: { ...m.ask, cancelled: true } }
+                        : m,
+                    ),
+                  }
+                : s,
+            ),
           );
           finishAsk("user did not answer (question cancelled)");
           if (abortedRef.current.has(requestId)) return finalize();
@@ -1682,13 +1706,19 @@ ${report}`;
     mid: string,
     answer: { answers: string[]; custom?: string },
   ) => {
+    // C6: клонируем только сессию, содержащую карточку вопроса — раньше
+    // клонировались ВСЕ сессии стора на каждый ответ
     setSessions((prev) =>
-      prev.map((s) => ({
-        ...s,
-        messages: s.messages.map((m) =>
-          m.id === mid && m.ask ? { ...m, ask: { ...m.ask, answer } } : m,
-        ),
-      })),
+      prev.map((s) =>
+        s.messages.some((m) => m.id === mid)
+          ? {
+              ...s,
+              messages: s.messages.map((m) =>
+                m.id === mid && m.ask ? { ...m, ask: { ...m.ask, answer } } : m,
+              ),
+            }
+          : s,
+      ),
     );
     const pending = interactions.find((i) => i.kind === "ask" && i.msgId === mid);
     if (pending && pending.kind === "ask") {
