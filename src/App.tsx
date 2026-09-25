@@ -1748,6 +1748,26 @@ export default function App() {
   const menuNote = menu?.kind === "note" ? notes.find((n) => n.file === menu.id) : null;
 
   // ---------- Slash-команды (палитра "/" в поле ввода) ----------
+  // FIX [stale-closure]: deps мемо не включают activeId и сами хендлеры —
+  // /clear, /agent, /new после переключения задачи работали по СТАРОЙ задаче.
+  // Команды зовут обработчики через ref, обновляемый каждым рендером
+  const slashLatest = useRef({
+    handleNewChat,
+    handleClearChat,
+    handleToggleAgent,
+    handleApplyPreset,
+    handleOpenNote,
+    handleRunChain,
+  });
+  slashLatest.current = {
+    handleNewChat,
+    handleClearChat,
+    handleToggleAgent,
+    handleApplyPreset,
+    handleOpenNote,
+    handleRunChain,
+  };
+
   const slashCommands: SlashCommand[] = useMemo(() => {
     const roleNames = [
       ...builtinPresetsFor(lang).map((p) => p.name),
@@ -1759,17 +1779,17 @@ export default function App() {
       {
         name: "new",
         desc: t("cmd.new"),
-        run: () => handleNewChat(),
+        run: () => slashLatest.current.handleNewChat(),
       },
       {
         name: "clear",
         desc: t("cmd.clear"),
-        run: () => handleClearChat(),
+        run: () => slashLatest.current.handleClearChat(),
       },
       {
         name: "agent",
         desc: t("cmd.agent"),
-        run: () => handleToggleAgent(),
+        run: () => slashLatest.current.handleToggleAgent(),
       },
       {
         name: "terminal",
@@ -1808,7 +1828,7 @@ export default function App() {
         suggestions: () => roleNames,
         run: (arg: string) => {
           const preset = roleByName(arg.trim());
-          if (preset) handleApplyPreset(preset.text);
+          if (preset) slashLatest.current.handleApplyPreset(preset.text);
         },
       },
       {
@@ -1818,7 +1838,7 @@ export default function App() {
         suggestions: () => notes.map((n) => n.title),
         run: (arg: string) => {
           const title = arg.trim();
-          if (title) void handleOpenNote(title);
+          if (title) void slashLatest.current.handleOpenNote(title);
         },
       },
       {
@@ -1830,7 +1850,7 @@ export default function App() {
           const note = notes.find(
             (n) => n.title.toLowerCase() === arg.trim().toLowerCase(),
           );
-          if (note) void handleRunChain(note.file, note.content);
+          if (note) void slashLatest.current.handleRunChain(note.file, note.content);
         },
       },
     ];
