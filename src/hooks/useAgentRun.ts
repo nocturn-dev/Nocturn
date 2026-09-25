@@ -221,7 +221,8 @@ export function useAgentRun(deps: AgentRunDeps) {
         );
       });
     },
-    [t],
+    // setSessions — сеттер useState, идентичность стабильна
+    [t, setSessions],
   );
 
   const [streamingId, setStreamingId] = useState<string | null>(null);
@@ -297,12 +298,16 @@ export function useAgentRun(deps: AgentRunDeps) {
   const patchSubRun = (id: string, fn: (r: SubRunState) => SubRunState) =>
     setSubRuns((prev) => (prev[id] ? { ...prev, [id]: fn(prev[id]) } : prev));
 
-  // План задач агента: живёт в сессии, перезаписывается только plan_update
-  const applyPlan = useCallback((targetId: string, tasks: PlanTask[]) => {
-    setSessions((prev) =>
-      prev.map((s) => (s.id === targetId ? { ...s, plan: tasks } : s)),
-    );
-  }, []);
+  // План задач агента: живёт в сессии, перезаписывается только plan_update.
+  // setSessions — сеттер useState, идентичность стабильна
+  const applyPlan = useCallback(
+    (targetId: string, tasks: PlanTask[]) => {
+      setSessions((prev) =>
+        prev.map((s) => (s.id === targetId ? { ...s, plan: tasks } : s)),
+      );
+    },
+    [setSessions],
+  );
 
   // Движок автоматизаций: раз в 30 сек проверяем сроки. За тик запускаем
   // максимум одну задачу (стрим один), остальные дождутся следующих тиков.

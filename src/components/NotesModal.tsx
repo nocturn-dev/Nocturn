@@ -44,11 +44,18 @@ export default function NotesModal({
   const confirmTimerRef = useRef(0);
   useEffect(() => () => window.clearTimeout(confirmTimerRef.current), []);
 
+  // Сброс черновика — только при СМЕНЕ заметки: content в deps нужен
+  // линтеру (он приезжает с диска после сейва), но сброс по нему стирал бы
+  // несохранённые правки пользователя (например, пока идёт цепочка)
+  const lastNoteFileRef = useRef<string | null>(null);
   useEffect(() => {
+    const file = note?.file ?? null;
+    if (lastNoteFileRef.current === file) return;
+    lastNoteFileRef.current = file;
     setDraft(note?.content ?? "");
     setPreview(false);
     setConfirmDelete(false);
-  }, [note?.file]);
+  }, [note?.file, note?.content]);
 
   const links = useMemo(() => resolveLinks(
     { file: note?.file ?? "", title: note?.title ?? "", content: draft, updated: 0 },
