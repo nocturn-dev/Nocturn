@@ -850,4 +850,4 @@ export const zh = {
     "docs.keys.title": "快捷键与命令",
     "docs.keys.body":
       "Ctrl+N — 新建任务 · Ctrl+K — 搜索 · Ctrl+V — 粘贴截图 · Enter — 发送，Shift+Enter — 换行。输入框中的斜杠命令：/new /clear /agent /terminal /theme /glass /provider /prompt /note /chain。",
-} satisfies Partial<Record<MsgKey, string>>;
+} satisfies Record<MsgKey, string>; // D20: полный Record — пропущенный ключ = ошибка компиляции, а не молчаливый фолбэк

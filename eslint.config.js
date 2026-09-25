@@ -13,6 +13,8 @@ export default tseslint.config(
     },
     rules: {
       // Track as warnings: adding deps wholesale risks behavior regressions
+      // warn, не error: 16 срабатываний — легитимные latest-ref паттерны,
+      // требующие отдельного рефакторинга (аудит D20)
       'react-hooks/exhaustive-deps': 'warn',
       'react-hooks/rules-of-hooks': 'error',
       // Compiler-era rules: architecture-level findings, tracked as warnings for now

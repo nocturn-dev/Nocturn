@@ -14,6 +14,12 @@ document.addEventListener("contextmenu", (e) => {
   }
 });
 
+// D3: componentDidCatch не ловит async-ошибки (промисы IPC/стрима) —
+// глобальный хук хотя бы логирует их вместо полной тишины
+window.addEventListener("unhandledrejection", (e) => {
+  console.error("[nocturn] unhandled promise rejection:", e.reason);
+});
+
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
     <LangProvider>

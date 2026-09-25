@@ -6,6 +6,7 @@
  */
 
 import { useLang } from "../../locales";
+import { fmtInt } from "./util";
 import { type Message } from "../../types";
 
 export function TracePanel({
@@ -15,7 +16,7 @@ export function TracePanel({
   steps: Message[];
   toolMsgs: Message[];
 }) {
-  const { t } = useLang();
+  const { lang, t } = useLang();
   return (
     <div className="anim-fade-up rounded-xl border border-halo-line/70 bg-halo-deep/40 px-3.5 py-2.5 text-xs">
       {steps.map((st, i) => {
@@ -29,13 +30,13 @@ export function TracePanel({
               {t("trace.step", { n: i + 1 })}
               {st.workedMs != null && (
                 <span className="ml-1.5 font-normal text-halo-muted">
-                  · {(st.workedMs / 1000).toFixed(1)} с
+                  · {(st.workedMs / 1000).toFixed(1)} {t("chat.workedUnit")}
                 </span>
               )}
               {st.usage && (
                 <span className="ml-1.5 font-normal text-halo-muted">
-                  · ↑{st.usage.prompt.toLocaleString("ru-RU")} ↓
-                  {st.usage.completion.toLocaleString("ru-RU")}
+                  · ↑{fmtInt(st.usage.prompt, lang)} ↓
+                  {fmtInt(st.usage.completion, lang)}
                 </span>
               )}
             </p>

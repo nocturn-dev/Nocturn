@@ -63,7 +63,13 @@ export default function AutomationsModal({
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") {
+        // D11: не гасим модалку, пока фокус в поле ввода — черновик длинного
+        // текста (промт роли, заметка, форма автоматизации) терялся без спроса
+        const tgt = e.target as HTMLElement | null;
+        if (tgt && (tgt.tagName === "INPUT" || tgt.tagName === "TEXTAREA" || tgt.isContentEditable)) return;
+        onClose();
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -245,7 +251,7 @@ export default function AutomationsModal({
                       onClick={() =>
                         persist(items.filter((x) => x.id !== a.id))
                       }
-                      title={t("common.close")}
+                      title={t("menu.delete")}
                       className="rounded p-1 text-halo-muted opacity-0 transition group-hover:opacity-100 hover:text-red-400"
                     >
                       ✕

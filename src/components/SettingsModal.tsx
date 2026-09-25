@@ -496,7 +496,13 @@ export default function SettingsModal({
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") {
+        // D11: не гасим модалку, пока фокус в поле ввода — черновик длинного
+        // текста (промт роли, заметка, форма автоматизации) терялся без спроса
+        const tgt = e.target as HTMLElement | null;
+        if (tgt && (tgt.tagName === "INPUT" || tgt.tagName === "TEXTAREA" || tgt.isContentEditable)) return;
+        onClose();
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -1564,10 +1570,39 @@ function Dropdown({
   }, [open]);
 
   const current = options.find((o) => o.value === value);
+  const [hoverIdx, setHoverIdx] = useState(-1);
   return (
     <div ref={ref} className={`relative ${className}`}>
       <button
         onClick={() => setOpen((v) => !v)}
+        onKeyDown={(e) => {
+          // D12: клавиатурная навигация — раньше выбрать опцию можно было
+          // только мышью (дропдауны живут в темах, хуках и хоткеях)
+          if (!open) {
+            if (e.key === "ArrowDown" || e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              setOpen(true);
+              setHoverIdx(Math.max(0, options.findIndex((o) => o.value === value)));
+            }
+            return;
+          }
+          if (e.key === "ArrowDown") {
+            e.preventDefault();
+            setHoverIdx((i) => Math.min(options.length - 1, i + 1));
+          } else if (e.key === "ArrowUp") {
+            e.preventDefault();
+            setHoverIdx((i) => Math.max(0, i - 1));
+          } else if (e.key === "Enter" && hoverIdx >= 0) {
+            e.preventDefault();
+            const o = options[hoverIdx];
+            if (o) {
+              onSelect(o.value);
+              setOpen(false);
+            }
+          }
+        }}
+        aria-haspopup="listbox"
+        aria-expanded={open}
         className="flex w-full items-center justify-between gap-2 rounded-lg border border-halo-line bg-halo-surface px-3 py-2 text-left text-xs text-halo-text outline-none transition-colors hover:border-halo-muted/50"
       >
         <span className="min-w-0 truncate">{current?.label ?? ""}</span>
@@ -1576,16 +1611,22 @@ function Dropdown({
         </span>
       </button>
       {open && (
-        <div className="anim-pop absolute right-0 z-30 mt-1 max-h-64 min-w-full overflow-y-auto rounded-lg border border-halo-line bg-halo-deep py-1 shadow-xl scroll-slim">
-          {options.map((o) => (
+        <div
+          role="listbox"
+          className="anim-pop absolute right-0 z-30 mt-1 max-h-64 min-w-full overflow-y-auto rounded-lg border border-halo-line bg-halo-deep py-1 shadow-xl scroll-slim"
+        >
+          {options.map((o, i) => (
             <button
               key={o.value}
+              role="option"
+              aria-selected={o.value === value}
+              onMouseEnter={() => setHoverIdx(i)}
               onClick={() => {
                 onSelect(o.value);
                 setOpen(false);
               }}
               className={`flex w-full items-center justify-between gap-3 whitespace-nowrap px-3 py-1.5 text-left text-xs transition-colors ${
-                o.value === value
+                o.value === value || i === hoverIdx
                   ? "bg-halo-hover text-halo-text"
                   : "text-halo-muted hover:bg-halo-hover hover:text-halo-text"
               }`}
@@ -2197,11 +2238,21 @@ function HooksSection() {
                   <MiniTrashIcon />
                 </button>
               </div>
-              {/* Редактирование команды inline */}
+              {/* Редактирование команды inline. D8: запись на диск по blur/Enter,
+                  а не на каждое нажатие клавиши — раньше каждый символ гонял
+                  IPC-запись hooks.json (гонки записи, лаг ввода) */}
               <input
                 type="text"
-                value={h.command}
-                onChange={(e) => void update(h.id, { command: e.target.value })}
+                defaultValue={h.command}
+                key={h.id + h.command}
+                onBlur={(e) => {
+                  if (e.target.value !== h.command) {
+                    void update(h.id, { command: e.target.value });
+                  }
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                }}
                 spellCheck={false}
                 className="mt-2 w-full rounded-md border border-transparent bg-halo-surface px-2 py-1.5 font-mono text-xs text-halo-text outline-none transition-colors focus:border-halo-accent/60"
               />
@@ -2940,12 +2991,17 @@ function ThemeSection({
     { id: "forest", key: "themes.styleForest" },
     { id: "rosewood", key: "themes.styleRosewood" },
   ];
-  // Активный профиль: theme и appearance полностью совпадают с текущими
+  // Активный профиль: theme и appearance полностью совпадают с текущими.
+  // D18: поэлементная сверка вместо JSON.stringify — порядок ключей объекта
+  // не должен влиять (изменение пути мутации гасило чип активности)
+  const appearanceEqual = (a: typeof appearance, b: typeof appearance) =>
+    Object.keys({ ...a, ...b }).every(
+      (k) =>
+        (a as unknown as Record<string, unknown>)[k] === (b as unknown as Record<string, unknown>)[k],
+    );
   const activeProfileId =
     themeProfiles.find(
-      (pr) =>
-        pr.theme === theme &&
-        JSON.stringify(pr.appearance) === JSON.stringify(appearance),
+      (pr) => pr.theme === theme && appearanceEqual(pr.appearance, appearance),
     )?.id ?? null;
   // Сохранить текущие Theme + Appearance как новый профиль
   const saveThemeProfile = () => {
@@ -4126,7 +4182,11 @@ function ApiSection({
     setProfSaved(true);
     window.setTimeout(() => setProfSaved(false), 2000);
   };
+  // D9: автотест соединения срабатывает по blur (и на открытии раздела),
+  // а не на каждый keystroke API-ключа: раньше каждый символ после 700 мс
+  // улетал сетевым запросом к провайдеру с полным ключом
   const lastTestedRef = useRef<string | null>(null);
+  const [focusedSecret, setFocusedSecret] = useState(false);
 
   const canTest =
     settings.api_key.trim() !== "" && settings.base_url.trim() !== "";
@@ -4136,17 +4196,17 @@ function ApiSection({
     ? models.filter((m) => m.id.toLowerCase().includes(modelQuery.toLowerCase()))
     : models;
 
-  // Автопроверка: при открытии раздела — сразу, при смене ключа/URL — с задержкой
+  // Тест по окончании ввода: blur ключа/URL (или открытие раздела — 0 мс)
   useEffect(() => {
-    if (!canTest) return;
+    if (!canTest || focusedSecret) return;
     if (lastTestedRef.current === testKey) return;
-    const delay = lastTestedRef.current === null ? 0 : 700;
+    const delay = lastTestedRef.current === null ? 0 : 300;
     const t = window.setTimeout(() => {
       lastTestedRef.current = testKey;
       onTest();
     }, delay);
     return () => window.clearTimeout(t);
-  }, [testKey, canTest, onTest]);
+  }, [testKey, canTest, onTest, focusedSecret]);
 
   const handleSave = async () => {
     await onSave();
@@ -4172,6 +4232,8 @@ function ApiSection({
           type="password"
           value={settings.api_key}
           onChange={(e) => onChange({ ...settings, api_key: e.target.value })}
+          onFocus={() => setFocusedSecret(true)}
+          onBlur={() => setFocusedSecret(false)}
           placeholder={t("api.keyPh")}
           className="w-full rounded-lg border border-halo-line bg-halo-surface px-3 py-2 text-sm text-halo-text outline-none transition-colors placeholder:text-halo-muted/60 focus:border-halo-accent/60"
         />

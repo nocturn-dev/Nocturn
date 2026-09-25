@@ -24,7 +24,13 @@ export default function SystemPromptModal({
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") {
+        // D11: не гасим модалку, пока фокус в поле ввода — черновик длинного
+        // текста (промт роли, заметка, форма автоматизации) терялся без спроса
+        const tgt = e.target as HTMLElement | null;
+        if (tgt && (tgt.tagName === "INPUT" || tgt.tagName === "TEXTAREA" || tgt.isContentEditable)) return;
+        onClose();
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);

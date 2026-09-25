@@ -850,4 +850,4 @@ export const ja = {
     "docs.keys.title": "ホットキーとコマンド",
     "docs.keys.body":
       "Ctrl+N — 新しいタスク · Ctrl+K — 検索 · Ctrl+V — スクリーンショットを貼り付け · Enter — 送信、Shift+Enter — 改行。入力欄のスラッシュコマンド：/new /clear /agent /terminal /theme /glass /provider /prompt /note /chain。",
-} satisfies Partial<Record<MsgKey, string>>;
+} satisfies Record<MsgKey, string>; // D20: полный Record — пропущенный ключ = ошибка компиляции, а не молчаливый фолбэк
