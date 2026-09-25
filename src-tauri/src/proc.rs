@@ -125,20 +125,26 @@ fn finish(mut child: Child, timeout: Duration, abort: Option<&std::sync::atomic:
     }
 }
 
-/// Читает поток с потолком READ_CAP байт, хвост отбрасывает (он всё равно
-/// будет clip'нут при форматировании до OUTPUT_LIMIT). Возвращает сырые байты.
+/// Читает поток с потолком READ_CAP байт. После лимита чтение ПРОДОЛЖАЕТСЯ
+/// (лишние байты отбрасываются): раньше break дропал пайп — процесс получал
+/// EPIPE/SIGPIPE посреди работы и умирал (терялся exit-код), а процесс,
+/// игнорирующий SIGPIPE, блокировался на записи до ложного «TIMEOUT».
 fn read_capped<R: Read>(r: &mut R) -> Vec<u8> {
     let mut buf = Vec::new();
     let mut chunk = [0u8; 4096];
+    let mut capped = false;
     loop {
         match r.read(&mut chunk) {
             Ok(0) | Err(_) => break,
             Ok(n) => {
-                buf.extend_from_slice(&chunk[..n]);
-                if buf.len() >= READ_CAP {
-                    buf.truncate(READ_CAP);
-                    break;
+                if !capped {
+                    buf.extend_from_slice(&chunk[..n]);
+                    if buf.len() >= READ_CAP {
+                        buf.truncate(READ_CAP);
+                        capped = true;
+                    }
                 }
+                // capped: байты читаем и выбрасываем — пайп остаётся живым
             }
         }
     }
@@ -160,4 +166,36 @@ fn clip(b: &[u8]) -> String {
         text.push_str("\n...[output truncated]");
     }
     text
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Регресс [A5]: после READ_CAP читатель обязан ДОЧИТАТЬ поток до конца
+    /// (не рвать пайп): процесс, пишущий больше лимита, раньше умирал от
+    /// EPIPE, а игнорирующий SIGPIPE — блокировался до ложного TIMEOUT
+    #[test]
+    fn read_capped_drains_past_cap() {
+        struct BigReader { remaining: usize }
+        impl Read for BigReader {
+            fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
+                if self.remaining == 0 {
+                    return Ok(0); // EOF: источник дописал до конца
+                }
+                let n = out.len().min(self.remaining).min(10_000);
+                for b in &mut out[..n] {
+                    *b = b'x';
+                }
+                self.remaining -= n;
+                Ok(n)
+            }
+        }
+        // 1 МБ источника — в 4 раза больше READ_CAP
+        let mut r = BigReader { remaining: 1024 * 1024 };
+        let buf = read_capped(&mut r);
+        assert_eq!(buf.len(), READ_CAP);
+        // Дочитали до EOF, а не бросили после лимита
+        assert_eq!(r.remaining, 0);
+    }
 }

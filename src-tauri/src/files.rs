@@ -35,20 +35,32 @@ pub async fn git_status(path: String) -> Result<Vec<GitEntry>, String> {
 }
 
 fn git_status_impl(path: String) -> Result<Vec<GitEntry>, String> {
-    let output = std::process::Command::new("git")
-        .args(["status", "--porcelain"])
-        .current_dir(&path)
-        .output()
-        .map_err(|e| format!("git failed: {e}"))?;
-    if !output.status.success() {
-        let err = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        return Err(if err.is_empty() {
-            format!("git exited with {}", output.status)
-        } else {
-            err
-        });
+    // core.quotepath=false: не-ASCII пути (кириллица, CJK) отдаются как есть —
+    // раньше октальные эскейпы "\320\277..." показывали мусор в подсветке.
+    // Таймаут через proc::run_command_opts: git на сетевом диске/FUSE
+    // раньше держал spawn_blocking-поток вечно
+    let mut cmd = std::process::Command::new("git");
+    cmd.args(["-c", "core.quotepath=false", "status", "--porcelain"])
+        .current_dir(&path);
+    let out = crate::proc::run_command_opts(
+        &mut cmd,
+        std::time::Duration::from_secs(15),
+        None,
+        None,
+    )?;
+    if let Some(code) = out.status {
+        if code != 0 {
+            let err = out.stderr.trim().to_string();
+            return Err(if err.is_empty() {
+                format!("git exited with {code}")
+            } else {
+                err
+            });
+        }
+    } else if out.timed_out {
+        return Err("git status timed out after 15s".to_string());
     }
-    let text = String::from_utf8_lossy(&output.stdout);
+    let text = out.stdout;
     let mut out: Vec<GitEntry> = Vec::new();
     for line in text.lines() {
         if line.len() < 4 {
@@ -60,8 +72,8 @@ fn git_status_impl(path: String) -> Result<Vec<GitEntry>, String> {
         if let Some(idx) = p.find(" -> ") {
             p = p[idx + 4..].to_string();
         }
-        // git берёт пути с не-ASCII/спецсимволами в кавычки и экранирует
-        // содержимое: разворачиваем \", \\, \n, \t, иначе подсветка врёт
+        // С core.quotepath=false пути приходят без кавычек; кавычки возможны
+        // только от спецсимволов — разворачиваем \", \\, \n, \t
         if p.starts_with('"') && p.ends_with('"') && p.len() >= 2 {
             let inner = &p[1..p.len() - 1];
             let mut unescaped = String::with_capacity(inner.len());

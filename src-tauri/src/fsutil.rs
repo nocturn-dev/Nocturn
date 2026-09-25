@@ -45,6 +45,24 @@ pub fn atomic_write(path: &Path, data: &[u8]) -> Result<(), String> {
     Ok(())
 }
 
+/// Чтение файла с потолком размера: metadata-check + read_to_string.
+/// Защита от OOM на чтении пути, контролируемого фронтом (импорт настроек,
+/// плагины, заметки): указание на pagefile.sys/образ диска раньше читалось
+/// в память целиком. Лимит по умолчанию 32 МБ.
+pub fn read_capped_string(path: &Path, limit: usize) -> Result<String, String> {
+    const DEFAULT_LIMIT: usize = 32 * 1024 * 1024;
+    let limit = if limit == 0 { DEFAULT_LIMIT } else { limit };
+    let md = fs::metadata(path).map_err(|e| format!("cannot stat {}: {e}", path.display()))?;
+    if md.len() > limit as u64 {
+        return Err(format!(
+            "file too large: {} bytes (limit {} bytes)",
+            md.len(),
+            limit
+        ));
+    }
+    fs::read_to_string(path).map_err(|e| format!("cannot read {}: {e}", path.display()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

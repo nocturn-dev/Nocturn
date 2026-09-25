@@ -9,7 +9,6 @@ use serde_json::{json, Value};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 // ---------------------------------------------------------------------------
 // Конфигурация (вкладка «Генерация изображений» в настройках)
@@ -72,6 +71,41 @@ pub fn imagegen_tool_schema() -> Value {
 
 const HTTP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(180);
 const DOWNLOAD_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
+/// Потолок скачивания картинки: misconfigured/злонамеренный base_url,
+/// отдающий гигабайты, раньше читался в память целиком (OOM)
+const IMAGE_MAX_BYTES: u64 = 32 * 1024 * 1024;
+/// Потолок JSON-ответа провайдера
+const JSON_MAX_BYTES: u64 = 10 * 1024 * 1024;
+
+/// Читать тело ответа с потолком размера: Content-Length мог отсутствовать
+async fn read_body_capped(
+    mut resp: reqwest::Response,
+    limit: u64,
+) -> Result<Vec<u8>, String> {
+    if let Some(len) = resp.content_length() {
+        if len > limit {
+            return Err(format!("response too large: {len} bytes (limit {limit})"));
+        }
+    }
+    let mut out: Vec<u8> = Vec::new();
+    while let Some(chunk) = resp
+        .chunk()
+        .await
+        .map_err(|e| format!("download failed: {e}"))?
+    {
+        if out.len() as u64 + chunk.len() as u64 > limit {
+            return Err(format!("response too large (limit {limit} bytes)"));
+        }
+        out.extend_from_slice(&chunk);
+    }
+    Ok(out)
+}
+
+/// 8 hex-символов из криптослучайных байт: уникальное имя без коллизий
+fn uuid_v4_short() -> String {
+    let b: [u8; 4] = rand::random();
+    b.iter().map(|x| format!("{x:02x}")).collect()
+}
 
 /// Сгенерировать изображение и сохранить на диск.
 /// Возвращает JSON-строку {ok, path, bytes} — текст для модели.
@@ -116,7 +150,9 @@ pub async fn generate(data_dir: &Path, prompt: &str, size: Option<&str>) -> Resu
         .await
         .map_err(|e| format!("request failed: {e}"))?;
     let status = resp.status();
-    let text = resp.text().await.unwrap_or_default();
+    // Потолок JSON: враждебный base_url мог слать гигабайты
+    let text_bytes = read_body_capped(resp, JSON_MAX_BYTES).await?;
+    let text = String::from_utf8_lossy(&text_bytes).to_string();
     if !status.is_success() {
         let head: String = text.chars().take(500).collect();
         return Err(format!("provider returned HTTP {status}: {head}"));
@@ -134,6 +170,11 @@ pub async fn generate(data_dir: &Path, prompt: &str, size: Option<&str>) -> Resu
             .decode(b64)
             .map_err(|e| format!("bad base64 image: {e}"))?
     } else if let Some(img_url) = item.get("url").and_then(|x| x.as_str()) {
+        // SSRF: URL провайдера запрашивается без ограничений — loopback/
+        // приватные адреса/метаданные облака блокируем (фильтр browser.rs)
+        if !crate::browser::url_is_public_http(img_url) {
+            return Err("image URL rejected: private network addresses are not allowed".into());
+        }
         let dl = crate::network::apply(reqwest::Client::builder().timeout(DOWNLOAD_TIMEOUT))
             .map_err(|e| format!("http client: {e}"))?
             .build()
@@ -146,21 +187,21 @@ pub async fn generate(data_dir: &Path, prompt: &str, size: Option<&str>) -> Resu
         if !r.status().is_success() {
             return Err(format!("image download HTTP {}", r.status()));
         }
-        r.bytes()
-            .await
-            .map_err(|e| format!("image download failed: {e}"))?
-            .to_vec()
+        read_body_capped(r, IMAGE_MAX_BYTES).await?
     } else {
         return Err("response has neither b64_json nor url".into());
     };
 
     let dir = data_dir.join("images");
     fs::create_dir_all(&dir).map_err(|e| format!("cannot create images dir: {e}"))?;
-    let ts = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis())
-        .unwrap_or(0);
-    let path: PathBuf = dir.join(format!("img-{ts}.{}", if bytes.starts_with(&[0xFF, 0xD8]) { "jpg" } else { "png" }));
+    // uuid вместо миллисекундного штампа: два вызова в одну миллисекунду
+    // раньше тихо перезаписывали результат друг друга
+    let ext = if bytes.starts_with(&[0xFF, 0xD8]) { "jpg" } else { "png" };
+    let path: PathBuf = dir.join(format!(
+        "img-{}.{}",
+        uuid_v4_short(),
+        ext
+    ));
     fs::write(&path, &bytes).map_err(|e| format!("cannot save image: {e}"))?;
 
     Ok(json!({

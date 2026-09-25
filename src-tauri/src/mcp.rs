@@ -82,13 +82,20 @@ pub struct McpConnection {
 
 /// Прямой запуск серверного процесса (пайпы на stdin/stdout/stderr)
 fn spawn_server(cfg: &McpServerConfig) -> std::io::Result<Child> {
-    Command::new(&cfg.command)
-        .args(&cfg.args)
+    let mut cmd = Command::new(&cfg.command);
+    cmd.args(&cfg.args)
         .envs(&cfg.env)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
+        .stderr(Stdio::piped());
+    // CREATE_NO_WINDOW: консольный .exe из GUI-процесса рождал видимую
+    // консоль-вспышку (mcp_autoconnect при старте — пачка окон)
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x0800_0000);
+    }
+    cmd.spawn()
 }
 
 /// Windows-fallback: npx/uvx и компания — это .cmd-файлы, CreateProcess их

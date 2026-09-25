@@ -291,6 +291,9 @@ pub struct BrowserConnection {
     /// id просроченных запросов: их поздние ответы молча пропускаются
     abandoned: Mutex<HashSet<u64>>,
     dead: Mutex<bool>,
+    /// Каталог профиля в temp: удаляется при Drop (cookie/история сессии
+    /// раньше копились в temp вечно)
+    profile: std::path::PathBuf,
 }
 
 impl BrowserConnection {
@@ -299,43 +302,66 @@ impl BrowserConnection {
         let exe = find_browser_executable().ok_or(
             "Browser not found: install Edge or Chrome, or set HALOUI_BROWSER to the browser executable.",
         )?;
-        let port = free_port()?;
-        // Уникальный профиль на запуск: общий каталог заставляет Edge/Chrome
-        // молча пересылать новый процесс уже запущенному экземпляру
-        // (single-instance) — CDP-порт тогда вообще не открывается
-        let profile = std::env::temp_dir().join(format!("haloui-browser-{port}"));
         let cfg = config();
-        let port_arg = format!("--remote-debugging-port={port}");
-        let profile_arg = format!("--user-data-dir={}", profile.display());
         let size_arg = format!("--window-size={VIEWPORT_W},{VIEWPORT_H}");
-        let mut browser_args: Vec<&str> = vec![
-            &port_arg,
-            &profile_arg,
-            "--no-first-run",
-            "--no-default-browser-check",
-            "--force-device-scale-factor=1",
-            &size_arg,
-            "about:blank",
-        ];
-        if cfg.headless {
-            browser_args.insert(0, "--headless=new");
-        }
-        let child = Command::new(&exe)
-            .args(&browser_args)
-            .stdin(Stdio::null())
-            .spawn()
-            .map_err(|e| format!("failed to spawn browser {exe}: {e}"))?;
 
-        // При любой ошибке запуска гасим процесс — браузер-сирота
-        // держит порт и профиль и ломает все следующие запуски
-        let built = Self::build(child, port, &profile);
-        if built.is_err() {
-            let _ = fs::remove_dir_all(&profile);
+        let mut last_err = String::new();
+        // Ретрай: классический TOCTOU free_port — порт мог перехватить другой
+        // процесс между bind(0) и spawn браузера (CDP тогда не отвечает)
+        for _attempt in 0..2 {
+            let port = free_port()?;
+            // Уникальный профиль на запуск: общий каталог заставляет Edge/Chrome
+            // молча пересылать новый процесс уже запущенному экземпляру
+            // (single-instance) — CDP-порт тогда вообще не открывается.
+            // uuid вместо порта в имени: на общем /tmp предсказуемое имя
+            // позволяло squatting/симлинк-атаку на каталог профиля
+            let profile = std::env::temp_dir().join(format!(
+                "haloui-browser-{}",
+                uuid_v4_short()
+            ));
+            let port_arg = format!("--remote-debugging-port={port}");
+            let profile_arg = format!("--user-data-dir={}", profile.display());
+            let mut browser_args: Vec<&str> = vec![
+                &port_arg,
+                &profile_arg,
+                "--no-first-run",
+                "--no-default-browser-check",
+                "--force-device-scale-factor=1",
+                &size_arg,
+                "about:blank",
+            ];
+            if cfg.headless {
+                browser_args.insert(0, "--headless=new");
+            }
+            let child = Command::new(&exe)
+                .args(&browser_args)
+                .stdin(Stdio::null())
+                .spawn()
+                .map_err(|e| format!("failed to spawn browser {exe}: {e}"))?;
+
+            // При любой ошибке запуска гасим процесс — браузер-сирота
+            // держит порт и профиль и ломает все следующие запуски
+            let built = Self::build(child, port, &profile);
+            match built {
+                Ok(conn) => return Ok(conn),
+                Err(e) => {
+                    let _ = fs::remove_dir_all(&profile);
+                    let retryable = e.contains("CDP endpoint did not respond")
+                        || e.contains("cannot connect to CDP port")
+                        || e.contains("no page target")
+                        || e.contains("bad JSON from /json/list");
+                    if retryable {
+                        last_err = e;
+                        continue;
+                    }
+                    return Err(e);
+                }
+            }
         }
-        built
+        Err(last_err)
     }
 
-    fn build(child: Child, port: u16, _profile: &std::path::Path) -> Result<Self, String> {
+    fn build(child: Child, port: u16, profile: &std::path::Path) -> Result<Self, String> {
         let mut child = child;
         let ws_url = match wait_for_page_ws_url(port) {
             Ok(u) => u,
@@ -360,6 +386,7 @@ impl BrowserConnection {
             next_id: AtomicU64::new(1),
             abandoned: Mutex::new(HashSet::new()),
             dead: Mutex::new(false),
+            profile: profile.to_path_buf(),
         };
 
         // Viewport должен точно совпадать со скриншотом — на нём строится клик
@@ -594,6 +621,10 @@ impl Drop for BrowserConnection {
     fn drop(&mut self) {
         let _ = self.child.lock().unwrap_or_else(|p| p.into_inner()).kill();
         let _ = self.child.lock().unwrap_or_else(|p| p.into_inner()).wait();
+        // Профиль (cookie/история сессии) не копится в temp: удаляем сразу
+        // после смерти процесса. Best-effort: AV/залипшие хендлы могут
+        // помешать — остатки подчистит cleanup_browser_profiles при выходе
+        let _ = fs::remove_dir_all(&self.profile);
     }
 }
 
@@ -602,6 +633,12 @@ impl BrowserConnection {
         let _ = self.child.lock().unwrap_or_else(|p| p.into_inner()).kill();
         let _ = self.child.lock().unwrap_or_else(|p| p.into_inner()).wait();
     }
+}
+
+/// 8 hex-символов из криптослучайных байт — уникальное имя каталога профиля
+fn uuid_v4_short() -> String {
+    let b: [u8; 4] = rand::random();
+    b.iter().map(|x| format!("{x:02x}")).collect()
 }
 
 // ---------------------------------------------------------------------------
@@ -775,6 +812,12 @@ fn is_private_ipv6(ip: std::net::Ipv6Addr) -> bool {
         return is_private_ipv4(v4);
     }
     false
+}
+
+/// Публичная обёртка SSRF-фильтра для других модулей (imagegen запрашивает
+/// URL из ответа провайдера): true — публичный http/https
+pub(crate) fn url_is_public_http(url: &str) -> bool {
+    is_navigable_url(url, false)
 }
 
 /// Исполнение browser-инструмента на живом соединении (вызывается из lib.rs).

@@ -62,12 +62,13 @@ pub fn notes_list(app: tauri::AppHandle) -> Result<Vec<NoteInfo>, String> {
             .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
             .map(|d| d.as_secs())
             .unwrap_or(0);
-        let content = fs::read_to_string(entry.path()).unwrap_or_default();
-        out.push(NoteInfo {
-            title: note_title_from_content(&name, &content),
-            file: name,
-            updated,
-        });
+        // Для заголовка читаем максимум 1 МБ: раньше каждый .md читался
+        // ЦЕЛИКОМ при каждом открытии списка (vault на сотни больших заметок
+        // давал фризы и пики памяти). Фолбэк — имя файла
+        let title = crate::fsutil::read_capped_string(&entry.path(), 1024 * 1024)
+            .map(|c| note_title_from_content(&name, &c))
+            .unwrap_or_else(|_| note_title_from_content(&name, ""));
+        out.push(NoteInfo { title, file: name, updated });
     }
     out.sort_by_key(|n| std::cmp::Reverse(n.updated));
     Ok(out)
@@ -77,7 +78,9 @@ pub fn notes_list(app: tauri::AppHandle) -> Result<Vec<NoteInfo>, String> {
 pub fn notes_read(app: tauri::AppHandle, file: String) -> Result<String, String> {
     let file = sanitize_note_file(&file)?;
     let path = notes_dir(&app)?.join(file);
-    fs::read_to_string(path).map_err(|e| e.to_string())
+    // Потолок размера: агентный vault_read лимитирован, прямая команда
+    // раньше возвращала файл любого размера (OOM на многогигабайтном пути)
+    crate::fsutil::read_capped_string(&path, 0)
 }
 
 #[tauri::command(async)]
