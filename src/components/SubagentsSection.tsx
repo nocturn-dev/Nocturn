@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { useLang } from "../locales";
 import { mergeRoles, type SubagentRole, type SubagentsConfig } from "../subagents";
-import { MiniTrashIcon, ToggleRow } from "./SettingsModal";
+import { MiniTrashIcon, ToggleRow } from "./settings/parts";
 
 export default function SubagentsSection({
   config,

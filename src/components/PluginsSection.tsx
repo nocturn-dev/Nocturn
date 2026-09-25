@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { useLang } from "../locales";
 import { pluginRead, pluginsSave, type Plugin } from "../api";
-import { MiniTrashIcon } from "./SettingsModal";
+import { MiniTrashIcon } from "./settings/parts";
 
 export default function PluginsSection({
   plugins,
