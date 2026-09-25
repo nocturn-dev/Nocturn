@@ -297,6 +297,17 @@ export function useAgentRun(deps: AgentRunDeps) {
 
   const toApiMessage = (m: Message): ChatMsgParam => {
     if (m.role === "assistant" && m.toolCalls?.length) {
+      // Thinking-блок Anthropic возвращается в историю первым: Messages API
+      // при extended thinking отвергает ход с tool_use без thinking
+      // («Expected thinking or redacted_thinking, but found tool_use»)
+      const hasThinking = m.thoughtSignature || m.thoughtRedacted?.length;
+      const thinking = hasThinking
+        ? {
+            thinking: m.thought ?? "",
+            signature: m.thoughtSignature ?? "",
+            redacted: m.thoughtRedacted ?? [],
+          }
+        : undefined;
       return {
         role: "assistant",
         content: m.content || null,
@@ -305,6 +316,7 @@ export function useAgentRun(deps: AgentRunDeps) {
           type: "function",
           function: { name: tc.name, arguments: tc.arguments },
         })),
+        ...(thinking ? { thinking } : {}),
       };
     }
     if (m.role === "tool") {
@@ -682,13 +694,20 @@ export function useAgentRun(deps: AgentRunDeps) {
         : []),
       ...trimContextWindow(
         (current?.messages ?? [])
-          .filter(
-            (m) =>
-              (m.content !== "" || m.thought || m.attachments?.length || m.toolCalls) &&
-              // Служебные уведомления (смена модели) в запрос не попадают
-              !m.content.startsWith("[i]"),
-          )
-          .map(toApiMessage),
+          .filter((m) => {
+            // Служебные уведомления (смена модели) в запрос не попадают
+            if (m.content.startsWith("[i]")) return false;
+            // Tool-результат не выбрасываем никогда: пустой content
+            // (runTool вернул "") рвал пару assistant.tool_calls ↔ tool
+            // ещё до trimContextWindow → постоянные 400 у провайдера
+            if (m.role === "tool") return true;
+            return m.content !== "" || m.thought || m.attachments?.length || m.toolCalls;
+          })
+          .map((m) =>
+            m.role === "tool" && m.content === ""
+              ? { ...toApiMessage(m), content: "(empty result)" }
+              : toApiMessage(m),
+          ),
         30,
       ),
       { role: "user", content: toApiContent(userMsg) },
@@ -865,6 +884,12 @@ export function useAgentRun(deps: AgentRunDeps) {
       // Текст, отстрименный до вызова инструментов, — попадёт в историю
       // вместе с tool_calls, иначе модель «забывает» то, что уже написала
       let streamedText = "";
+      // Thinking-блок Anthropic (текст+подпись+redacted): нужен и в истории
+      // цикла, и на карточке сообщения. Holder-объект: TS не видит
+      // присваивание в колбэке и сужает let до never (как calls выше)
+      const thinkingHolder: {
+        block: { thinking: string; signature: string; redacted: string[] } | null;
+      } = { block: null };
       let failed = false;
       try {
         await chatWithRetry({
@@ -873,6 +898,7 @@ export function useAgentRun(deps: AgentRunDeps) {
           apiKey: apiSettings.api_key,
           model: apiSettings.model,
           reasoningEffort: effortRef.current,
+          provider: apiSettings.provider,
           messages: history,
           tools,
           onDelta: (delta) => {
@@ -880,6 +906,29 @@ export function useAgentRun(deps: AgentRunDeps) {
             appendTo(assistantId, delta, "");
           },
           onThought: (thought) => appendTo(assistantId, "", thought),
+          onThinkingBlock: (block) => {
+            thinkingHolder.block = block;
+            // Подпись/redacted thinking-блока Anthropic: без них блок
+            // нельзя вернуть в историю на следующем шаге цикла
+            setSessions((prev) =>
+              prev.map((s) =>
+                s.id === targetId
+                  ? {
+                      ...s,
+                      messages: s.messages.map((m) =>
+                        m.id === assistantId
+                          ? {
+                              ...m,
+                              thoughtSignature: block.signature || undefined,
+                              thoughtRedacted: block.redacted.length ? block.redacted : undefined,
+                            }
+                          : m,
+                      ),
+                    }
+                  : s,
+              ),
+            );
+          },
           onUsage: (usage) => {
             usageAcc.prompt += usage.prompt;
             usageAcc.completion += usage.completion;
@@ -942,7 +991,8 @@ export function useAgentRun(deps: AgentRunDeps) {
       if (abortedRef.current.has(requestId)) return finalize();
 
       // Вызовы инструментов в истории как assistant.tool_calls;
-      // отстрименный до вызова текст не теряется
+      // отстрименный до вызова текст не теряется. Thinking-блок Anthropic —
+      // первым: Messages API требует его для хода с tool_use
       history.push({
         role: "assistant",
         content: streamedText || null,
@@ -951,6 +1001,16 @@ export function useAgentRun(deps: AgentRunDeps) {
           type: "function",
           function: { name: tc.name, arguments: tc.arguments },
         })),
+        ...(thinkingHolder.block &&
+        (thinkingHolder.block.signature || thinkingHolder.block.redacted.length)
+          ? {
+              thinking: {
+                thinking: thinkingHolder.block.thinking,
+                signature: thinkingHolder.block.signature,
+                redacted: thinkingHolder.block.redacted,
+              },
+            }
+          : {}),
       });
 
       // Исполнение инструментов: режим разрешений задачи определяет,
@@ -1307,6 +1367,9 @@ export function useAgentRun(deps: AgentRunDeps) {
               },
               effort: effortRef.current,
               aborted: () => abortedRef.current.has(requestId),
+              // C11: requestId прогона — Stop прерывает и стрим субагента
+              // (chat_abort по его sub-* id), и его исполняющиеся инструменты
+              runRequestId: requestId,
             });
             subContent = `[${role.name}]
 ${report}`;

@@ -32,18 +32,69 @@ pub async fn run_tool(
 ) -> Result<String, String> {
     use tauri::Manager;
 
-    // Флаг отмены прогона: chat_abort/Stop поднимают его в реестре
-    let abort_flag: Option<std::sync::Arc<std::sync::atomic::AtomicBool>> =
-        request_id.and_then(|id| {
-            abort_registry
-                .0
-                .lock()
-                .ok()
-                .and_then(|m| m.get(&id).cloned())
-        });
-
     let args: serde_json::Value =
         serde_json::from_str(&arguments).map_err(|e| format!("invalid arguments JSON: {e}"))?;
+
+    // Серверный слой прав: бэкенд не «глухой исполнитель» — дубль фронт-логики
+    // разрешений (App.tsx). Err уходит модели как обычная ошибка инструмента.
+    // Проверка стоит ДО PreToolUse-хуков: в Plan-режиме shell-команды хуков
+    // не должны запускаться на каждый вызов заблокированного инструмента.
+    // shell_run — без path-контроля (cwd опционален); для fs_* берём путь из args.
+    {
+        let perm_path = if name.starts_with("fs_") {
+            args.get("path").and_then(|v| v.as_str())
+        } else {
+            None
+        };
+        perm::decide(&perm::current(), &name, perm_path)?;
+    }
+
+    // Флаг отмены прогона: chat_abort/Stop поднимают его в реестре.
+    // Инструменты исполняются ПОСЛЕ завершения стрима, когда AbortGuard
+    // chat_stream уже вычистил запись — раньше abort_flag здесь всегда был
+    // None, и Stop не мог прервать исполняющийся инструмент (shell_run
+    // крутился до собственного таймаута до 300 с). Если записи нет —
+    // регистрируем свежий флаг на время тулл-кола.
+    let (abort_flag, tool_abort_created): (
+        Option<std::sync::Arc<AtomicBool>>,
+        bool,
+    ) = {
+        let mut map = abort_registry.0.lock().map_err(|e| e.to_string())?;
+        match request_id.as_ref().and_then(|id| map.get(id).cloned()) {
+            Some(f) => (Some(f), false),
+            None => match &request_id {
+                Some(id) => {
+                    let f = std::sync::Arc::new(AtomicBool::new(false));
+                    map.insert(id.clone(), f.clone());
+                    (Some(f), true)
+                }
+                None => (None, false),
+            },
+        }
+    };
+    // created: мы сами завели запись (стрима с этим id уже нет) — снимаем её
+    // на выходе; чужую запись (живой стрим) не трогаем, её чистит AbortGuard
+    struct ToolAbortGuard<'a> {
+        registry: &'a crate::chat::AbortRegistry,
+        request_id: Option<String>,
+        created: bool,
+    }
+    impl Drop for ToolAbortGuard<'_> {
+        fn drop(&mut self) {
+            if self.created {
+                if let Some(id) = &self.request_id {
+                    if let Ok(mut map) = self.registry.0.lock() {
+                        map.remove(id);
+                    }
+                }
+            }
+        }
+    }
+    let _tool_abort_guard = ToolAbortGuard {
+        registry: &abort_registry,
+        request_id: request_id.clone(),
+        created: tool_abort_created,
+    };
 
     // Хуки PreToolUse: любой с decision=block (или ненулевым exit) блокирует вызов
     {
@@ -86,16 +137,6 @@ pub async fn run_tool(
             return Err("aborted by user".to_string());
         }
     }
-
-    // Серверный слой прав: бэкенд не «глухой исполнитель» — дубль фронт-логики
-    // разрешений (App.tsx). Err уходит модели как обычная ошибка инструмента.
-    // shell_run — без path-контроля (cwd опционален); для fs_* берём путь из args.
-    let perm_path = if name.starts_with("fs_") {
-        args.get("path").and_then(|v| v.as_str())
-    } else {
-        None
-    };
-    perm::decide(&perm::current(), &name, perm_path)?;
 
     let notes = notes_dir(&app)?;
     let data_dir = app
@@ -148,6 +189,21 @@ pub async fn run_tool(
         } else {
             Ok(format!("{result}\n\n[hook context]\n{}", extra.join("\n")))
         }
+    }
+}
+
+/// Ожидание abort-флага (для select! поверх блокирующих вызовов):
+/// None — ждём вечно; флаг поллится раз в 100 мс (AtomicBool без нотификации)
+async fn wait_for_abort(flag: Option<&std::sync::Arc<AtomicBool>>) {
+    let Some(f) = flag else {
+        std::future::pending::<()>().await;
+        return;
+    };
+    loop {
+        if f.load(Ordering::Relaxed) {
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     }
 }
 
@@ -214,12 +270,29 @@ pub async fn execute_tool_inner(
         };
         let args: serde_json::Value = serde_json::from_str(&arguments)
             .map_err(|e| format!("invalid arguments JSON: {e}"))?;
-        return tauri::async_runtime::spawn_blocking(move || {
-            conn.call_tool(&tool, args)
-                .map_err(|e| format!("mcp {server}.{tool}: {e}"))
-        })
-        .await
-        .map_err(|e| format!("tool task failed: {e}"))?;
+        // Таймаут + abort: зависший/однопоточный MCP-сервер, переставший
+        // отвечать, раньше вешал runTool навсегда — Stop не помогал, шаг
+        // агента стоял до перезапуска приложения
+        const MCP_TOOL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
+        let (server_c, tool_c) = (server.clone(), tool.clone());
+        let mut call = tauri::async_runtime::spawn_blocking(move || {
+            conn.call_tool(&tool_c, args)
+                .map_err(|e| format!("mcp {server_c}.{tool_c}: {e}"))
+        });
+        tokio::pin!(call);
+        let result: String = tokio::select! {
+            res = &mut call => res.map_err(|e| format!("tool task failed: {e}"))??,
+            _ = tokio::time::sleep(MCP_TOOL_TIMEOUT) => {
+                return Err(format!(
+                    "mcp {server}.{tool}: timed out after {}s",
+                    MCP_TOOL_TIMEOUT.as_secs()
+                ));
+            }
+            _ = wait_for_abort(abort_flag.as_ref()) => {
+                return Err("aborted by user".to_string());
+            }
+        };
+        return Ok(result);
     }
     // Vault-инструменты (заметки): чтение, не мутируют — исполним в потоке
     if name.starts_with("vault_") {

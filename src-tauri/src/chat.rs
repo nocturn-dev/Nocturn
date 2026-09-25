@@ -162,6 +162,12 @@ pub struct ChatMessage {
     /// Вызовы инструментов в истории (роль "assistant", OpenAI-формат)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tool_calls: Option<serde_json::Value>,
+    /// Thinking-блок Anthropic для assistant-хода: {thinking, signature,
+    /// redacted[]}. Messages API при extended thinking требует возвращать
+    /// thinking-блоки хода, завершившегося tool_use, иначе — 400
+    /// «Expected thinking or redacted_thinking, but found tool_use».
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thinking: Option<serde_json::Value>,
 }
 
 /// Стриминговый чат: POST {base_url}/chat/completions с stream:true.
@@ -183,14 +189,23 @@ pub async fn chat_stream(
     messages: Vec<ChatMessage>,
     tools: Option<serde_json::Value>,
     reasoning_effort: Option<String>,
+    // Явный провайдер с фронта ("anthropic", "openai", …): раньше адаптер
+    // выбирался substring-поиском "api.anthropic.com" в Base URL, и прокси
+    // вида https://gw.corp/api.anthropic.com/v1 получал нативный адаптер
+    // с x-api-key вместо Bearer — загадочный 401 на валидном ключе
+    provider: Option<String>,
 ) -> Result<(), String> {
     use futures_util::StreamExt;
     use tauri::Emitter;
 
-    // Адаптер протокола выбирается по Base URL: нативный Anthropic —
-    // свой формат запроса и SSE-событий, всё остальное — OpenAI-совместимое
+    // Адаптер протокола: явный провайдер с фронта, при отсутствии — эвристика
+    // по Base URL (старое поведение для совместимости)
     let base_url = normalize_base_url(&base_url);
-    let anthropic = is_anthropic_base(&base_url);
+    let anthropic = match provider.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        Some("anthropic") => true,
+        Some(_) => false,
+        None => is_anthropic_base(&base_url),
+    };
     let base = base_url.trim_end_matches('/');
 
     let client = crate::network::apply(
@@ -202,11 +217,15 @@ pub async fn chat_stream(
     .map_err(|e| format!("failed to build http client: {e}"))?;
 
     // Регистрируем флаг отмены ДО отправки запроса: иначе chat_abort,
-    // пришедший между send() и регистрацией, был бы no-op
+    // пришедший между send() и регистрацией, был бы no-op. Повторный
+    // request_id поднимает флаг старого стрима: иначе AbortGuard старого
+    // при выходе вычищал запись нового, и отмена нового становилась no-op
     let flag: Arc<AtomicBool> = {
         let mut map = registry.0.lock().map_err(|e| e.to_string())?;
         let f = Arc::new(AtomicBool::new(false));
-        map.insert(request_id.clone(), f.clone());
+        if let Some(old) = map.insert(request_id.clone(), f.clone()) {
+            old.store(true, Ordering::Relaxed);
+        }
         f
     };
     // Guard чистит запись при любом выходе из функции (в т.ч. по "?" и return)
@@ -215,7 +234,8 @@ pub async fn chat_stream(
         request_id: request_id.clone(),
     };
 
-    let resp = if anthropic {
+    let mut body_json: Option<serde_json::Value> = None;
+    let mut resp = if anthropic {
         let body = build_anthropic_body(
             &model,
             &messages,
@@ -246,14 +266,38 @@ pub async fn chat_stream(
             let mapped = if eff == "max" { "high" } else { eff };
             body["reasoning_effort"] = serde_json::json!(mapped);
         }
+        body_json = Some(body);
         client
             .post(format!("{base}/chat/completions"))
             .bearer_auth(api_key.trim())
-            .json(&body)
+            .json(body_json.as_ref().unwrap())
             .send()
             .await
             .map_err(|e| format!("failed to connect: {e}"))?
     };
+
+    // Строгие шлюзы (старые vLLM, корпоративные прокси) не знают поле
+    // stream_options и отвечают 400 на любой запрос — чат был мёртв целиком.
+    // Ретраим один раз без этого поля
+    let retry_without_stream_options =
+        !anthropic && body_json.is_some() && resp.status() == reqwest::StatusCode::BAD_REQUEST;
+    if retry_without_stream_options {
+        let err_body = resp.text().await.unwrap_or_default();
+        if err_body.contains("stream_options") {
+            if let Some(obj) = body_json.as_mut().and_then(|b| b.as_object_mut()) {
+                obj.remove("stream_options");
+            }
+            resp = client
+                .post(format!("{base}/chat/completions"))
+                .bearer_auth(api_key.trim())
+                .json(body_json.as_ref().unwrap())
+                .send()
+                .await
+                .map_err(|e| format!("failed to connect: {e}"))?;
+        } else {
+            return Err(provider_error(reqwest::StatusCode::BAD_REQUEST, &err_body));
+        }
+    }
 
     let status = resp.status();
     if !status.is_success() {
@@ -270,22 +314,30 @@ pub async fn chat_stream(
     };
 
     // Idle-watchdog вместо общего таймаута запроса: долгие прогоны (thinking,
-    // большие ответы) легальны, а «зависший» без байт стрим режется по 120 с тишины
-    const STREAM_IDLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
+    // большие ответы) легальны, а «зависший» без байт стрим режется по тишине.
+    // 300 с: reasoning-модели (o-серия, Gemini thinking) могут молчать до
+    // первого байта заметно дольше двух минут — 120 с рвал легитимный стрим
+    const STREAM_IDLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
     // Потолок буфера неполной строки: провайдер, шлющий байты без '\n' — сломан
     const SSE_BUF_LIMIT: usize = 1024 * 1024;
 
-    loop {
+    // true — стрим погашен пользователем или [DONE]: хвост аккумулятора
+    // (накопленные tool_calls/usage) не дочитываем
+    let mut ended = false;
+    'outer: loop {
         let chunk = match tokio::time::timeout(STREAM_IDLE_TIMEOUT, stream.next()).await {
             Ok(item) => item,
-            Err(_) => return Err("stream idle: no data for 120s".to_string()),
+            Err(_) => {
+                return Err("stream idle: no data for 300s".to_string());
+            }
         };
         let Some(chunk) = chunk else {
             break;
         };
         // Прерывание: агент ушёл «в бесконечное размышление» — гасим поток
         if flag.load(Ordering::Relaxed) {
-            return Ok(());
+            ended = true;
+            break 'outer;
         }
         let bytes = chunk.map_err(|e| format!("stream interrupted: {e}"))?;
         buf.extend_from_slice(&bytes);
@@ -295,7 +347,8 @@ pub async fn chat_stream(
 
         for line in take_complete_lines(&mut buf) {
             if flag.load(Ordering::Relaxed) {
-                return Ok(());
+                ended = true;
+                break 'outer;
             }
             let line = line.trim();
             if !line.starts_with("data:") {
@@ -303,7 +356,8 @@ pub async fn chat_stream(
             }
             let data = line[5..].trim();
             if data == "[DONE]" {
-                return Ok(());
+                ended = true;
+                break 'outer;
             }
             for event in acc.feed(data) {
                 match event {
@@ -340,38 +394,64 @@ pub async fn chat_stream(
                         )
                         .map_err(|e| e.to_string())?;
                     }
+                    FeedEvent::ThinkingBlock { thinking, signature, redacted } => {
+                        app.emit(
+                            "chat-thinking",
+                            serde_json::json!({
+                                "requestId": request_id,
+                                "thinking": thinking,
+                                "signature": signature,
+                                "redacted": redacted
+                            }),
+                        )
+                        .map_err(|e| e.to_string())?;
+                    }
                 }
             }
         }
     }
 
-    // Хвост аккумулятора (подозрительный на частичный тег) — дочитываем.
-    // AnthropicAccumulator::flush может ещё отдать накопленные tool-calls,
-    // если стрим оборвался до message_delta
-    for event in acc.flush() {
-        match event {
-            FeedEvent::Content { delta } => {
-                app.emit(
-                    "chat-chunk",
-                    serde_json::json!({ "requestId": request_id, "delta": delta }),
-                )
-                .map_err(|e| e.to_string())?;
+    // Хвост аккумулятора (usage/tool_calls/подозрительный на частичный тег) —
+    // дочитываем ТОЛЬКО при естественном завершении: при отмене результат уже
+    // не нужен, а AnthropicAccumulator::flush может ещё отдать накопленное
+    if !ended {
+        for event in acc.flush() {
+            match event {
+                FeedEvent::Content { delta } => {
+                    app.emit(
+                        "chat-chunk",
+                        serde_json::json!({ "requestId": request_id, "delta": delta }),
+                    )
+                    .map_err(|e| e.to_string())?;
+                }
+                FeedEvent::Thought { delta } => {
+                    app.emit(
+                        "chat-thought",
+                        serde_json::json!({ "requestId": request_id, "thought": delta }),
+                    )
+                    .map_err(|e| e.to_string())?;
+                }
+                FeedEvent::ToolCallsFinished { calls } => {
+                    app.emit(
+                        "chat-tool-calls",
+                        serde_json::json!({ "requestId": request_id, "calls": calls }),
+                    )
+                    .map_err(|e| e.to_string())?;
+                }
+                FeedEvent::ThinkingBlock { thinking, signature, redacted } => {
+                    app.emit(
+                        "chat-thinking",
+                        serde_json::json!({
+                            "requestId": request_id,
+                            "thinking": thinking,
+                            "signature": signature,
+                            "redacted": redacted
+                        }),
+                    )
+                    .map_err(|e| e.to_string())?;
+                }
+                _ => {}
             }
-            FeedEvent::Thought { delta } => {
-                app.emit(
-                    "chat-thought",
-                    serde_json::json!({ "requestId": request_id, "thought": delta }),
-                )
-                .map_err(|e| e.to_string())?;
-            }
-            FeedEvent::ToolCallsFinished { calls } => {
-                app.emit(
-                    "chat-tool-calls",
-                    serde_json::json!({ "requestId": request_id, "calls": calls }),
-                )
-                .map_err(|e| e.to_string())?;
-            }
-            _ => {}
         }
     }
 
@@ -417,6 +497,13 @@ pub enum FeedEvent {
     Thought { delta: String },
     Usage { prompt: u64, completion: u64, total: u64 },
     ToolCallsFinished { calls: Vec<StreamToolCall> },
+    /// Закрытый thinking-блок Anthropic: текст + подпись (нужна для возврата
+    /// блока в историю) + redacted-блоки. Эмитится один раз на сообщение.
+    ThinkingBlock {
+        thinking: String,
+        signature: String,
+        redacted: Vec<String>,
+    },
 }
 
 /// Накапливает разобранные data-чанки стрима
@@ -428,6 +515,11 @@ pub struct SseAccumulator {
     /// Финальный usage-чанк OpenAI (`choices: []`) повторно триггерит
     /// finish_reason — ToolCallsFinished эмитится ровно один раз
     tool_calls_emitted: bool,
+    /// Последний увиденный usage. Эмитится один раз в flush: провайдеры,
+    /// кладущие usage в КАЖДЫЙ чанк (Gemini на OpenAI-слое, прокси),
+    /// раньше накручивали prompt-токены кратно числу чанков — фронт
+    /// суммирует каждое событие (контракт как у Anthropic: финал стрима)
+    pending_usage: Option<(u64, u64, u64)>,
     /// Часть контента внутри `<think>…</think>` — рассуждения, приходящие
     /// инлайном в content (OpenAI-совместимые прокси, DeepSeek-R1 и др.).
     /// Маршрутизируются в Thought, иначе react-markdown без rehype-raw
@@ -517,18 +609,15 @@ impl SseAccumulator {
             Err(_) => return events, // мусорный чанк игнорируем
         };
 
-        // usage обычно приходит в финальном чанке
+        // usage: запоминаем последнее увиденное значение, эмитим один раз
+        // в flush (см. pending_usage — провайдеры шлют usage в каждом чанке)
         if let Some(usage) = value.get("usage").filter(|u| !u.is_null()) {
             let prompt = usage.get("prompt_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
             let completion = usage
                 .get("completion_tokens")
                 .and_then(|v| v.as_u64())
                 .unwrap_or(0);
-            events.push(FeedEvent::Usage {
-                prompt,
-                completion,
-                total: prompt + completion,
-            });
+            self.pending_usage = Some((prompt, completion, prompt + completion));
         }
 
         let choice = &value["choices"][0];
@@ -642,17 +731,35 @@ impl StreamFeed for SseAccumulator {
     }
 
     fn flush(&mut self) -> Vec<FeedEvent> {
+        let mut events = Vec::new();
+        // Usage — один раз на стрим (последнее увиденное значение)
+        if let Some((prompt, completion, total)) = self.pending_usage.take() {
+            events.push(FeedEvent::Usage { prompt, completion, total });
+        }
+        // Страховка OpenAI-пути (у Anthropic она в его flush): соединение
+        // оборвалось после вызовов, но до finish_reason — tool_calls не
+        // теряем молча, агентный цикл получает их как обычно
+        if self.saw_tool_call && !self.tool_calls_emitted && !self.tool_calls.is_empty() {
+            self.tool_calls_emitted = true;
+            let mut calls = self.tool_calls.clone();
+            for c in &mut calls {
+                if c.arguments.trim().is_empty() {
+                    c.arguments = "{}".to_string();
+                }
+            }
+            events.push(FeedEvent::ToolCallsFinished { calls });
+        }
         let tail = std::mem::take(&mut self.tag_tail);
-        if tail.is_empty() {
-            return Vec::new();
+        if !tail.is_empty() {
+            // Хвост на границе стрима — не тег (тег длиной 7-8 не уместился):
+            // отдаём туда, куда нёс его контекст
+            events.push(if self.in_think {
+                FeedEvent::Thought { delta: tail }
+            } else {
+                FeedEvent::Content { delta: tail }
+            });
         }
-        // Хвост на границе стрима — не тег (тег длиной 7-8 не уместился):
-        // отдаём туда, куда нёс его контекст
-        if self.in_think {
-            vec![FeedEvent::Thought { delta: tail }]
-        } else {
-            vec![FeedEvent::Content { delta: tail }]
-        }
+        events
     }
 }
 
@@ -700,6 +807,28 @@ pub fn build_anthropic_body(
             }
             "assistant" => {
                 let mut blocks: Vec<serde_json::Value> = Vec::new();
+                // Thinking-блоки идут ПЕРВЫМИ в assistant-контенте: Messages
+                // API при extended thinking требует вернуть thinking хода,
+                // завершившегося tool_use, иначе — 400
+                // «Expected thinking or redacted_thinking, but found tool_use»
+                if let Some(th) = m.thinking.as_ref() {
+                    let text = th.get("thinking").and_then(|v| v.as_str()).unwrap_or("");
+                    let sig = th.get("signature").and_then(|v| v.as_str()).unwrap_or("");
+                    if !sig.is_empty() && !text.is_empty() {
+                        blocks.push(serde_json::json!({
+                            "type": "thinking", "thinking": text, "signature": sig
+                        }));
+                    }
+                    if let Some(red) = th.get("redacted").and_then(|v| v.as_array()) {
+                        for r in red {
+                            if let Some(d) = r.as_str() {
+                                blocks.push(serde_json::json!({
+                                    "type": "redacted_thinking", "data": d
+                                }));
+                            }
+                        }
+                    }
+                }
                 if let Some(text) = m.content.as_str() {
                     if !text.is_empty() {
                         blocks.push(serde_json::json!({ "type": "text", "text": text }));
@@ -802,7 +931,8 @@ pub fn anthropic_image_block(data_url: &str) -> Option<serde_json::Value> {
 
 /// Парсер SSE-событий нативного Anthropic Messages API.
 /// События: message_start (usage in), content_block_delta (text/thinking/
-/// input_json), content_block_stop (закрытие tool_use), message_delta (usage out).
+/// signature/input_json), content_block_stop (закрытие tool_use/thinking),
+/// message_delta (usage out + ToolCallsFinished + ThinkingBlock).
 #[derive(Debug, Default)]
 pub struct AnthropicAccumulator {
     tool_id: String,
@@ -815,6 +945,14 @@ pub struct AnthropicAccumulator {
     /// на каждое событие — поэтому эмитим ОДНО ToolCallsFinished со всеми
     /// вызовами на message_delta (контракт OpenAI-пути).
     pending_calls: Vec<StreamToolCall>,
+    /// thinking-блок текущего сообщения: текст (дублирует поток Thought —
+    /// тот идёт на дисплей, этот — в историю) + подпись + redacted-блоки.
+    /// Messages API требует вернуть блоки хода, завершившегося tool_use
+    thinking_text: String,
+    thinking_signature: String,
+    thinking_seen: bool,
+    thinking_emitted: bool,
+    redacted: Vec<String>,
 }
 
 impl StreamFeed for AnthropicAccumulator {
@@ -837,11 +975,22 @@ impl StreamFeed for AnthropicAccumulator {
             }
             "content_block_start" => {
                 let block = &value["content_block"];
-                if block["type"] == "tool_use" {
-                    self.in_tool = true;
-                    self.tool_id = block["id"].as_str().unwrap_or("").to_string();
-                    self.tool_name = block["name"].as_str().unwrap_or("").to_string();
-                    self.tool_json.clear();
+                match block["type"].as_str().unwrap_or("") {
+                    "tool_use" => {
+                        self.in_tool = true;
+                        self.tool_id = block["id"].as_str().unwrap_or("").to_string();
+                        self.tool_name = block["name"].as_str().unwrap_or("").to_string();
+                        self.tool_json.clear();
+                    }
+                    "redacted_thinking" => {
+                        // Redacted-блок возвращается в историю как есть
+                        // (base64-данные), иначе API отвергает ход
+                        if let Some(d) = block["data"].as_str() {
+                            self.redacted.push(d.to_string());
+                            self.thinking_seen = true;
+                        }
+                    }
+                    _ => {}
                 }
             }
             "content_block_delta" => {
@@ -857,8 +1006,17 @@ impl StreamFeed for AnthropicAccumulator {
                     "thinking_delta" => {
                         if let Some(t) = delta["thinking"].as_str() {
                             if !t.is_empty() {
+                                self.thinking_text.push_str(t);
+                                self.thinking_seen = true;
                                 events.push(FeedEvent::Thought { delta: t.to_string() });
                             }
+                        }
+                    }
+                    // Подпись thinking-блока: без неё блок нельзя вернуть
+                    // в историю (API отвергнет ход с tool_use)
+                    "signature_delta" => {
+                        if let Some(s) = delta["signature"].as_str() {
+                            self.thinking_signature.push_str(s);
                         }
                     }
                     "input_json_delta" => {
@@ -891,6 +1049,7 @@ impl StreamFeed for AnthropicAccumulator {
                     completion: output,
                     total: self.input_tokens + output,
                 });
+                self.emit_thinking_block(&mut events);
                 if !self.pending_calls.is_empty() {
                     events.push(FeedEvent::ToolCallsFinished {
                         calls: std::mem::take(&mut self.pending_calls),
@@ -905,12 +1064,29 @@ impl StreamFeed for AnthropicAccumulator {
     /// Страховка: протокол гарантирует message_delta перед концом стрима,
     /// но если соединение оборвалось раньше — не теряем накопленные вызовы
     fn flush(&mut self) -> Vec<FeedEvent> {
-        if self.pending_calls.is_empty() {
-            return Vec::new();
+        let mut events = Vec::new();
+        self.emit_thinking_block(&mut events);
+        if !self.pending_calls.is_empty() {
+            events.push(FeedEvent::ToolCallsFinished {
+                calls: std::mem::take(&mut self.pending_calls),
+            });
         }
-        vec![FeedEvent::ToolCallsFinished {
-            calls: std::mem::take(&mut self.pending_calls),
-        }]
+        events
+    }
+}
+
+impl AnthropicAccumulator {
+    /// Один ThinkingBlock на сообщение: текст + подпись + redacted
+    fn emit_thinking_block(&mut self, events: &mut Vec<FeedEvent>) {
+        if self.thinking_emitted || !self.thinking_seen {
+            return;
+        }
+        self.thinking_emitted = true;
+        events.push(FeedEvent::ThinkingBlock {
+            thinking: std::mem::take(&mut self.thinking_text),
+            signature: std::mem::take(&mut self.thinking_signature),
+            redacted: std::mem::take(&mut self.redacted),
+        });
     }
 }
 
@@ -1011,6 +1187,109 @@ mod anthropic_tests {
     }
 
     #[test]
+    fn anthropic_thinking_block_captured_for_history() {
+        // Регресс [A2]: thinking-блок с подписью должен доезжать до истории —
+        // без него Messages API отвечает 400 на ход с tool_use при
+        // extended thinking
+        let mut acc = AnthropicAccumulator::default();
+        let events = feed_lines(
+            &mut acc,
+            &[
+                r#"{"type":"content_block_start","index":0,"content_block":{"type":"thinking"}}"#,
+                r#"{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"шаг 1: выбрать файл"}}"#,
+                r#"{"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"sig-abc"}}"#,
+                r#"{"type":"content_block_stop","index":0}"#,
+                r#"{"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"toolu_9","name":"fs_read"}}"#,
+                r#"{"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\"path\":\"a\"}"}}"#,
+                r#"{"type":"content_block_stop","index":1}"#,
+                r#"{"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":30}}"#,
+            ],
+        );
+        let block = events
+            .iter()
+            .filter_map(|e| match e {
+                FeedEvent::ThinkingBlock { thinking, signature, redacted } => {
+                    Some((thinking.clone(), signature.clone(), redacted.clone()))
+                }
+                _ => None,
+            })
+            .next()
+            .expect("thinking block event");
+        assert_eq!(block.0, "шаг 1: выбрать файл");
+        assert_eq!(block.1, "sig-abc");
+        assert!(block.2.is_empty());
+        // Блок эмитится ровно один раз
+        assert_eq!(
+            events
+                .iter()
+                .filter(|e| matches!(e, FeedEvent::ThinkingBlock { .. }))
+                .count(),
+            1
+        );
+
+        // Блок возвращается в тело запроса ПЕРВЫМ в assistant-контенте
+        let body = build_anthropic_body(
+            "claude-x",
+            &[
+                ChatMessage {
+                    role: "user".into(),
+                    content: serde_json::json!("hi"),
+                    tool_call_id: None,
+                    tool_calls: None,
+                    thinking: None,
+                },
+                ChatMessage {
+                    role: "assistant".into(),
+                    content: serde_json::json!(""),
+                    tool_call_id: None,
+                    tool_calls: Some(serde_json::json!([
+                        {"id":"toolu_9","type":"function","function":{"name":"fs_read","arguments":"{\"path\":\"a\"}"}}
+                    ])),
+                    thinking: Some(serde_json::json!({
+                        "thinking": "шаг 1: выбрать файл",
+                        "signature": "sig-abc",
+                        "redacted": []
+                    })),
+                },
+                ChatMessage {
+                    role: "tool".into(),
+                    content: serde_json::json!("file content"),
+                    tool_call_id: Some("toolu_9".into()),
+                    tool_calls: None,
+                    thinking: None,
+                },
+            ],
+            None,
+            None,
+        );
+        let blocks = body["messages"][1]["content"].as_array().unwrap();
+        assert_eq!(blocks[0]["type"], "thinking");
+        assert_eq!(blocks[0]["signature"], "sig-abc");
+        assert_eq!(blocks[1]["type"], "tool_use");
+    }
+
+    #[test]
+    fn anthropic_redacted_thinking_passes_through() {
+        let mut acc = AnthropicAccumulator::default();
+        let events = feed_lines(
+            &mut acc,
+            &[
+                r#"{"type":"content_block_start","index":0,"content_block":{"type":"redacted_thinking","data":"enc-data-1"}}"#,
+                r#"{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":5}}"#,
+            ],
+        );
+        let block = events
+            .iter()
+            .filter_map(|e| match e {
+                FeedEvent::ThinkingBlock { redacted, .. } => Some(redacted.clone()),
+                _ => None,
+            })
+            .next()
+            .expect("redacted block event");
+        assert_eq!(block, vec!["enc-data-1"]);
+    }
+
+    #[test]
     fn anthropic_usage_emitted_once() {
         // Регресс: message_start + message_delta удваивали prompt-токены
         let mut acc = AnthropicAccumulator::default();
@@ -1064,6 +1343,7 @@ mod anthropic_tests {
                 content: serde_json::json!("сделай"),
                 tool_call_id: None,
                 tool_calls: None,
+                thinking: None,
             },
             ChatMessage {
                 role: "assistant".into(),
@@ -1073,18 +1353,21 @@ mod anthropic_tests {
                     {"id":"toolu_1","type":"function","function":{"name":"fs_read","arguments":"{\"path\":\"a\"}"}},
                     {"id":"toolu_2","type":"function","function":{"name":"fs_read","arguments":"{\"path\":\"b\"}"}}
                 ])),
+                thinking: None,
             },
             ChatMessage {
                 role: "tool".into(),
                 content: serde_json::json!("результат 1"),
                 tool_call_id: Some("toolu_1".into()),
                 tool_calls: None,
+                thinking: None,
             },
             ChatMessage {
                 role: "tool".into(),
                 content: serde_json::json!("результат 2"),
                 tool_call_id: Some("toolu_2".into()),
                 tool_calls: None,
+                thinking: None,
             },
         ];
         let body = build_anthropic_body("claude-x", &messages, None, None);
@@ -1106,12 +1389,14 @@ mod anthropic_tests {
                 content: serde_json::json!("Ты помощник"),
                 tool_call_id: None,
                 tool_calls: None,
+                thinking: None,
             },
             ChatMessage {
                 role: "tool".into(),
                 content: serde_json::json!("результат"),
                 tool_call_id: Some("toolu_9".into()),
                 tool_calls: None,
+                thinking: None,
             },
             ChatMessage {
                 role: "assistant".into(),
@@ -1120,6 +1405,7 @@ mod anthropic_tests {
                 tool_calls: Some(serde_json::json!([
                     {"id":"toolu_9","type":"function","function":{"name":"fs_read","arguments":"{\"path\":\"a\"}"}}
                 ])),
+                thinking: None,
             },
         ];
         let tools = serde_json::json!([
@@ -1142,6 +1428,7 @@ mod anthropic_tests {
             content: serde_json::json!("привет"),
             tool_call_id: None,
             tool_calls: None,
+            thinking: None,
         }];
         // "max" → бюджет 16000, max_tokens покрывает бюджет (8192 + 16000)
         let body = build_anthropic_body("claude-x", &messages, None, Some("max"));
@@ -1329,6 +1616,55 @@ mod tests {
             e,
             FeedEvent::Usage { prompt: 10, completion: 3, total: 13 }
         )));
+    }
+
+    #[test]
+    fn usage_per_chunk_is_counted_once() {
+        // Регресс [A6]: Gemini на OpenAI-слое и прокси кладут usage (нарастающий
+        // или полный) в КАЖДЫЙ чанк — фронт суммирует каждое событие, prompt-
+        // токены умножались на число чанков, Hard Limit срабатывал в разы раньше
+        let mut acc = SseAccumulator::default();
+        let events = feed_lines(
+            &mut acc,
+            &[
+                r#"{"choices":[{"delta":{"content":"a"}}],"usage":{"prompt_tokens":100,"completion_tokens":1}}"#,
+                r#"{"choices":[{"delta":{"content":"b"}}],"usage":{"prompt_tokens":100,"completion_tokens":2}}"#,
+                r#"{"choices":[{"delta":{"content":"c"}}],"usage":{"prompt_tokens":100,"completion_tokens":3}}"#,
+            ],
+        );
+        let usage: Vec<_> = events
+            .iter()
+            .filter_map(|e| match e {
+                FeedEvent::Usage { prompt, completion, total } => Some((*prompt, *completion, *total)),
+                _ => None,
+            })
+            .collect();
+        // Ровно одно событие с финальным значением, а не три с суммой 300
+        assert_eq!(usage, vec![(100, 3, 103)]);
+    }
+
+    #[test]
+    fn disconnect_keeps_accumulated_tool_calls() {
+        // Регресс [A7]: соединение оборвалось после вызовов, но до
+        // finish_reason — накопленные tool_calls не теряются молча
+        let mut acc = SseAccumulator::default();
+        let events = feed_lines(
+            &mut acc,
+            &[
+                r#"{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_x","function":{"name":"fs_read","arguments":"{\"path\":\"a\"}"}}]}}]}"#,
+                // обрыв: ни finish_reason, ни [DONE]
+            ],
+        );
+        let finished = events
+            .iter()
+            .filter_map(|e| match e {
+                FeedEvent::ToolCallsFinished { calls } => Some(calls.clone()),
+                _ => None,
+            })
+            .next()
+            .expect("flush must emit accumulated tool calls");
+        assert_eq!(finished.len(), 1);
+        assert_eq!(finished[0].name, "fs_read");
     }
 
     #[test]

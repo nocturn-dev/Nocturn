@@ -6,6 +6,7 @@
  */
 
 import {
+  abortChat,
   chatStream,
   getToolSchemas,
   runTool,
@@ -130,6 +131,10 @@ export interface SubagentRunOpts {
   effort?: "off" | "low" | "high" | "max";
   /** Кооперативная отмена (abort главной задачи) */
   aborted?: () => boolean;
+  /** requestId главного прогона: Stop гасит и стрим субагента (watcher
+   *  вызывает chat_abort по его sub-* id), и его исполняющиеся инструменты
+   *  (runTool регистрируется на abort-флаг прогона) */
+  runRequestId?: string;
 }
 
 /** Вложенный агентный цикл: model → tools → … → финальный отчёт */
@@ -172,9 +177,24 @@ export async function runSubagent(opts: SubagentRunOpts): Promise<string> {
     let content = "";
     // holder: TS не видит присваивание в колбэке и сужает let до null
     const holder: { calls: ToolCallInfo[] | null } = { calls: null };
+    // Watcher: Stop главного прогона раньше не касался субагента — его стрим
+    // и shell-процессы продолжали жечь токены до конца текущего шага
+    const subRequestId = `sub-${crypto.randomUUID()}`;
+    let watcherStop = false;
+    const watcher = opts.runRequestId
+      ? (async () => {
+          while (!watcherStop) {
+            if (opts.aborted?.()) {
+              await abortChat(subRequestId).catch(() => {});
+              return;
+            }
+            await new Promise((r) => setTimeout(r, 200));
+          }
+        })()
+      : null;
     try {
       await chatStream({
-        requestId: `sub-${crypto.randomUUID()}`,
+        requestId: subRequestId,
         baseUrl,
         apiKey,
         model,
@@ -192,6 +212,9 @@ export async function runSubagent(opts: SubagentRunOpts): Promise<string> {
       });
     } catch (e) {
       return `subagent stream error: ${e}`;
+    } finally {
+      watcherStop = true;
+      void watcher;
     }
 
     // Финальный ответ без вызовов инструментов — это и есть отчёт
@@ -213,7 +236,9 @@ export async function runSubagent(opts: SubagentRunOpts): Promise<string> {
     for (const call of calls) {
       if (opts.aborted?.()) return "(subagent aborted)";
       opts.onStep?.({ type: "tool", text: `${call.name} ${call.arguments.slice(0, 80)}` });
-      const res = await runTool(call.name, call.arguments).catch(
+      // requestId главного прогона: бэкенд поднимает/заводит abort-флаг
+      // по нему — Stop прерывает и инструмент субагента
+      const res = await runTool(call.name, call.arguments, opts.runRequestId).catch(
         (e) => `tool error: ${e}`,
       );
       messages.push({
