@@ -275,7 +275,7 @@ pub async fn execute_tool_inner(
         // агента стоял до перезапуска приложения
         const MCP_TOOL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
         let (server_c, tool_c) = (server.clone(), tool.clone());
-        let mut call = tauri::async_runtime::spawn_blocking(move || {
+        let call = tauri::async_runtime::spawn_blocking(move || {
             conn.call_tool(&tool_c, args)
                 .map_err(|e| format!("mcp {server_c}.{tool_c}: {e}"))
         });
