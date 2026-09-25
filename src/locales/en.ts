@@ -584,6 +584,9 @@ export const en = {
     "main.exportHint":
       "Providers, keys, prompts, themes, automations and chats in one file. Encrypted keys revive only with the same master password.",
     "main.exportBtn": "Export",
+    "error.noteSaveFailed": "Failed to save the note — the content was not written to disk.",
+    "error.saveFailed":
+      "Failed to save chat history to disk. Changes will be retried; if this persists, check disk space and permissions.",
     "main.exportSecrets":
       "Include API keys in the export file",
     "main.exportSecretsWarn":

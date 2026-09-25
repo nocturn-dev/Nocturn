@@ -373,11 +373,19 @@ export default function App() {
   const refreshNotes = useCallback(async () => {
     try {
       const metas = await notesList();
-      const full: Note[] = [];
-      for (const m of metas) {
-        const content = await notesRead(m.file);
-        full.push({ ...m, content });
-      }
+      // C16: последовательные await на каждую заметку висили на старте
+      // суммой латентностей IPC; ошибка одной заметки абортит весь список.
+      // Параллельно, с per-item фолбэком
+      const full = await Promise.all(
+        metas.map(async (m): Promise<Note> => {
+          try {
+            const content = await notesRead(m.file);
+            return { ...m, content };
+          } catch {
+            return { ...m, content: "" };
+          }
+        }),
+      );
       setNotes(full);
     } catch {
       // нет папки заметок — пусто
@@ -671,16 +679,30 @@ export default function App() {
                     .map((s) => s.id),
                 );
                 if (staleIds.size > 0) {
-                  setSessions(
-                    parsed.map((s) =>
-                      staleIds.has(s.id) ? { ...s, archived: true } : s,
-                    ),
-                  );
+                  setSessions((prev) => {
+                    // C4: сессии, созданные пользователем, пока история
+                    // читалась с диска, не должны затираться снапшотом
+                    const diskIds = new Set(parsed.map((s) => s.id));
+                    const localOnly = prev.filter((s) => !diskIds.has(s.id));
+                    return [
+                      ...localOnly,
+                      ...parsed.map((s) =>
+                        staleIds.has(s.id) ? { ...s, archived: true } : s,
+                      ),
+                    ];
+                  });
                   addToast(t("main.archivedN", { n: staleIds.size }));
                   return;
                 }
               }
-              setSessions(parsed);
+              setSessions((prev) => {
+                // C4: merge, не замена — за время холодного чтения диска
+                // (антивирус, медленный SSD) пользователь успевал создать
+                // задачу, и setSessions(parsed) терял её навсегда
+                const diskIds = new Set(parsed.map((s) => s.id));
+                const localOnly = prev.filter((s) => !diskIds.has(s.id));
+                return localOnly.length > 0 ? [...localOnly, ...parsed] : parsed;
+              });
               // Бэкфилл журнала использования из старой истории
               // (без дат сообщений — относим расход ко дню создания задачи)
               if (
@@ -742,11 +764,31 @@ export default function App() {
   // streamingId объявлен ниже (useAgentRun) — пишем в ref там же.
   const streamingActiveRef = useRef(false);
   useEffect(() => {
+    // C14: очередь записи — flush-интервал 3с не ждал завершения предыдущего
+    // saveSessions; на больших историях stringify+IPC превышали 3с, два
+    // параллельных invoke заканчивались в произвольном порядке, и на диск
+    // мог лечь более старый снапшот
+    const saveQueue = { p: Promise.resolve() };
+    let failStreak = 0;
+    const enqueueSave = (payload: string) => {
+      saveQueue.p = saveQueue.p
+        .then(() => saveSessions(payload))
+        .then(() => {
+          failStreak = 0;
+        })
+        .catch(() => {
+          // Тихий .catch терял правки навсегда: помечаем стор снова грязным
+          // (ретрай на следующем тике) и один раз показываем ошибку
+          sessionsDirtyRef.current = true;
+          failStreak += 1;
+          if (failStreak === 3) addToast(t("error.saveFailed"));
+        });
+    };
     const flush = () => {
       if (!sessionsDirtyRef.current) return;
       if (streamingActiveRef.current) return;
       sessionsDirtyRef.current = false;
-      void saveSessions(JSON.stringify(sessionsRef.current)).catch(() => {});
+      enqueueSave(JSON.stringify(sessionsRef.current));
     };
     const id = window.setInterval(flush, 3000);
     // Закрытие окна — последний сейв, если есть несохранённое
@@ -758,7 +800,7 @@ export default function App() {
       const wasStreaming = streamingActiveRef.current;
       streamingActiveRef.current = false;
       if (wasStreaming) {
-        void saveSessions(JSON.stringify(sessionsRef.current)).catch(() => {});
+        enqueueSave(JSON.stringify(sessionsRef.current));
       } else {
         flush();
       }
@@ -777,31 +819,33 @@ export default function App() {
     return () => window.clearTimeout(t);
   }, [apiSettings, cryptoGate]);
 
-  // Уведомление в чате о смене модели (после первой загрузки настроек)
-  const lastModelRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (!settingsLoadedRef.current) return;
-    const prev = lastModelRef.current;
-    lastModelRef.current = apiSettings.model;
-    if (prev === null || prev === apiSettings.model) return;
-    setSessions((cur) =>
-      cur.map((s) =>
-        s.id === activeId && s.messages.length > 0
-          ? {
-              ...s,
-              messages: [
-                ...s.messages,
-                {
-                  id: uid(),
-                  role: "assistant",
-                  content: t("chat.modelChanged", { model: apiSettings.model }),
-                },
-              ],
-            }
-          : s,
-      ),
-    );
-  }, [apiSettings.model, activeId]);
+  // C15: уведомление «модель изменена» живёт в обработчике ручной смены
+  // модели (onModelChange ниже). Эффект на [apiSettings.model, activeId]
+  // срабатывал и при ПОДСТАНОВКЕ модели профилем при открытии чата:
+  // переключение между задачами с разными профилями засоряло историю
+  // обоих чатов мусорными сообщениями, персистящимися в sessions.json
+  const notifyModelChanged = useCallback(
+    (model: string) => {
+      setSessions((cur) =>
+        cur.map((s) =>
+          s.id === activeId && s.messages.length > 0
+            ? {
+                ...s,
+                messages: [
+                  ...s.messages,
+                  {
+                    id: uid(),
+                    role: "assistant" as const,
+                    content: t("chat.modelChanged", { model }),
+                  },
+                ],
+              }
+            : s,
+        ),
+      );
+    },
+    [activeId, t],
+  );
 
   // Автосохранение профилей (profiles.json); ключи шифруются, если включено
   useEffect(() => {
@@ -969,7 +1013,9 @@ export default function App() {
   const handleAddProfile = useCallback(
     (name: string) => {
       const profile: ApiProfile = {
-        id: `p-${Date.now()}`,
+        // uuid, не Date.now(): два профиля в одну миллисекунду получали
+        // одинаковый id — дубли ключей и коллизии React-ключей
+        id: `p-${crypto.randomUUID()}`,
         name: name.trim() || providerFromBaseUrl(apiSettings.base_url),
         api_key: apiSettings.api_key,
         base_url: apiSettings.base_url,
@@ -1070,14 +1116,17 @@ export default function App() {
       .catch(() => {});
   }, []);
 
-  // Переключение на локальную модель: Ollama не требует ключа
+  // Переключение на локальную модель: Ollama не требует ключа.
+  // Merge, а не замена: полная замена выбрасывала encrypt_keys, и автосейв
+  // молча снимал шифрование профилей
   const handleUseLocalModel = (id: string) => {
-    setApiSettings({
+    setApiSettings((prev) => ({
+      ...prev,
       api_key: "ollama",
       base_url: "http://localhost:11434/v1",
       model: id,
       provider: "custom",
-    });
+    }));
   };
 
   // Зеркало sessions для асинхронных операций (история запроса к модели)
@@ -1169,13 +1218,13 @@ export default function App() {
     handleSend,
     handleStop,
     handleSendRef,
-    setStreamingId,
-    setTyping,
     typing,
     activity,
     streamingId,
     streamingAssistantId,
     activeRunRef,
+    runStartedRef,
+    streamingTargetRef,
     subRuns,
     queuedMsgs,
     setQueuedMsgs,
@@ -1417,6 +1466,10 @@ export default function App() {
 
   const handleClearChat = () => {
     if (!activeId) return;
+    // C12: очищаемая задача могла быть в активном прогоне — прерываем,
+    // иначе цикл продолжал стримить и дописывать сообщения в «очищенную»
+    // сессию частями (удалённое «возвращалось»)
+    if (streamingTargetRef.current === activeId) handleStop();
     setSessions((prev) =>
       prev.map((s) => (s.id === activeId ? { ...s, messages: [] } : s)),
     );
@@ -1496,6 +1549,12 @@ export default function App() {
           n.file === file ? { ...n, content, title, updated: Math.floor(Date.now() / 1000) } : n,
         ),
       );
+    } catch (e) {
+      // C16: try/finally без catch давал unhandled rejection — редактор
+      // показывал старый контент, и пользователь терял текст, считая его
+      // сохранённым
+      addToast(t("error.noteSaveFailed"));
+      console.error("note save failed:", e);
     } finally {
       setNoteSaving(false);
     }
@@ -1569,19 +1628,29 @@ export default function App() {
         const { prompt } = parseNotePrompt(plan[i].content);
         if (!prompt) {
           status[i] = "skipped";
-          setChain({ ...state, status: [...status] });
+          setChain({ ...state, current: i + 1, status: [...status] });
           continue;
         }
         status[i] = "running";
         setChain({ ...state, current: i, status: [...status] });
+        // C10: движок мог занять тик автоматизации между шагами — handleSend
+        // bail-ит по guard'у, и раньше шаг всё равно помечался «done», а
+        // остальные молча пропускались. runStartedRef различает «не стартовал»
+        runStartedRef.current = false;
         await handleSend(prompt, undefined, session.id);
-        status[i] = chainAbortRef.current ? "skipped" : "done";
+        if (!runStartedRef.current || chainAbortRef.current) {
+          for (let k = i; k < plan.length; k++) status[k] = "skipped";
+          setChain({ ...state, status: [...status] });
+          break;
+        }
+        status[i] = "done";
         setChain({ ...state, current: i + 1, status: [...status] });
       }
     } finally {
       setChainRunning(false);
-      setStreamingId(null);
-      setTyping(false);
+      // streamingId/typing НЕ трогаем: finalize каждого прогона чистит их
+      // только при владении (cur === requestId) — безусловный сброс здесь
+      // гасил индикаторы ЧУЖОГО активного прогона (кнопка Stop исчезала)
     }
   };
 
@@ -1698,6 +1767,9 @@ export default function App() {
     });
 
   const handleDelete = (id: string) => {
+    // C12: удаление активной задачи не прерывало прогон — цикл продолжал
+    // жечь токены и писать в несуществующую сессию
+    if (streamingTargetRef.current === id) handleStop();
     setSessions((prev) => prev.filter((s) => s.id !== id));
     if (activeId === id) setActiveId(null);
   };
@@ -2165,7 +2237,10 @@ export default function App() {
         headerInset={sidebarCollapsed ? sidebarSide : null}
         slashCommands={slashCommands}
         models={apiStatus.models ?? []}
-        onModelChange={(id) => setApiSettings((prev) => ({ ...prev, model: id }))}
+        onModelChange={(id) => {
+          setApiSettings((prev) => ({ ...prev, model: id }));
+          notifyModelChanged(id);
+        }}
         effort={effort}
         onEffortChange={setEffort}
         theme={theme}

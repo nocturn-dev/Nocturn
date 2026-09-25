@@ -9,16 +9,20 @@ use std::path::Path;
 /// Записать данные атомарно: temp-файл рядом + rename (rename в пределах
 /// одной ФС атомарен). На Unix файл получает права 600 — конфиги содержат
 /// API-ключи, дефолтные права (umask) слишком широкие.
+///
+/// Temp-имя с pid И случайным суффиксом: только pid — уникален между
+/// процессами, а два параллельных писателя ОДНОГО процесса (автосейв +
+/// ручное сохранение) открывали один temp и интерлировали содержимое.
 pub fn atomic_write(path: &Path, data: &[u8]) -> Result<(), String> {
     let dir = path
         .parent()
         .ok_or_else(|| "no parent directory".to_string())?;
     fs::create_dir_all(dir).map_err(|e| format!("cannot create {}: {e}", dir.display()))?;
-    // Суффикс с pid: два параллельных писателя не затирают temp друг друга
     let tmp = dir.join(format!(
-        ".{}.tmp-{}",
+        ".{}.tmp-{}-{}",
         path.file_name().and_then(|n| n.to_str()).unwrap_or("file"),
-        std::process::id()
+        std::process::id(),
+        rand::random::<u32>()
     ));
     {
         let mut f = fs::File::create(&tmp)
