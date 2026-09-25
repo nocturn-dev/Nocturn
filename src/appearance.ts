@@ -145,7 +145,7 @@ function clamp(v: number, min: number, max: number): number {
 function darken(hex: string, factor: number): string {
   const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
   if (!m) return hex;
-  const v = parseInt(m[1], 16);
+  const v = parseInt(m[1] ?? "", 16);
   const r = Math.round(((v >> 16) & 255) * factor);
   const g = Math.round(((v >> 8) & 255) * factor);
   const b = Math.round((v & 255) * factor);

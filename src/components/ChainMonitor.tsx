@@ -134,7 +134,9 @@ export default function ChainMonitor({ chain, onClose }: ChainMonitorProps) {
           {/* Шаги */}
           <div className="scroll-slim w-72 shrink-0 overflow-y-auto border-r border-halo-line px-3 py-3">
             {chain.plan.map((n, i) => {
-              const st = chain.status[i];
+              // status короче plan не бывает, но строгие индексы требуют
+              // явности: рассинхрон длин трактуем как pending
+              const st = chain.status[i] ?? "pending";
               const agent = parseAgentFlag(n.content);
               return (
                 <div
@@ -210,7 +212,7 @@ export default function ChainMonitor({ chain, onClose }: ChainMonitorProps) {
                 if (!visible(i)) return null;
                 const p = pos.get(n.file);
                 if (!p) return null;
-                const st = chain.status[i];
+                const st = chain.status[i] ?? "pending";
                 return (
                   <g key={n.file} transform={`translate(${p.x},${p.y})`}>
                     {st === "running" && (
@@ -258,5 +260,5 @@ export default function ChainMonitor({ chain, onClose }: ChainMonitorProps) {
 /** frontmatter agent: true — бейдж на шаге */
 function parseAgentFlag(content: string): boolean {
   const m = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(content);
-  return !!m && /^\s*agent\s*:\s*true\s*$/m.test(m[1]);
+  return !!m && /^\s*agent\s*:\s*true\s*$/m.test(m[1] ?? "");
 }

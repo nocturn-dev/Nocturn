@@ -146,7 +146,7 @@ export default function SearchModal({
               const hit =
                 (q
                   ? s.messages.find((m) =>
-                      m.content.toLowerCase().includes(q.split(/\s+/)[0]),
+                      m.content.toLowerCase().includes(q.split(/\s+/)[0] ?? ""),
                     )
                   : undefined) ?? s.messages.at(-1);
               const snippet = hit?.content.replace(/\s+/g, " ").slice(0, 90);

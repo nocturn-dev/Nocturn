@@ -645,7 +645,7 @@ export function contextLimitFor(
   // "…-256k" / "128k" прямо в имени модели
   const km = /(?:^|[^a-z0-9])(\d{2,4})\s*k(?:[a-z]|$)/i.exec(model);
   if (km) {
-    const n = parseInt(km[1], 10);
+    const n = parseInt(km[1] ?? "", 10);
     if (n >= 16 && n <= 2048) return n * 1000;
   }
   return heuristicContextLimit(model);

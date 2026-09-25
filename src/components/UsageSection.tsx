@@ -55,8 +55,10 @@ export default function UsageSection({ sessions }: { sessions: Session[] }) {
   // useCallback: memo статистики ниже зависит от colorOf — без стабильной
   // идентичности кэш пересчитывался бы на каждый рендер
   const colorOf = useCallback(
-    (model: string) =>
-      colors[model] ?? MODEL_COLORS[hashString(model) % MODEL_COLORS.length],
+    (model: string): string =>
+      colors[model] ??
+      MODEL_COLORS[hashString(model) % MODEL_COLORS.length] ??
+      "#8b8b85",
     [colors],
   );
 
@@ -345,10 +347,12 @@ function Heatmap({
       <div className="flex gap-[3px]">
         {weeks.map((col, i) => {
           const sum = col.reduce((acc, c) => acc + c.value, 0);
+          const head = col[0];
+          if (!head) return null;
           return (
             <span
               key={i}
-              title={`${col[0].date.toLocaleDateString()} — ${fmtTokens(sum)}`}
+              title={`${head.date.toLocaleDateString()} — ${fmtTokens(sum)}`}
               className="usage-cell h-4 flex-1 rounded-[3px]"
               style={{ background: color(sum, max), animationDelay: `${i * 12}ms` }}
             />
@@ -381,15 +385,18 @@ function Heatmap({
       {/* Подписи месяцев: над колонкой, где месяц сменился */}
       <div className="relative mt-1.5 h-3">
         {weeks.map((col, i) => {
-          const prev = i > 0 ? weeks[i - 1][0].date.getMonth() : -1;
-          if (col[0].date.getMonth() === prev) return null;
+          const head = col[0];
+          if (!head) return null;
+          const prevCol = i > 0 ? weeks[i - 1] : undefined;
+          const prev = prevCol?.[0]?.date.getMonth() ?? -1;
+          if (head.date.getMonth() === prev) return null;
           return (
             <span
               key={i}
               className="absolute text-[9px] text-halo-muted/70"
               style={{ left: `${(i / 52) * 100}%` }}
             >
-              {monthLabel(col[0].date)}
+              {monthLabel(head.date)}
             </span>
           );
         })}
@@ -419,10 +426,15 @@ function TrendChart({
   const smoothPath = (vals: number[]) => {
     const pts = vals.map((v, i) => [x(i), y(v)] as const);
     if (pts.length < 2) return "";
-    let d = `M ${pts[0][0]} ${pts[0][1]}`;
+    const first = pts[0];
+    if (!first) return "";
+    let d = `M ${first[0]} ${first[1]}`;
     for (let i = 0; i < pts.length - 1; i++) {
-      const [x0, y0] = pts[i];
-      const [x1, y1] = pts[i + 1];
+      const p0 = pts[i];
+      const p1 = pts[i + 1];
+      if (!p0 || !p1) continue;
+      const [x0, y0] = p0;
+      const [x1, y1] = p1;
       const cx = (x0 + x1) / 2;
       d += ` C ${cx} ${y0}, ${cx} ${y1}, ${x1} ${y1}`;
     }

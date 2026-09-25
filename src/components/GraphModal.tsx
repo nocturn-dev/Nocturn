@@ -67,8 +67,11 @@ export default function GraphModal({ notes, onOpenNote, onClose }: GraphModalPro
         if (seen.has(key)) continue;
         seen.add(key);
         es.push({ a: i, b: j });
-        ns[i].degree++;
-        ns[j].degree++;
+        const na = ns[i];
+        const nb = ns[j];
+        if (!na || !nb) continue;
+        na.degree++;
+        nb.degree++;
       }
     });
     return { nodes: ns, edges: es };
@@ -90,11 +93,11 @@ export default function GraphModal({ notes, onOpenNote, onClose }: GraphModalPro
     if (n === 0) return;
     const adj: number[][] = Array.from({ length: n }, () => []);
     for (const e of edges) {
-      adj[e.a].push(e.b);
-      adj[e.b].push(e.a);
+      adj[e.a]?.push(e.b);
+      adj[e.b]?.push(e.a);
     }
-    const depth = new Array(n).fill(-1);
-    const parent = new Array(n).fill(-1);
+    const depth: number[] = new Array(n).fill(-1);
+    const parent: number[] = new Array(n).fill(-1);
     const order: number[] = [];
     const bfs = (root: number) => {
       depth[root] = 0;
@@ -102,9 +105,11 @@ export default function GraphModal({ notes, onOpenNote, onClose }: GraphModalPro
       while (queue.length) {
         const u = queue.shift() as number;
         order.push(u);
-        for (const v of adj[u]) {
+        for (const v of adj[u] ?? []) {
+          const du = depth[u];
+          if (du === undefined) continue;
           if (depth[v] === -1) {
-            depth[v] = depth[u] + 1;
+            depth[v] = du + 1;
             parent[v] = u;
             queue.push(v);
           }
@@ -113,17 +118,19 @@ export default function GraphModal({ notes, onOpenNote, onClose }: GraphModalPro
     };
     // Корень — самый связный; несвязные компоненты обходим следующими корнями
     let root = 0;
-    for (let i = 1; i < n; i++) if (ns[i].degree > ns[root].degree) root = i;
+    for (let i = 1; i < n; i++) {
+      if ((ns[i]?.degree ?? 0) > (ns[root]?.degree ?? 0)) root = i;
+    }
     bfs(root);
     for (let i = 0; i < n; i++) if (depth[i] === -1) bfs(i);
 
     let leafX = 0;
     const xs = new Array(n).fill(0);
     const assignX = (u: number): number => {
-      const kids = adj[u].filter((v) => parent[v] === u);
+      const kids = (adj[u] ?? []).filter((v) => parent[v] === u);
       if (kids.length === 0) {
         xs[u] = leafX++;
-        return xs[u];
+        return xs[u] ?? 0;
       }
       const cx = kids.reduce((acc, k) => acc + assignX(k), 0) / kids.length;
       xs[u] = cx;
@@ -136,13 +143,15 @@ export default function GraphModal({ notes, onOpenNote, onClose }: GraphModalPro
 
     const maxDepth = Math.max(...depth);
     for (let i = 0; i < n; i++) {
-      ns[i].vx = 0;
-      ns[i].vy = 0;
-      ns[i].x = xs[i] * 130;
-      ns[i].y = depth[i] * 95;
+      const nd = ns[i];
+      if (!nd) continue;
+      nd.vx = 0;
+      nd.vy = 0;
+      nd.x = (xs[i] ?? 0) * 130;
+      nd.y = (depth[i] ?? 0) * 95;
       // Изолированные узлы — нижним рядом
-      if (ns[i].degree === 0) {
-        ns[i].y = (maxDepth + 1) * 95;
+      if (nd.degree === 0) {
+        nd.y = (maxDepth + 1) * 95;
       }
     }
     setTick((t) => t + 1);
@@ -176,6 +185,7 @@ export default function GraphModal({ notes, onOpenNote, onClose }: GraphModalPro
         for (let j = i + 1; j < n; j++) {
           const a = ns[i];
           const b = ns[j];
+          if (!a || !b) continue;
           let dx = b.x - a.x;
           let dy = b.y - a.y;
           let dist2 = dx * dx + dy * dy;
@@ -199,6 +209,7 @@ export default function GraphModal({ notes, onOpenNote, onClose }: GraphModalPro
       for (const e of edges) {
         const a = ns[e.a];
         const b = ns[e.b];
+        if (!a || !b) continue;
         const dx = b.x - a.x;
         const dy = b.y - a.y;
         const dist = Math.sqrt(dx * dx + dy * dy) || 1;
@@ -277,7 +288,8 @@ export default function GraphModal({ notes, onOpenNote, onClose }: GraphModalPro
       // Отпускание кнопки за пределами окна: mouseup теряется — страховка
       if (e.buttons === 0) {
         if (dragNode.current !== null) {
-          nodesRef.current[dragNode.current].fixed = false;
+          const moved = nodesRef.current[dragNode.current];
+          if (moved) moved.fixed = false;
           dragNode.current = null;
         }
         panning.current = false;
@@ -285,6 +297,7 @@ export default function GraphModal({ notes, onOpenNote, onClose }: GraphModalPro
       }
       if (dragNode.current !== null) {
         const nd = nodesRef.current[dragNode.current];
+        if (!nd) return;
         const p = toWorld(e.clientX, e.clientY);
         nd.x = p.x;
         nd.y = p.y;
@@ -300,14 +313,16 @@ export default function GraphModal({ notes, onOpenNote, onClose }: GraphModalPro
     };
     const onUp = () => {
       if (dragNode.current !== null) {
-        nodesRef.current[dragNode.current].fixed = false;
+        const up = nodesRef.current[dragNode.current];
+        if (up) up.fixed = false;
         dragNode.current = null;
       }
       panning.current = false;
     };
     const onBlur = () => {
       if (dragNode.current !== null) {
-        nodesRef.current[dragNode.current].fixed = false;
+        const blurred = nodesRef.current[dragNode.current];
+        if (blurred) blurred.fixed = false;
         dragNode.current = null;
       }
       panning.current = false;
@@ -424,6 +439,7 @@ export default function GraphModal({ notes, onOpenNote, onClose }: GraphModalPro
               {edges.map((e, i) => {
                 const a = nodesRef.current[e.a];
                 const b = nodesRef.current[e.b];
+                if (!a || !b) return null;
                 const active =
                   neighbors !== null && (neighbors.has(e.a) || neighbors.has(e.b));
                 return (

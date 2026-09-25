@@ -30,7 +30,7 @@ function ToolStepCardBase({
   let exitCode: number | null = null;
   if (name === "shell_run") {
     const m = content.match(/exit code: (-?\d+)/);
-    if (m) exitCode = parseInt(m[1], 10);
+    if (m) exitCode = parseInt(m[1] ?? "", 10);
   }
   const failed = denied || toolError || (exitCode !== null && exitCode !== 0);
 

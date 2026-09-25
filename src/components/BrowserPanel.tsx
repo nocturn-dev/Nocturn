@@ -78,6 +78,7 @@ export default function BrowserPanel({ open, onClose }: BrowserPanelProps) {
   const applySize = (idx: number) => {
     setSize(idx);
     const s = SIZES[idx];
+    if (!s) return;
     void browserViewSetSize(s.w, s.h).catch(() => {});
   };
 

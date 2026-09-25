@@ -600,7 +600,9 @@ export default function SettingsModal({
                 className="flex items-center gap-1 rounded-md px-1.5 py-1 text-halo-muted transition-colors hover:bg-halo-hover hover:text-halo-text"
               >
                 <span className="text-sm leading-none">←</span>
-                {navStack.length > 0 ? sectionTitle(navStack[navStack.length - 1]) : t("settings.title")}
+                {navStack.length > 0
+                  ? sectionTitle(navStack[navStack.length - 1] ?? section)
+                  : t("settings.title")}
               </button>
               <span className="text-halo-muted/40">/</span>
               <span className="font-medium text-halo-text">{sectionTitle(section)}</span>
@@ -1306,6 +1308,7 @@ function McpSection() {
     await persist(next);
     // Выключили включённый сервер — отключаем соединение
     const srv = servers[idx];
+    if (!srv) return;
     if (srv.enabled && statusOf(srv.name)?.connected) {
       await mcpDisconnect(srv.name).catch(() => {});
       refreshStatuses();
@@ -1314,6 +1317,7 @@ function McpSection() {
 
   const removeServer = async (idx: number) => {
     const srv = servers[idx];
+    if (!srv) return;
     if (statusOf(srv.name)?.connected) {
       setBusy(srv.name);
       await mcpDisconnect(srv.name).catch(() => {});

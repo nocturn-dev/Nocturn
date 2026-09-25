@@ -61,59 +61,72 @@ export function diffLines(before: string, after: string): DiffLine[] {
   const midA = a.slice(pre, a.length - suf);
   const midB = b.slice(pre, b.length - suf);
   const out: DiffLine[] = [];
-  // Префикс — контекст без LCS
+  // Префикс — контекст без LCS (k < pre <= a.length: элемент есть всегда)
   for (let k = 0; k < pre; k++) {
-    out.push({ type: "ctx", text: a[k], oldNo: k + 1, newNo: k + 1 });
+    const line = a[k];
+    if (line === undefined) continue;
+    out.push({ type: "ctx", text: line, oldNo: k + 1, newNo: k + 1 });
   }
 
   // LCS-таблица только для середины: lcs[i][j] = длина общей
-  // подпоследовательности midA[i..], midB[j..]
+  // подпоследовательности midA[i..], midB[j..]. Чтения за пределами
+  // заполненной части — 0 по построению (таблица инициализирована нулями)
   const rows = midA.length + 1;
   const cols = midB.length + 1;
   const table = new Int32Array(rows * cols);
+  const tableAt = (idx: number): number => table[idx] ?? 0;
   for (let i = midA.length - 1; i >= 0; i--) {
     for (let j = midB.length - 1; j >= 0; j--) {
       table[i * cols + j] =
         midA[i] === midB[j]
-          ? table[(i + 1) * cols + j + 1] + 1
-          : Math.max(table[(i + 1) * cols + j], table[i * cols + j + 1]);
+          ? tableAt((i + 1) * cols + j + 1) + 1
+          : Math.max(tableAt((i + 1) * cols + j), tableAt(i * cols + j + 1));
     }
   }
 
   let i = 0;
   let j = 0;
   while (i < midA.length && j < midB.length) {
-    if (midA[i] === midB[j]) {
+    const av = midA[i];
+    const bv = midB[j];
+    if (av === undefined || bv === undefined) break;
+    if (av === bv) {
       out.push({
         type: "ctx",
-        text: midA[i],
+        text: av,
         oldNo: pre + i + 1,
         newNo: pre + j + 1,
       });
       i++;
       j++;
-    } else if (table[(i + 1) * cols + j] >= table[i * cols + j + 1]) {
-      out.push({ type: "del", text: midA[i], oldNo: pre + i + 1 });
+    } else if (tableAt((i + 1) * cols + j) >= tableAt(i * cols + j + 1)) {
+      out.push({ type: "del", text: av, oldNo: pre + i + 1 });
       i++;
     } else {
-      out.push({ type: "add", text: midB[j], newNo: pre + j + 1 });
+      out.push({ type: "add", text: bv, newNo: pre + j + 1 });
       j++;
     }
   }
   while (i < midA.length) {
-    out.push({ type: "del", text: midA[i], oldNo: pre + i + 1 });
+    const av = midA[i];
+    if (av === undefined) break;
+    out.push({ type: "del", text: av, oldNo: pre + i + 1 });
     i++;
   }
   while (j < midB.length) {
-    out.push({ type: "add", text: midB[j], newNo: pre + j + 1 });
+    const bv = midB[j];
+    if (bv === undefined) break;
+    out.push({ type: "add", text: bv, newNo: pre + j + 1 });
     j++;
   }
 
   // Суффикс — контекст после середины (нумерация продолжает реальные строки)
   for (let k = 0; k < suf; k++) {
+    const line = a[a.length - suf + k];
+    if (line === undefined) continue;
     out.push({
       type: "ctx",
-      text: a[a.length - suf + k],
+      text: line,
       oldNo: a.length - suf + k + 1,
       newNo: b.length - suf + k + 1,
     });

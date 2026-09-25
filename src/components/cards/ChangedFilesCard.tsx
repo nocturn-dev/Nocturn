@@ -62,6 +62,8 @@ function ChangedFilesCardBase({
       {open && (
         <div className="anim-fade-up mt-2 border-t border-halo-line/50 pt-2">
           {files.map((f, i) => {
+            const st = stats[i];
+            if (!st) return null;
             const isUndone = undone.has(normalizePath(f.path));
             // Усечённый before нельзя безопасно восстановить — undo недоступен
             const canUndo = !isUndone && !f.before?.startsWith("[TRUNCATED");
@@ -97,10 +99,10 @@ function ChangedFilesCardBase({
                       </span>
                     )}
                     <span className="shrink-0 text-[10px] text-emerald-400">
-                      +{stats[i].added}
+                      +{st.added}
                     </span>
                     <span className="shrink-0 text-[10px] text-red-400">
-                      −{stats[i].removed}
+                      −{st.removed}
                     </span>
                   </button>
                   {isUndone ? (
