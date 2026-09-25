@@ -97,8 +97,8 @@ pub fn hooks_path(dir: &std::path::Path) -> PathBuf {
 }
 
 /// Кэш hooks.json: load() вызывается дважды на каждый тулл-колл (PreToolUse
-/// + PostToolUse) — чтение+парсинг с диска на горячем пути давали постоянный
-/// оверхед.
+/// и PostToolUse) — чтение и парсинг с диска на горячем пути давали
+/// постоянный оверхед.
 ///
 /// Ключ — (mtime, len): правка файла моментально инвалидирует кэш.
 type HookCacheEntry = (PathBuf, std::time::SystemTime, u64);
