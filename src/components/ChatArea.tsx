@@ -26,6 +26,7 @@ import { ContextRing } from "./cards/ContextRing";
 import { MessageNav } from "./cards/MessageNav";
 import { PlanPanel } from "./cards/PlanPanel";
 import { SubagentCard } from "./cards/SubagentCard";
+import { TracePanel } from "./cards/TracePanel";
 import { ToolStepCard } from "./cards/ToolStepCard";
 import { TypingBubble } from "./cards/TypingBubble";
 import { ErrorBoundary } from "./ErrorBoundary";
@@ -278,7 +279,12 @@ export default function ChatArea({
   const sessionKey = session?.id ?? null;
   useEffect(() => {
     setShowOldTurns(false); // смена задачи — снова сворачиваем историю
+    setSessionChangesOpen(false);
+    setTraceOpen(new Set());
   }, [sessionKey]);
+  // Раскрытые следы прогонов (по id объединённой карточки)
+  const [traceOpen, setTraceOpen] = useState<Set<string>>(new Set());
+  const [sessionChangesOpen, setSessionChangesOpen] = useState(false);
   const [permOpen, setPermOpen] = useState(false);
   const slashActive = draft.startsWith("/");
   /** «&» — палитра скилов (src/skills.ts) */
@@ -351,6 +357,25 @@ export default function ChatArea({
       ),
     [messages, showUserMsgs],
   );
+
+  // Изменения файлов за ВСЮ задачу: агрегат по всем fs_write-сообщениям
+  const sessionWrites = useMemo(() => {
+    const map = new Map<string, ChangedFile>();
+    for (const m of messages) {
+      if (m.role !== "tool" || m.toolName !== "fs_write") continue;
+      const w = parseWriteResult(m.content);
+      if (!w?.path) continue;
+      const k = normalizePath(w.path);
+      const prev = map.get(k);
+      map.set(k, {
+        path: w.path,
+        created: prev?.created ?? w.created,
+        before: prev?.before ?? w.before,
+        after: w.after,
+      });
+    }
+    return [...map.values()];
+  }, [messages]);
 
   // ── Производные данные ленты ──
   // IIFE рендера исполняется на каждый рендер; без кэша он пересоздавал
@@ -1057,6 +1082,28 @@ export default function ChatArea({
               const visibleFrom = showOldTurns
                 ? 0
                 : Math.max(0, turns.length - RENDER_TURN_WINDOW);
+              if (sessionWrites.length > 0) {
+                if (sessionChangesOpen) {
+                  nodes.push(
+                    <ChangedFilesCard
+                      key="session-changes"
+                      files={sessionWrites}
+                      onUndo={onUndoWrite}
+                    />,
+                  );
+                } else {
+                  nodes.push(
+                    <button
+                      key="session-changes-open"
+                      onClick={() => setSessionChangesOpen(true)}
+                      className="mx-auto my-1 rounded-full border border-halo-line px-3 py-1 text-[11px] text-halo-muted transition-colors hover:border-halo-accent/50 hover:text-halo-text"
+                    >
+                      {t("changes.task", { n: sessionWrites.length })}
+                    </button>,
+                  );
+                }
+              }
+
               if (visibleFrom > 0) {
                 nodes.push(
                   <button
@@ -1118,6 +1165,31 @@ export default function ChatArea({
                           showReasoning={showReasoning}
                           caret={streamCaret}
                         />,
+                      );
+                      // След прогона: шаги с длительностью, токенами и статусами
+                      nodes.push(
+                        <div key={`trace-${merged.id}`} className="mr-auto w-fit max-w-[85%]">
+                          <button
+                            onClick={() =>
+                              setTraceOpen((prev) => {
+                                const next = new Set(prev);
+                                if (next.has(merged.id)) next.delete(merged.id);
+                                else next.add(merged.id);
+                                return next;
+                              })
+                            }
+                            className="rounded-md px-1 text-[10px] text-halo-muted/60 transition-colors hover:text-halo-text"
+                          >
+                            {traceOpen.has(merged.id) ? "▾" : "▸"}{" "}
+                            {t("trace.title")}
+                          </button>
+                          {traceOpen.has(merged.id) && (
+                            <TracePanel
+                              steps={derived.assistants}
+                              toolMsgs={derived.toolMsgs}
+                            />
+                          )}
+                        </div>,
                       );
                     }
                     // Закрытые вопросы ask_user остаются в истории

@@ -258,6 +258,13 @@ export const ja = {
     "err.generic": "リクエストに失敗しました。詳細をご確認ください。",
     "err.boundary": "このブロックの描画に失敗しました",
     "err.boundaryRetry": "再表示",
+    "trace.title": "実行トレース",
+    "trace.step": "ステップ {n}",
+    "trace.noTools": "ツールなしのステップ",
+    "changes.task": "タスクの変更 · {n}",
+    "cp.copy": "コピー",
+    "cp.apply": "ファイルとして保存",
+    "cp.saved": "完了",
     "err.details": "詳細",
     // Профили ключей (BYOK)
     "api.profiles": "キープロファイル",

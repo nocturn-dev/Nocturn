@@ -917,6 +917,41 @@ export default function App() {
     setCryptoGate("none");
   }, []);
 
+  // Idle-lock: если хранилище само заперлось (15 мин без операций с ключом) —
+  // при возврате в окно показываем гейт разблокировки, иначе зашифрованные
+  // операции начнут падать «vault is locked» без понятного объяснения
+  const cryptoGateRef = useRef(cryptoGate);
+  const vaultWasUnlockedRef = useRef(false);
+  useEffect(() => {
+    cryptoGateRef.current = cryptoGate;
+  }, [cryptoGate]);
+  useEffect(() => {
+    let alive = true;
+    const check = async () => {
+      try {
+        const st = await cryptoStatus();
+        if (!alive) return;
+        if (st.enabled && st.setup && !st.unlocked && vaultWasUnlockedRef.current) {
+          vaultWasUnlockedRef.current = false;
+          if (cryptoGateRef.current === "none") setCryptoGate("unlock");
+        } else if (st.unlocked) {
+          vaultWasUnlockedRef.current = true;
+        }
+      } catch {
+        // браузерное превью — крипто нет
+      }
+    };
+    const iv = window.setInterval(check, 30_000);
+    window.addEventListener("focus", check);
+    void check();
+    return () => {
+      alive = false;
+      window.clearInterval(iv);
+      window.removeEventListener("focus", check);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // ---------- Профили API: отдельное хранилище + привязка к чату/проекту ----------
 
   /** Подставить связку профиля в активные настройки */

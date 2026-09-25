@@ -12,7 +12,9 @@ import {
   useRef,
   useState,
   type ComponentPropsWithoutRef,
+  type ReactNode,
 } from "react";
+import { pickSaveFile, runTool } from "../../api";
 import ProviderIcon from "../ProviderIcon";
 import ReactMarkdown from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
@@ -31,7 +33,68 @@ function MarkdownLink({
   // вебвью приложения на произвольный URL (фишинг в доверенном окне)
   return <a {...props} target="_blank" rel="noopener noreferrer" />;
 }
-const MD_COMPONENTS = { a: MarkdownLink };
+
+/** Блок кода из ответа модели: hover-кнопки «копировать» и «сохранить
+    как файл» (fs_write в выбранный пользователем путь — ручное действие
+    и есть согласие; пермишены агента здесь не участвуют) */
+function CodeBlock({
+  node: _node,
+  children,
+}: {
+  node?: unknown;
+  children?: ReactNode;
+}) {
+  const { t } = useLang();
+  const preRef = useRef<HTMLPreElement>(null);
+  const [copied, setCopied] = useState(false);
+  const [applied, setApplied] = useState(false);
+  const text = () => preRef.current?.textContent ?? "";
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(text());
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // буфер недоступен (редкий кейс WebView) — молча
+    }
+  };
+
+  const apply = async () => {
+    try {
+      const path = await pickSaveFile("snippet.txt");
+      if (!path) return;
+      await runTool("fs_write", JSON.stringify({ path, content: text() }));
+      setApplied(true);
+      window.setTimeout(() => setApplied(false), 1500);
+    } catch (e) {
+      window.alert(String(e));
+    }
+  };
+
+  return (
+    <div className="group/code relative">
+      <div className="absolute right-2 top-2 z-10 flex gap-1 opacity-0 transition-opacity group-hover/code:opacity-100">
+        <button
+          onClick={copy}
+          title={t("cp.copy")}
+          className="rounded-md border border-halo-line bg-halo-deep/80 px-1.5 py-0.5 text-[10px] text-halo-muted transition-colors hover:text-halo-text"
+        >
+          {copied ? "✓" : "📋"}
+        </button>
+        <button
+          onClick={apply}
+          title={t("cp.apply")}
+          className="rounded-md border border-halo-line bg-halo-deep/80 px-1.5 py-0.5 text-[10px] text-halo-muted transition-colors hover:text-halo-text"
+        >
+          {applied ? "✓" : "💾"}
+        </button>
+      </div>
+      <pre ref={preRef}>{children}</pre>
+    </div>
+  );
+}
+const MD_COMPONENTS = { a: MarkdownLink, pre: CodeBlock };
 
 function AssistantCardBase({
   mid,

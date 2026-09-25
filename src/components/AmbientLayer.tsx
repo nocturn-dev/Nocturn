@@ -88,12 +88,19 @@ export function AmbientLayer({
     const v = videoRef.current;
     if (!v) return;
     const sync = () => {
-      if (pausedRef.current || document.hidden) v.pause();
+      // Скрытое/не в фокусе окно → видео на паузе: декодер не жжёт батарею
+      if (pausedRef.current || document.hidden || !document.hasFocus()) v.pause();
       else void v.play().catch(() => {});
     };
     sync();
     document.addEventListener("visibilitychange", sync);
-    return () => document.removeEventListener("visibilitychange", sync);
+    window.addEventListener("blur", sync);
+    window.addEventListener("focus", sync);
+    return () => {
+      document.removeEventListener("visibilitychange", sync);
+      window.removeEventListener("blur", sync);
+      window.removeEventListener("focus", sync);
+    };
   }, [isVideo, paused, src]);
 
   useEffect(() => {
@@ -328,7 +335,7 @@ export function AmbientLayer({
     const loop = (now: number) => {
       if (!alive) return;
       raf = requestAnimationFrame(loop);
-      if (pausedRef.current || document.hidden) return;
+      if (pausedRef.current || document.hidden || !document.hasFocus()) return;
       if (now - last < 33) return; // 30 fps ceiling
       last = now;
       render(now);

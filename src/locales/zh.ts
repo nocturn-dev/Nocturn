@@ -258,6 +258,13 @@ export const zh = {
     "err.generic": "请求失败。请查看详情。",
     "err.boundary": "此区块渲染失败",
     "err.boundaryRetry": "重新显示",
+    "trace.title": "运行轨迹",
+    "trace.step": "第 {n} 步",
+    "trace.noTools": "此步骤未使用工具",
+    "changes.task": "任务更改 · {n}",
+    "cp.copy": "复制",
+    "cp.apply": "另存为文件",
+    "cp.saved": "完成",
     "err.details": "详情",
     // Профили ключей (BYOK)
     "api.profiles": "密钥配置",

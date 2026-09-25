@@ -241,6 +241,13 @@ export const ru = {
     "err.generic": "Ошибка запроса. Загляните в детали.",
     "err.boundary": "Не удалось отрисовать этот блок",
     "err.boundaryRetry": "Показать снова",
+    "trace.title": "След прогона",
+    "trace.step": "Шаг {n}",
+    "trace.noTools": "Шаг без инструментов",
+    "changes.task": "Изменения задачи · {n}",
+    "cp.copy": "Копировать",
+    "cp.apply": "Сохранить как файл",
+    "cp.saved": "Готово",
     "err.details": "Детали",
     // Профили ключей (BYOK)
     "api.profiles": "Профили ключей",

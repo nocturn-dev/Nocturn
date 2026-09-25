@@ -99,8 +99,10 @@ instantly and is remembered.
 Nocturn never sends anything anywhere except the API provider **you** configured.
 Prompts, files and tool results go straight to your endpoint; there is no
 analytics, no crash reporting, no phone-home. API keys can be encrypted with a
-master password (AES-256-GCM). The agent layer is hardened by regular
-deep-audit passes (permission checks, command allowlists, tool-output handling).
+master password (AES-256-GCM); an encrypted vault auto-locks after 15 minutes
+of inactivity and asks for the password again on return. The agent layer is
+hardened by regular deep-audit passes (permission checks, command allowlists,
+tool-output handling).
 See [SECURITY.md](SECURITY.md) for the full
 breakdown of what is stored and what leaves the machine.
 

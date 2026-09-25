@@ -19,7 +19,33 @@ const PBKDF2_ITERS: u32 = 200_000;
 /// Производный ключ в памяти. None — «хранилище» заперто.
 static VAULT_KEY: Mutex<Option<Vec<u8>>> = Mutex::new(None);
 
+/// Авто-запирание: 15 минут без операций шифрования/расшифровки —
+/// ключ стирается из памяти. Окно времени фикс: настройки на этот счёт
+/// сознательно нет, чтобы не соблазнять выключить безопасность вовсе.
+const VAULT_IDLE: std::time::Duration = std::time::Duration::from_secs(15 * 60);
+static LAST_USE: Mutex<Option<std::time::Instant>> = Mutex::new(None);
+
+/// Отметка использования: продлевает окно авто-запирания
+fn touch_vault() {
+    if let Ok(mut g) = LAST_USE.lock() {
+        *g = Some(std::time::Instant::now());
+    }
+}
+
+/// Прошло ли окно бездействия — ключ пора стереть
+fn vault_idle_expired() -> bool {
+    matches!(
+        LAST_USE.lock().map(|g| *g).unwrap_or(None),
+        Some(t) if t.elapsed() > VAULT_IDLE
+    )
+}
+
 pub fn has_key() -> bool {
+    // Протухший ключ гасим прямо здесь: UI-опрос крипто-статуса увидит
+    // «заперто» и покажет гейт разблокировки
+    if vault_idle_expired() {
+        clear_key();
+    }
     VAULT_KEY.lock().map(|g| g.is_some()).unwrap_or(false)
 }
 
@@ -31,6 +57,7 @@ pub fn set_key(key: Vec<u8>) {
         }
         *g = Some(key);
     }
+    touch_vault();
 }
 
 pub fn clear_key() {
@@ -40,6 +67,9 @@ pub fn clear_key() {
             // выкинуть запись как dead store
             key.zeroize();
         }
+    }
+    if let Ok(mut g) = LAST_USE.lock() {
+        *g = None;
     }
 }
 
@@ -72,9 +102,16 @@ pub fn new_salt() -> Vec<u8> {
 /// Зашифровать строку текущим ключом. `enc:v1:…`; Err — хранилище заперто.
 /// Ключ читается по месту (borrow) — без копий в heap
 pub fn encrypt(plain: &str) -> Result<String, String> {
+    if vault_idle_expired() {
+        clear_key();
+    }
     let guard = VAULT_KEY.lock().map_err(|e| e.to_string())?;
     let key = guard.as_ref().ok_or("vault is locked")?;
-    encrypt_with(key, plain)
+    let result = encrypt_with(key, plain);
+    if result.is_ok() {
+        touch_vault();
+    }
+    result
 }
 
 /// То же с явным ключом (миграция PBKDF2 → Argon2id)
@@ -93,9 +130,16 @@ pub fn encrypt_with(key: &[u8], plain: &str) -> Result<String, String> {
 /// Расшифровать строку с префиксом. None — не зашифровано или заперто.
 /// Ключ читается по месту (borrow) — без копий в heap
 pub fn decrypt(stored: &str) -> Option<String> {
+    if vault_idle_expired() {
+        clear_key();
+    }
     let guard = VAULT_KEY.lock().ok()?;
     let key = guard.as_ref()?;
-    decrypt_with(key, stored)
+    let result = decrypt_with(key, stored);
+    if result.is_some() {
+        touch_vault();
+    }
+    result
 }
 
 /// То же с явным ключом (миграция PBKDF2 → Argon2id)
