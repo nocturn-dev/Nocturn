@@ -335,6 +335,30 @@ pub async fn checkpoint_restore(
         .map_err(|e| format!("join error: {e}"))?
 }
 
+/// Ни один существующий компонент пути записи не может быть symlink/junction:
+/// fs::write следует по ссылке и уводит файл за пределы корня (junction
+/// создаётся без прав администратора и приходит из zip/клонов репозитория;
+/// подмена между save и restore — тот же вектор). Чтение чекпоинта
+/// (collect_files_at) symlinks пропускает — здесь та же строгость на записи.
+fn ensure_no_symlink_ancestors(path: &Path) -> Result<(), String> {
+    let mut cur = path;
+    while let Some(parent) = cur.parent() {
+        if parent == cur {
+            break;
+        }
+        if let Ok(md) = fs::symlink_metadata(parent) {
+            if md.file_type().is_symlink() {
+                return Err(format!(
+                    "refusing to write through symlink: {}",
+                    parent.display()
+                ));
+            }
+        }
+        cur = parent;
+    }
+    Ok(())
+}
+
 fn checkpoint_restore_impl(
     app: tauri::AppHandle,
     path: String,
@@ -363,6 +387,15 @@ fn checkpoint_restore_impl(
             continue;
         }
         let dest = root.join(&rel);
+        // Существующий dest-симлинк или symlink/junction среди предков —
+        // отказ для этого файла (fail closed), запись через ссылку не идёт
+        if fs::symlink_metadata(&dest)
+            .map(|m| m.file_type().is_symlink())
+            .unwrap_or(false)
+            || ensure_no_symlink_ancestors(&dest).is_err()
+        {
+            continue;
+        }
         if let Some(parent) = dest.parent() {
             if fs::create_dir_all(parent).is_err() {
                 continue;

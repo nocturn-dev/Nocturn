@@ -607,6 +607,8 @@ export const ja = {
     "main.exportHint":
       "プロバイダー、キー、プロンプト、テーマ、自動化、チャットを 1 ファイルに。暗号化キーの復元には同じマスターパスワードが必要です。",
     "main.exportBtn": "エクスポート",
+    "main.exportSecrets": "エクスポートファイルに API キーを含める",
+    "main.exportSecretsWarn": "エクスポートファイルには API キーが平文で含まれます。ファイルを手にした人は誰でもプロバイダーアカウントにアクセスできます。含めますか？",
     "main.importBtn": "インポート",
     "main.importConfirm": "設定をインポートしますか？現在の設定は上書きされ、アプリが再読み込みされます。",
     "main.importDone": "{n} 件の設定をインポートしました。再読み込み中…",

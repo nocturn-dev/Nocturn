@@ -856,6 +856,9 @@ function MainSection({
   // «0.2.0-alpha» было захардкожено в четырёх словарях и врало после релиза.
   // В браузерном превью getVersion() недоступен — показываем фолбэк из локали
   const [appVersion, setAppVersion] = useState<string | null>(null);
+  // Экспорт API-ключей — по умолчанию выключен: файлом настроек можно
+  // делиться, не отдавая ключи провайдеров (маскирование на бэкенде)
+  const [exportSecrets, setExportSecrets] = useState(false);
   useEffect(() => {
     getVersion()
       .then(setAppVersion)
@@ -1050,13 +1053,28 @@ function MainSection({
       <div className="rounded-xl border border-halo-line px-3.5 py-3">
         <p className="text-sm text-halo-text">{t("main.exportTitle")}</p>
         <p className="mt-0.5 text-xs text-halo-muted">{t("main.exportHint")}</p>
+        <label className="mt-2 flex cursor-pointer items-center gap-2 text-xs text-halo-muted">
+          <input
+            type="checkbox"
+            checked={exportSecrets}
+            onChange={(e) => setExportSecrets(e.target.checked)}
+            className="accent-halo-accent"
+          />
+          <span>{t("main.exportSecrets")}</span>
+        </label>
         <div className="mt-2 flex gap-2">
           <button
             onClick={async () => {
               try {
+                if (
+                  exportSecrets &&
+                  !window.confirm(t("main.exportSecretsWarn"))
+                ) {
+                  return;
+                }
                 const path = await pickSaveFile("nocturn-settings.json");
                 if (!path) return;
-                const files = await settingsReadAll();
+                const files = await settingsReadAll(exportSecrets);
                 await settingsExportWrite(
                   path,
                   JSON.stringify({ version: 1, files, local: collectLocal() }, null, 2),

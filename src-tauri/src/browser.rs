@@ -713,60 +713,66 @@ fn is_navigable_url(url: &str, allow_private_networks: bool) -> bool {
     true
 }
 
-/// Хост в URL указывает на private/loopback/link-local? Резолв DNS-имени
-/// сознательно не делается: проверяем литеральные формы (остаточный риск —
-/// DNS rebinding, задокументирован).
-fn is_private_host(lower_url: &str) -> bool {
-    // отрезаем схему, берём host[:port] до первого /
-    let rest = match lower_url.split_once("://") {
-        Some((_, r)) => r,
-        None => lower_url,
+/// Хост в URL указывает на private/loopback/link-local? Разбор через
+/// url-крейт (WHATWG-нормализация, как в браузере): самодельный парсинг
+/// пропускал userinfo (`http://u:p@127.0.0.1/`), целочисленные и hex-формы
+/// IPv4 (`2130706433`, `127.1`, `0x7f000001`) и hex-форму IPv4-mapped IPv6
+/// (`[::ffff:7f00:1]`) — все они резолвятся движком в loopback.
+/// Резолв DNS-имени сознательно не делается (остаточный риск — DNS
+/// rebinding, задокументирован).
+fn is_private_host(url_str: &str) -> bool {
+    let Ok(parsed) = url::Url::parse(url_str) else {
+        // Не распарсили — считаем приватным (fail closed)
+        return true;
     };
-    let host_port = rest.split('/').next().unwrap_or("");
-    let host = host_port
-        .rsplit_once(':')
-        .map(|(h, _)| h)
-        .unwrap_or(host_port)
-        .trim_end_matches('.');
-    if host.is_empty() {
-        return false;
+    match parsed.host() {
+        Some(url::Host::Domain(domain)) => {
+            let d = domain.to_ascii_lowercase();
+            matches!(
+                d.as_str(),
+                "localhost" | "localhost.localdomain" | "ip6-localhost"
+            ) || d.ends_with(".localhost")
+                || d.ends_with(".local")
+        }
+        Some(url::Host::Ipv4(ip)) => is_private_ipv4(ip),
+        Some(url::Host::Ipv6(ip)) => is_private_ipv6(ip),
+        None => true,
     }
-    // буквальные loopback/приватные имена
-    if matches!(host, "localhost" | "localhost.localdomain" | "ip6-localhost" | "*.local") {
+}
+
+fn is_private_ipv4(ip: std::net::Ipv4Addr) -> bool {
+    let o = ip.octets();
+    o[0] == 127
+        || o[0] == 10
+        || o[0] == 0
+        || (o[0] == 172 && (16..=31).contains(&o[1]))
+        || (o[0] == 192 && o[1] == 168)
+        || (o[0] == 169 && o[1] == 254)
+        || (o[0] == 100 && (64..=127).contains(&o[1]))
+}
+
+fn is_private_ipv6(ip: std::net::Ipv6Addr) -> bool {
+    // IPv4-mapped (::ffff:a.b.c.d в любой записи — десятичной и hex)
+    if let Some(v4) = ip.to_ipv4_mapped() {
+        return is_private_ipv4(v4);
+    }
+    if ip.is_loopback() || ip.is_unspecified() {
         return true;
     }
-    // IPv4
-    let parts: Vec<&str> = host.split('.').collect();
-    if parts.len() == 4 && parts.iter().all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit())) {
-        let oct: Vec<u32> = parts.iter().filter_map(|p| p.parse::<u32>().ok()).collect();
-        if oct.len() == 4 && oct.iter().all(|&o| o <= 255) {
-            let (a, b) = (oct[0], oct[1]);
-            return a == 127
-                || a == 10
-                || (a == 172 && (16..=31).contains(&b))
-                || (a == 192 && b == 168)
-                || (a == 169 && b == 254)
-                || a == 0
-                || (a == 100 && (64..=127).contains(&b));
-        }
+    let seg = ip.segments();
+    // fc00::/7 (ULA), fe80::/10 (link-local)
+    if (seg[0] & 0xfe00) == 0xfc00 || (seg[0] & 0xffc0) == 0xfe80 {
+        return true;
     }
-    // IPv6-литералы в [..] или без скобок: fc00::/7, fe80::/10, ::1, ::ffff:127.*
-    let v6 = host.trim_start_matches('[').trim_end_matches(']');
-    if v6.contains(':') {
-        let l = v6.to_ascii_lowercase();
-        if l == "::1" || l == "::" {
-            return true;
-        }
-        let first = l.split(':').next().unwrap_or("");
-        if first.starts_with("fc") || first.starts_with("fd") {
-            return true;
-        }
-        if first.starts_with("fe8") || first.starts_with("fe9") || first.starts_with("fea") || first.starts_with("feb") {
-            return true;
-        }
-        if l.starts_with("::ffff:127.") || l.starts_with("::ffff:10.") || l.starts_with("::ffff:192.168.") {
-            return true;
-        }
+    // 64:ff9b::/96 (NAT64): последние 32 бита — вложенный IPv4
+    if seg[0] == 0x0064 && seg[1] == 0xff9b {
+        let v4 = std::net::Ipv4Addr::new(
+            (seg[6] >> 8) as u8,
+            seg[6] as u8,
+            (seg[7] >> 8) as u8,
+            seg[7] as u8,
+        );
+        return is_private_ipv4(v4);
     }
     false
 }
@@ -930,6 +936,32 @@ mod tests {
         // С включённым тумблером приватные адреса проходят
         assert!(is_navigable_url("http://127.0.0.1:11434/api", true));
         assert!(is_navigable_url("http://localhost:8080/", true));
+    }
+
+    #[test]
+    fn ssrf_literal_forms_cannot_bypass() {
+        // Регресс: самодельный парсинг хоста пропускал эквивалентные
+        // записи loopback — браузер резолвит их так же, как 127.0.0.1
+        // userinfo: хост после @ — настоящий таргет
+        assert!(!is_navigable_url("http://user:pass@127.0.0.1/", false));
+        assert!(!is_navigable_url("http://user@localhost/", false));
+        // целочисленная форма IPv4
+        assert!(!is_navigable_url("http://2130706433/", false));
+        // короткая форма IPv4
+        assert!(!is_navigable_url("http://127.1/", false));
+        // hex-форма IPv4
+        assert!(!is_navigable_url("http://0x7f000001/", false));
+        // hex-форма IPv4-mapped IPv6
+        assert!(!is_navigable_url("http://[::ffff:7f00:1]/", false));
+        assert!(!is_navigable_url("http://[::ffff:127.0.0.1]/", false));
+        assert!(!is_navigable_url("http://[0:0:0:0:0:ffff:10.0.0.1]/", false));
+        // NAT64-форма с вложенным loopback
+        assert!(!is_navigable_url("http://[64:ff9b::7f00:1]/", false));
+        // .local-суффиксы mDNS
+        assert!(!is_navigable_url("http://printer.local/", false));
+        // публичные адреса по-прежнему проходят (134744072 = 8.8.8.8)
+        assert!(is_navigable_url("http://134744072/", false));
+        assert!(is_navigable_url("https://[2606:4700::1111]/", false));
     }
 
     /// Мини-HTTP-сервер для e2e-теста: отдаёт одну тестовую страницу.

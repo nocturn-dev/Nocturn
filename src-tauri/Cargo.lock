@@ -2690,6 +2690,7 @@ dependencies = [
  "tauri-plugin-updater",
  "tokio",
  "tungstenite",
+ "url",
  "xcap",
  "zeroize",
 ]

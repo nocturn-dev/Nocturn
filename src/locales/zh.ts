@@ -607,6 +607,8 @@ export const zh = {
     "main.exportHint":
       "服务商、密钥、提示词、主题、自动化和聊天打包为一个文件。加密密钥需相同的主密码才能恢复。",
     "main.exportBtn": "导出",
+    "main.exportSecrets": "在导出文件中包含 API 密钥",
+    "main.exportSecretsWarn": "导出文件将以明文形式包含 API 密钥：任何获得该文件的人都能访问您的服务商账户。确定要包含吗？",
     "main.importBtn": "导入",
     "main.importConfirm": "导入设置？当前配置将被覆盖，应用将重新加载。",
     "main.importDone": "已导入 {n} 个配置文件。正在重新加载…",

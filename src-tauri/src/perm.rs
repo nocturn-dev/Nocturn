@@ -5,9 +5,10 @@
 //! фронт (App.tsx): перед первым инструментом прогона он синхронизирует
 //! режим и корень проекта командами perm_set / perm_get (api.ts).
 //!
-//! Контролируются только встроенные инструменты с прямым доступом к ФС/шеллу:
-//! fs_read, fs_list, fs_write, fs_delete, shell_run. Остальные (vault_*,
-//! browser_*, computer_*, mcp__*, image_generate) — вне контроля в этом тире.
+//! Контролируются все мутирующие инструменты (shell_run, fs_write, fs_delete,
+//! vault_write, image_generate, mcp__*, действия browser_*/computer_*) —
+//! гарантия Plan-режима read-only держится на бэкенде, а не только на фронте.
+//! fs_* дополнительно проходит path-контроль корней проекта.
 
 use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
@@ -54,21 +55,27 @@ pub(crate) fn set(state: PermState) {
 }
 
 /// Решение по инструменту. Возвращаемое Err — текст для модели.
-/// Контролируются только встроенные инструменты с прямым доступом к ФС/шеллу:
-/// fs_read, fs_list, fs_write, fs_delete, shell_run. Остальные (vault_*,
-/// browser_*, computer_*, mcp__*, image_generate) — вне контроля в этом тире.
-/// roots пуст → path-контроль не применяется (проект не выбран — не сужаем
-/// текущее поведение). shell_run — без path-контроля: cwd опционален,
-/// корневой cwd вебвью неизвестен.
+/// Классификация mutating зеркалит фронт (useAgentRun): shell_run, fs_write,
+/// fs_delete, vault_write, image_generate, mcp__*, browser_*/computer_*
+/// (кроме скриншота и чтения страницы). Гарантия тира: Plan-режим строго
+/// read-only на бэкенде — раньше computer_* (мышь/клавиатура) и vault_write
+/// исполнялись в Plan мимо контроля. В Ask/Edit подтверждение делает фронт —
+/// бэкенд не ломает уже подтверждённые вызовы, но fs_* всегда проходит
+/// path-контроль. roots пуст → path-контроль не применяется. shell_run —
+/// без path-контроля: cwd опционален, корневой cwd вебвью неизвестен.
 pub(crate) fn decide(state: &PermState, name: &str, path: Option<&str>) -> Result<(), String> {
-    // Не-контролируемое имя — сразу мимо
-    if !matches!(
-        name,
-        "fs_read" | "fs_list" | "fs_write" | "fs_delete" | "shell_run"
-    ) {
+    let mutating = match name {
+        "shell_run" | "fs_write" | "fs_delete" | "vault_write" | "image_generate" => true,
+        n if n.starts_with("mcp__") => true,
+        // Чтение и скриншот безопасны — mutating только действия
+        n if n.starts_with("browser_") => !matches!(n, "browser_read" | "browser_screenshot"),
+        n if n.starts_with("computer_") => n != "computer_screenshot",
+        _ => false,
+    };
+    let fs_tool = matches!(name, "fs_read" | "fs_list" | "fs_write" | "fs_delete");
+    if !mutating && !fs_tool {
         return Ok(());
     }
-    let mutating = matches!(name, "fs_write" | "fs_delete" | "shell_run");
     // Гонка IPC: perm_set летит fire-and-forget, run_tool может обогнать его.
     // Пока фронт ни разу не синхронизировал режим, мутации под запретом —
     // иначе окно «дефолтного Ask» пропускает shell_run даже в Plan-задаче
@@ -76,12 +83,17 @@ pub(crate) fn decide(state: &PermState, name: &str, path: Option<&str>) -> Resul
         return Err("permission mode not synchronized yet; retry shortly".to_string());
     }
     match state.mode {
-        // План: запись и команды блокируются, чтение — с path-контролем
+        // План: любые мутации блокируются (включая мышь/клавиатуру и MCP),
+        // fs-чтение — с path-контролем, остальное чтение (browser_read,
+        // computer_screenshot) — свободно
         PermMode::Plan => {
             if mutating {
                 return Err(format!("blocked by permission mode: plan (tool {name})"));
             }
-            check_fs_path(state, path)
+            if fs_tool {
+                check_fs_path(state, path)?;
+            }
+            Ok(())
         }
         // Edit: правки файлов без подтверждения, удаление и шелл — только full/ask
         PermMode::Edit => {
@@ -91,22 +103,26 @@ pub(crate) fn decide(state: &PermState, name: &str, path: Option<&str>) -> Resul
                         .to_string(),
                 );
             }
-            check_fs_path(state, path)
+            if fs_tool {
+                check_fs_path(state, path)?;
+            }
+            Ok(())
         }
-        // Ask: подтверждение делает фронт — бэкенд не должен ломать уже
-        // подтверждённые вызовы fs_delete/shell_run; fs_write — path-контроль
+        // Ask: подтверждение делает фронт; fs_* — всегда с path-контролем
+        // (fs_delete раньше проходил без него: контроль корней целиком
+        // доверялся фронту)
         PermMode::Ask => {
-            if mutating && name != "fs_write" {
-                return Ok(());
+            if fs_tool {
+                check_fs_path(state, path)?;
             }
-            check_fs_path(state, path)
+            Ok(())
         }
-        // Full: всё исполняется, fs_* — с path-контролем, shell_run — свободно
+        // Full: всё исполняется, fs_* — с path-контролем
         PermMode::Full => {
-            if name == "shell_run" {
-                return Ok(());
+            if fs_tool {
+                check_fs_path(state, path)?;
             }
-            check_fs_path(state, path)
+            Ok(())
         }
     }
 }
@@ -316,8 +332,41 @@ mod tests {
     }
 
     #[test]
-    fn non_controlled_tool_passes_regardless_of_mode() {
-        // vault_write и прочие вне контроля этого тира (см. шапку модуля)
-        assert!(decide(&state(PermMode::Plan, &["C:\\proj"]), "vault_write", None).is_ok());
+    fn plan_is_read_only_for_all_mutating_tools() {
+        // Регресс: computer_* (мышь/клавиатура), vault_write, mcp__* и
+        // image_generate раньше проходили Plan мимо контроля
+        for name in ["computer_click", "computer_type", "vault_write", "image_generate", "mcp__server__tool", "browser_navigate"] {
+            assert!(
+                decide(&state(PermMode::Plan, &[]), name, None).is_err(),
+                "plan must block {name}"
+            );
+        }
+        // Чтение и скриншот в Plan разрешены
+        assert!(decide(&state(PermMode::Plan, &[]), "computer_screenshot", None).is_ok());
+        assert!(decide(&state(PermMode::Plan, &[]), "browser_read", None).is_ok());
+    }
+
+    #[test]
+    fn ask_confirms_mutating_but_keeps_fs_path_control() {
+        // Регресс: fs_delete в Ask проходил без path-контроля
+        assert!(decide(&state(PermMode::Ask, &["C:\\proj"]), "fs_delete", Some("C:\\other\\x")).is_err());
+        assert!(decide(&state(PermMode::Ask, &["C:\\proj"]), "fs_delete", Some("C:\\proj\\x")).is_ok());
+        // Немутации вне fs_ (shell_run в ask подтверждает фронт)
+        assert!(decide(&state(PermMode::Ask, &["C:\\proj"]), "shell_run", None).is_ok());
+        assert!(decide(&state(PermMode::Ask, &[]), "vault_write", None).is_ok());
+    }
+
+    #[test]
+    fn plan_fs_read_uses_path_control() {
+        assert!(decide(&state(PermMode::Plan, &["C:\\proj"]), "fs_read", Some("C:\\other\\x")).is_err());
+        assert!(decide(&state(PermMode::Plan, &["C:\\proj"]), "fs_read", Some("C:\\proj\\x")).is_ok());
+    }
+
+    #[test]
+    fn non_fs_read_only_tools_skip_path_control() {
+        // browser_read/computer_screenshot не имеют args.path — path-контроль
+        // к ним неприменим даже при непустых roots
+        assert!(decide(&state(PermMode::Full, &["C:\\proj"]), "computer_screenshot", None).is_ok());
+        assert!(decide(&state(PermMode::Full, &["C:\\proj"]), "browser_read", None).is_ok());
     }
 }
