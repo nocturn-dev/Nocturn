@@ -529,7 +529,7 @@ export const en = {
     "agent.allowlistAllEmpty":
       "No task has allowed commands yet. Press “Always for this task” in agent dialogs and the list will appear here.",
     "main.version": "Version",
-    "main.versionVal": "0.2.1",
+    "main.versionVal": "0.2.2",
     "main.versionStage": "Alpha",
     "main.language": "Interface language",
     "main.sidebarSide": "Sidebar on the right",
