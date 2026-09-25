@@ -156,6 +156,9 @@ export interface ChatMsgParam {
   tool_calls?: unknown;
   tool_call_id?: string;
   name?: string;
+  /** Thinking-блок Anthropic {thinking, signature, redacted} для assistant-хода:
+      Messages API требует вернуть его для хода с tool_use при extended thinking */
+  thinking?: unknown;
 }
 
 let cachedSchemas: unknown = null;
@@ -278,10 +281,16 @@ export async function chatStream(opts: {
   tools?: unknown;
   /** Усилие размышлений: "off"/null — не отправлять провайдеру */
   reasoningEffort?: "off" | "low" | "high" | "max";
+  /** Метка провайдера из настроек ("anthropic", …): выбор адаптера протокола
+      на бэкенде. Раньше адаптер выбирался поиском "api.anthropic.com" в
+      Base URL — прокси с таким путём получал чужой формат авторизации */
+  provider?: string;
   onDelta: (delta: string) => void;
   onThought: (thought: string) => void;
   onUsage: (usage: ChatUsage) => void;
   onToolCalls?: (calls: ToolCallInfo[]) => void;
+  /** Закрытый thinking-блок Anthropic: подпись + redacted для возврата в историю */
+  onThinkingBlock?: (block: { thinking: string; signature: string; redacted: string[] }) => void;
 }): Promise<void> {
   if (!inTauri) {
     throw new Error("Чат работает в нативном приложении (npm run tauri dev)");
@@ -325,6 +334,16 @@ export async function chatStream(opts: {
             }
           },
         ),
+        listen<{
+          requestId: string;
+          thinking: string;
+          signature: string;
+          redacted: string[];
+        }>("chat-thinking", (e) => {
+          if (e.payload.requestId === opts.requestId) {
+            opts.onThinkingBlock?.(e.payload);
+          }
+        }),
       ])),
     );
     await invoke("chat_stream", {
@@ -334,6 +353,7 @@ export async function chatStream(opts: {
       model: opts.model,
       messages: opts.messages,
       tools: opts.tools ?? null,
+      provider: opts.provider ?? null,
       // Ключ аргумента должен быть camelCase: Tauri 2 ищет параметры команды
       // по to_lower_camel_case(rust_name), snake_case молча превращался в null
       reasoningEffort:

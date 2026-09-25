@@ -31,6 +31,11 @@ export interface Message {
   content: string;
   /** Раскрываемый блок размышлений модели */
   thought?: string;
+  /** Подпись thinking-блока Anthropic: без неё блок нельзя вернуть в историю
+   *  (Messages API при extended thinking + tool_use требует thinking первым) */
+  thoughtSignature?: string;
+  /** Redacted-thinking блоки Anthropic (base64-данные провайдера) */
+  thoughtRedacted?: string[];
   /** Сколько «думала» модель, мс — выводится как "Worked for N сек" */
   workedMs?: number;
   /** Прикреплённые изображения (скриншоты, файлы) */

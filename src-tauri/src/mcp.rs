@@ -60,6 +60,10 @@ pub struct McpServerStatus {
 const INIT_TIMEOUT: Duration = Duration::from_secs(30);
 const LIST_TIMEOUT: Duration = Duration::from_secs(15);
 const CALL_TIMEOUT: Duration = Duration::from_secs(120);
+/// Потолок записи в stdin: сервер, переставший читать пайп, блокировал
+/// write_all навсегда (буфер пайпа полон) — request не возвращал ни ответ,
+/// ни таймаут, воркер утекал на каждый вызов
+const WRITE_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Карта ожидающих JSON-RPC запросов: id → одноразовый канал ответа
 type PendingMap = Arc<Mutex<HashMap<u64, Sender<Result<Value, String>>>>>;
@@ -68,7 +72,8 @@ type PendingMap = Arc<Mutex<HashMap<u64, Sender<Result<Value, String>>>>>;
 pub struct McpConnection {
     pub server: String,
     pub tools: Mutex<Vec<McpToolInfo>>,
-    stdin: Mutex<ChildStdin>,
+    /// Arc: писатель выносится в отдельный поток с таймаутом (write_line)
+    stdin: Arc<Mutex<ChildStdin>>,
     child: Mutex<Child>,
     next_id: AtomicU64,
     pending: PendingMap,
@@ -220,7 +225,7 @@ impl McpConnection {
         let conn = Arc::new(Self {
             server: server.to_string(),
             tools: Mutex::new(Vec::new()),
-            stdin: Mutex::new(stdin),
+            stdin: Arc::new(Mutex::new(stdin)),
             child: Mutex::new(child),
             next_id: AtomicU64::new(1),
             pending,
@@ -314,9 +319,30 @@ impl McpConnection {
     fn write_line(&self, value: &Value) -> Result<(), String> {
         let mut line = serde_json::to_string(value).map_err(|e| e.to_string())?;
         line.push('\n');
-        let mut stdin = self.stdin.lock().unwrap_or_else(|p| p.into_inner());
-        stdin.write_all(line.as_bytes()).map_err(|e| e.to_string())?;
-        stdin.flush().map_err(|e| e.to_string())
+        // Запись в отдельном потоке с таймаутом: write_all блокируется
+        // навсегда, когда сервер перестал читать stdin и буфер пайпа полон
+        let stdin = Arc::clone(&self.stdin);
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let res = (|| -> Result<(), std::io::Error> {
+                let mut s = stdin.lock().unwrap_or_else(|p| p.into_inner());
+                s.write_all(line.as_bytes())?;
+                s.flush()
+            })();
+            let _ = tx.send(res.map_err(|e| e.to_string()));
+        });
+        match rx.recv_timeout(WRITE_TIMEOUT) {
+            Ok(res) => res,
+            Err(_) => {
+                // Соединение мертво: гасим процесс — заблокированный писатель
+                // получит EPIPE и поток завершится, а не утечёт навсегда
+                self.kill();
+                Err(format!(
+                    "write to server stdin timed out after {}s — server stopped reading, connection killed",
+                    WRITE_TIMEOUT.as_secs()
+                ))
+            }
+        }
     }
 
     /// Вызов инструмента: склеиваем text-блоки content в одну строку для модели
@@ -368,8 +394,28 @@ impl McpConnection {
     }
 
     pub fn kill(&self) {
-        let _ = self.child.lock().unwrap_or_else(|p| p.into_inner()).kill();
-        let _ = self.child.lock().unwrap_or_else(|p| p.into_inner()).wait();
+        #[cfg(windows)]
+        {
+            // Дерево процессов: fallback cmd /C npx … оставляет внука (node)
+            // живым — Child::kill терминирует только cmd.exe, сирота держит
+            // порты и унаследованные пайпы (читатель stdout не получает EOF)
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+            let pid = self
+                .child
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .id();
+            let _ = Command::new("taskkill")
+                .args(["/PID", &pid.to_string(), "/T", "/F"])
+                .creation_flags(CREATE_NO_WINDOW)
+                .output();
+        }
+        let mut child = self.child.lock().unwrap_or_else(|p| p.into_inner());
+        let _ = child.kill();
+        // wait(): на Unix без reap'а дочерний процесс остаётся зомби
+        // до выхода приложения
+        let _ = child.wait();
     }
 }
 
