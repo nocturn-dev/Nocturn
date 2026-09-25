@@ -139,13 +139,15 @@ function AssistantCardBase({
     let raf = 0;
     let last = 0;
     const tick = (now: number) => {
-      if (now - last >= 33) {
-        // ~30 кадров в секунду достаточно для плавности
+      // D6: 100 мс (~10 кадров) вместо 33: каждый тик ре-парсит ВЕСЬ уже
+      // показанный markdown (react-markdown + highlight.js) — при 30 fps
+      // это была O(n²) работа с подсветкой прямо во время стрима
+      if (now - last >= 100) {
         last = now;
         setShownLen((prev) => {
           const backlog = target - prev;
           if (backlog <= 0) return prev;
-          return prev + Math.max(2, Math.ceil(backlog / 6));
+          return prev + Math.max(6, Math.ceil(backlog / 4));
         });
       }
       raf = requestAnimationFrame(tick);

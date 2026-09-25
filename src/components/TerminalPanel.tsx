@@ -7,7 +7,7 @@ import {
   parseWriteResult,
   summarizeArguments,
 } from "../diff";
-import { ptyCreate, ptyKill, ptyWrite } from "../api";
+import { ptyCreate, ptyKill, ptyResize, ptyWrite } from "../api";
 import { Vt, type VtSpan } from "../vt";
 import { useLang } from "../locales";
 
@@ -509,6 +509,43 @@ export default function TerminalPanel({
     if (mode === "console") consoleRef.current?.focus();
   }, [mode]);
 
+  // D7: PTY жил с фикс 120×33 и не следил за ресайзом панели/окна — вывод
+  // свёрстывывался под старое число колонок, длинные строки уезжали вбок.
+  // ResizeObserver меряет контейнер и пересылает cols/rows шеллу (SIGWINCH)
+  const ptySizeRef = useRef({ cols: PTY_COLS, rows: PTY_ROWS });
+  useEffect(() => {
+    if (mode !== "console") return;
+    const el = consoleRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => {
+      const fontSize = parseFloat(
+        window.getComputedStyle(el).fontSize || "11.5",
+      );
+      // Моноширинная метрика: ширина глифа ≈ 0.6em, межстрочный 1.5em
+      const charW = fontSize * 0.6;
+      const lineH = fontSize * 1.5;
+      const cols = Math.max(
+        20,
+        Math.min(500, Math.floor((el.clientWidth - 32) / charW)),
+      );
+      const rows = Math.max(
+        5,
+        Math.min(200, Math.floor((el.clientHeight - 16) / lineH)),
+      );
+      if (
+        cols !== ptySizeRef.current.cols ||
+        rows !== ptySizeRef.current.rows
+      ) {
+        ptySizeRef.current = { cols, rows };
+        if (createdRef.current && !exitedRef.current) {
+          void ptyResize(PTY_ID, cols, rows).catch(() => {});
+        }
+      }
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [mode]);
+
   // Закрытие панели — глушим шелл
   useEffect(() => {
     return () => {
@@ -588,13 +625,25 @@ export default function TerminalPanel({
     }
   };
 
-  // Автоскролл: только когда пользователь у нижнего края (режим «Агент»)
+  // Автоскролл: только когда пользователь у нижнего края (режим «Агент»).
+  // D5: «был у низа» фиксируем в onScroll до коммита новых строк —
+  // пост-фактум расчёт обрывал слежение на крупном выводе
+  const nearBottomRef = useRef(true);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const onScroll = () => {
+      nearBottomRef.current =
+        el.scrollHeight - el.scrollTop - el.clientHeight < 150;
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+  }, []);
   useEffect(() => {
     if (mode !== "agent") return;
     const el = scrollRef.current;
     if (!el) return;
-    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 150;
-    if (nearBottom) el.scrollTop = el.scrollHeight;
+    if (nearBottomRef.current) el.scrollTop = el.scrollHeight;
   }, [lines, mode]);
 
   // В консоли всегда держимся у нижнего края (экран терминала)

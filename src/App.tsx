@@ -790,7 +790,10 @@ export default function App() {
       sessionsDirtyRef.current = false;
       enqueueSave(JSON.stringify(sessionsRef.current));
     };
-    const id = window.setInterval(flush, 3000);
+    // A15: 10 с вместо 3 с — stringify всего стора (с base64-вложениями,
+    // теперь сжатыми) на каждый тик давал периодические фризы; окно потери
+    // при краше ограничено beforeunload-флашем
+    const id = window.setInterval(flush, 10_000);
     // Закрытие окна — последний сейв, если есть несохранённое
     window.addEventListener("beforeunload", flush);
     return () => {
@@ -1259,6 +1262,37 @@ export default function App() {
   // Для автосейва: активный стрим (объявлен ниже декларации ref — см. эффект автосейва)
   streamingActiveRef.current = streamingId !== null;
 
+  // C9: стабильные обёртки для колбэков движка — handleSend/handleStop
+  // пересоздаются каждый рендер (heavy-хук), а ChatArea получает их пропсами.
+  // handleSendRef внутри хука уже держит свежую версию — читаем через ref
+  const stableHandleSend = useCallback<typeof handleSend>(
+    (...args) => handleSendRef.current?.(...args) ?? Promise.resolve(),
+    [handleSendRef],
+  );
+  const handleStopRef = useRef(handleStop);
+  useEffect(() => {
+    handleStopRef.current = handleStop;
+  });
+  const stableHandleStop = useCallback(() => handleStopRef.current(), []);
+  // pendingConfirm/pendingAsk раньше считались IIFE прямо в JSX: новый объект
+  // каждый рендер убивал сравнение пропсов у карточек-подтверждений
+  const pendingConfirm = useMemo(() => {
+    const c = firstConfirm(interactions);
+    return c && c.kind === "confirm"
+      ? { requestId: c.requestId, call: c.call }
+      : null;
+  }, [interactions]);
+  const pendingAsk = useMemo(() => {
+    const a = interactions.find((i) => i.kind === "ask");
+    return a && a.kind === "ask"
+      ? { msgId: a.msgId, ask: { ...a.spec } }
+      : null;
+  }, [interactions]);
+  const queuedProps = useMemo(
+    () => queuedMsgs.map((q) => ({ id: q.id, text: q.text })),
+    [queuedMsgs],
+  );
+
   // Ambient-фон: во время стрима анимация на паузе — батарея и FPS важнее
   // (эффект здесь, ниже деструктуризации streamingId)
   useEffect(() => {
@@ -1267,7 +1301,17 @@ export default function App() {
 
   const menuSession = menu ? sessions.find((s) => s.id === menu.id) : null;
 
-  // Файлы, изменённые агентом в активной задаче (M4.3) — для подсветки в дереве
+  // Файлы, изменённые агентом в активной задаче (M4.3) — для подсветки в дереве.
+  // C7: дорогой пересчёт (JSON.parse содержимого before/after) отсечён от
+  // ежекадровых флешей стрима — дешёвый ключ (id fs_write-результатов)
+  // меняется только когда реально появился новый результат записи
+  const writeKey = useMemo(() => {
+    let key = "";
+    for (const m of activeSession?.messages ?? []) {
+      if (m.role === "tool" && m.toolName === "fs_write") key += `${m.id}|`;
+    }
+    return key;
+  }, [activeSession]);
   const modifiedFiles = useMemo(() => {
     const set = new Set<string>();
     for (const m of activeSession?.messages ?? []) {
@@ -1276,7 +1320,8 @@ export default function App() {
       if (w?.path) set.add(normalizePath(w.path));
     }
     return set;
-  }, [activeSession]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- ключ отсекает ежекадровый пересчёт
+  }, [writeKey]);
 
   // Latest-ref паттерн: слушатель keydown вешается ровно один раз,
   // а актуальные обработчики читаются через реф
@@ -2165,24 +2210,14 @@ export default function App() {
         agentMode={activeSession?.agentMode ?? false}
         permissionMode={activeSession?.permissionMode ?? "ask"}
         onPermissionModeChange={handleSetPermissionMode}
-        pendingConfirm={(() => {
-          const c = firstConfirm(interactions);
-          return c && c.kind === "confirm"
-            ? { requestId: c.requestId, call: c.call }
-            : null;
-        })()}
-        pendingAsk={(() => {
-          const a = interactions.find((i) => i.kind === "ask");
-          return a && a.kind === "ask"
-            ? { msgId: a.msgId, ask: { ...a.spec } }
-            : null;
-        })()}
+        pendingConfirm={pendingConfirm}
+        pendingAsk={pendingAsk}
         onAskAnswer={handleAskAnswer}
         onConfirmDecision={handleConfirmDecision}
         promptPresets={builtinPresetsFor(lang)}
         customPresets={promptLibrary}
-        onSend={handleSend}
-        queued={queuedMsgs.map((q) => ({ id: q.id, text: q.text }))}
+        onSend={stableHandleSend}
+        queued={queuedProps}
         onQueue={(text, attachments, quote) =>
           setQueuedMsgs((prev) => [
             ...prev,
@@ -2209,7 +2244,7 @@ export default function App() {
           }));
         }}
         onClearChat={handleClearChat}
-        onStop={handleStop}
+        onStop={stableHandleStop}
         onOpenSettings={() => {
           setSettingsSection("main");
           setSettingsOpen(true);
@@ -2266,17 +2301,20 @@ export default function App() {
           onClose={() => setGraphOpen(false)}
         />
       )}
-      <NotesModal
-        note={notes.find((n) => n.file === openNoteFile) ?? null}
-        allNotes={notes}
-        saving={noteSaving}
-        onSave={(f, c) => void handleSaveNote(f, c)}
-        onRunChain={(f, c) => void handleRunChain(f, c)}
-        onDelete={(f) => void handleDeleteNote(f)}
-        onOpenNote={(f) => void handleOpenNote(f)}
-        onClose={() => setOpenNoteFile(null)}
-      />
+      {openNoteFile !== null && (
+        <NotesModal
+          note={notes.find((n) => n.file === openNoteFile) ?? null}
+          allNotes={notes}
+          saving={noteSaving}
+          onSave={(f, c) => void handleSaveNote(f, c)}
+          onRunChain={(f, c) => void handleRunChain(f, c)}
+          onDelete={(f) => void handleDeleteNote(f)}
+          onOpenNote={(f) => void handleOpenNote(f)}
+          onClose={() => setOpenNoteFile(null)}
+        />
+      )}
       <ErrorBoundary title={t("err.boundary")} action={t("err.boundaryRetry")}>
+      {settingsOpen && (
       <SettingsModal
         open={settingsOpen}
         theme={theme}
@@ -2376,15 +2414,20 @@ export default function App() {
         onUseLocalModel={handleUseLocalModel}
         onClose={() => setSettingsOpen(false)}
       />
+      )}
       </ErrorBoundary>
-      <AutomationsModal
-        open={automationsOpen}
-        onClose={() => setAutomationsOpen(false)}
-      />
-      <BrowserPanel
-        open={browserPanelOpen}
-        onClose={() => setBrowserPanelOpen(false)}
-      />
+      {automationsOpen && (
+        <AutomationsModal
+          open={automationsOpen}
+          onClose={() => setAutomationsOpen(false)}
+        />
+      )}
+      {browserPanelOpen && (
+        <BrowserPanel
+          open={browserPanelOpen}
+          onClose={() => setBrowserPanelOpen(false)}
+        />
+      )}
       <Toasts items={toasts} />
       {cryptoGate !== "none" && cryptoGate !== "loading" && (
         <CryptoGate
@@ -2399,12 +2442,14 @@ export default function App() {
           }
         />
       )}
-      <SearchModal
-        open={searchOpen}
-        sessions={sessions}
-        onSelect={handleSearchSelect}
-        onClose={() => setSearchOpen(false)}
-      />
+      {searchOpen && (
+        <SearchModal
+          open={searchOpen}
+          sessions={sessions}
+          onSelect={handleSearchSelect}
+          onClose={() => setSearchOpen(false)}
+        />
+      )}
       {menu && (menuSession || menuProject || menuNote) && (
         <ContextMenu
           x={menu.x}

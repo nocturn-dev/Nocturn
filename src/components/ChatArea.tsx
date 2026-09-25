@@ -185,6 +185,35 @@ const SUGGESTIONS = (lang: "ru" | "en" | "zh" | "ja") =>  lang === "ru"
         },
       ];
 
+/** A15: пережимает вложение-картинку, чтобы data-URL уложился в лимит
+ *  (~1.2 МБ). Пропорции сохраняются: длинная сторона ужимается шагами *0.75,
+ *  формат JPEG q=0.85. Ошибка декодирования → вызывающий код кладёт оригинал. */
+const ATTACH_DATAURL_LIMIT = 1_200_000;
+async function downscaleAttachment(dataUrl: string): Promise<string> {
+  if (dataUrl.length <= ATTACH_DATAURL_LIMIT) return dataUrl;
+  const img = new Image();
+  await new Promise<void>((res, rej) => {
+    img.onload = () => res();
+    img.onerror = () => rej(new Error("image decode failed"));
+    img.src = dataUrl;
+  });
+  let w = img.naturalWidth;
+  let h = img.naturalHeight;
+  let out = dataUrl;
+  const canvas = document.createElement("canvas");
+  for (let i = 0; i < 6 && out.length > ATTACH_DATAURL_LIMIT; i++) {
+    w = Math.max(1, Math.round(w * 0.75));
+    h = Math.max(1, Math.round(h * 0.75));
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return dataUrl;
+    ctx.drawImage(img, 0, 0, w, h);
+    out = canvas.toDataURL("image/jpeg", 0.85);
+  }
+  return out.length < dataUrl.length ? out : dataUrl;
+}
+
 export default function ChatArea({
   session,
   typing,
@@ -312,10 +341,19 @@ export default function ChatArea({
   const readFile = (f: File) => {
     const reader = new FileReader();
     reader.onload = () => {
-      setPendingImages((prev) => [
-        ...prev,
-        { name: f.name || "image.png", dataUrl: String(reader.result) },
-      ]);
+      const dataUrl = String(reader.result);
+      const name = f.name || "image.png";
+      // A15: большие изображения пережимаются до ~1 МБ data-URL — вложения
+      // живут в sessions.json base64'ом, многометровые скриншоты раздували
+      // файл до десятков-сотен МБ, и строкификация всего стора на сейве
+      // регулярно фризила UI
+      downscaleAttachment(dataUrl)
+        .then((small) =>
+          setPendingImages((prev) => [...prev, { name, dataUrl: small }]),
+        )
+        .catch(() =>
+          setPendingImages((prev) => [...prev, { name, dataUrl }]),
+        );
     };
     reader.readAsDataURL(f);
   };
@@ -757,13 +795,25 @@ export default function ChatArea({
 
   // Автоскролл к последнему сообщению и индикатору печати.
   // «Принудительный» — всегда за последней строкой; «умный» — замирает,
-  // если пользователь отлистал вверх, и возобновляется у нижнего края (±150px)
+  // если пользователь отлистал вверх, и возобновляется у нижнего края.
+  // D5: «был у низа» фиксируем в onScroll ДО коммита нового контента —
+  // прежний расчёт nearBottom в useEffect шёл ПОСЛЕ коммита, и крупный чанк
+  // (>150px) скачком отдалял низ, обрывая слежение на длинных ответах
+  const nearBottomRef = useRef(true);
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
-    const nearBottom =
-      el.scrollHeight - el.scrollTop - el.clientHeight < 150;
-    if (scrollFollow || nearBottom) el.scrollTop = el.scrollHeight;
+    const onScroll = () => {
+      nearBottomRef.current =
+        el.scrollHeight - el.scrollTop - el.clientHeight < 150;
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+  }, []);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    if (scrollFollow || nearBottomRef.current) el.scrollTop = el.scrollHeight;
   }, [messages, typing, scrollFollow]);
 
   const autoGrow = (el: HTMLTextAreaElement) => {
@@ -1323,10 +1373,13 @@ export default function ChatArea({
       )}
       </div>
 
-      {/* Терминальный режим: панель снизу, подтверждения [y/n/a] прямо в ней */}
+      {/* Терминальный режим: панель снизу, подтверждения [y/n/a] прямо в ней.
+          D7: без key по сессии — раньше смена задачи перемонтировала панель,
+          и unmount-эффект убивал PTY: запущенный в консоли сервер/билд умирал
+          от клика по другой задаче. Консоль общая, скроллбэк переживает
+          переключение */}
       {terminalOpen && (
         <TerminalPanel
-          key={session?.id ?? "none"}
           session={session}
           streamingMsgId={streamingMsgId}
           pendingConfirm={pendingConfirm}

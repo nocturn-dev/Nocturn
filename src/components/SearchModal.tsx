@@ -18,10 +18,22 @@ export default function SearchModal({
 }: SearchModalProps) {
   const { t } = useLang();
   const [query, setQuery] = useState("");
+  // D10: debounce 250 мс — дорогой полнотекстовый проход по ВСЕМ сообщениям
+  // ВСЕХ сессий раньше гонялся на каждое нажатие клавиши (инпут «заикался»
+  // на больших корпусах)
+  const [searchQuery, setSearchQuery] = useState("");
+  useEffect(() => {
+    if (!open) return;
+    const id = window.setTimeout(() => setSearchQuery(query), 250);
+    return () => window.clearTimeout(id);
+  }, [query, open]);
 
   // Сброс запроса при каждом открытии
   useEffect(() => {
-    if (open) setQuery("");
+    if (open) {
+      setQuery("");
+      setSearchQuery("");
+    }
   }, [open]);
 
   // Закрытие по Escape
@@ -39,7 +51,7 @@ export default function SearchModal({
     // но без guard он выполнялся на каждое изменение sessions
     // (т.е. на каждый токен стрима) даже в скрытом состоянии
     if (!open) return [];
-    const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    const words = searchQuery.trim().toLowerCase().split(/\s+/).filter(Boolean);
     const list = [...sessions].sort(
       (a, b) => Number(!!b.pinned) - Number(!!a.pinned),
     );
@@ -55,7 +67,7 @@ export default function SearchModal({
         return words.every((w) => haystack.includes(w));
       })
       .slice(0, 20);
-  }, [open, sessions, query]);
+  }, [open, sessions, searchQuery]);
 
   if (!open) return null;
 
