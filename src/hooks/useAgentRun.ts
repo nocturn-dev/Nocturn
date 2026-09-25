@@ -230,26 +230,60 @@ export function useAgentRun(deps: AgentRunDeps) {
   // «занят ли движок прямо сейчас», иначе второй прогон перезаписывает
   // streamingId первого и finalize/Stop калечат чужой прогон.
   const activeRunRef = useRef<string | null>(null);
+  // Флаг «последний handleSend реально стартовал»: runChain различает
+  // «шаг выполнился» и «handleSend bail-ил по guard'у» (движок занят)
+  const runStartedRef = useRef(false);
+  // id сессии активного прогона: удаление/очистка задачи в UI проверяют,
+  // что прерывают именно прогон этой задачи
+  const streamingTargetRef = useRef<string | null>(null);
   // Ожидающие взаимодействия агента (подтверждение инструмента, вопрос ask_user)
   const [interactions, setInteractions] = useState<Interaction[]>([]);
   const interactionsRef = useRef(new InteractionRegistry());
+  // Зеркало interactions для cancelInteractions: колбэки стабильны
+  // (useCallback без deps), а свежий список читается из ref — иначе
+  // захваченный на старте прогона пустой state пропускал бы все
+  // взаимодействия, открытые позже
+  const interactionsLatest = useRef<Interaction[]>([]);
   const openInteraction = useCallback((i: Interaction, resolve: (r: InteractionResolution) => void) => {
     interactionsRef.current.open(i, resolve);
+    interactionsLatest.current = [...interactionsLatest.current, i];
     setInteractions((prev) => [...prev, i]);
   }, []);
   const resolveInteraction = useCallback((id: string, r: InteractionResolution) => {
     if (interactionsRef.current.resolve(id, r)) {
+      interactionsLatest.current = interactionsLatest.current.filter((x) => x.id !== id);
       setInteractions((prev) => prev.filter((x) => x.id !== id));
     }
   }, []);
-  const cancelInteractions = useCallback(() => {
-    interactionsRef.current.cancelAll();
-    setInteractions([]);
+  const cancelInteractions = useCallback((requestId?: string) => {
+    // Без requestId — все (полный сброс). С requestId — только взаимодействия
+    // этого прогона: finalize старого прогона не должен гасить confirm/ask-
+    // карточки уже стартовавшего нового (гонка Stop → автоматизация)
+    if (requestId == null) {
+      interactionsRef.current.cancelAll();
+      setInteractions([]);
+      interactionsLatest.current = [];
+      return;
+    }
+    const ids = new Set(
+      interactionsLatest.current
+        .filter((i) => i.requestId === requestId)
+        .map((i) => i.id),
+    );
+    for (const id of ids) interactionsRef.current.resolve(id, { kind: "cancel" });
+    setInteractions((prev) => {
+      const next = prev.filter((x) => !ids.has(x.id));
+      interactionsLatest.current = next;
+      return next;
+    });
   }, []);
 
   // requestId → id ассистентского сообщения в активном стриме
   const streamingRef = useRef<Map<string, string>>(new Map());
   const abortedRef = useRef<Set<string>>(new Set());
+  // Прогоны, остановленные пользователем: requestId → id ассистентской
+  // карточки. finalize ставит маркер «остановлено» после дренажа дельт
+  const stoppedRef = useRef<Map<string, string>>(new Map());
   // Флаг отмены цепочки задач (ChainMonitor): читается в runChain, ставится в handleStop
   const chainAbortRef = useRef(false);
   // Hard Limit: одноразовый триггер на задачу — сбрасывается в начале handleSend
@@ -350,11 +384,26 @@ export function useAgentRun(deps: AgentRunDeps) {
       return;
     }
 
+    // C1: захват движка СРАЗУ (синхронно, до первого await): между guard'ом
+    // и прежним захватом стояли await хуков SessionStart/UserPromptSubmit —
+    // окно гонки, через которое второй send проходил guard и получал два
+    // параллельных прогона
+    const requestId = uid();
+    activeRunRef.current = requestId;
+    runStartedRef.current = true;
+    // Освобождение движка на путях отказа ниже (валидация, блокировка хуком)
+    const releaseRun = () => {
+      if (activeRunRef.current === requestId) activeRunRef.current = null;
+    };
+
     // Первое сообщение создаёт задачу, если активной ещё нет
     let targetId = overrideTargetId ?? activeId;
     let sessionJustCreated = false;
     if (!targetId) {
-      if (editMsgId) return;
+      if (editMsgId) {
+        releaseRun();
+        return;
+      }
       const session: Session = {
         id: uid(),
         title: (text || images[0]?.name || t("chat.imageTitle")).slice(0, 48),
@@ -382,7 +431,10 @@ export function useAgentRun(deps: AgentRunDeps) {
     if (editMsgId) {
       const src = sessionsRef.current.find((s) => s.id === targetId);
       const orig = src?.messages.find((m) => m.id === editMsgId);
-      if (!src || !orig || orig.role !== "user") return;
+      if (!src || !orig || orig.role !== "user") {
+        releaseRun();
+        return;
+      }
       const kept = src.messages.slice(0, src.messages.indexOf(orig));
       currentOverride = { ...src, messages: kept };
       setSessions((prev) =>
@@ -407,6 +459,8 @@ export function useAgentRun(deps: AgentRunDeps) {
             attachments: images.length > 0 ? images : undefined,
             quote: quote?.trim() || undefined,
           };
+    // targetId финализирован — фиксируем сессию активного прогона
+    streamingTargetRef.current = targetId;
 
     // API не настроен — вместо запроса показываем подсказку
     if (
@@ -432,6 +486,7 @@ export function useAgentRun(deps: AgentRunDeps) {
             : s,
         ),
       );
+      releaseRun();
       return;
     }
 
@@ -468,13 +523,14 @@ export function useAgentRun(deps: AgentRunDeps) {
             role: "assistant",
             content: `⛔ ${t("hook.blockedSend")}\n\n${blocked.reason}`.trim(),
           };
-          setSessions((prev) =>
-            prev.map((s) =>
-              s.id === targetId ? { ...s, messages: [...s.messages, userMsg, msg] } : s,
-            ),
-          );
-          return;
-        }
+        setSessions((prev) =>
+          prev.map((s) =>
+            s.id === targetId ? { ...s, messages: [...s.messages, userMsg, msg] } : s,
+          ),
+        );
+        releaseRun();
+        return;
+      }
         const extra = [...outs.map((o) => o.additionalContext), sessionStartCtx]
           .filter((c) => c.trim() !== "")
           .join("\n");
@@ -487,11 +543,10 @@ export function useAgentRun(deps: AgentRunDeps) {
       }
     }
 
-    const requestId = uid();
+    // requestId захвачен выше (C1, сразу после guard'а) — здесь только UI-стейт
     // requestId → id ассистентского сообщения выставляется при его создании
     // (в агентном режиме — на каждый шаг цикла)
     setStreamingId(requestId);
-    activeRunRef.current = requestId; // FIX [re-entrancy]: движок занят
     setTyping(true);
     setActivity(t("activity.thinking"));
     const startedAt = Date.now();
@@ -563,6 +618,28 @@ export function useAgentRun(deps: AgentRunDeps) {
     const finalize = () => {
       // Независимо от пути завершения — дельты обязаны попасть в стор
       flushDeltas();
+      // Маркер «остановлено пользователем» — ПОСЛЕ дренажа буфера дельт:
+      // раньше маркер ставился в handleStop, а финальные дельты доливались
+      // после него, и маркер оказывался в середине текста
+      const stoppedMsgId = stoppedRef.current.get(requestId);
+      if (stoppedMsgId !== undefined) {
+        stoppedRef.current.delete(requestId);
+        const stopped = t("card.stoppedByUser");
+        setSessions((prev) =>
+          prev.map((s) =>
+            s.messages.some((m) => m.id === stoppedMsgId)
+              ? {
+                  ...s,
+                  messages: s.messages.map((m) =>
+                    m.id === stoppedMsgId
+                      ? { ...m, content: m.content + `\n\n*${stopped}*` }
+                      : m,
+                  ),
+                }
+              : s,
+          ),
+        );
+      }
       setTyping(false);
       setActivity(null);
       // Сброс общей движковой state — только если прогон всё ещё владеет
@@ -573,13 +650,15 @@ export function useAgentRun(deps: AgentRunDeps) {
       }
       streamingRef.current.delete(requestId);
       abortedRef.current.delete(requestId);
+      if (streamingTargetRef.current === targetId) streamingTargetRef.current = null;
       // Прогон завершён — метка последней активности (для авто-архива)
       setSessions((prev) =>
         prev.map((s) => (s.id === targetId ? { ...s, updatedAt: Date.now() } : s)),
       );
       // Взаимодействия не должны пережить прогон (страховка: цикл обязан
-      // был закрыть их сам, но Stop/finalize по исключению — гасим разом)
-      cancelInteractions();
+      // был закрыть их сам, но Stop/finalize по исключению — гасим разом).
+      // Только СВОИ: finalize старого прогона раньше гасил карточки нового
+      cancelInteractions(requestId);
       // Хук Stop: уведомления и т.п. (fire-and-forget, не блокирует UI)
       hooksRunEvent("Stop", { event: "Stop" }).catch(() => {});
       // Поправки, пришедшие во время ПОСЛЕДНЕГО шага: стрим уже завершён,
@@ -608,6 +687,12 @@ export function useAgentRun(deps: AgentRunDeps) {
         // (apiSettings с прошлого сообщения), нужна свежая версия;
         // next.quote — цитата из очереди не должна потеряться
         void handleSendRef.current?.(next.text, next.attachments, targetId, next.quote);
+        // C3: handleSend захватывает движок синхронно (до первого await) —
+        // если после вызова движок свободен, отправка отказала (guard/валидация),
+        // и поправка уже снята с очереди: возвращаем её, не теряем
+        if (activeRunRef.current === null) {
+          setQueuedMsgs((prev) => [next, ...prev]);
+        }
       }
       // Тост + звук: пользователь мог уйти в другое приложение
       void notifyTaskDone(
@@ -1566,34 +1651,23 @@ ${report}`;
     if (!streamingId) return;
     if (chainRunning) chainAbortRef.current = true;
     abortedRef.current.add(streamingId);
-    // Реальная отмена: Rust поднимает флаг и гасит поток
+    // Реальная отмена: Rust поднимает флаг и гасит поток (и исполняющийся
+    // инструмент — run_tool регистрирует флаг на время тулл-кола)
     void abortChat(streamingId).catch(() => {});
     // Если агент ждал подтверждения/ответа — закрываем, цикл завершится
-    cancelInteractions();
+    // (только взаимодействия этого прогона)
+    cancelInteractions(streamingId);
+    // Маркер «остановлено» ставит finalize ПОСЛЕ дренажа дельт — иначе
+    // он попадал в середину текста; здесь только запоминаем карточку
     const msgId = streamingRef.current.get(streamingId);
-    if (msgId) {
-      // Клонируем только целевую сессию: {...s} на ВСЕ сессии и все их
-      // массивы сообщений ломало memo-карточки неповреждённых задач
-      const stopped = t("card.stoppedByUser");
-      setSessions((prev) =>
-        prev.map((s) =>
-          s.messages.some((m) => m.id === msgId)
-            ? {
-                ...s,
-                messages: s.messages.map((m) =>
-                  m.id === msgId
-                    ? { ...m, content: m.content + `\n\n*${stopped}*` }
-                    : m,
-                ),
-              }
-            : s,
-        ),
-      );
-    }
+    if (msgId) stoppedRef.current.set(streamingId, msgId);
     streamingRef.current.delete(streamingId);
     setStreamingId(null);
-    activeRunRef.current = null; // FIX [re-entrancy]: движок свободен
     setTyping(false);
+    // activeRunRef НЕ обнуляем: движок освободит finalize уходящего прогона.
+    // Синхронное обнуление открывало окно, в котором автоматизация/очередь
+    // стартовали новый прогон, а поздний finalize старого гасил его
+    // взаимодействия и чей-то индикатор стрима
   };
 
   // Быстрая роль: применяется к активной задаче, если её нет — создаём
@@ -1639,6 +1713,8 @@ ${report}`;
     streamingId,
     streamingAssistantId,
     activeRunRef, // FIX [re-entrancy]: наружу для guard'а автоматизаций
+    runStartedRef, // наружу для runChain: шаг реально стартовал?
+    streamingTargetRef, // наружу: удаление/очистка задачи прерывают её прогон
     subRuns,
     queuedMsgs,
     setQueuedMsgs,

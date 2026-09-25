@@ -75,6 +75,16 @@ pub fn run() {
                 // в generate()/imagegen_get_config, когда хранилище уже разблокировано
                 imagegen::set_config(serde_json::from_value(v).unwrap_or_default());
             }
+            // Temp-файлы atomic_write, оставшиеся после краха (rename не дошёл),
+            // иначе копятся вечно
+            if let Ok(entries) = fs::read_dir(&cfg_dir) {
+                for e in entries.flatten() {
+                    let name = e.file_name().to_string_lossy().to_string();
+                    if name.starts_with('.') && name.contains(".tmp-") {
+                        let _ = fs::remove_file(e.path());
+                    }
+                }
+            }
             // Активный авто-лок хранилища: без таймера ключ AES жил в памяти,
             // пока приложение свернуто (ленивая проверка срабатывала только
             // на крипто-операциях). Раз в минуту — свип просроченного ключа

@@ -607,6 +607,8 @@ export const zh = {
     "main.exportHint":
       "服务商、密钥、提示词、主题、自动化和聊天打包为一个文件。加密密钥需相同的主密码才能恢复。",
     "main.exportBtn": "导出",
+    "error.noteSaveFailed": "保存笔记失败——内容未写入磁盘。",
+    "error.saveFailed": "聊天记录写入磁盘失败。将自动重试；若持续失败，请检查磁盘空间和权限。",
     "main.exportSecrets": "在导出文件中包含 API 密钥",
     "main.exportSecretsWarn": "导出文件将以明文形式包含 API 密钥：任何获得该文件的人都能访问您的服务商账户。确定要包含吗？",
     "main.importBtn": "导入",
