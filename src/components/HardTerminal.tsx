@@ -51,7 +51,7 @@ function Row({ spans, cursor }: { spans: VtSpan[]; cursor: number }) {
   return <>{els}</>;
 }
 
-export default function HardTerminal({ cwd }: { cwd?: string }) {
+export default function HardTerminal({ cwd, combo }: { cwd?: string; combo: string }) {
   const { t } = useLang();
   const COLS = 120;
   const ROWS = 34;
@@ -85,6 +85,20 @@ export default function HardTerminal({ cwd }: { cwd?: string }) {
   // PTY: создание + подписки (паттерн TerminalPanel: батчинг вывода,
   // unlisten'ы через массив, disposed-флаг)
   useEffect(() => {
+    // Меряем контейнер ДО создания PTY: иначе первый ResizeObserver тут же
+    // пересоздавал VT и PowerShell перерисовывал промпт (дубль в первой строке)
+    const el = termRef.current;
+    if (el) {
+      const fontSize = parseFloat(window.getComputedStyle(el).fontSize || "12");
+      const cols = Math.max(20, Math.min(500, Math.floor((el.clientWidth - 24) / (fontSize * 0.6))));
+      const rowsCount = Math.max(5, Math.min(200, Math.floor((el.clientHeight - 12) / (fontSize * 1.5))));
+      const vt = ensureVt();
+      if (cols !== vt.cols || rowsCount !== vt.rowsCount) {
+        vtRef.current = new Vt(cols, rowsCount);
+        setRows(vtRef.current.render());
+        ptySizeRef.current = { cols, rows: rowsCount };
+      }
+    }
     const vt = ensureVt();
     let disposed = false;
     const unlistens: (() => void)[] = [];
@@ -219,6 +233,10 @@ export default function HardTerminal({ cwd }: { cwd?: string }) {
     } else if (e.key === "Tab") {
       e.preventDefault();
       void ptyWrite(PTY_ID, e.shiftKey ? "\x1b[Z" : "\t");
+    } else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      // Печатные символы — в шелл посимвольно (иначе терминал «не печатает»)
+      e.preventDefault();
+      void ptyWrite(PTY_ID, e.key);
     } else if (e.ctrlKey && e.key.length === 1) {
       // Ctrl-коды (C, L, D, A, E…) — сыром в PTY
       e.preventDefault();
@@ -252,14 +270,18 @@ export default function HardTerminal({ cwd }: { cwd?: string }) {
   };
 
   return (
-    <div className="fixed inset-0 z-[100] flex flex-col bg-halo-deep">
+    <div
+      onClick={() => termRef.current?.focus()}
+      className="fixed inset-0 z-[100] flex flex-col"
+      style={{ background: "var(--halo-deep)" }}
+    >
       {/* Тонкая подсказка выхода: тает через 4 секунды */}
       <div
         className={`pointer-events-none absolute right-4 top-2 z-10 font-mono text-[10px] tracking-wider text-halo-muted transition-opacity duration-700 ${
           hintVisible ? "opacity-70" : "opacity-0"
         }`}
       >
-        {t("hard.banner")}
+        {t("hard.hint", { combo })}
       </div>
       <div
         ref={termRef}
