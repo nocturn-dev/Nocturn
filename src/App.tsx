@@ -43,7 +43,7 @@ import {
   quickentrySetBind,
   factoryReset,
 } from "./api";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { useApiSettings } from "./hooks/useApiSettings";
 import { useSessions } from "./hooks/useSessions";
 import {
@@ -239,6 +239,8 @@ export default function App() {
   const [scrollFollow, setScrollFollow] = useBoolPref("haloui-scroll-follow", false);
   const [streamSmooth, setStreamSmooth] = useBoolPref("haloui-stream-smooth", true);
   // Скорость плавной печати: множитель догоняющего темпаAssistantCard
+  // Hard-Mode: терминальный скин (моношрифт, без стекла/скруглений/ambient)
+  const [hardMode, setHardMode] = useBoolPref("haloui-hard-mode", false);
   const [printSpeed, setPrintSpeed] = useNumPref("haloui-print-speed", 1, (v) =>
     [0.5, 1, 2].includes(v) ? v : 1,
   );
@@ -918,6 +920,19 @@ export default function App() {
   useEffect(() => {
     document.documentElement.classList.toggle("ambient-paused", streamingId !== null);
   }, [streamingId]);
+
+  useEffect(() => {
+    document.documentElement.classList.toggle("hard-mode", hardMode);
+  }, [hardMode]);
+
+  // Обои: класс на html — CSS делает сайдбар/чат чуть прозрачными,
+  // чтобы фон уходил за сайдбар (раньше обои обрывались на его границе)
+  useEffect(() => {
+    document.documentElement.classList.toggle(
+      "has-wallpaper",
+      Boolean(appearance.chatWallpaper),
+    );
+  }, [appearance.chatWallpaper]);
 
   const menuSession = menu ? sessions.find((s) => s.id === menu.id) : null;
 
@@ -1612,6 +1627,16 @@ export default function App() {
         run: () => setGlass((v) => !v),
       },
       {
+        name: "hard",
+        desc: t("cmd.hard"),
+        run: () => setHardMode((v) => !v),
+      },
+      {
+        name: "q",
+        desc: t("cmd.q"),
+        run: () => setHardMode(false),
+      },
+      {
         name: "provider",
         desc: t("cmd.provider"),
         argHint: PROVIDERS.map((p) => p.label).join(" / "),
@@ -1780,6 +1805,20 @@ export default function App() {
         sidebarSide === "right" ? "flex-row-reverse" : ""
       }`}
     >
+        {/* Обои на уровне окна: за сайдбаром и чатом (кастомизация) —
+            раньше жили только в колонке чата и «не уходили» за сайдбар */}
+        {appearance.chatWallpaper && (
+          <div
+            aria-hidden
+            className="pointer-events-none fixed inset-0 z-0 overflow-hidden"
+          >
+            <img
+              src={convertFileSrc(appearance.chatWallpaper)}
+              alt=""
+              className="h-full w-full object-cover opacity-35"
+            />
+          </div>
+        )}
         {/* Ambient-слой: сцены/видео позади контента, z и паузы — в CSS */}
         {appearance.ambient && appearance.ambientScene !== "glow" && (
           <AmbientLayer
@@ -1942,7 +1981,6 @@ export default function App() {
         termShell={termShell}
         termPalette={TERMINAL_PALETTES[appearance.termPalette ?? "default"]}
         termBlur={appearance.termBlur}
-        chatWallpaper={appearance.chatWallpaper ?? ""}
         hideStarter={hideStarter}
         onToggleStarter={() => setHideStarter((v) => !v)}
         terminalHeightPct={terminalHeight}
@@ -2026,6 +2064,8 @@ export default function App() {
         onStreamSmoothChange={setStreamSmooth}
         printSpeed={printSpeed}
         onPrintSpeedChange={setPrintSpeed}
+        hardMode={hardMode}
+        onHardModeChange={setHardMode}
         showReasoning={showReasoning}
         onShowReasoningChange={setShowReasoning}
         transcriptView={transcriptView}
@@ -2140,6 +2180,14 @@ export default function App() {
         onCopied={() => addToast(t("plan.copied"))}
         onClose={() => setPlanPanelOpen(false)}
       />
+      {hardMode && (
+        <div
+          data-tauri-drag-region
+          className="hard-banner"
+        >
+          {t("hard.banner")}
+        </div>
+      )}
       <Toasts items={toasts} />
       {onboardingOpen && splashDone && (
         <Onboarding

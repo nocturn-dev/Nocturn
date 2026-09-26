@@ -107,6 +107,8 @@ export function MainSection({
   onScrollFollowChange,
   streamSmooth,
   printSpeed,
+  hardMode,
+  onHardModeChange,
   showReasoning,
   transcriptView,
   askAutoContinue,
@@ -150,6 +152,9 @@ export function MainSection({
   /** Множитель скорости плавной печати (0.5 / 1 / 2) */
   printSpeed: number;
   onPrintSpeedChange: (v: number) => void;
+  /** Hard-Mode: терминальный скин */
+  hardMode: boolean;
+  onHardModeChange: (v: boolean) => void;
   showReasoning: boolean;
   onShowReasoningChange: (v: boolean) => void;
   /** Вид ленты по умолчанию: normal | thinking | verbose */
@@ -432,6 +437,13 @@ export function MainSection({
         desc={t("main.closeToTrayDesc")}
         on={closeToTray}
         onChange={onCloseToTrayChange}
+      />
+
+      <ToggleRow
+        label={t("main.hardMode")}
+        desc={t("main.hardModeDesc")}
+        on={hardMode}
+        onChange={onHardModeChange}
       />
       <div className="flex flex-wrap items-center gap-2 rounded-lg border border-halo-line bg-halo-surface/40 px-3 py-2.5">
         <span className="text-xs text-halo-muted">{t("main.archiveAfter")}:</span>
