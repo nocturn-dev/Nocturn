@@ -112,7 +112,7 @@ export default function SearchModal({
       onClick={onClose}
     >
       <div
-        className="glass-pane anim-pop mx-auto mt-[10vh] w-full max-w-lg overflow-hidden rounded-2xl border border-halo-line bg-halo-deep shadow-2xl"
+        className="glass-pane search-vt anim-pop mx-auto mt-[10vh] w-full max-w-lg overflow-hidden rounded-2xl border border-halo-line bg-halo-deep shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-2.5 border-b border-halo-line px-4 py-3">

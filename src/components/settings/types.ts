@@ -9,6 +9,7 @@ export interface ApiStatus {
 export type Section =
   | "main"
   | "theme"
+  | "profile"
   | "api"
   | "prompts"
   | "skills"
@@ -18,13 +19,15 @@ export type Section =
   | "agent"
   | "mcp"
   | "imagegen"
+  | "websearch"
   | "hooks"
   | "shortcuts"
   | "browser"
   | "computer"
   | "memory"
-  | "usage"
+  | "reflect"
   | "network"
+  | "rest"
   | "docs";
 
 /** Навигация настроек: группы как в агентских CLI (Basics / Agent

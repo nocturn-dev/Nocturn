@@ -6,6 +6,7 @@
  */
 
 import { useEffect, useState } from "react";
+import { useDelayedUnmount } from "../motion";
 import {
   AUTOMATION_TEMPLATES,
   loadAutomations,
@@ -17,6 +18,7 @@ import {
 } from "../automations";
 import { keepAwake } from "../api";
 import { useLang } from "../locales";
+import { isWindows } from "../platform";
 
 interface AutomationsModalProps {
   open: boolean;
@@ -75,7 +77,8 @@ export default function AutomationsModal({
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose]);
 
-  if (!open) return null;
+  const show = useDelayedUnmount(open, 170);
+  if (!show) return null;
 
   const persist = (next: Automation[]) => {
     setItems(next);
@@ -134,11 +137,11 @@ export default function AutomationsModal({
 
   return (
     <div
-      className="anim-fade fixed inset-0 z-50 overflow-y-auto bg-black/50 p-4 backdrop-blur-sm"
+      className={`fixed inset-0 z-50 overflow-y-auto bg-black/50 p-4 backdrop-blur-sm ${open ? "anim-fade" : "anim-fade-out"}`}
       onClick={onClose}
     >
       <div
-        className="glass-pane anim-pop mx-auto my-8 w-full max-w-3xl rounded-2xl border border-halo-line bg-halo-deep p-8 shadow-2xl"
+        className={`glass-pane mx-auto my-8 w-full max-w-3xl rounded-2xl border border-halo-line bg-halo-deep p-8 shadow-2xl ${open ? "anim-pop" : "anim-pop-out"}`}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Шапка */}
@@ -164,7 +167,7 @@ export default function AutomationsModal({
               <p className="text-sm text-halo-muted/70">{t("auto.empty")}</p>
               <button
                 onClick={() => setFormOpen(true)}
-                className="flex items-center gap-2 rounded-lg bg-halo-accent px-4 py-2 text-sm font-medium text-halo-on-accent shadow-sm transition-all hover:bg-halo-accent-deep active:scale-95"
+                className="flex items-center gap-2 rounded-lg bg-halo-accent px-4 py-2 text-sm font-medium text-halo-on-accent shadow-sm transition hover:bg-halo-accent-deep active:scale-95"
               >
                 {t("auto.create")}
                 <span className="text-xs">·</span>
@@ -368,7 +371,7 @@ export default function AutomationsModal({
                     create(name, prompt, schedule, toVaultNew);
                   }}
                   disabled={!name.trim() || !prompt.trim()}
-                  className="rounded-lg bg-halo-accent px-3 py-1.5 font-medium text-halo-on-accent transition-all hover:bg-halo-accent-deep disabled:cursor-not-allowed disabled:opacity-40"
+                  className="rounded-lg bg-halo-accent px-3 py-1.5 font-medium text-halo-on-accent transition hover:bg-halo-accent-deep disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   {t("auto.save")}
                 </button>
@@ -383,19 +386,30 @@ export default function AutomationsModal({
           )}
         </div>
 
-        {/* Не давать ПК уснуть */}
+        {/* Не давать ПК уснуть. C4: вне Windows команда — no-op, честно
+            отключаем тумблер вместо молчаливой неработающей фичи */}
         <div className="mt-4 flex items-center gap-3 rounded-xl border border-halo-line bg-halo-surface/30 px-4 py-3">
           <span className="text-halo-muted"><InfoIcon /></span>
-          <p className="flex-1 text-sm text-halo-muted">{t("auto.keepAwake")}</p>
+          <div className="flex-1">
+            <p className="text-sm text-halo-muted">{t("auto.keepAwake")}</p>
+            {!isWindows() && (
+              <p className="text-[10px] leading-relaxed text-halo-muted/60">
+                {t("auto.keepAwakeUnsupported")}
+              </p>
+            )}
+          </div>
           <button
             onClick={() => toggleKeepAwake(!keepAwakeOn)}
-            className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${
+            disabled={!isWindows()}
+            className={`relative h-5 w-9 shrink-0 rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
               keepAwakeOn ? "bg-halo-accent" : "bg-halo-muted/30"
             }`}
           >
             <span
-              className={`absolute top-0.5 size-4 rounded-full bg-halo-on-accent transition-all ${
-                keepAwakeOn ? "left-4.5" : "left-0.5"
+              // S8: слайд ручки через translate (transform), а не left —
+              // layout-анимация гоняла reflow весь кадр
+              className={`absolute top-0.5 left-0.5 size-4 rounded-full bg-halo-on-accent transition-transform ${
+                keepAwakeOn ? "translate-x-4" : "translate-x-0"
               }`}
             />
           </button>

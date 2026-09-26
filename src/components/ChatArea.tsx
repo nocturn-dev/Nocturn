@@ -14,7 +14,9 @@ import { uid } from "../hooks/useAgentRun";
 import WindowControls from "./WindowControls";
 import ProviderIcon, { brandName } from "./ProviderIcon";
 import { useLang } from "../locales";
+import { convertFileSrc } from "@tauri-apps/api/core";
 import { dayPeriod } from "../time";
+import { getUserDisplayName } from "../userProfile";
 import { BUILTIN_SKILLS, type Skill } from "../skills";
 import type { SubRunState } from "../subagents";
 import type { UserCommand } from "../api";
@@ -27,7 +29,7 @@ import { ContextRing } from "./cards/ContextRing";
 import { MessageNav } from "./cards/MessageNav";
 import { PlanPanel } from "./cards/PlanPanel";
 import { SubagentCard } from "./cards/SubagentCard";
-import { TracePanel } from "./cards/TracePanel";
+import { buildStepRows, type StepRow } from "../agent/steps";
 import { ToolStepCard } from "./cards/ToolStepCard";
 import { TypingBubble } from "./cards/TypingBubble";
 import { ErrorBoundary } from "./ErrorBoundary";
@@ -52,6 +54,9 @@ interface ChatAreaProps {
   /** Режим разрешений агента (plan / ask / edit / full) */
   permissionMode: PermissionMode;
   onPermissionModeChange: (m: PermissionMode) => void;
+  /** Инструменты, скрытые пользователем из этой задачи (Session.disabledTools) */
+  disabledTools: string[];
+  onToggleDisabledTool: (name: string) => void;
   /** Ожидающее подтверждение агента */
   pendingConfirm: { requestId: string; call: ToolCallInfo } | null;
   /** Встроенные роли (Код / Инженер / …) */
@@ -64,6 +69,8 @@ interface ChatAreaProps {
     overrideTargetId?: string,
     quote?: string,
   ) => void;
+  /** Цитата из Review-панели (клик по строке диффа): nonce растёт с каждым кликом */
+  pendingQuote?: { text: string; nonce: number } | null;
   onClearChat: () => void;
   /** Очередь корректирующих сообщений: отправятся после ответа агента */
   queued: { id: string; text: string }[];
@@ -83,6 +90,9 @@ interface ChatAreaProps {
   onAskAnswer: (mid: string, answer: { answers: string[]; custom?: string }) => void;
   /** Откат записи агента: восстановить before или удалить созданный файл */
   onUndoWrite: (f: ChangedFile) => void;
+  /** Review: открыть правую панель с живым диффом прогона (App собирает
+   *  fs_write + чекпоинт). Не передан — кнопка Review не рендерится */
+  onReviewChanges?: (files: ChangedFile[]) => void;
   /** Редактирование отправленного сообщения (карандаш): правка + перезапрос */
   onEditMessage?: (msgId: string, newText: string) => void;
   /** Живые прогоны субагентов (ключ — tool call id) */
@@ -100,6 +110,11 @@ interface ChatAreaProps {
   projectRoot: string | null;
   /** Оболочка консоли: auto | powershell | cmd | gitbash */
   termShell: string;
+  /** 16 ANSI-цветов выбранной палитры (проброс в терминал) */
+  termPalette?: string[];
+  /** Размытие фона терминала, px (0 — выключено; S3: blur(0px) всё равно
+   *  заставляет движок снапшотить фон каждый кадр) */
+  termBlur?: number;
   /** Стартовые подсказки скрыты (эргономика) */
   hideStarter: boolean;
   onToggleStarter: () => void;
@@ -109,6 +124,8 @@ interface ChatAreaProps {
   /** Поведение генерации: принудительный автоскролл, плавная печать, каретка */
   scrollFollow: boolean;
   streamSmooth: boolean;
+  /** Множитель скорости плавной печати (0.5 / 1 / 2) */
+  printSpeed: number;
   /** Раскрывать блок рассуждений автоматически */
   showReasoning: boolean;
   streamCaret: boolean;
@@ -118,8 +135,12 @@ interface ChatAreaProps {
   groupTurns: boolean;
   /** Призрачный логотип на фоне ленты чата */
   chatMark: boolean;
+  /** Обои чата: путь к картинке за лентой ("" — выключено) */
+  chatWallpaper: string;
   /** Эффект стекла на карточках ответов ИИ */
   msgGlass: boolean;
+  /** Время в шапке ответов модели (кастомизация) */
+  showMsgTime: boolean;
   /** Кнопки окна в этой шапке (когда сайдбар не справа) */
   showWindowControls: boolean;
   /** Свёрнутый сайдбар: с какой стороны отступ под плавающую кнопку */
@@ -276,10 +297,13 @@ export default function ChatArea({
   agentMode,
   permissionMode,
   onPermissionModeChange,
+  disabledTools,
+  onToggleDisabledTool,
   pendingConfirm,
   promptPresets,
   customPresets,
   onSend,
+  pendingQuote,
   onClearChat,
   queued,
   onQueue,
@@ -294,6 +318,7 @@ export default function ChatArea({
   pendingAsk,
   onAskAnswer,
   onUndoWrite,
+  onReviewChanges,
   onEditMessage,
   subRuns,
   plan,
@@ -302,6 +327,8 @@ export default function ChatArea({
   terminalOpen,
   onToggleTerminal,
   projectRoot,
+  termPalette,
+  termBlur = 0,
   termShell,
   hideStarter,
   onToggleStarter,
@@ -309,12 +336,15 @@ export default function ChatArea({
   onTerminalResizeStart,
   scrollFollow,
   streamSmooth,
+  printSpeed,
   showReasoning,
   streamCaret,
   showUserMsgs,
   groupTurns,
   chatMark,
+  chatWallpaper,
   msgGlass,
+  showMsgTime,
   showWindowControls,
   headerInset,
   slashCommands,
@@ -338,13 +368,18 @@ export default function ChatArea({
   // Стабильные колбэки для memo-карточек: новая стрелка на каждый рендер
   // пробивала мемоизацию
   const reuseAttachment = useCallback(
-    (a: Attachment) => setPendingImages((prev) => [...prev, a]),
+    (a: Attachment) =>
+      setPendingImages((prev) => [...prev, { ...a, id: a.id ?? uid() }]),
     [],
   );
   // onEditMessage из App нестабилен (замыкает handleSend/activeId) —
-  // держим в ref, чтобы колбэк для UserCard не менялся никогда
+  // держим в ref, чтобы колбэк для UserCard не менялся никогда.
+  // Обновление в эффекте: запись в ref в теле рендера вне модели
+  // React Compiler
   const onEditMessageRef = useRef(onEditMessage);
-  onEditMessageRef.current = onEditMessage;
+  useEffect(() => {
+    onEditMessageRef.current = onEditMessage;
+  }, [onEditMessage]);
   const editMessage = useCallback(
     (mid: string, text: string) => void onEditMessageRef.current?.(mid, text),
     [],
@@ -360,12 +395,29 @@ export default function ChatArea({
   useEffect(() => {
     setShowOldTurns(false); // смена задачи — снова сворачиваем историю
     setSessionChangesOpen(false);
-    setTraceOpen(new Set());
   }, [sessionKey]);
-  // Раскрытые следы прогонов (по id объединённой карточки)
-  const [traceOpen, setTraceOpen] = useState<Set<string>>(new Set());
   const [sessionChangesOpen, setSessionChangesOpen] = useState(false);
   const [permOpen, setPermOpen] = useState(false);
+  // Поповер «Инструменты»: список имён из живых схем, тянется один раз при открытии
+  const [toolsOpen, setToolsOpen] = useState(false);
+  const [toolNames, setToolNames] = useState<string[] | null>(null);
+  const openTools = () => {
+    setToolsOpen((v) => !v);
+    if (toolNames === null) {
+      void getToolSchemas()
+        .then((t) => {
+          const arr = t as Array<{ function?: { name?: string } }>;
+          setToolNames(
+            Array.isArray(arr)
+              ? arr
+                  .map((x) => x?.function?.name)
+                  .filter((n): n is string => n !== undefined)
+              : [],
+          );
+        })
+        .catch(() => setToolNames([]));
+    }
+  };
   const slashActive = draft.startsWith("/");
   /** «&» — палитра скилов (src/skills.ts) */
   const skillActive = draft.startsWith("&");
@@ -390,20 +442,36 @@ export default function ChatArea({
   const hasSystemPrompt = !!session?.systemPrompt;
 
   const readFile = (f: File) => {
+    // Текстовые документы (RAG-lite): содержимое уходит в контекст модели;
+    // потолок — вложения живут в sessions.json, мегабайтные файлы раздували стор
+    const isImage = f.type.startsWith("image/");
+    const name = f.name || (isImage ? "image.png" : "file.txt");
+    if (!isImage) {
+      if (f.size > 5 * 1024 * 1024) return; // слишком большой — молча игнорируем
+      const reader = new FileReader();
+      reader.onload = () => {
+        let text = String(reader.result);
+        if (text.length > 512 * 1024) {
+          text = text.slice(0, 512 * 1024) + "\n...[file truncated]";
+        }
+        setPendingImages((prev) => [...prev, { id: uid(), name, text }]);
+      };
+      reader.readAsText(f);
+      return;
+    }
     const reader = new FileReader();
     reader.onload = () => {
       const dataUrl = String(reader.result);
-      const name = f.name || "image.png";
       // A15: большие изображения пережимаются до ~1 МБ data-URL — вложения
       // живут в sessions.json base64'ом, многометровые скриншоты раздували
       // файл до десятков-сотен МБ, и строкификация всего стора на сейве
       // регулярно фризила UI
       downscaleAttachment(dataUrl)
         .then((small) =>
-          setPendingImages((prev) => [...prev, { name, dataUrl: small }]),
+          setPendingImages((prev) => [...prev, { id: uid(), name, dataUrl: small }]),
         )
         .catch(() =>
-          setPendingImages((prev) => [...prev, { name, dataUrl }]),
+          setPendingImages((prev) => [...prev, { id: uid(), name, dataUrl }]),
         );
     };
     reader.readAsDataURL(f);
@@ -481,6 +549,8 @@ export default function ChatArea({
     results: { id: string; content: string }[];
     resultsOf: Map<string, { id: string; content: string }[]>;
     writesFiles: ChangedFile[];
+    /** Шаги для аккордеона (Edit/Terminal/Explore/Asked) */
+    steps: StepRow[];
   }
   const turnCacheRef = useRef(new Map<string, TurnDerived>());
   const ribbon = useMemo(() => {
@@ -569,6 +639,7 @@ export default function ChatArea({
         results,
         resultsOf,
         writesFiles: [...writes.values()],
+        steps: buildStepRows(assistants, toolMsgs),
       };
       nextCache.set(key, derived);
       return { ...turn, derived };
@@ -699,10 +770,16 @@ export default function ChatArea({
   }, [now]);
   // Своё приветствие (Настройки → Кастомизация): непустое перекрывает
   // стандартное приветствие по времени суток
+  const timeGreeting = t(greetingKey as never);
+  // Имя из локального профиля — только к приветствию по времени (UI,
+  // в модель имя уходит лишь при включённом share-тумблере профиля)
+  const displayName = getUserDisplayName();
   const greeting =
     appearance.customGreeting && appearance.customGreeting.trim().length > 0
       ? appearance.customGreeting
-      : t(greetingKey as never);
+      : displayName
+        ? `${timeGreeting}, ${displayName}`
+        : timeGreeting;
 
   // ---------- Follow-up по выделенному фрагменту (цитата) ----------
   // Всплывающая кнопка у выделения; выбранная цитата живёт до отправки
@@ -713,6 +790,16 @@ export default function ChatArea({
   } | null>(null);
   const [quoteDraft, setQuoteDraft] = useState<string | null>(null);
   const feedWrapRef = useRef<HTMLDivElement>(null);
+
+  // Цитата из Review-панели (клик по строке диффа): заполняет тот же черновик
+  // цитаты, что и выделение в ленте. Ref прочитанного nonce: клик по той же
+  // строке должен сработать повторно, а собственные обновления state — нет
+  const lastQuoteNonceRef = useRef(0);
+  useEffect(() => {
+    if (!pendingQuote || pendingQuote.nonce === lastQuoteNonceRef.current) return;
+    lastQuoteNonceRef.current = pendingQuote.nonce;
+    setQuoteDraft(pendingQuote.text);
+  }, [pendingQuote]);
 
   useEffect(() => {
     const wrap = feedWrapRef.current;
@@ -986,190 +1073,12 @@ export default function ChatArea({
     }
   };
 
-  return (
-    <section className="relative flex h-full min-w-0 flex-1 flex-col bg-halo-bg">
-      {/* Шапка: название задачи и очистка; вся полоса — drag-регион окна */}
-      <header
-        data-tauri-drag-region
-        className={`flex h-11 shrink-0 items-center border-b border-halo-line transition-[padding] duration-200 ${
-          headerInset === "left"
-            ? "pl-14 pr-1.5"
-            : headerInset === "right"
-              ? "pl-6 pr-14"
-              : "pl-6 pr-1.5"
-        }`}
-      >
-        <h1
-          data-tauri-drag-region
-          className="min-w-0 flex-1 truncate text-sm font-medium text-halo-muted"
-        >
-          {session?.title ?? t("chat.new")}
-        </h1>
-        {/* Суммарные токены задачи (M5.3) */}
-        {totals.all > 0 && (
-          <span
-            title={`${t("tokens.up")}: ${fmtInt(totals.up, lang)} · ${t("tokens.down")}: ${fmtInt(totals.down, lang)} · ${t("tokens.total")}: ${fmtInt(totals.all, lang)}`}
-            className="mr-2 shrink-0 text-[10px] text-halo-muted/70"
-          >
-            <span className="text-halo-muted">↑{fmtK(totals.up, lang)}</span>{" "}
-            <span className="text-halo-muted">↓{fmtK(totals.down, lang)}</span>{" "}
-            <span className="font-medium text-halo-accent/80">
-              Σ{fmtK(totals.all, lang)}
-            </span>
-          </span>
-        )}
-        <button
-          onClick={() => setSysOpen(true)}
-          disabled={!session}
-          title={t("sysprompt.title")}
-          className={`mr-1 rounded-md p-1.5 transition-all duration-150 hover:bg-halo-hover disabled:cursor-not-allowed disabled:opacity-40 ${
-            hasSystemPrompt
-              ? "text-halo-accent"
-              : "text-halo-muted hover:text-halo-text"
-          }`}
-        >
-          <SystemPromptIcon />
-        </button>
-        <button
-          onClick={onClearChat}
-          disabled={visible.length === 0}
-          title={t("composer.clearChat")}
-          className="mr-1 rounded-md p-1.5 text-halo-muted transition-all duration-150 hover:bg-halo-hover hover:text-halo-text disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-halo-muted"
-        >
-          <TrashIcon />
-        </button>
-        {showWindowControls && <WindowControls />}
-      </header>
 
-      {/* Лента сообщений (relative-обёртка держит MessageNav вне скролла) */}
-      <div ref={feedWrapRef} className="relative min-h-0 flex-1">
-      {/* Кнопка «задать вопрос по теме» у выделенного фрагмента */}
-      {selBtn && (
-        <button
-          data-sel-quote-btn
-          onClick={takeQuote}
-          className="glass-pane absolute z-30 flex -translate-x-1/2 -translate-y-full items-center gap-1.5 rounded-full border border-halo-accent/50 bg-halo-deep/90 px-3 py-1.5 text-xs text-halo-text shadow-xl transition-transform hover:scale-105"
-          style={{ left: Math.max(90, Math.min(selBtn.x, (feedWrapRef.current?.clientWidth ?? 400) - 90)), top: Math.max(8, selBtn.y) }}
-        >
-          <span className="text-halo-accent"><QuoteIcon /></span>
-          {t("chat.askAboutSelection")}
-        </button>
-      )}
-      {/* Призрачный логотип на фоне ленты (за контентом, тумблер в «Темах») */}
-      {chatMark && visible.length > 0 && (
-        <div className="pointer-events-none absolute inset-0 z-0 flex select-none items-center justify-center opacity-[0.04]">
-          <NocturnMark size={520} />
-        </div>
-      )}
-      {/* План задач агента (виджет Progress): в relative-обёртке зоны чата,
-          вне скролл-контейнера — висит в углу и не уезжает при прокрутке */}
-      {plan && plan.length > 0 && <PlanPanel plan={plan} />}
-      <div
-        ref={scrollRef}
-        className="scroll-slim relative z-10 h-full overflow-y-auto"
-      >
-        {visible.length === 0 && !typing ? (
-          <div className="relative flex h-full flex-col items-center justify-center overflow-hidden px-6 text-center">
-            {/* Гигантский призрачный логотип фоном — как в ZCode */}
-            <div className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-[64%] select-none opacity-[0.05]">
-              <NocturnMark size={480} />
-            </div>
-
-            <div className="relative z-10 flex w-full max-w-2xl flex-col items-center">
-              <span className="text-halo-accent">
-                <SparkIcon />
-              </span>
-              <h2 className="mt-4 text-3xl font-medium tracking-tight text-halo-text">
-                {greeting}
-              </h2>
-              <p className="mb-7 mt-2 max-w-sm text-sm leading-relaxed text-halo-muted">
-                {t("chat.greetingSub")}
-              </p>
-
-              {/* Быстрые роли: встроенные + пользовательские отдельными группами */}
-              {!hideStarter && promptPresets.length > 0 && (
-                <div className="w-full">
-                  <p className="mb-2 text-center text-[11px] font-medium uppercase tracking-wider text-halo-muted/60">
-                    {t("chat.quickRoles")} — {t("chat.quickRolesSub")}
-                  </p>
-                  <div className="flex flex-wrap justify-center gap-2">
-                    {promptPresets.map((p) => (
-                      <button
-                        key={p.id}
-                        onClick={() => onApplyPreset(p.text)}
-                        title={p.text}
-                        className="rounded-full border border-halo-line bg-halo-surface/60 px-3.5 py-1.5 text-xs text-halo-muted transition-all duration-150 hover:border-halo-accent/50 hover:bg-halo-surface hover:text-halo-text"
-                      >
-                        {p.name}
-                      </button>
-                    ))}
-                  </div>
-                  <p className="mt-2 text-center text-[10px] text-halo-muted/60">
-                    {t("chat.quickRolesNote")}
-                  </p>
-                </div>
-              )}
-              {!hideStarter && customPresets.length > 0 && (
-                <div className="mt-4 w-full">
-                  <p className="mb-2 text-center text-[11px] font-medium uppercase tracking-wider text-halo-muted/60">
-                    {t("chat.yourPrompts")}
-                  </p>
-                  <div className="flex flex-wrap justify-center gap-2">
-                    {customPresets.map((p) => (
-                      <button
-                        key={p.id}
-                        onClick={() => onApplyPreset(p.text)}
-                        title={p.text}
-                        className="rounded-full border border-halo-accent/40 bg-halo-accent/10 px-3.5 py-1.5 text-xs text-halo-accent transition-all duration-150 hover:border-halo-accent hover:bg-halo-accent/20"
-                      >
-                        {p.name}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Идеи: компактные чипы под ролями (клик — заготовка в поле ввода) */}
-              {!hideStarter && (
-                <div className="mt-6 flex w-full flex-wrap justify-center gap-2">
-                  {SUGGESTIONS(lang).map((s) => (
-                    <button
-                      key={s.title}
-                      onClick={() => {
-                        // Вставляем заголовок-заготовку в поле ввода —
-                        // пользователь сам дописывает конечный вопрос
-                        setDraft(s.prompt);
-                        if (textareaRef.current) {
-                          autoGrow(textareaRef.current);
-                          textareaRef.current.focus();
-                        }
-                      }}
-                      title={s.hint}
-                      className="rounded-lg border border-halo-line bg-halo-surface/50 px-3 py-1.5 text-xs text-halo-muted transition-all duration-150 hover:border-halo-accent/50 hover:bg-halo-surface hover:text-halo-text"
-                    >
-                      {s.title}
-                    </button>
-                  ))}
-                </div>
-              )}
-
-              <button
-                onClick={onToggleStarter}
-                className="mt-7 rounded-md px-2 py-1 text-[11px] text-halo-muted/60 transition-colors hover:text-halo-muted"
-              >
-                {hideStarter ? t("chat.showStarter") : t("chat.hideStarter")}
-              </button>
-            </div>
-          </div>
-        ) : (
-          <div className="mx-auto flex w-full max-w-3xl flex-col gap-5 px-8 py-8">
-            {/* Ход = сообщение пользователя + всё, что агент сделал до следующего.
-                groupTurns: весь ход в ОДНОЙ карточке; иначе каждый шаг отдельно.
-                В конце хода — сводка изменённых файлов */}
-            {/* D3: key по сессии — одна битая карточка больше не кладёт границу
-                в error-state навсегда: смена задачи сбрасывает фолбэк */}
-            <ErrorBoundary key={session?.id ?? "none"} title={t("err.boundary")} action={t("err.boundaryRetry")}>
-            {(() => {
+  // Сборка ленты: раньше IIFE прямо в JSX — перестраивалась на каждый
+  // keystroke черновика. Мемозируем: стабильная ссылка массива даёт
+  // bailout reconcile, печать в композере больше не трогает ленту
+  const feedNodes = useMemo(
+    () => {
               const nodes: ReactNode[] = [];
               // Производные хода (callById/merged/results/writes) считаются
               // в useMemo «ribbon» выше — здесь только раскладка по нодам
@@ -1199,6 +1108,11 @@ export default function ChatArea({
                       key="session-changes"
                       files={sessionWrites}
                       onUndo={onUndoWrite}
+                      onReview={
+                        onReviewChanges
+                          ? () => onReviewChanges(sessionWrites)
+                          : undefined
+                      }
                     />,
                   );
                 } else {
@@ -1268,39 +1182,33 @@ export default function ChatArea({
                           message={merged}
                           model={merged.model ?? model}
                           results={derived.results}
+                          steps={derived.steps}
                           hint={ti === turns.length - 1 ? activity : null}
                           glassEffect={msgGlass}
+                          showMsgTime={showMsgTime}
                           isStreaming={merged.id === streamingMsgId}
                           smooth={streamSmooth}
+                          printSpeed={printSpeed}
                           showReasoning={showReasoning}
                           caret={streamCaret}
                         />,
                       );
-                      // След прогона: шаги с длительностью, токенами и статусами
-                      nodes.push(
-                        <div key={`trace-${merged.id}`} className="mr-auto w-fit max-w-[85%]">
-                          <button
-                            onClick={() =>
-                              setTraceOpen((prev) => {
-                                const next = new Set(prev);
-                                if (next.has(merged.id)) next.delete(merged.id);
-                                else next.add(merged.id);
-                                return next;
-                              })
+                      // Субагентные tool-сообщения хода — живыми карточками
+                      // (в аккордеон шагов они не входят сознательно)
+                      for (const m of derived.toolMsgs) {
+                        if (m.toolName !== "subagent_run") continue;
+                        nodes.push(
+                          <SubagentCard
+                            key={`sub-${m.id}`}
+                            mid={m.id}
+                            call={
+                              m.toolCallId ? callById.get(m.toolCallId) : undefined
                             }
-                            className="rounded-md px-1 text-[10px] text-halo-muted/60 transition-colors hover:text-halo-text"
-                          >
-                            {traceOpen.has(merged.id) ? "▾" : "▸"}{" "}
-                            {t("trace.title")}
-                          </button>
-                          {traceOpen.has(merged.id) && (
-                            <TracePanel
-                              steps={derived.assistants}
-                              toolMsgs={derived.toolMsgs}
-                            />
-                          )}
-                        </div>,
-                      );
+                            content={m.content}
+                            run={subRuns?.[m.toolCallId ?? ""]}
+                          />,
+                        );
+                      }
                     }
                     // Закрытые вопросы ask_user остаются в истории
                     // (живой вопрос показывается панелью над композером)
@@ -1351,8 +1259,10 @@ export default function ChatArea({
                             model={m.model ?? model}
                             results={resultsOf.get(m.id)}
                             glassEffect={msgGlass}
+                            showMsgTime={showMsgTime}
                             isStreaming={m.id === streamingMsgId}
                             smooth={streamSmooth}
+                            printSpeed={printSpeed}
                             showReasoning={showReasoning}
                             caret={streamCaret}
                           />
@@ -1414,7 +1324,225 @@ export default function ChatArea({
                 nodes.push(<TypingBubble key="typing" label={activity} />);
               }
               return nodes;
-            })()}
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- полный список зависимостей ниже
+    [
+      activity,
+      editMessage,
+      groupTurns,
+      messages,
+      model,
+      msgGlass,
+      onEditMessage,
+      onReviewChanges,
+      onUndoWrite,
+      reuseAttachment,
+      ribbon,
+      sessionChangesOpen,
+      sessionWrites,
+      showMsgTime,
+      showOldTurns,
+      showUserMsgs,
+      streamCaret,
+      streamSmooth,
+      streamingMsgId,
+      subRuns,
+      t,
+    ],
+  );
+  return (
+    <section className="relative flex h-full min-w-0 flex-1 flex-col bg-halo-bg">
+      {/* Шапка: название задачи и очистка; вся полоса — drag-регион окна */}
+      <header
+        data-tauri-drag-region
+        className={`flex h-11 shrink-0 items-center border-b border-halo-line transition-[padding] duration-200 ${
+          headerInset === "left"
+            ? "pl-14 pr-1.5"
+            : headerInset === "right"
+              ? "pl-6 pr-14"
+              : "pl-6 pr-1.5"
+        }`}
+      >
+        <h1
+          data-tauri-drag-region
+          className="min-w-0 flex-1 truncate text-sm font-medium text-halo-muted"
+        >
+          {session?.title ?? t("chat.new")}
+        </h1>
+        {/* Суммарные токены задачи (M5.3) */}
+        {totals.all > 0 && (
+          <span
+            title={`${t("tokens.up")}: ${fmtInt(totals.up, lang)} · ${t("tokens.down")}: ${fmtInt(totals.down, lang)} · ${t("tokens.total")}: ${fmtInt(totals.all, lang)}`}
+            className="mr-2 shrink-0 text-[10px] text-halo-muted/70"
+          >
+            <span className="text-halo-muted">↑{fmtK(totals.up, lang)}</span>{" "}
+            <span className="text-halo-muted">↓{fmtK(totals.down, lang)}</span>{" "}
+            <span className="font-medium text-halo-accent/80">
+              Σ{fmtK(totals.all, lang)}
+            </span>
+          </span>
+        )}
+        <button
+          onClick={() => setSysOpen(true)}
+          title={t("sysprompt.title")}
+          className={`mr-1 rounded-md p-1.5 transition duration-150 hover:bg-halo-hover disabled:cursor-not-allowed disabled:opacity-40 ${
+            hasSystemPrompt
+              ? "text-halo-accent"
+              : "text-halo-muted hover:text-halo-text"
+          }`}
+        >
+          <SystemPromptIcon />
+        </button>
+        <button
+          onClick={onClearChat}
+          disabled={visible.length === 0}
+          title={t("composer.clearChat")}
+          className="mr-1 rounded-md p-1.5 text-halo-muted transition duration-150 hover:bg-halo-hover hover:text-halo-text disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-halo-muted"
+        >
+          <TrashIcon />
+        </button>
+        {showWindowControls && <WindowControls />}
+      </header>
+
+      {/* Лента сообщений (relative-обёртка держит MessageNav вне скролла) */}
+      <div ref={feedWrapRef} className="relative min-h-0 flex-1">
+      {/* Кнопка «задать вопрос по теме» у выделенного фрагмента */}
+      {selBtn && (
+        <button
+          data-sel-quote-btn
+          onClick={takeQuote}
+          className="glass-pane absolute z-30 flex -translate-x-1/2 -translate-y-full items-center gap-1.5 rounded-full border border-halo-accent/50 bg-halo-deep/90 px-3 py-1.5 text-xs text-halo-text shadow-xl transition-transform hover:scale-105"
+          style={{ left: Math.max(90, Math.min(selBtn.x, (feedWrapRef.current?.clientWidth ?? 400) - 90)), top: Math.max(8, selBtn.y) }}
+        >
+          <span className="text-halo-accent"><QuoteIcon /></span>
+          {t("chat.askAboutSelection")}
+        </button>
+      )}
+      {/* Обои чата: картинка за лентой, под призрачным логотипом (кастомизация) */}
+      {chatWallpaper && (
+        <div className="pointer-events-none absolute inset-0 z-0 overflow-hidden">
+          <img
+            src={convertFileSrc(chatWallpaper)}
+            alt=""
+            className="h-full w-full object-cover opacity-35"
+          />
+        </div>
+      )}
+      {/* Призрачный логотип на фоне ленты (за контентом, тумблер в «Темах») */}
+      {chatMark && visible.length > 0 && (
+        <div className="pointer-events-none absolute inset-0 z-0 flex select-none items-center justify-center opacity-[0.04]">
+          <NocturnMark size={520} />
+        </div>
+      )}
+      {/* План задач агента (виджет Progress): в relative-обёртке зоны чата,
+          вне скролл-контейнера — висит в углу и не уезжает при прокрутке */}
+      {plan && plan.length > 0 && <PlanPanel plan={plan} />}
+      <div
+        ref={scrollRef}
+        className="scroll-slim relative z-10 h-full overflow-y-auto"
+      >
+        {visible.length === 0 && !typing ? (
+          <div className="relative flex h-full flex-col items-center justify-center overflow-hidden px-6 text-center">
+            {/* Гигантский призрачный логотип фоном — как в ZCode */}
+            <div className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-[64%] select-none opacity-[0.05]">
+              <NocturnMark size={480} />
+            </div>
+
+            <div className="relative z-10 flex w-full max-w-2xl flex-col items-center">
+              <span className="text-halo-accent">
+                <SparkIcon />
+              </span>
+              <h2 className="mt-4 text-3xl font-medium tracking-tight text-halo-text">
+                {greeting}
+              </h2>
+              <p className="mb-7 mt-2 max-w-sm text-sm leading-relaxed text-halo-muted">
+                {t("chat.greetingSub")}
+              </p>
+
+              {/* Быстрые роли: встроенные + пользовательские отдельными группами */}
+              {!hideStarter && promptPresets.length > 0 && (
+                <div className="w-full">
+                  <p className="mb-2 text-center text-[11px] font-medium uppercase tracking-wider text-halo-muted/60">
+                    {t("chat.quickRoles")} — {t("chat.quickRolesSub")}
+                  </p>
+                  <div className="flex flex-wrap justify-center gap-2">
+                    {promptPresets.map((p) => (
+                      <button
+                        key={p.id}
+                        onClick={() => onApplyPreset(p.text)}
+                        title={p.text}
+                        className="rounded-full border border-halo-line bg-halo-surface/60 px-3.5 py-1.5 text-xs text-halo-muted transition duration-150 hover:border-halo-accent/50 hover:bg-halo-surface hover:text-halo-text"
+                      >
+                        {p.name}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="mt-2 text-center text-[10px] text-halo-muted/60">
+                    {t("chat.quickRolesNote")}
+                  </p>
+                </div>
+              )}
+              {!hideStarter && customPresets.length > 0 && (
+                <div className="mt-4 w-full">
+                  <p className="mb-2 text-center text-[11px] font-medium uppercase tracking-wider text-halo-muted/60">
+                    {t("chat.yourPrompts")}
+                  </p>
+                  <div className="flex flex-wrap justify-center gap-2">
+                    {customPresets.map((p) => (
+                      <button
+                        key={p.id}
+                        onClick={() => onApplyPreset(p.text)}
+                        title={p.text}
+                        className="rounded-full border border-halo-accent/40 bg-halo-accent/10 px-3.5 py-1.5 text-xs text-halo-accent transition duration-150 hover:border-halo-accent hover:bg-halo-accent/20"
+                      >
+                        {p.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Идеи: компактные чипы под ролями (клик — заготовка в поле ввода) */}
+              {!hideStarter && (
+                <div className="mt-6 flex w-full flex-wrap justify-center gap-2">
+                  {SUGGESTIONS(lang).map((s) => (
+                    <button
+                      key={s.title}
+                      onClick={() => {
+                        // Вставляем заголовок-заготовку в поле ввода —
+                        // пользователь сам дописывает конечный вопрос
+                        setDraft(s.prompt);
+                        if (textareaRef.current) {
+                          autoGrow(textareaRef.current);
+                          textareaRef.current.focus();
+                        }
+                      }}
+                      title={s.hint}
+                      className="rounded-lg border border-halo-line bg-halo-surface/50 px-3 py-1.5 text-xs text-halo-muted transition duration-150 hover:border-halo-accent/50 hover:bg-halo-surface hover:text-halo-text"
+                    >
+                      {s.title}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              <button
+                onClick={onToggleStarter}
+                className="mt-7 rounded-md px-2 py-1 text-[11px] text-halo-muted/60 transition-colors hover:text-halo-muted"
+              >
+                {hideStarter ? t("chat.showStarter") : t("chat.hideStarter")}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="msg-feed mx-auto flex w-full max-w-3xl flex-col gap-5 px-8 py-8">
+            {/* Ход = сообщение пользователя + всё, что агент сделал до следующего.
+                groupTurns: весь ход в ОДНОЙ карточке; иначе каждый шаг отдельно.
+                В конце хода — сводка изменённых файлов */}
+            {/* D3: key по сессии — одна битая карточка больше не кладёт границу
+                в error-state навсегда: смена задачи сбрасывает фолбэк */}
+            <ErrorBoundary key={session?.id ?? "none"} title={t("err.boundary")} action={t("err.boundaryRetry")}>
+            {feedNodes}
             </ErrorBoundary>
             {pendingConfirm && !terminalOpen && (
               <ConfirmCard
@@ -1445,6 +1573,8 @@ export default function ChatArea({
           pendingConfirm={pendingConfirm}
           projectRoot={projectRoot}
           termShell={termShell}
+          termPalette={termPalette}
+          termBlur={termBlur}
           heightPct={terminalHeightPct}
           onResizeStart={onTerminalResizeStart}
           onConfirmDecision={onConfirmDecision}
@@ -1464,7 +1594,7 @@ export default function ChatArea({
         <div className="mx-auto w-full max-w-3xl">
           {/* z-30 выше ленты сообщений (z-10): glass-pane создаёт stacking
               context, и палитра slash без этого слоя оказывалась под лентой */}
-          <div className="glass-pane relative z-30 rounded-2xl border border-halo-line bg-halo-surface p-2.5 shadow-sm transition-all duration-200 focus-within:border-halo-accent/60 focus-within:shadow-[0_0_0_3px_rgba(217,119,87,0.10)]">
+          <div className="glass-pane relative z-30 rounded-2xl border border-halo-line bg-halo-surface p-2.5 shadow-sm transition duration-200 focus-within:border-halo-accent/60 focus-within:shadow-[0_0_0_3px_rgba(217,119,87,0.10)]">
             {/* Палитра скилов (&) */}
             {skillActive && skillMatches.length > 0 && (
               <div className="scroll-slim absolute bottom-full left-0 right-0 z-20 mb-2 max-h-64 overflow-y-auto rounded-xl border border-halo-line bg-halo-deep/95 p-1.5 shadow-xl backdrop-blur">
@@ -1604,7 +1734,7 @@ export default function ChatArea({
               <input
                 ref={fileInputRef}
                 type="file"
-                accept="image/*"
+                accept="image/*,text/*,.md,.markdown,.json,.csv,.log,.yaml,.yml,.xml,.ts,.tsx,.js,.jsx,.py,.rs,.go,.java,.sql,.sh,.toml,.ini"
                 multiple
                 className="hidden"
                 onChange={(e) => {
@@ -1615,7 +1745,7 @@ export default function ChatArea({
               <button
                 onClick={() => fileInputRef.current?.click()}
                 title={t("composer.attach")}
-                className="mb-1 flex size-9 shrink-0 items-center justify-center rounded-xl text-halo-muted transition-all duration-150 hover:bg-halo-hover hover:text-halo-text"
+                className="mb-1 flex size-9 shrink-0 items-center justify-center rounded-xl text-halo-muted transition duration-150 hover:bg-halo-hover hover:text-halo-text"
               >
                 <PaperclipIcon />
               </button>
@@ -1638,7 +1768,7 @@ export default function ChatArea({
                     <button
                       onClick={submit}
                       title={t("composer.correct")}
-                      className="flex size-9 shrink-0 items-center justify-center rounded-xl border border-halo-line text-halo-text transition-all duration-150 hover:border-halo-accent/60 hover:text-halo-accent active:scale-95"
+                      className="flex size-9 shrink-0 items-center justify-center rounded-xl border border-halo-line text-halo-text transition duration-150 hover:border-halo-accent/60 hover:text-halo-accent active:scale-95"
                     >
                       <CorrectIcon />
                     </button>
@@ -1646,7 +1776,7 @@ export default function ChatArea({
                   <button
                     onClick={onStop}
                     title={t("composer.stop")}
-                    className="flex size-9 shrink-0 items-center justify-center rounded-xl border border-halo-line text-halo-text transition-all duration-150 hover:border-red-400/60 hover:text-red-400 active:scale-95"
+                    className="flex size-9 shrink-0 items-center justify-center rounded-xl border border-halo-line text-halo-text transition duration-150 hover:border-red-400/60 hover:text-red-400 active:scale-95"
                   >
                     <StopIcon />
                   </button>
@@ -1656,7 +1786,7 @@ export default function ChatArea({
                   onClick={submit}
                   disabled={!draft.trim() && pendingImages.length === 0}
                   title={t("composer.send")}
-                  className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-halo-accent text-halo-on-accent shadow-sm transition-all duration-150 hover:bg-halo-accent-deep active:scale-95 disabled:cursor-not-allowed disabled:opacity-40"
+                  className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-halo-accent text-halo-on-accent shadow-sm transition duration-150 hover:bg-halo-accent-deep active:scale-95 disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   <ArrowUpIcon />
                 </button>
@@ -1664,7 +1794,7 @@ export default function ChatArea({
             </div>
 
             {/* Предупреждение: модель не принимает изображения */}
-            {pendingImages.length > 0 && visionCapable === false && (
+            {pendingImages.some((a) => a.dataUrl) && visionCapable === false && (
               <div className="anim-fade-up mx-2 mb-1 flex items-start gap-2 rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-xs leading-relaxed text-amber-300">
                 <span className="mt-0.5">⚠</span>
                 <span>{t("error.vision")}</span>
@@ -1675,12 +1805,22 @@ export default function ChatArea({
             {pendingImages.length > 0 && (
               <div className="anim-fade-up flex flex-wrap gap-2 px-2 pt-1.5">
                 {pendingImages.map((img, i) => (
-                  <div key={`${img.name}-${i}`} className="group relative">
+                  <div key={img.id ?? `${img.name}-${i}`} className="group relative">
+                    {img.dataUrl ? (
                     <img
                       src={img.dataUrl}
                       alt={img.name}
                       className="h-16 w-16 rounded-lg border border-halo-line object-cover"
                     />
+                    ) : (
+                    <div
+                      title={img.name}
+                      className="flex h-16 max-w-44 items-center gap-1.5 rounded-lg border border-halo-line bg-halo-surface/60 px-2.5 text-left"
+                    >
+                      <span className="shrink-0 text-halo-muted">📄</span>
+                      <span className="min-w-0 truncate text-xs text-halo-text">{img.name}</span>
+                    </div>
+                    )}
                     <button
                       onClick={() =>
                         setPendingImages((prev) =>
@@ -1701,9 +1841,8 @@ export default function ChatArea({
             <div className="mt-1 flex items-center gap-2 px-1">
               <button
                 onClick={onToggleAgent}
-                disabled={!session}
                 title={t("agent.toggle")}
-                className={`flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs transition-all duration-150 disabled:cursor-not-allowed disabled:opacity-40 ${
+                className={`flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs transition duration-150 disabled:cursor-not-allowed disabled:opacity-40 ${
                   agentMode
                     ? "bg-halo-accent/15 text-halo-accent"
                     : "text-halo-muted hover:bg-halo-hover hover:text-halo-text"
@@ -1714,9 +1853,8 @@ export default function ChatArea({
               </button>
               <button
                 onClick={onToggleTerminal}
-                disabled={!session}
                 title={t("terminal.toggle")}
-                className={`flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs transition-all duration-150 disabled:cursor-not-allowed disabled:opacity-40 ${
+                className={`flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs transition duration-150 disabled:cursor-not-allowed disabled:opacity-40 ${
                   terminalOpen
                     ? "bg-halo-accent/15 text-halo-accent"
                     : "text-halo-muted hover:bg-halo-hover hover:text-halo-text"
@@ -1729,9 +1867,8 @@ export default function ChatArea({
               <div className="relative">
                 <button
                   onClick={() => setPermOpen((v) => !v)}
-                  disabled={!session}
                   title={t("perms.title")}
-                  className={`flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs transition-all duration-150 disabled:cursor-not-allowed disabled:opacity-40 ${
+                  className={`flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs transition duration-150 disabled:cursor-not-allowed disabled:opacity-40 ${
                     permissionMode !== "ask"
                       ? "bg-halo-accent/15 text-halo-accent"
                       : "text-halo-muted hover:bg-halo-hover hover:text-halo-text"
@@ -1796,10 +1933,85 @@ export default function ChatArea({
                   </>
                 )}
               </div>
+              {/* Инструменты агента: чёрный список задачи */}
+              <div className="relative">
+                <button
+                  onClick={openTools}
+                  title={t("tools.title")}
+                  className={`flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs transition duration-150 disabled:cursor-not-allowed disabled:opacity-40 ${
+                    disabledTools.length > 0
+                      ? "bg-halo-accent/15 text-halo-accent"
+                      : "text-halo-muted hover:bg-halo-hover hover:text-halo-text"
+                  }`}
+                >
+                  <WrenchIcon />
+                  {disabledTools.length > 0 && <span>{disabledTools.length}</span>}
+                  <ChevronDownIcon />
+                </button>
+                {toolsOpen && (
+                  <>
+                    <div
+                      className="fixed inset-0 z-20"
+                      onClick={() => setToolsOpen(false)}
+                    />
+                    <div className="scroll-slim anim-pop absolute bottom-full left-0 z-30 mb-2 max-h-80 w-64 overflow-y-auto rounded-xl border border-halo-line bg-halo-deep/95 p-1.5 shadow-xl backdrop-blur">
+                      <p className="px-2 pb-1 text-[10px] uppercase tracking-wider text-halo-muted/60">
+                        {t("tools.title")}
+                      </p>
+                      <p className="px-2 pb-1.5 text-[11px] leading-snug text-halo-muted">
+                        {t("tools.hint")}
+                      </p>
+                      {toolNames === null ? (
+                        <p className="px-2 py-1.5 text-xs text-halo-muted">…</p>
+                      ) : toolNames.length === 0 ? (
+                        <p className="px-2 py-1.5 text-xs text-halo-muted">
+                          {t("tools.empty")}
+                        </p>
+                      ) : (
+                        toolNames.map((name) => {
+                          const off = disabledTools.includes(name);
+                          return (
+                            <button
+                              key={name}
+                              onClick={() => onToggleDisabledTool(name)}
+                              className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs transition-colors ${
+                                off
+                                  ? "bg-halo-accent/10 text-halo-text"
+                                  : "text-halo-muted hover:bg-halo-hover hover:text-halo-text"
+                              }`}
+                            >
+                              <span
+                                className={`flex size-3.5 shrink-0 items-center justify-center rounded border transition-colors ${
+                                  off
+                                    ? "border-halo-accent bg-halo-accent"
+                                    : "border-halo-muted/50"
+                                }`}
+                              >
+                                {off && (
+                                  <svg
+                                    viewBox="0 0 10 10"
+                                    className="size-2.5 text-halo-on-accent"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="2"
+                                  >
+                                    <path d="M1.5 5.5l2.5 2.5 4.5-5" />
+                                  </svg>
+                                )}
+                              </span>
+                              <span className="truncate font-mono">{name}</span>
+                            </button>
+                          );
+                        })
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
               <button
                 onClick={onOpenSettings}
                 title={model ? model : t("chat.modelHint")}
-                className="flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-xs text-halo-muted transition-all duration-150 hover:bg-halo-hover hover:text-halo-text"
+                className="flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-xs text-halo-muted transition duration-150 hover:bg-halo-hover hover:text-halo-text"
               >
                 <ProviderIcon modelId={model} size={13} />
                 <span className="max-w-28 truncate font-medium">
@@ -1825,7 +2037,7 @@ export default function ChatArea({
                   <button
                     onClick={() => setSubOpen((v) => !v)}
                     title={t("sub.monitor")}
-                    className={`relative flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs transition-all duration-150 ${
+                    className={`relative flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs transition duration-150 ${
                       subOpen ||
                       Object.values(subRuns ?? {}).some((r) => r.report === null)
                         ? "bg-halo-accent/15 text-halo-accent"
@@ -1881,7 +2093,7 @@ export default function ChatArea({
                 <button
                   onClick={() => setQuickOpen((v) => !v)}
                   title={t("qs.title")}
-                  className={`flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs transition-all duration-150 ${
+                  className={`flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs transition duration-150 ${
                     quickOpen
                       ? "bg-halo-accent/15 text-halo-accent"
                       : "text-halo-muted hover:bg-halo-hover hover:text-halo-text"

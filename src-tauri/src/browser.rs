@@ -317,7 +317,7 @@ impl BrowserConnection {
             // позволяло squatting/симлинк-атаку на каталог профиля
             let profile = std::env::temp_dir().join(format!(
                 "haloui-browser-{}",
-                uuid_v4_short()
+                crate::fsutil::uuid_v4_short()
             ));
             let port_arg = format!("--remote-debugging-port={port}");
             let profile_arg = format!("--user-data-dir={}", profile.display());
@@ -582,22 +582,6 @@ impl BrowserConnection {
         Ok((data, url))
     }
 
-    /// Размер вьюпорта для панели (None/None — вернуть как есть)
-    pub fn set_viewport(&self, w: Option<i64>, h: Option<i64>) -> Result<(), String> {
-        match (w, h) {
-            (Some(w), Some(h)) => {
-                self.request(
-                    "Emulation.setDeviceMetricsOverride",
-                    json!({ "width": w, "height": h, "deviceScaleFactor": 0, "mobile": false }),
-                )?;
-            }
-            _ => {
-                self.request("Emulation.clearDeviceMetricsOverride", json!({}))?;
-            }
-        }
-        Ok(())
-    }
-
     /// Смена вьюпорта мягким запросом: короткий таймаут и просрочка не
     /// помечает соединение мёртвым. Команда browser_view_size раньше шла
     /// жёстким request и могла блокировать воркер до 120 с
@@ -633,12 +617,6 @@ impl BrowserConnection {
         let _ = self.child.lock().unwrap_or_else(|p| p.into_inner()).kill();
         let _ = self.child.lock().unwrap_or_else(|p| p.into_inner()).wait();
     }
-}
-
-/// 8 hex-символов из криптослучайных байт — уникальное имя каталога профиля
-fn uuid_v4_short() -> String {
-    let b: [u8; 4] = rand::random();
-    b.iter().map(|x| format!("{x:02x}")).collect()
 }
 
 // ---------------------------------------------------------------------------

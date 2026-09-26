@@ -60,7 +60,7 @@ export function ContextRing({
           </div>
           <div className="mb-2.5 h-1.5 overflow-hidden rounded-full bg-halo-line">
             <div
-              className="h-full rounded-full transition-all"
+              className="h-full rounded-full transition"
               style={{ width: `${pct * 100}%`, background: color }}
             />
           </div>
@@ -91,12 +91,12 @@ export function ContextRing({
           </div>
           <p className="mb-1 flex justify-between text-halo-muted">
             <span>{t("ctx.used")}</span>
-            <span>{used.toLocaleString("ru-RU")}</span>
+            <span>{fmtInt(used, lang)}</span>
           </p>
           <p className="mb-2 flex justify-between text-halo-muted">
             <span>{t("ctx.limit")}</span>
             <span>
-              {limit.toLocaleString("ru-RU")}{" "}
+              {fmtInt(limit, lang)}{" "}
               <span className="text-halo-muted/50">
                 ({isEstimate ? t("ctx.estimate") : t("ctx.fromProvider")})
               </span>

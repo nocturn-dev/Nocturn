@@ -50,20 +50,6 @@ function detectLang(): Lang {
   return "en";
 }
 
-/** Фазы генерации — массивы, идут вне словаря */
-export function thinkingPhases(lang: Lang): string[] {
-  switch (lang) {
-    case "ru":
-      return ["Планирование", "Поиск информации", "Генерация кода", "Выполнение"];
-    case "en":
-      return ["Planning", "Researching", "Generating code", "Executing"];
-    case "zh":
-      return ["规划中", "正在研究", "生成代码", "执行工具"];
-    case "ja":
-      return ["計画中", "調査中", "コード生成", "ツール実行"];
-  }
-}
-
 const LangContext = createContext<{
   lang: Lang;
   setLang: (l: Lang) => void;

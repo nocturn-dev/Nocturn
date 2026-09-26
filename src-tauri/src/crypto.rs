@@ -83,14 +83,16 @@ pub fn derive_key(password: &str, salt: &[u8]) -> Zeroizing<Vec<u8>> {
 
 /// Argon2id (параметры OWASP: 19 MiB, t=2) — актуальный KDF хранилища.
 /// Детерминирован: тот же пароль+соль → тот же ключ.
-pub fn derive_key_argon2(password: &str, salt: &[u8]) -> Zeroizing<Vec<u8>> {
+pub fn derive_key_argon2(password: &str, salt: &[u8]) -> Result<Zeroizing<Vec<u8>>, String> {
     use argon2::{Algorithm, Argon2, Params, Version};
     let mut out = vec![0u8; KEY_LEN];
     let argon = Argon2::new(Algorithm::Argon2id, Version::V0x13, Params::default());
+    // Раньше expect: единственный panic-путь криптомодуля на пути с
+    // пользовательским вводом — вместо паники процесса отдаём ошибку наружу
     argon
         .hash_password_into(password.as_bytes(), salt, &mut out)
-        .expect("argon2 derive failed (fixed output size)");
-    Zeroizing::new(out)
+        .map_err(|e| format!("argon2 derive failed: {e}"))?;
+    Ok(Zeroizing::new(out))
 }
 
 pub fn new_salt() -> Vec<u8> {
@@ -262,9 +264,9 @@ mod tests {
 
     #[test]
     fn argon2_derive_is_deterministic_and_salt_sensitive() {
-        let a1 = derive_key_argon2("мастер-пароль", b"salt-salt-salt-sa");
-        let a2 = derive_key_argon2("мастер-пароль", b"salt-salt-salt-sa");
-        let b = derive_key_argon2("мастер-пароль", b"another-salt-16!");
+        let a1 = derive_key_argon2("мастер-пароль", b"salt-salt-salt-sa").expect("derive");
+        let a2 = derive_key_argon2("мастер-пароль", b"salt-salt-salt-sa").expect("derive");
+        let b = derive_key_argon2("мастер-пароль", b"another-salt-16!").expect("derive");
         assert_eq!(a1, a2);
         assert_ne!(a1, b);
         assert_eq!(a1.len(), 32);

@@ -135,6 +135,108 @@ pub async fn test_connection(base_url: String, api_key: String) -> Result<Vec<Mo
     Ok(models)
 }
 
+/// Разовый non-streaming вызов модели без инструментов (Рефлексия в «Обзоре»).
+/// Тот же адаптер провайдера, что и в chat_stream; ответ целиком — без SSE
+#[tauri::command(async)]
+pub async fn chat_once(
+    base_url: String,
+    api_key: String,
+    model: String,
+    provider: Option<String>,
+    system: String,
+    user: String,
+    max_tokens: u32,
+) -> Result<String, String> {
+    let base_url = normalize_base_url(&base_url);
+    let anthropic = match provider.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        Some("anthropic") => true,
+        Some(_) => false,
+        None => is_anthropic_base(&base_url),
+    };
+    let base = base_url.trim_end_matches('/');
+    let client = crate::network::apply(
+        reqwest::Client::builder().connect_timeout(std::time::Duration::from_secs(30)),
+    )?
+    .build()
+    .map_err(|e| format!("failed to build http client: {e}"))?;
+
+    // Ответ нужен целиком, спешить некуда; потолок — от «задумавшейся» reasoning-модели
+    let total_timeout = std::time::Duration::from_secs(180);
+    let resp = if anthropic {
+        let body = serde_json::json!({
+            "model": model,
+            "max_tokens": max_tokens,
+            "system": system,
+            "messages": [{ "role": "user", "content": user }]
+        });
+        client
+            .post(format!("{base}/messages"))
+            .header("x-api-key", api_key.trim())
+            .header("anthropic-version", "2023-06-01")
+            .json(&body)
+            .timeout(total_timeout)
+            .send()
+            .await
+            .map_err(|e| format!("failed to connect: {e}"))?
+    } else {
+        let body = serde_json::json!({
+            "model": model,
+            "max_tokens": max_tokens,
+            "messages": [
+                { "role": "system", "content": system },
+                { "role": "user", "content": user }
+            ]
+        });
+        client
+            .post(format!("{base}/chat/completions"))
+            .bearer_auth(api_key.trim())
+            .json(&body)
+            .timeout(total_timeout)
+            .send()
+            .await
+            .map_err(|e| format!("failed to connect: {e}"))?
+    };
+
+    let status = resp.status();
+    let body = resp
+        .text()
+        .await
+        .map_err(|e| format!("failed to read response body: {e}"))?;
+    if !status.is_success() {
+        return Err(provider_error(status, &body));
+    }
+    let json: serde_json::Value =
+        serde_json::from_str(&body).map_err(|e| format!("unexpected response format: {e}"))?;
+    let text = if anthropic {
+        // content — массив блоков; собираем текстовые (thinking-блоки пропускаем)
+        let blocks = json
+            .get("content")
+            .and_then(|v| v.as_array())
+            .ok_or_else(|| "response missing content".to_string())?;
+        let mut out = String::new();
+        for b in blocks {
+            if b.get("type").and_then(|v| v.as_str()) == Some("text") {
+                if let Some(t) = b.get("text").and_then(|v| v.as_str()) {
+                    if !out.is_empty() {
+                        out.push('\n');
+                    }
+                    out.push_str(t);
+                }
+            }
+        }
+        out
+    } else {
+        json.pointer("/choices/0/message/content")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string()
+    };
+    if text.trim().is_empty() {
+        return Err("empty response".to_string());
+    }
+    Ok(text)
+}
+
 /// Извлекает человекочитаемую ошибку провайдера из тела ответа
 /// ({"error": {"message": "..."}}) или возвращает фрагмент сырого тела.
 pub fn provider_error(status: reqwest::StatusCode, body: &str) -> String {
@@ -267,10 +369,15 @@ pub async fn chat_stream(
             body["reasoning_effort"] = serde_json::json!(mapped);
         }
         body_json = Some(body);
+        // let-else вместо unwrap: holder для retry-пути, TS2367-подобная
+        // хрупкость инварианта «присваивание выше» не должна паниковать
+        let Some(built) = body_json.as_ref() else {
+            return Err("internal: request body missing".into());
+        };
         client
             .post(format!("{base}/chat/completions"))
             .bearer_auth(api_key.trim())
-            .json(body_json.as_ref().unwrap())
+            .json(built)
             .send()
             .await
             .map_err(|e| format!("failed to connect: {e}"))?
@@ -287,10 +394,13 @@ pub async fn chat_stream(
             if let Some(obj) = body_json.as_mut().and_then(|b| b.as_object_mut()) {
                 obj.remove("stream_options");
             }
+            let Some(rebuilt) = body_json.as_ref() else {
+                return Err("internal: request body missing".into());
+            };
             resp = client
                 .post(format!("{base}/chat/completions"))
                 .bearer_auth(api_key.trim())
-                .json(body_json.as_ref().unwrap())
+                .json(rebuilt)
                 .send()
                 .await
                 .map_err(|e| format!("failed to connect: {e}"))?;
@@ -693,7 +803,13 @@ impl SseAccumulator {
                     c.arguments = "{}".to_string();
                 }
             }
-            events.push(FeedEvent::ToolCallsFinished { calls });
+            // Пустые слоты (провайдер начал нумерацию не с 0) раньше уезжали
+            // в агентный цикл как вызов с пустым именем → мусорный шаг
+            // «unknown tool:»; не выдаём их вовсе
+            calls.retain(|c| !c.name.is_empty());
+            if !calls.is_empty() {
+                events.push(FeedEvent::ToolCallsFinished { calls });
+            }
         }
 
         events
@@ -754,7 +870,13 @@ impl StreamFeed for SseAccumulator {
                     c.arguments = "{}".to_string();
                 }
             }
-            events.push(FeedEvent::ToolCallsFinished { calls });
+            // Пустые слоты (провайдер начал нумерацию не с 0) раньше уезжали
+            // в агентный цикл как вызов с пустым именем → мусорный шаг
+            // «unknown tool:»; не выдаём их вовсе
+            calls.retain(|c| !c.name.is_empty());
+            if !calls.is_empty() {
+                events.push(FeedEvent::ToolCallsFinished { calls });
+            }
         }
         let tail = std::mem::take(&mut self.tag_tail);
         if !tail.is_empty() {
@@ -861,8 +983,7 @@ pub fn build_anthropic_body(
             }
             _ => {
                 // user: строка или массив с картинками — конвертируем vision-формат
-                let content = if m.content.is_array() {
-                    let arr = m.content.as_array().unwrap();
+                let content = if let Some(arr) = m.content.as_array() {
                     let blocks: Vec<serde_json::Value> = arr
                         .iter()
                         .filter_map(|part| {
@@ -1456,10 +1577,14 @@ mod anthropic_tests {
 /// Прерывание активного стрима
 #[tauri::command(async)]
 pub fn chat_abort(registry: tauri::State<'_, AbortRegistry>, request_id: String) {
-    if let Ok(map) = registry.0.lock() {
-        if let Some(flag) = map.get(&request_id) {
-            flag.store(true, Ordering::Relaxed);
-        }
+    // Poisoned-лок (паника под ним) раньше глотался молча — Stop переставал
+    // работать до перезапуска; into_inner достаёт данные и из отравленного
+    let map = match registry.0.lock() {
+        Ok(g) => g,
+        Err(p) => p.into_inner(),
+    };
+    if let Some(flag) = map.get(&request_id) {
+        flag.store(true, Ordering::Relaxed);
     }
 }
 

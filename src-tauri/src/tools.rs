@@ -45,6 +45,22 @@ pub fn tool_schemas() -> Value {
         {
             "type": "function",
             "function": {
+                "name": "fs_grep",
+                "description": "Search file CONTENTS under a directory (case-insensitive substring, like a lightweight grep). Returns matches as file:line: text. Use it to locate code, config values and docs in the project before reading whole files. Binary files, dependencies (.git, node_modules, target, dist) and files over 512 KB are skipped.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "path": { "type": "string", "description": "Directory to search in (recursive)" },
+                        "query": { "type": "string", "description": "Text to find (case-insensitive)" },
+                        "max_results": { "type": "integer", "description": "Max matches, 1-50, default 20" }
+                    },
+                    "required": ["path", "query"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
                 "name": "fs_write",
                 "description": "Write text to a file (creates or overwrites). Directories are created automatically.",
                 "parameters": {
@@ -116,6 +132,12 @@ pub fn execute_tool_with_abort(
         "fs_read" => {
             let path = arg_str(&args, "path")?;
             fs_read(Path::new(&path))
+        }
+        "fs_grep" => {
+            let path = arg_str(&args, "path")?;
+            let query = arg_str(&args, "query")?;
+            let max = args.get("max_results").and_then(|v| v.as_u64()).unwrap_or(20).clamp(1, 50) as usize;
+            fs_grep(Path::new(&path), &query, max)
         }
         "fs_write" => {
             let path = arg_str(&args, "path")?;
@@ -249,17 +271,9 @@ pub(crate) fn sanitize_note_name(file: &str) -> Result<String, String> {
 }
 
 /// Заголовок заметки: первая строка "# X", иначе имя файла без .md
+/// (единая реализация в notes.rs — раньше дублировалась дословно)
 fn vault_title(file: &str, content: &str) -> String {
-    for line in content.lines() {
-        let t = line.trim();
-        if let Some(h) = t.strip_prefix("# ") {
-            let title = h.trim();
-            if !title.is_empty() {
-                return title.to_string();
-            }
-        }
-    }
-    file.trim_end_matches(".md").to_string()
+    crate::notes::note_title_from_content(file, content)
 }
 
 /// Цели [[ссылок]] из текста: [[target]], [[target|alias]], [[target#anch]]
@@ -393,9 +407,17 @@ fn vault_read(notes_dir: &Path, file: &str) -> Result<String, String> {
 }
 
 fn fs_list(path: &Path) -> Result<String, String> {
+    // Потолки как у серверного list_dir (files.rs): без них список на
+    // node_modules/System32 уносил сотни КБ прямо в контекст модели
+    use crate::files::{LIST_DIR_HARD_CAP, LIST_DIR_LIMIT};
     let entries = fs::read_dir(path).map_err(|e| format!("cannot list {path:?}: {e}"))?;
     let mut items: Vec<String> = Vec::new();
+    let mut truncated = false;
     for entry in entries.flatten() {
+        if items.len() >= LIST_DIR_HARD_CAP {
+            truncated = true;
+            break;
+        }
         let name = entry.file_name().to_string_lossy().to_string();
         let kind = if entry.path().is_dir() { "dir" } else { "file" };
         let size = entry
@@ -405,8 +427,17 @@ fn fs_list(path: &Path) -> Result<String, String> {
         items.push(format!("{kind}\t{size}\t{name}"));
     }
     items.sort();
+    if items.len() > LIST_DIR_LIMIT {
+        items.truncate(LIST_DIR_LIMIT);
+        truncated = true;
+    }
     if items.is_empty() {
         return Ok("(empty directory)".to_string());
+    }
+    if truncated {
+        items.push(format!(
+            "… ({LIST_DIR_LIMIT} of more entries shown — be more specific with a subdirectory)"
+        ));
     }
     Ok(format!("type\tsize\tname\n{}", items.join("\n")))
 }
@@ -463,17 +494,10 @@ fn fs_write(path: &Path, content: &str) -> Result<String, String> {
     // «После» уходит в контекст модели — обрезаем тем же лимитом, что и «до»,
     // иначе запись мегабайтного файла вернёт модели весь файл обратно
     let after: String = if content.len() as u64 > FS_WRITE_DIFF_LIMIT {
-        let clipped = &content.as_bytes()[..FS_WRITE_DIFF_LIMIT as usize];
-        // Резать только по границе UTF-8 символа
-        let mut end = clipped.len();
-        while end > 0 && (clipped[end - 1] & 0xC0) == 0x80 {
-            end -= 1;
-        }
-        format!(
-            "{}\n[TRUNCATED: {} bytes total]",
-            String::from_utf8_lossy(&clipped[..end]),
-            content.len()
-        )
+        // Общий хелпер lib.rs: раньше ручной цикл по байту 0xC0 дублировал его
+        let mut clipped = content.to_string();
+        crate::truncate_at_char_boundary(&mut clipped, FS_WRITE_DIFF_LIMIT as usize);
+        format!("{}\n[TRUNCATED: {} bytes total]", clipped, content.len())
     } else {
         content.to_string()
     };
@@ -497,6 +521,86 @@ fn fs_delete(path: &Path) -> Result<String, String> {
     }
     fs::remove_file(path).map_err(|e| format!("cannot delete {path:?}: {e}"))?;
     Ok(json!({ "ok": true, "deleted": path.display().to_string() }).to_string())
+}
+
+/// Поиск по содержимому файлов (FTS-lite, Волна RAG-lite): рекурсивный обход
+/// с потолками — без них агент мог бы замерить весь диск одной командой.
+/// Бинарность — по нулевому байту в первой порции; зависимости скипаем по именам
+fn fs_grep(dir: &Path, query: &str, max_results: usize) -> Result<String, String> {
+    const FILE_CAP: u64 = 512 * 1024;
+    const MAX_FILES: usize = 4000;
+    const LINE_SNIPPET: usize = 200;
+    const SKIP_DIRS: &[&str] = &[
+        ".git", "node_modules", "target", "dist", "build", ".venv", "venv",
+        "__pycache__", ".idea", ".vscode", "coverage", ".next", "vendor",
+    ];
+    let q = query.trim().to_lowercase();
+    if q.is_empty() {
+        return Err("empty search query".to_string());
+    }
+    let mut out: Vec<String> = Vec::new();
+    let mut stack: Vec<PathBuf> = vec![dir.to_path_buf()];
+    let mut scanned = 0usize;
+    let mut truncated = false;
+    while let Some(d) = stack.pop() {
+        let Ok(rd) = fs::read_dir(&d) else { continue };
+        for e in rd.flatten() {
+            let Ok(ft) = e.file_type() else { continue };
+            let p = e.path();
+            if ft.is_dir() {
+                let name = e.file_name().to_string_lossy().to_string();
+                if !SKIP_DIRS.contains(&name.as_str()) {
+                    stack.push(p);
+                }
+                continue;
+            }
+            if scanned >= MAX_FILES {
+                truncated = true;
+                break;
+            }
+            scanned += 1;
+            let Ok(md) = e.metadata() else { continue };
+            if md.len() == 0 || md.len() > FILE_CAP {
+                continue;
+            }
+            let Ok(bytes) = fs::read(&p) else { continue };
+            // Бинарный файл: нулевой байт в первых 8 КБ
+            if bytes[..bytes.len().min(8192)].contains(&0) {
+                continue;
+            }
+            let text = String::from_utf8_lossy(&bytes);
+            let mut hits = 0usize;
+            for (i, line) in text.lines().enumerate() {
+                if out.len() >= max_results {
+                    break;
+                }
+                if line.to_lowercase().contains(&q) {
+                    hits += 1;
+                    let mut s = line.trim().to_string();
+                    crate::truncate_at_char_boundary(&mut s, LINE_SNIPPET);
+                    out.push(format!("{}:{}: {}", p.display(), i + 1, s));
+                }
+            }
+            let _ = hits;
+        }
+        if out.len() >= max_results || truncated {
+            break;
+        }
+    }
+    if out.is_empty() {
+        return Ok(if truncated {
+            format!("No matches (scan limit {MAX_FILES} files reached).")
+        } else {
+            "No matches.".to_string()
+        });
+    }
+    let mut res = out.join("
+");
+    if truncated {
+        res.push_str(&format!("
+...[scan limit {MAX_FILES} files reached]"));
+    }
+    Ok(res)
 }
 
 fn shell_run(
@@ -639,6 +743,31 @@ mod tests {
     }
 
     #[test]
+    fn fs_grep_finds_content_and_skips_binaries() {
+        let dir = tmp_dir("fs-grep");
+        fs::create_dir_all(dir.join("sub")).unwrap();
+        fs::create_dir_all(dir.join("node_modules")).unwrap();
+        fs::write(dir.join("a.md"), "# Header
+unique_needle here
+").unwrap();
+        fs::write(dir.join("sub/b.rs"), "fn main() { // another unique_needle
+}").unwrap();
+        fs::write(dir.join("node_modules/c.js"), "unique_needle in deps").unwrap();
+        fs::write(dir.join("bin.dat"), [0u8, 1, 2]).unwrap();
+        // Обратные слэши Windows-пути должны быть экранированы в JSON-строке
+        let path_json = dir.display().to_string().replace('\\', "\\\\");
+        let res = execute_tool("fs_grep", &format!(r#"{{"path":"{}","query":"unique_needle"}}"#, path_json)).unwrap();
+        assert!(res.contains("a.md:2"));
+        assert!(res.contains("b.rs:1"));
+        // зависимости и бинарники не сканируются
+        assert!(!res.contains("deps"));
+        // регистронезависимость
+        let res2 = execute_tool("fs_grep", &format!(r#"{{"path":"{}","query":"UNIQUE_NEEDLE"}}"#, path_json)).unwrap();
+        assert!(res2.contains("a.md"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn shell_run_echo() {
         let res = execute_tool("shell_run", r#"{"command":"echo haloui-test"}"#).unwrap();
         assert!(res.contains("haloui-test"), "got: {res}");
@@ -688,7 +817,8 @@ mod tests {
     fn tool_schemas_valid() {
         let v = tool_schemas();
         let arr = v.as_array().expect("schemas must be an array");
-        assert_eq!(arr.len(), 5);
+        // fs_list, fs_read, fs_grep, fs_write, fs_delete, shell_run
+        assert_eq!(arr.len(), 6);
         for schema in arr {
             assert_eq!(schema["type"], "function");
             assert!(schema["function"]["name"].is_string());

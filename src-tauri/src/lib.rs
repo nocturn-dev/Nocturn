@@ -8,12 +8,16 @@ use std::sync::Mutex;
 
 pub mod browser;
 pub mod chat;
+mod colibri;
 mod crypto;
 pub mod computer;
 mod files;
+mod fonts;
 mod fsutil;
 pub mod hooks;
 pub mod imagegen;
+mod memory;
+mod websearch;
 mod network;
 mod notes;
 mod plugins;
@@ -50,6 +54,7 @@ pub fn run() {
         .manage(pty::PtyRegistry(Mutex::new(HashMap::new())))
         .manage(mcp::McpRegistry::default())
         .manage(browser::BrowserRegistry::default())
+        .manage(colibri::ColibriRegistry::default())
         .setup(|app| {
             // Загружаем конфиги browser/computer в статические снапшоты
             use tauri::Manager;
@@ -75,6 +80,21 @@ pub fn run() {
                 // в generate()/imagegen_get_config, когда хранилище уже разблокировано
                 imagegen::set_config(serde_json::from_value(v).unwrap_or_default());
             }
+            // Сгенерированные картинки показываются в чате через asset-протокол:
+            // каталог images разрешается целиком один раз (пишет туда только
+            // само приложение) — пофайловое разрешение потребовало бы тянуть
+            // AppHandle вглубь execute_tool_inner
+            let images_dir = app.path().app_data_dir()?.join("images");
+            fs::create_dir_all(&images_dir).map_err(|e| e.to_string())?;
+            app.asset_protocol_scope()
+                .allow_directory(&images_dir, false)
+                .map_err(|e| e.to_string())?;
+            // Пользовательские шрифты раздаются так же (FontFace на фронте)
+            let fonts_dir = app.path().app_data_dir()?.join("fonts");
+            fs::create_dir_all(&fonts_dir).map_err(|e| e.to_string())?;
+            app.asset_protocol_scope()
+                .allow_directory(&fonts_dir, false)
+                .map_err(|e| e.to_string())?;
             // Temp-файлы atomic_write, оставшиеся после краха (rename не дошёл),
             // иначе копятся вечно
             if let Ok(entries) = fs::read_dir(&cfg_dir) {
@@ -117,6 +137,21 @@ pub fn run() {
             if let Err(e) = build_tray(app.handle()) {
                 eprintln!("tray unavailable: {e}");
             }
+            // Тёмный фон окна/вебвью: дефолт WebView2 — белый, и при ресайзах
+            // (maximize/restore) непрокрашенный кадр вспыхивал белым каркасом
+            if let Some(w) = app.get_webview_window("main") {
+                // #262624 — --halo-bg тёмной темы
+                let _ = w.set_background_color(Some(tauri::window::Color(0x26, 0x26, 0x24, 255)));
+            }
+            // Quick Entry: дефолтное комбо; сохранённый ремап фронт применит
+            // на старте через quickentry_set_bind. Провал не критичен: комбо
+            // может быть занято другим приложением
+            {
+                use tauri_plugin_global_shortcut::GlobalShortcutExt;
+                if let Err(e) = app.global_shortcut().register("ctrl+alt+space") {
+                    eprintln!("quickentry shortcut unavailable: {e}");
+                }
+            }
             Ok(())
         })
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
@@ -130,6 +165,26 @@ pub fn run() {
             }
         }))
         .plugin(tauri_plugin_updater::Builder::new().build())
+        // Автозапуск с ОС (тумблер в «Основном»): Windows — реестр Run,
+        // macOS — LaunchAgent, Linux — .desktop в autostart
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None,
+        ))
+        // Quick Entry: глобальное комбо показывает/прячет окно быстрого ввода
+        // у верхнего края экрана (любое приложение → одна задача, Enter)
+        .plugin(
+            tauri_plugin_global_shortcut::Builder::new()
+                .with_handler(|app, _shortcut, event| {
+                    // Handler зовётся и на Pressed, и на Released: toggle
+                    // только по нажатию, иначе окно гасло на отпускании
+                    // клавиши — появлялось на миг и исчезало
+                    if event.state == tauri_plugin_global_shortcut::ShortcutState::Pressed {
+                        toggle_quickentry(app);
+                    }
+                })
+                .build(),
+        )
         .invoke_handler(tauri::generate_handler![
             settings::load_settings,
             settings::save_settings,
@@ -145,8 +200,10 @@ pub fn run() {
             settings::settings_read_all,
             settings::settings_write_all,
             settings::settings_export_write,
+            settings::chat_export_write,
             settings::settings_import_read,
             chat::test_connection,
+            chat::chat_once,
             chat::chat_stream,
             chat::chat_abort,
             chat::detect_ollama,
@@ -163,6 +220,12 @@ pub fn run() {
             tooling::computer_set_config,
             tooling::imagegen_get_config,
             tooling::imagegen_set_config,
+            tooling::websearch_get_config,
+            tooling::websearch_set_config,
+            fonts::font_import,
+            fonts::font_list,
+            fonts::font_delete,
+            tooling::wallpaper_register,
             tooling::sound_import,
             tooling::sound_data,
             tooling::sound_delete,
@@ -187,10 +250,18 @@ pub fn run() {
             plugins::plugins_save,
             files::list_dir,
             files::git_status,
+            files::project_rules_read,
             files::checkpoint_save,
             files::checkpoint_list,
+            files::checkpoint_files,
             files::checkpoint_restore,
             files::checkpoint_delete,
+            fsutil::storage_stats,
+            fsutil::storage_cleanup,
+            memory::memory_list,
+            memory::memory_add,
+            memory::memory_delete,
+            memory::memory_clear,
             pty::pty_create,
             pty::pty_write,
             pty::pty_resize,
@@ -208,14 +279,48 @@ pub fn run() {
             network::network_get_config,
             network::network_set_config,
             hide_to_tray,
-            set_tray_variant
+            set_tray_variant,
+            quickentry_set_bind,
+            quickentry_submit,
+            window_toggle_maximize,
+            window_toggle_fullscreen,
+            factory_reset,
+            colibri::colibri_start,
+            colibri::colibri_stop,
+            colibri::colibri_status
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, event| {
             // Гасим дочерние MCP/PTY/браузерные процессы при выходе,
             // чтобы не оставлять сирот; заодно чистим temp-профили браузера
-            if let tauri::RunEvent::Exit = event {
+            // Главное окно закрыли (крестик без «скрывать в трей») — выходим.
+            // Без этого: скрытое окно quickentry держало процесс живым, в трее
+            // оставалась «зомби»-иконка с нерабочим Open Nocturn
+            if let tauri::RunEvent::WindowEvent { label, event, .. } = &event {
+                if label == "main" {
+                    // Destroyed — реальное закрытие окна (hide в трей им не является)
+                    if matches!(event, tauri::WindowEvent::Destroyed) {
+                        app.exit(0);
+                    }
+                    // Во время «затмения» topmost держится ТОЛЬКО при фокусе:
+                    // постоянный always-on-top накрывал собой приложения,
+                    // выбранные через ALT+TAB/панель задач (переключение
+                    // «не работало» — окно оставалось поверх)
+                    if let tauri::WindowEvent::Focused(focused) = event {
+                        let eclipsed = FS_SAVE
+                            .lock()
+                            .map(|s| s.is_some())
+                            .unwrap_or(false);
+                        if eclipsed {
+                            if let Some(w) = app.get_webview_window("main") {
+                                let _ = w.set_always_on_top(*focused);
+                            }
+                        }
+                    }
+                }
+            }
+            if let tauri::RunEvent::Exit = &event {
                 if let Some(registry) = app.try_state::<mcp::McpRegistry>() {
                     registry.kill_all();
                 }
@@ -224,6 +329,9 @@ pub fn run() {
                 }
                 if let Some(registry) = app.try_state::<browser::BrowserRegistry>() {
                     registry.kill_all();
+                }
+                if let Some(registry) = app.try_state::<colibri::ColibriRegistry>() {
+                    colibri::kill_on_exit(&registry);
                 }
                 cleanup_browser_profiles();
             }
@@ -262,32 +370,274 @@ fn hide_to_tray(app: tauri::AppHandle) -> Result<(), String> {
     }
 }
 
-/// Трей: иконка (иконка приложения), левый клик — показать окно,
-/// меню: Открыть / Выход
-fn build_tray(app: &tauri::AppHandle) -> Result<(), String> {
-    use tauri::menu::{Menu, MenuItem};
-    use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+/// Развернуть/свернуть главное окно. Нативный maximize: DWM сам играет
+/// плавную анимацию (морфит старый кадр — вебвью не перерисовывается в полёте).
+/// Известный хвост (tao#471, WebView2Feedback#2549): после выхода из
+/// maximized-состояния WebView2/shell иногда остаются со старой геометрией —
+/// чёрная полоса на месте таскбара, съехавший контент. Лечится одноразовым
+/// nudge: сдвиг на 1px заставляет всё перерисоваться в правильных границах
+#[tauri::command(async)]
+fn window_toggle_maximize(app: tauri::AppHandle) -> Result<(), String> {
     use tauri::Manager;
+    let w = app.get_webview_window("main").ok_or("main window not found")?;
+    if w.is_minimized().unwrap_or(false) {
+        let _ = w.unminimize();
+    }
+    // Кнопка maximize во время «затмения» — возвращаем прежнюю геометрию
+    if FS_SAVE.lock().unwrap_or_else(|p| p.into_inner()).is_some() {
+        return window_toggle_fullscreen(app);
+    }
+    if w.is_maximized().unwrap_or(false) {
+        w.unmaximize().map_err(|e| e.to_string())?;
+        nudge_window(&w);
+        return Ok(());
+    }
+    w.maximize().map_err(|e| e.to_string())
+}
+
+/// «Затмение» (F11): окно накрывает ВЕСЬ монитор, включая область панели
+/// задач — shell сам прячет таскбар для сфокуссированного окна в границах
+/// монитора (как у borderless-игр). НИКАКОГО native fullscreen: set_fullscreen
+/// на безрамочных окнах Windows бит апстримом (tauri#7473/#7328/#8383 —
+/// таскбар не прячется, размеры теряются, циклы ломаются)
+/// Прежние границы окна (x, y, ширина, высота) + был ли нативно развёрнут
+type SavedBounds = ((i32, i32, i32, i32), bool);
+static FS_SAVE: Mutex<Option<SavedBounds>> = Mutex::new(None);
+
+#[repr(C)]
+#[derive(Default, Clone, Copy)]
+struct WinRect {
+    left: i32,
+    top: i32,
+    right: i32,
+    bottom: i32,
+}
+
+/// Полная и рабочая области монитора, где находится окно
+fn monitor_rects(hwnd: isize) -> Result<(WinRect, WinRect), String> {
+    #[link(name = "user32")]
+    extern "system" {
+        fn MonitorFromWindow(hwnd: isize, dw_flags: u32) -> isize;
+        fn GetMonitorInfoW(h_monitor: isize, lpmi: *mut MonitorInfoW) -> i32;
+    }
+    #[repr(C)]
+    struct MonitorInfoW {
+        cb_size: u32,
+        rc_monitor: WinRect,
+        rc_work: WinRect,
+        dw_flags: u32,
+    }
+    const MONITOR_DEFAULTTONEAREST: u32 = 2;
+    let mut mi = MonitorInfoW {
+        cb_size: std::mem::size_of::<MonitorInfoW>() as u32,
+        rc_monitor: WinRect::default(),
+        rc_work: WinRect::default(),
+        dw_flags: 0,
+    };
+    let ok = unsafe { GetMonitorInfoW(MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST), &mut mi) };
+    if ok == 0 {
+        return Err("failed to query monitor info".to_string());
+    }
+    Ok((mi.rc_monitor, mi.rc_work))
+}
+
+/// Атомарный move+size одним SetWindowPos: раздельные set_position/set_size
+/// дают два разрыва кадра
+fn set_window_bounds(hwnd: isize, x: i32, y: i32, cx: i32, cy: i32) {
+    #[link(name = "user32")]
+    extern "system" {
+        fn SetWindowPos(hwnd: isize, after: isize, x: i32, y: i32, cx: i32, cy: i32, flags: u32) -> i32;
+    }
+    const SWP_NOZORDER: u32 = 0x4;
+    const SWP_NOACTIVATE: u32 = 0x10;
+    unsafe {
+        SetWindowPos(hwnd, 0, x, y, cx.max(1), cy.max(1), SWP_NOZORDER | SWP_NOACTIVATE);
+    }
+}
+
+fn window_rect(w: &tauri::WebviewWindow) -> Result<(i32, i32, i32, i32), String> {
+    let pos = w.outer_position().map_err(|e| e.to_string())?;
+    let size = w.outer_size().map_err(|e| e.to_string())?;
+    Ok((pos.x, pos.y, size.width as i32, size.height as i32))
+}
+
+#[tauri::command(async)]
+fn window_toggle_fullscreen(app: tauri::AppHandle) -> Result<(), String> {
+    use tauri::Manager;
+    let w = app.get_webview_window("main").ok_or("main window not found")?;
+    if w.is_minimized().unwrap_or(false) {
+        let _ = w.unminimize();
+    }
+    let hwnd = w.hwnd().map_err(|e| e.to_string())?.0 as isize;
+
+    // Выход из «затмения»: назад к прежним границам (и в maximize, если
+    // оттуда пришли)
+    let saved = FS_SAVE.lock().unwrap_or_else(|p| p.into_inner()).take();
+    if let Some(((x, y, cx, cy), was_max)) = saved {
+        if w.is_maximized().unwrap_or(false) {
+            let _ = w.unmaximize();
+        }
+        let _ = w.set_always_on_top(false);
+        set_window_bounds(hwnd, x, y, cx, cy);
+        if was_max {
+            let _ = w.maximize();
+        }
+        nudge_window(&w);
+        return Ok(());
+    }
+
+    // Вход: сохранить состояние и накрыть ВЕСЬ монитор. Топмост обязателен:
+    // панель задач — тоже topmost, обычное окно под неё не заходит («ЗА
+    // таскбаром»). Невидимые DWM-границы безрамочного окна (shadow) дают
+    // видимые отступы по бокам — компенсируем их расширением цели
+    let (full, _work) = monitor_rects(hwnd)?;
+    let from = window_rect(&w)?;
+    let was_max = w.is_maximized().unwrap_or(false);
+    *FS_SAVE.lock().unwrap_or_else(|p| p.into_inner()) = Some((from, was_max));
+    if was_max {
+        let _ = w.unmaximize();
+    }
+    let _ = w.set_always_on_top(true);
+    // Прыжок одним атомарным SetWindowPos. Живой ресайз шагами заставляет
+    // WebView2 догонять окно (смаз/тёмные края в каждом кадре — «нескриншот-
+    // еляемые» артефакты); DWM на одиночном прыжке просто растягивает старый
+    // кадр на 1-2 кадра — чисто
+    let (fx, fy, fcx, fcy) = expand_by_borders(&w, full);
+    set_window_bounds(hwnd, fx, fy, fcx, fcy);
+    Ok(())
+}
+
+/// Невидимые DWM-границы безрамочного окна (outer - inner), чтобы видимый
+/// контент накрыл монитор вплотную
+fn expand_by_borders(
+    w: &tauri::WebviewWindow,
+    full: WinRect,
+) -> (i32, i32, i32, i32) {
+    let outer = w.outer_size().map(|s| (s.width as i32, s.height as i32)).unwrap_or((0, 0));
+    let inner = w.inner_size().map(|s| (s.width as i32, s.height as i32)).unwrap_or(outer);
+    let bx = ((outer.0 - inner.0) / 2).max(0);
+    let by = ((outer.1 - inner.1) / 2).max(0);
+    (
+        full.left - bx,
+        full.top - by,
+        (full.right - full.left) + bx * 2,
+        (full.bottom - full.top) + by * 2,
+    )
+}
+
+/// Одноразовый сдвиг на 1px и обратно: перерисовка вебвью и панели задач
+/// после смены maximized-состояния
+fn nudge_window(w: &tauri::WebviewWindow) {
+    let Ok(pos) = w.outer_position() else { return };
+    let _ = w.set_position(tauri::PhysicalPosition::new(pos.x + 1, pos.y));
+    std::thread::sleep(std::time::Duration::from_millis(16));
+    let _ = w.set_position(pos);
+}
+
+/// Quick Entry у верхнего центра активного монитора. Окно без декораций,
+/// позиция из конфига не годится — геометрию экрана знаем только в рантайме
+fn position_quickentry(w: &tauri::WebviewWindow) {
+    let Ok(Some(m)) = w.current_monitor() else { return };
+    let scale = m.scale_factor();
+    let screen_w = m.size().width as f64 / scale;
+    let (ww, _wh) = w.inner_size().map(|s| (s.width as f64 / scale, s.height as f64 / scale)).unwrap_or((540.0, 96.0));
+    let _ = w.set_position(tauri::LogicalPosition::new((screen_w - ww) / 2.0, 80.0));
+}
+
+/// Показ/скрытие Quick Entry по глобальному комбо
+fn toggle_quickentry(app: &tauri::AppHandle) {
+    use tauri::Manager;
+    if let Some(w) = app.get_webview_window("quickentry") {
+        if w.is_visible().unwrap_or(false) {
+            let _ = w.hide();
+        } else {
+            position_quickentry(&w);
+            let _ = w.show();
+            let _ = w.set_focus();
+        }
+    }
+}
+
+/// Ремап комбо Quick Entry (MainSection → запись в «Основном»).
+/// Строку парсит плагин: парсер case-insensitive, формат "ctrl+alt+space"
+#[tauri::command]
+fn quickentry_set_bind(app: tauri::AppHandle, combo: String) -> Result<(), String> {
+    use tauri_plugin_global_shortcut::GlobalShortcutExt;
+    let gs = app.global_shortcut();
+    gs.unregister_all().map_err(|e| e.to_string())?;
+    gs.register(combo.as_str()).map_err(|e| e.to_string())
+}
+
+/// Enter в Quick Entry: спрятать окно, сфокусировать главное и отдать ему
+/// текст новой задачи (через событие — паттерн clear-data-request)
+#[tauri::command]
+fn quickentry_submit(app: tauri::AppHandle, text: String) -> Result<(), String> {
+    use tauri::{Emitter, Manager};
+    if let Some(w) = app.get_webview_window("quickentry") {
+        let _ = w.hide();
+    }
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.unminimize();
+        let _ = w.set_focus();
+    }
+    app.emit_to("main", "quickentry-task", text)
+        .map_err(|e| e.to_string())
+}
+
+/// Трей: иконка (иконка приложения), левый клик — показать окно,
+/// меню: Открыть / Clear All Data / Выход
+fn build_tray(app: &tauri::AppHandle) -> Result<(), String> {
+    use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
+    use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+    use tauri::{Emitter, Manager};
 
     let open = MenuItem::with_id(app, "open", "Open Nocturn", true, None::<&str>)
         .map_err(|e| e.to_string())?;
+    let clear = MenuItem::with_id(app, "clear-data", "Clear All Data…", true, None::<&str>)
+        .map_err(|e| e.to_string())?;
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)
         .map_err(|e| e.to_string())?;
-    let menu = Menu::with_items(app, &[&open, &quit]).map_err(|e| e.to_string())?;
+    let sep = PredefinedMenuItem::separator(app).map_err(|e| e.to_string())?;
+    let menu = Menu::with_items(app, &[&open, &sep, &clear, &sep, &quit])
+        .map_err(|e| e.to_string())?;
 
     let mut tray = TrayIconBuilder::with_id("nocturn-tray")
         .menu(&menu)
         .tooltip("Nocturn")
         .show_menu_on_left_click(false)
-        .on_menu_event(|app, event| match event.id().as_ref() {
-            "open" => {
-                if let Some(w) = app.get_webview_window("main") {
-                    let _ = w.show();
-                    let _ = w.set_focus();
+        .on_menu_event(|app, event| {
+            let id = event.id().as_ref().to_string();
+            // Диагностика: пункт меню диспатчится? (видно в консоли tauri dev)
+            eprintln!("[tray] menu event: {id}");
+            match id.as_str() {
+                "open" | "clear-data" => {
+                    if let Some(w) = app.get_webview_window("main") {
+                        // Форс-показ: show+unminimize иногда недостаточно —
+                        // окно всплывает за другими окнами (foreground-lock
+                        // Windows). Классический приём: мигнуть always-on-top
+                        let _ = w.unminimize();
+                        let _ = w.show();
+                        let _ = w.set_always_on_top(true);
+                        let _ = w.set_always_on_top(false);
+                        let _ = w.set_focus();
+                        eprintln!(
+                            "[tray] window: visible={} minimized={} focused={}",
+                            w.is_visible().unwrap_or(false),
+                            w.is_minimized().unwrap_or(false),
+                            w.is_focused().unwrap_or(false),
+                        );
+                    } else {
+                        eprintln!("[tray] main window NOT found");
+                    }
+                    if id == "clear-data" {
+                        // Деструктив сам по себе не исполняется: окно показано,
+                        // подтверждение — через clear-data-request (ResetConfirmModal)
+                        let _ = app.emit("clear-data-request", ());
+                    }
                 }
+                "quit" => app.exit(0),
+                _ => {}
             }
-            "quit" => app.exit(0),
-            _ => {}
         })
         .on_tray_icon_event(|tray, event| {
             if let TrayIconEvent::Click {
@@ -298,6 +648,7 @@ fn build_tray(app: &tauri::AppHandle) -> Result<(), String> {
             {
                 let app = tray.app_handle();
                 if let Some(w) = app.get_webview_window("main") {
+                    let _ = w.unminimize();
                     let _ = w.show();
                     let _ = w.set_focus();
                 }
@@ -308,6 +659,30 @@ fn build_tray(app: &tauri::AppHandle) -> Result<(), String> {
     }
     tray.build(app).map_err(|e| e.to_string())?;
     Ok(())
+}
+
+/// Полный сброс «Clear All Data»: стирает каталоги пользовательских данных
+/// (конфиги, чаты, профили, заметки, картинки, звуки, чекпоинты, vault) и
+/// перезапускает приложение в заводское состояние. Вызывается только после
+/// подтверждения в главном окне (clear-data-request → ResetConfirmModal).
+#[tauri::command(async)]
+fn factory_reset(app: tauri::AppHandle) -> Result<(), String> {
+    use tauri::Manager;
+    let mut roots = Vec::new();
+    if let Ok(d) = app.path().app_config_dir() {
+        roots.push(d);
+    }
+    if let Ok(d) = app.path().app_data_dir() {
+        // На Windows каталоги совпадают — второй прогон увидит несуществующий
+        roots.push(d);
+    }
+    for d in roots {
+        if d.exists() {
+            fs::remove_dir_all(&d).map_err(|e| e.to_string())?;
+        }
+    }
+    // Не возвращает: процесс перезапускается, фронт стартует с онбординга
+    app.restart();
 }
 
 /// Удаление временных профилей браузера: на каждый запуск создаётся

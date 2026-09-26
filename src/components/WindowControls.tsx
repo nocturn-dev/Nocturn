@@ -3,14 +3,19 @@ import { invoke } from "@tauri-apps/api/core";
 import { useLang } from "../locales";
 
 /**
- * Кнопки окна (свернуть / развернуть / закрыть) для безрамочного режима:
- * нативный титлбар убран (decorations: false), управление перенесено
- * в шапку приложения. Кнопки — в правом верхнем углу окна.
+ * Кнопки окна (свернуть / развернуть / полноэкранный / закрыть) для
+ * безрамочного режима: нативный титлбар убран (decorations: false),
+ * управление перенесено в шапку приложения. Кнопки — в правом верхнем углу.
  */
 export default function WindowControls() {
   const { t } = useLang();
   // В браузерном превью (без Tauri) кнопки не работают — прячем
-  if (typeof window === "undefined" || !("__TAURI_INTERNALS__" in window)) {
+  const tauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+  // Кнопка fullscreen (⤢) убрана: путалась с maximize, а переход
+  // fullscreen↔оконный у безрамочных окон дёргает DWM на любом железе.
+  // Полноэкранный режим остался назначаемым действием в «Горячих клавишах»
+  // (toggle_fullscreen), тумблер «всегда в полный экран» — опция на будущее
+  if (!tauri) {
     return null;
   }
   const win = getCurrentWindow();
@@ -29,7 +34,12 @@ export default function WindowControls() {
         </svg>
       </button>
       <button
-        onClick={() => void win.toggleMaximize()}
+        onClick={() => {
+          // Анимированный разворот/восстановление в рабочую область монитора
+          // (Rust). Нативный maximize для безрамочного окна ломает циклы
+          // maximize↔restore (чёрные полосы, съехавшая картинка) — tao#471
+          void invoke("window_toggle_maximize").catch(() => void win.toggleMaximize());
+        }}
         title={t("win.max")}
         className={`${btn} hover:bg-halo-hover hover:text-halo-text`}
       >

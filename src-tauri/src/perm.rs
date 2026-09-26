@@ -65,14 +65,15 @@ pub(crate) fn set(state: PermState) {
 /// без path-контроля: cwd опционален, корневой cwd вебвью неизвестен.
 pub(crate) fn decide(state: &PermState, name: &str, path: Option<&str>) -> Result<(), String> {
     let mutating = match name {
-        "shell_run" | "fs_write" | "fs_delete" | "vault_write" | "image_generate" => true,
+        "shell_run" | "fs_write" | "fs_delete" | "vault_write" | "image_generate"
+        | "memory_save" => true,
         n if n.starts_with("mcp__") => true,
         // Чтение и скриншот безопасны — mutating только действия
         n if n.starts_with("browser_") => !matches!(n, "browser_read" | "browser_screenshot"),
         n if n.starts_with("computer_") => n != "computer_screenshot",
         _ => false,
     };
-    let fs_tool = matches!(name, "fs_read" | "fs_list" | "fs_write" | "fs_delete");
+    let fs_tool = matches!(name, "fs_read" | "fs_list" | "fs_write" | "fs_delete" | "fs_grep");
     if !mutating && !fs_tool {
         return Ok(());
     }

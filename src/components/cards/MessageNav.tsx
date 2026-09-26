@@ -2,9 +2,11 @@ import type * as React from "react";
 import { useLang } from "../../locales";
 import { type Message } from "../../types";
 import { shortModelName } from "../ProviderIcon";
-import { useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 
-export function MessageNav({
+// memo: навигация рендерится рядом с лентой и пересобиралась на каждый
+// keystroke черновика — пропсы (messages/model/scrollRef) стабильны
+export const MessageNav = memo(function MessageNav({
   messages,
   model,
   scrollRef,
@@ -104,7 +106,7 @@ export function MessageNav({
           >
             {/* Засечка */}
             <span
-              className={`h-[3px] rounded-full transition-all duration-200 ${
+              className={`h-[3px] rounded-full transition duration-200 ${
                 isActive
                   ? "w-4 bg-halo-accent"
                   : "w-3 bg-halo-muted/50 group-hover:w-4 group-hover:bg-halo-muted"
@@ -112,7 +114,7 @@ export function MessageNav({
             />
             {/* Поповер с текстом сообщения — только при наведении */}
             <span
-              className="pointer-events-none absolute right-5 top-1/2 w-64 -translate-y-1/2 rounded-xl border border-halo-line bg-halo-deep/95 p-3 text-left shadow-xl opacity-0 translate-x-2 transition-all duration-200 group-hover:translate-x-0 group-hover:opacity-100"
+              className="pointer-events-none absolute right-5 top-1/2 w-64 -translate-y-1/2 rounded-xl border border-halo-line bg-halo-deep/95 p-3 text-left shadow-xl opacity-0 translate-x-2 transition duration-200 group-hover:translate-x-0 group-hover:opacity-100"
             >
               <span className="mb-1 flex items-center gap-1.5">
                 {m.role === "user" ? (
@@ -134,7 +136,7 @@ export function MessageNav({
       })}
     </div>
   );
-}
+});
 
 /**
  * Карточка вопроса агента (ask_user): интерактивна, пока вопрос жив

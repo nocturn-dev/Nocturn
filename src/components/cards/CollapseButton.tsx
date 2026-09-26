@@ -6,7 +6,7 @@ export function CollapseButton({ onClick }: { onClick: () => void }) {
     <button
       onClick={onClick}
       title={t("card.collapse")}
-      className="absolute -top-2 right-2 flex size-5 items-center justify-center rounded-full border border-halo-line bg-halo-deep text-halo-muted opacity-0 shadow-sm transition-all duration-150 hover:text-halo-text group-hover:opacity-100"
+      className="absolute -top-2 right-2 flex size-5 items-center justify-center rounded-full border border-halo-line bg-halo-deep text-halo-muted opacity-0 shadow-sm transition duration-150 hover:text-halo-text group-hover:opacity-100"
     >
       <svg
         width="10"

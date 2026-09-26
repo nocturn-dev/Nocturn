@@ -1,8 +1,17 @@
 import ProviderIcon from "../ProviderIcon";
 import { useEffect, useRef, useState } from "react";
 import { useLang } from "../../locales";
-import type { ApiProfile, ApiSettings, ModelInfo } from "../../api";
-import { providerFromBaseUrl, PROVIDERS } from "../../api";
+import type { ApiProfile, ApiSettings, ModelInfo, ColibriStatus, ColibriLocal } from "../../api";
+import {
+  providerFromBaseUrl,
+  PROVIDERS,
+  colibriStart,
+  colibriStop,
+  colibriStatus,
+  listenColibriLog,
+  loadColibriLocal,
+  saveColibriLocal,
+} from "../../api";
 
 import { MiniCheckIcon, MiniSearchIcon } from "./parts";
 import type { ApiStatus } from "./types";
@@ -46,6 +55,79 @@ export function ApiSection({
   const [profSaved, setProfSaved] = useState(false);
   const [encBusy, setEncBusy] = useState(false);
   const [encError, setEncError] = useState(false);
+
+  // Colibri: конфиг запуска (localStorage), статус дочернего coli serve, хвост лога
+  const [colibri, setColibri] = useState<ColibriLocal>(loadColibriLocal);
+  const [cbStatus, setCbStatus] = useState<ColibriStatus>({ running: false });
+  const [cbLog, setCbLog] = useState<string[]>([]);
+  const [cbError, setCbError] = useState<string | null>(null);
+  const [cbBusy, setCbBusy] = useState(false);
+
+  // Статус на открытии раздела: процесс мог завершиться сам
+  useEffect(() => {
+    void colibriStatus()
+      .then(setCbStatus)
+      .catch(() => {});
+  }, []);
+  // Подписка на лог сервера ставится один раз; хвост — 200 строк
+  useEffect(() => {
+    // StrictMode double-mount: cleanup первого монтирования срабатывает ДО
+    // резолва промиса, и первая подписка оставалась жить вечно
+    let disposed = false;
+    let un: (() => void) | undefined;
+    void listenColibriLog((line) => {
+      if (disposed) return;
+      setCbLog((prev) => [...prev.slice(-199), line]);
+    }).then((u) => {
+      if (disposed) u();
+      else un = u;
+    });
+    return () => {
+      disposed = true;
+      un?.();
+    };
+  }, []);
+
+  const setCbField = (patch: Partial<ColibriLocal>) => {
+    const next = { ...colibri, ...patch };
+    setColibri(next);
+    saveColibriLocal(next);
+  };
+
+  const cbStart = async () => {
+    setCbBusy(true);
+    setCbError(null);
+    saveColibriLocal(colibri);
+    // Порт из конфига синхронно с base_url соединения (для пресета Colibri)
+    if (settings.provider === "colibri") {
+      onChange({ ...settings, base_url: `http://localhost:${colibri.port}/v1` });
+    }
+    try {
+      setCbStatus(
+        await colibriStart({
+          exe: colibri.exe,
+          model: settings.model,
+          apiKey: settings.api_key,
+          args: colibri.args,
+        }),
+      );
+    } catch (e) {
+      setCbError(String(e));
+    } finally {
+      setCbBusy(false);
+    }
+  };
+
+  const cbStop = async () => {
+    setCbBusy(true);
+    try {
+      setCbStatus(await colibriStop());
+    } catch {
+      // статус уточнится при следующем открытии раздела
+    } finally {
+      setCbBusy(false);
+    }
+  };
 
   const addProfile = () => {
     onAddProfile(profName);
@@ -128,7 +210,7 @@ export function ApiSection({
                   onChange({ ...settings, base_url: p.baseUrl, provider: p.id })
                 }
                 title={p.baseUrl}
-                className={`rounded-full border px-2.5 py-1 text-xs transition-all duration-150 ${
+                className={`rounded-full border px-2.5 py-1 text-xs transition duration-150 ${
                   active
                     ? "border-halo-accent bg-halo-accent/15 text-halo-accent"
                     : "border-halo-line text-halo-muted hover:border-halo-muted/60 hover:text-halo-text"
@@ -146,7 +228,7 @@ export function ApiSection({
               onChange({ ...settings, provider: "custom" })
             }
             title={t("api.providerCustom")}
-            className={`rounded-full border px-2.5 py-1 text-xs transition-all duration-150 ${
+            className={`rounded-full border px-2.5 py-1 text-xs transition duration-150 ${
               settings.provider === "custom"
                 ? "border-halo-accent bg-halo-accent/15 text-halo-accent"
                 : "border-halo-line text-halo-muted hover:border-halo-muted/60 hover:text-halo-text"
@@ -179,7 +261,7 @@ export function ApiSection({
           } disabled:opacity-50`}
         >
           <span
-            className={`absolute top-0.5 size-4 rounded-full bg-halo-on-accent transition-all ${
+            className={`absolute top-0.5 size-4 rounded-full bg-halo-on-accent transition ${
               settings.encrypt_keys ? "left-4.5" : "left-0.5"
             }`}
           />
@@ -202,7 +284,7 @@ export function ApiSection({
               return (
                 <span
                   key={p.id}
-                  className={`flex items-center gap-1 rounded-full border py-1 pl-2.5 pr-1 text-xs transition-all duration-150 ${
+                  className={`flex items-center gap-1 rounded-full border py-1 pl-2.5 pr-1 text-xs transition duration-150 ${
                     active
                       ? "border-halo-accent bg-halo-accent/15 text-halo-accent"
                       : "border-halo-line text-halo-muted hover:border-halo-muted/60 hover:text-halo-text"
@@ -376,6 +458,29 @@ export function ApiSection({
         </label>
       )}
 
+      {/* Fallback-модель: при исчерпании ретраев на 429/5xx прогон повторяется
+          на ней (необязательное поле) */}
+      <label className="mb-4 block">
+        <span className="mb-1 block text-xs font-medium text-halo-muted">
+          {t("api.fallbackModel")}
+        </span>
+        <input
+          type="text"
+          value={settings.fallback_model ?? ""}
+          onChange={(e) =>
+            onChange({
+              ...settings,
+              fallback_model: e.target.value.trim() || undefined,
+            })
+          }
+          placeholder={t("api.fallbackModelPh")}
+          className="w-full rounded-lg border border-halo-line bg-halo-surface px-3 py-2 text-sm text-halo-text outline-none transition-colors placeholder:text-halo-muted/60 focus:border-halo-accent/60"
+        />
+        <span className="mt-1 block text-[11px] leading-relaxed text-halo-muted/70">
+          {t("api.fallbackModelHint")}
+        </span>
+      </label>
+
       {/* Локальные модели (Ollama) */}
       <div className="mb-4 rounded-xl border border-halo-line p-3">
         <div className="mb-2 flex items-center gap-2">
@@ -432,6 +537,94 @@ export function ApiSection({
               );
             })}
           </div>
+        )}
+      </div>
+
+      {/* Локальный движок Colibri (coli serve): запуск прямо из приложения */}
+      <div className="mb-4 rounded-xl border border-halo-line p-3">
+        <div className="mb-1.5 flex items-center gap-2">
+          <span
+            className={`size-2 rounded-full ${
+              cbStatus.running ? "bg-emerald-400" : "bg-halo-muted/40"
+            }`}
+          />
+          <span className="text-sm font-medium text-halo-text">
+            {t("api.colibriTitle")}
+          </span>
+          <span className="flex-1" />
+          <button
+            onClick={() => void (cbStatus.running ? cbStop() : cbStart())}
+            disabled={cbBusy}
+            className="rounded-md border border-halo-line px-2 py-0.5 text-[10px] text-halo-muted transition-colors hover:bg-halo-hover hover:text-halo-text disabled:opacity-50"
+          >
+            {cbStatus.running ? t("api.colibriStop") : t("api.colibriStart")}
+          </button>
+        </div>
+        <p className="text-xs leading-relaxed text-halo-muted">
+          {t("api.colibriHint")}
+        </p>
+        <div className="mt-2 flex gap-2">
+          <label className="flex min-w-0 flex-1 flex-col gap-1">
+            <span className="truncate text-xs text-halo-muted">
+              {t("api.colibriExe")}
+            </span>
+            <input
+              type="text"
+              value={colibri.exe}
+              onChange={(e) => setCbField({ exe: e.target.value })}
+              placeholder="coli"
+              className="w-full rounded-lg border border-halo-line bg-halo-surface px-2 py-1.5 text-xs text-halo-text outline-none transition-colors placeholder:text-halo-muted/60 focus:border-halo-accent/60"
+            />
+          </label>
+          <label className="flex w-20 shrink-0 flex-col gap-1">
+            <span className="truncate text-xs text-halo-muted">
+              {t("api.colibriPort")}
+            </span>
+            <input
+              type="number"
+              min={1}
+              max={65535}
+              value={colibri.port}
+              onChange={(e) => {
+                const port = Number(e.target.value);
+                setCbField({ port: Number.isFinite(port) ? port : 8000 });
+                if (settings.provider === "colibri") {
+                  onChange({ ...settings, base_url: `http://localhost:${port}/v1` });
+                }
+              }}
+              className="w-full rounded-lg border border-halo-line bg-halo-surface px-2 py-1.5 text-center text-xs text-halo-text outline-none transition-colors focus:border-halo-accent/60"
+            />
+          </label>
+        </div>
+        <label className="mt-2 flex flex-col gap-1">
+          <span className="truncate text-xs text-halo-muted">
+            {t("api.colibriArgs")}
+          </span>
+          <input
+            type="text"
+            value={colibri.args}
+            onChange={(e) => setCbField({ args: e.target.value })}
+            placeholder="--port 8100 --flag"
+            className="w-full rounded-lg border border-halo-line bg-halo-surface px-2 py-1.5 font-mono text-xs text-halo-text outline-none transition-colors placeholder:text-halo-muted/60 focus:border-halo-accent/60"
+          />
+        </label>
+        <p className="mt-2 text-xs text-halo-muted">
+          {cbStatus.running
+            ? t("api.colibriRunning", { pid: cbStatus.pid ?? 0 })
+            : t("api.colibriStopped")}
+        </p>
+        {cbError && (
+          <p className="mt-1 break-all text-xs text-red-400">{cbError}</p>
+        )}
+        {cbLog.length > 0 && (
+          <details className="mt-1.5">
+            <summary className="cursor-pointer text-xs text-halo-muted">
+              {t("api.colibriLog")}
+            </summary>
+            <pre className="scroll-slim mt-1 max-h-40 overflow-y-auto whitespace-pre-wrap break-all rounded-lg bg-halo-deep/60 p-2 font-mono text-[10px] leading-relaxed text-halo-muted">
+              {cbLog.slice(-100).join("\n")}
+            </pre>
+          </details>
         )}
       </div>
 

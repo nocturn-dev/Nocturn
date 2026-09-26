@@ -50,12 +50,37 @@ pub fn set_config(cfg: NetworkConfig) {
     *CONFIG.lock().unwrap_or_else(|p| p.into_inner()) = Some(cfg);
 }
 
+/// SSRF-aware редиректы: дефолт reqwest следует до 10 редиректов, проверяя
+/// только исходный URL — публичная ссылка, редиректящая на loopback или
+/// метадату (169.254.169.254), пробивала SSRF-фильтры imagegen/browser,
+/// которые смотрят только на первый адрес. Правило: смена хоста с публичного
+/// на приватный запрещена; локальный сервер (Ollama/LM Studio), редиректящий
+/// внутри себя или на другой локальный адрес, не считается эскалацией —
+/// исходный base_url уже настроен пользователем.
+fn ssrf_redirect_policy() -> reqwest::redirect::Policy {
+    reqwest::redirect::Policy::custom(|attempt| {
+        if attempt.previous().len() >= 5 {
+            return attempt.error("too many redirects");
+        }
+        let origin_public = attempt
+            .previous()
+            .first()
+            .is_some_and(|u| crate::browser::url_is_public_http(u.as_str()));
+        if origin_public && !crate::browser::url_is_public_http(attempt.url().as_str()) {
+            // error() забирает attempt по значению — сообщение собираем заранее
+            let msg = format!("redirect to non-public address blocked: {}", attempt.url());
+            return attempt.error(msg);
+        }
+        attempt.follow()
+    })
+}
+
 /// Наложить сетевые настройки на построитель HTTP-клиента.
 /// Ошибки конфигурации (кривой URL, нечитаемый/невалидный PEM) отдаются
 /// наружу — запрос не уйдёт молча в обход настройки.
 pub fn apply(builder: reqwest::ClientBuilder) -> Result<reqwest::ClientBuilder, String> {
     let cfg = config();
-    let mut b = builder;
+    let mut b = builder.redirect(ssrf_redirect_policy());
     if !cfg.proxy.trim().is_empty() {
         let mut proxy = reqwest::Proxy::all(cfg.proxy.trim())
             .map_err(|e| format!("invalid proxy URL: {e}"))?;

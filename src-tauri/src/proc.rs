@@ -11,6 +11,9 @@ const READ_CAP: usize = 256 * 1024; // потолок чтения одного 
 const OUTPUT_LIMIT: usize = 64 * 1024; // лимит при форматировании
 const DRAIN_GRACE: Duration = Duration::from_secs(2);
 
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
 /// Результат запуска: код выхода (None — убит по таймауту либо статус
 /// недоступен), признак таймаута и собранный stdout/stderr.
 pub(crate) struct ProcOutput {
@@ -38,6 +41,21 @@ pub(crate) fn run_command_opts(
         } else {
             Stdio::null()
         });
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        // CREATE_NO_WINDOW: консольные дети (powershell/cmd/git) из
+        // GUI-процесса иначе создают видимое консольное окно на каждый вызов.
+        // hooks.rs ставит тот же флаг сам — перезапись идемпотентна
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    #[cfg(not(windows))]
+    {
+        use std::os::unix::process::CommandExt;
+        // Своя процесс-группа: kill_tree по -pgid гасит и внуков, иначе
+        // `sh -c "sleep 100 &"` при таймауте оставляет сироту с пайпами
+        cmd.process_group(0);
+    }
     let mut child = cmd
         .spawn()
         .map_err(|e| format!("failed to spawn command: {e}"))?;
@@ -53,6 +71,29 @@ pub(crate) fn run_command_opts(
     }
 
     Ok(finish(child, timeout, abort))
+}
+
+/// Гасить процесс вместе с деревом потомков: shell/hooks порождают внуков,
+/// kill одного ребёнка оставляет сирот с унаследованными пайпами/портами
+/// (AGENTS.md: «дочерние процессы гасить деревом»). На Unix ребёнок должен
+/// быть в своей группе — process_group(0) ставится при spawn в этом модуле.
+pub(crate) fn kill_tree(pid: u32) {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        // CREATE_NO_WINDOW: taskkill из GUI-приложения иначе мигнёт консолью
+        let _ = Command::new("taskkill")
+            .args(["/PID", &pid.to_string(), "/T", "/F"])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output();
+    }
+    #[cfg(not(windows))]
+    {
+        // Отрицательный pid = вся процесс-группа; SIGKILL неперехватываем
+        unsafe {
+            libc::kill(-(pid as i32), libc::SIGKILL);
+        }
+    }
 }
 
 /// Ожидание с таймаутом + сбор вывода из пайпов.
@@ -80,14 +121,17 @@ fn finish(mut child: Child, timeout: Duration, abort: Option<&std::sync::atomic:
         match child.try_wait() {
             Ok(Some(st)) => break Some(st),
             Ok(None) => {
-                // Stop: гасим процесс немедленно, не дожидаясь таймаута
+                // Stop: гасим процесс немедленно, не дожидаясь таймаута.
+                // Дерево, а не только ребёнок: иначе внуки живут с пайпами
                 if abort.is_some_and(|f| f.load(std::sync::atomic::Ordering::Relaxed)) {
+                    kill_tree(child.id());
                     let _ = child.kill();
                     let _ = child.wait();
                     timed_out = true;
                     break None;
                 }
                 if started.elapsed() > timeout {
+                    kill_tree(child.id());
                     let _ = child.kill();
                     let _ = child.wait();
                     timed_out = true;
@@ -171,6 +215,37 @@ fn clip(b: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Регресс: Stop (abort-флаг) обязан убить исполняющийся процесс быстро,
+    /// а не дожидаться таймаута. Проверяет и «дерево»: taskkill /T /F (Windows)
+    /// и kill -pgid (Unix) гасят потомков спящего шелла
+    #[test]
+    fn abort_kills_process_immediately() {
+        let flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let f2 = flag.clone();
+        let handle = std::thread::spawn(move || {
+            let mut c = if cfg!(windows) {
+                let mut c = Command::new("powershell");
+                c.args(["-NoProfile", "-NonInteractive", "-Command", "Start-Sleep -Seconds 30"]);
+                c
+            } else {
+                let mut c = Command::new("sh");
+                c.args(["-c", "sleep 30"]);
+                c
+            };
+            run_command_opts(&mut c, Duration::from_secs(60), None, Some(&f2))
+        });
+        // Даём процессу взлететь, затем жмём «Stop»
+        std::thread::sleep(Duration::from_millis(500));
+        let t0 = Instant::now();
+        flag.store(true, std::sync::atomic::Ordering::Relaxed);
+        let out = handle.join().unwrap().unwrap();
+        assert!(out.timed_out, "abort помечает вывод как прерванный");
+        assert!(
+            t0.elapsed() < Duration::from_secs(10),
+            "abort должен убить процесс мгновенно, а не ждать таймаута (60 с)"
+        );
+    }
 
     /// Регресс [A5]: после READ_CAP читатель обязан ДОЧИТАТЬ поток до конца
     /// (не рвать пайп): процесс, пишущий больше лимита, раньше умирал от

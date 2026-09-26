@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
-import { useLang } from "../../locales";
+import { useLang, type Lang } from "../../locales";
 import type { HardLimits } from "../../limits";
 import { NOTIFY_SOUNDS, playSound, refreshCustomSound, NotifyPrefs } from "../../notify";
-import { pickSaveFile, pickJsonFile, pickAudioFile, settingsReadAll, settingsWriteAll, settingsExportWrite, settingsImportRead, soundImport, soundDelete, collectLocal, restoreLocal } from "../../api";
+import { pickSaveFile, pickJsonFile, pickAudioFile, settingsReadAll, settingsWriteAll, settingsExportWrite, settingsImportRead, soundImport, soundDelete, collectLocal, restoreLocal, autostartIsEnabled, autostartSet, storageStats, storageCleanup, quickentrySetBind, type StorageStats } from "../../api";
+import { quickentryComboFromEvent, prettyQuickentryCombo } from "../../shortcuts";
 import { LangSwitch, Row, ToggleRow } from "./parts";
 
 export function HardLimitSection({
@@ -48,6 +49,55 @@ export function HardLimitSection({
   );
 }
 
+/** Формат размера для «Хранилища»: <1 КБ → байты, <1 МБ → КБ, иначе МБ */
+function fmtBytes(n: number, lang: Lang): string {
+  const u = lang === "ru" ? ["Б", "КБ", "МБ"] : ["B", "KB", "MB"];
+  if (n < 1024) return `${n} ${u[0]}`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} ${u[1]}`;
+  return `${(n / (1024 * 1024)).toFixed(1)} ${u[2]}`;
+}
+
+/** Строка «Хранилища»: имя каталога, размер; для чистящихся — двухшаговая кнопка */
+function StorageRow({
+  label,
+  bytes,
+  lang,
+  cleanLabel,
+  confirmLabel,
+  confirm,
+  onClean,
+}: {
+  label: string;
+  bytes: number;
+  lang: Lang;
+  /** Кнопка очистки: подписи обычного и подтверждающего шага */
+  cleanLabel?: string;
+  confirmLabel?: string;
+  confirm?: boolean;
+  onClean?: () => void;
+}) {
+  return (
+    <div className="flex items-center justify-between rounded-lg px-2.5 py-1.5 text-sm">
+      <span className="min-w-0 truncate text-halo-text">{label}</span>
+      <span className="flex shrink-0 items-center gap-2">
+        <span className="text-xs text-halo-muted">{fmtBytes(bytes, lang)}</span>
+        {onClean && cleanLabel && (
+          <button
+            onClick={onClean}
+            className={`rounded-md border px-2.5 py-1 text-xs transition-colors ${
+              confirm
+                ? "border-red-400/50 text-red-400"
+                : "border-halo-line text-halo-muted hover:text-halo-text"
+            }`}
+          >
+            {confirm ? confirmLabel : cleanLabel}
+          </button>
+        )}
+      </span>
+    </div>
+  );
+}
+
 export function MainSection({
   sidebarSide,
   onSidebarSideChange,
@@ -56,16 +106,21 @@ export function MainSection({
   scrollFollow,
   onScrollFollowChange,
   streamSmooth,
+  printSpeed,
   showReasoning,
+  transcriptView,
   askAutoContinue,
   autoArchive,
   archiveRetention,
   onStreamSmoothChange,
+  onPrintSpeedChange,
   onShowReasoningChange,
+  onTranscriptViewChange,
   onAskAutoContinueChange,
   onAutoArchiveChange,
   onArchiveRetentionChange,
   onArchiveNow,
+  onExportChats,
   closeToTray,
   onCloseToTrayChange,
   streamCaret,
@@ -92,8 +147,14 @@ export function MainSection({
   onScrollFollowChange: (v: boolean) => void;
   streamSmooth: boolean;
   onStreamSmoothChange: (v: boolean) => void;
+  /** Множитель скорости плавной печати (0.5 / 1 / 2) */
+  printSpeed: number;
+  onPrintSpeedChange: (v: number) => void;
   showReasoning: boolean;
   onShowReasoningChange: (v: boolean) => void;
+  /** Вид ленты по умолчанию: normal | thinking | verbose */
+  transcriptView: "normal" | "thinking" | "verbose";
+  onTranscriptViewChange: (v: "normal" | "thinking" | "verbose") => void;
   askAutoContinue: boolean;
   onAskAutoContinueChange: (v: boolean) => void;
   autoArchive: boolean;
@@ -101,6 +162,8 @@ export function MainSection({
   archiveRetention: number;
   onArchiveRetentionChange: (d: number) => void;
   onArchiveNow: () => void;
+  /** Экспорт всех чатов одним JSON-архивом */
+  onExportChats: () => void;
   closeToTray: boolean;
   onCloseToTrayChange: (v: boolean) => void;
   streamCaret: boolean;
@@ -122,7 +185,7 @@ export function MainSection({
   limits: HardLimits;
   onLimitsChange: (l: HardLimits) => void;
 }) {
-  const { t } = useLang();
+  const { t, lang } = useLang();
   // Версия — из самого приложения (tauri.conf.json), а не из локали: раньше
   // «0.2.0-alpha» было захардкожено в четырёх словарях и врало после релиза.
   // В браузерном превью getVersion() недоступен — показываем фолбэк из локали
@@ -138,10 +201,117 @@ export function MainSection({
   const versionValue = appVersion
     ? `${t("main.versionStage")} v${appVersion}`
     : t("main.versionVal");
+
+  // Автозапуск с ОС: состояние — истина из плагина (реестр/LaunchAgent),
+  // не из локали; ошибка переключения откатывает тумблер
+  const [autostartOn, setAutostartOn] = useState(false);
+  useEffect(() => {
+    autostartIsEnabled()
+      .then(setAutostartOn)
+      .catch(() => {});
+  }, []);
+  const toggleAutostart = async () => {
+    const next = !autostartOn;
+    setAutostartOn(next);
+    try {
+      await autostartSet(next);
+    } catch {
+      setAutostartOn(!next);
+    }
+  };
+
+  // Хранилище: размеры каталогов appdata; null вне Tauri — блок не рисуем
+  const [stats, setStats] = useState<StorageStats | null>(null);
+  // Строка, у которой кнопка очистки уже в шаге «Точно?»
+  const [confirmKind, setConfirmKind] = useState<"checkpoints" | "images" | null>(null);
+  useEffect(() => {
+    storageStats()
+      .then(setStats)
+      .catch(() => {});
+  }, []);
+  const cleanStorage = async (kind: "checkpoints" | "images") => {
+    // Первый клик — только подтверждение намерения, второй — сама очистка
+    if (confirmKind !== kind) {
+      setConfirmKind(kind);
+      return;
+    }
+    setConfirmKind(null);
+    try {
+      await storageCleanup(kind);
+      const s = await storageStats();
+      if (s) setStats(s);
+    } catch (e) {
+      window.alert(String(e));
+    }
+  };
+
+  // Сегмент «Вид ленты» двигает только авто-раскрытие размышлений.
+  // «Показывать мои сообщения» — отдельный выбор пользователя: сегмент его
+  // не трогает (иначе тумблер «скакал» при переключении видов)
+  const changeTranscriptView = (v: "normal" | "thinking" | "verbose") => {
+    onTranscriptViewChange(v);
+    onShowReasoningChange(v !== "normal");
+  };
+
+  // Quick Entry: глобальное комбо. Храним в localStorage — бекенд применяет
+  // его при старте (App читает prefs до монтирования настроек)
+  const [qeBind, setQeBind] = useState<string>(
+    () => localStorage.getItem("haloui-quickentry-bind") ?? "ctrl+alt+space",
+  );
+  const [qeRecording, setQeRecording] = useState(false);
+  useEffect(() => {
+    if (!qeRecording) return;
+    const onKey = (e: KeyboardEvent) => {
+      // Перехват на capture-фазе: запись не должна дёргать хоткеи и модалку
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.key === "Escape") {
+        setQeRecording(false);
+        return;
+      }
+      const combo = quickentryComboFromEvent(e);
+      if (!combo) return; // соло-модификатор/неподдерживаемая клавиша — ждём
+      setQeRecording(false);
+      setQeBind(combo);
+      localStorage.setItem("haloui-quickentry-bind", combo);
+      void quickentrySetBind(combo).catch(() => {
+        // Комбо могло быть занято другим приложением — откат на прежнее
+        void quickentrySetBind(qeBind).catch(() => {});
+        setQeBind(qeBind);
+        localStorage.setItem("haloui-quickentry-bind", qeBind);
+      });
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [qeRecording, qeBind]);
+
   return (
     <div className="space-y-1">
       <h3 className="mb-3 text-sm font-semibold text-halo-text">{t("settings.main")}</h3>
       <Row label={t("main.version")} value={versionValue} />
+      <ToggleRow
+        label={t("main.autostart")}
+        desc={t("main.autostartDesc")}
+        on={autostartOn}
+        onChange={() => void toggleAutostart()}
+      />
+      <Row
+        label={t("main.quickEntry")}
+        desc={t("main.quickEntryDesc")}
+        value=""
+        extra={
+          <button
+            onClick={() => setQeRecording(true)}
+            className={`min-w-36 rounded-lg border px-3 py-2 text-xs outline-none transition-colors ${
+              qeRecording
+                ? "border-halo-accent/60 bg-halo-accent/10 text-halo-accent"
+                : "border-halo-line bg-halo-surface text-halo-text hover:border-halo-muted/50"
+            }`}
+          >
+            {qeRecording ? t("main.quickEntryRecording") : prettyQuickentryCombo(qeBind)}
+          </button>
+        }
+      />
       <Row
         label={t("main.language")}
         desc={t("main.languageDesc")}
@@ -172,6 +342,31 @@ export function MainSection({
         on={streamSmooth}
         onChange={onStreamSmoothChange}
       />
+      {/* Скорость плавной печати: множитель догоняющего темпа карточки */}
+      {streamSmooth && (
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-halo-line bg-halo-surface/40 px-3 py-2.5">
+          <span className="text-xs text-halo-muted">{t("main.printSpeed")}:</span>
+          {(
+            [
+              [0.5, "main.printSlow"],
+              [1, "main.printNormal"],
+              [2, "main.printFast"],
+            ] as const
+          ).map(([v, key]) => (
+            <button
+              key={key}
+              onClick={() => onPrintSpeedChange(v)}
+              className={`rounded-md border px-2.5 py-1 text-xs transition-colors ${
+                printSpeed === v
+                  ? "border-halo-accent/60 bg-halo-accent/10 text-halo-accent"
+                  : "border-halo-line text-halo-muted hover:text-halo-text"
+              }`}
+            >
+              {t(key)}
+            </button>
+          ))}
+        </div>
+      )}
       <ToggleRow
         label={t("main.streamCaret")}
         desc={t("main.streamCaretDesc")}
@@ -196,6 +391,30 @@ export function MainSection({
         on={showReasoning}
         onChange={onShowReasoningChange}
       />
+      {/* Вид ленты по умолчанию: normal — только ответы, thinking —
+          раскрывать размышления, verbose — плюс сообщения пользователя */}
+      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-halo-line bg-halo-surface/40 px-3 py-2.5">
+        <span className="text-xs text-halo-muted">{t("main.view")}:</span>
+        {(
+          [
+            ["normal", "main.viewNormal"],
+            ["thinking", "main.viewThinking"],
+            ["verbose", "main.viewVerbose"],
+          ] as const
+        ).map(([v, key]) => (
+          <button
+            key={v}
+            onClick={() => changeTranscriptView(v)}
+            className={`rounded-md border px-2.5 py-1 text-xs transition-colors ${
+              transcriptView === v
+                ? "border-halo-accent/60 bg-halo-accent/10 text-halo-accent"
+                : "border-halo-line text-halo-muted hover:text-halo-text"
+            }`}
+          >
+            {t(key)}
+          </button>
+        ))}
+      </div>
       <ToggleRow
         label={t("main.askAutoContinue")}
         desc={t("main.askAutoContinueDesc")}
@@ -359,6 +578,12 @@ export function MainSection({
             {t("main.exportBtn")}
           </button>
           <button
+            onClick={onExportChats}
+            className="rounded-lg border border-halo-line px-3 py-1.5 text-xs text-halo-text transition-colors hover:border-halo-accent/50 hover:bg-halo-hover"
+          >
+            {t("export.chatsBtn")}
+          </button>
+          <button
             onClick={async () => {
               try {
                 const path = await pickJsonFile();
@@ -395,6 +620,37 @@ export function MainSection({
           </button>
         </div>
       </div>
+
+      {/* Хранилище: размеры каталогов appdata. Звуки/шрифты чистятся
+          по-штучно в своих секциях — кнопок очистки у них нет */}
+      {stats && (
+        <div className="rounded-xl border border-halo-line px-3.5 py-3">
+          <p className="text-sm text-halo-text">{t("main.storage")}</p>
+          <div className="mt-1.5">
+            <StorageRow label={t("main.storageConfig")} bytes={stats.config} lang={lang} />
+            <StorageRow
+              label={t("main.storageCheckpoints")}
+              bytes={stats.checkpoints}
+              lang={lang}
+              cleanLabel={t("main.storageClean")}
+              confirmLabel={t("main.storageCleanConfirm")}
+              confirm={confirmKind === "checkpoints"}
+              onClean={() => void cleanStorage("checkpoints")}
+            />
+            <StorageRow
+              label={t("main.storageImages")}
+              bytes={stats.images}
+              lang={lang}
+              cleanLabel={t("main.storageClean")}
+              confirmLabel={t("main.storageCleanConfirm")}
+              confirm={confirmKind === "images"}
+              onClean={() => void cleanStorage("images")}
+            />
+            <StorageRow label={t("main.storageSounds")} bytes={stats.sounds} lang={lang} />
+            <StorageRow label={t("main.storageFonts")} bytes={stats.fonts} lang={lang} />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

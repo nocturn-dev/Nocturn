@@ -13,8 +13,8 @@ pub struct FileEntry {
     pub size: u64,
 }
 
-const LIST_DIR_LIMIT: usize = 500; // максимум записей на папку в ответе
-const LIST_DIR_HARD_CAP: usize = 100_000; // защита от патологических каталогов
+pub(crate) const LIST_DIR_LIMIT: usize = 500; // максимум записей на папку в ответе
+pub(crate) const LIST_DIR_HARD_CAP: usize = 100_000; // защита от патологических каталогов
 
 /// Запись git-статуса (M5.1): относительный путь + двухсимвольный код porcelain
 #[derive(Debug, Serialize)]
@@ -32,6 +32,26 @@ pub async fn git_status(path: String) -> Result<Vec<GitEntry>, String> {
     tauri::async_runtime::spawn_blocking(move || git_status_impl(path))
         .await
         .map_err(|e| format!("join error: {e}"))?
+}
+
+/// Правила проекта (паттерн CLAUDE.md/.cursor/rules): AGENTS.md или CLAUDE.md
+/// из корня проекта. None — ни одного файла нет. Имена фиксированы (никаких
+/// путей от фронта, traversal исключён), потолок 32 КБ — простыня правил
+/// не должна съедать контекст каждой отправки
+#[tauri::command(async)]
+pub fn project_rules_read(root: String) -> Result<Option<String>, String> {
+    let root = std::path::PathBuf::from(root.trim());
+    if !root.is_dir() {
+        return Ok(None);
+    }
+    for name in ["AGENTS.md", "CLAUDE.md"] {
+        let p = root.join(name);
+        if p.is_file() {
+            let text = crate::fsutil::read_capped_string(&p, 32 * 1024)?;
+            return Ok(Some(text));
+        }
+    }
+    Ok(None)
 }
 
 fn git_status_impl(path: String) -> Result<Vec<GitEntry>, String> {
@@ -113,7 +133,9 @@ const CP_KEEP: usize = 20;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub(crate) struct CheckpointFile {
-    /// Путь относительно корня проекта, всегда с "\"
+    /// Путь относительно корня проекта, с нативными разделителями ФС
+    /// (раньше принудительно «\» — на Unix join делал из «src\main.rs»
+    /// файл с литеральным бэкслэшем в имени, и откат на Unix был сломан)
     rel: String,
     /// Содержимое файла в base64 (бинарники тоже пишем без разбора)
     data: String,
@@ -204,7 +226,7 @@ pub(crate) fn collect_files_at(
             }
         } else if meta.is_file() && meta.len() <= CP_MAX_FILE {
             let rel = match path.strip_prefix(root) {
-                Ok(r) => r.to_string_lossy().replace('/', "\\"),
+                Ok(r) => r.to_string_lossy().to_string(),
                 Err(_) => continue,
             };
             if rel.starts_with('.') {
@@ -389,16 +411,27 @@ fn checkpoint_restore_impl(
     }
     let mut restored = 0usize;
     for f in &store.files {
-        // Разрешаем только относительные пути без подъёма; диск/UNC в «относительном»
+        // Формат rel — нативные разделители ФС; старые Windows-чекпоинты с
+        // «\» восстанавливаются как есть. Разбор по ОБОИМ разделителям:
+        // иначе на Unix из «src\main.rs» вырастал плоский файл-мусор
+        let parts: Vec<&str> = f
+            .rel
+            .split(['\\', '/'])
+            .filter(|p| !p.is_empty())
+            .collect();
+        // Абсолютные формы, подъём и «.» — мимо; диск/UNC в «относительном»
         // пути на Windows полностью заменяет базу у join — тоже отказ
-        let rel = f.rel.replace('/', "\\");
-        if rel.starts_with('\\')
-            || rel.contains(':')
-            || rel.split('\\').any(|part| part == ".." || part.is_empty())
+        if parts.is_empty()
+            || parts.iter().any(|p| *p == ".." || *p == ".")
+            || f.rel.starts_with('\\')
+            || f.rel.starts_with('/')
+            || (cfg!(windows) && f.rel.contains(':'))
         {
             continue;
         }
-        let dest = root.join(&rel);
+        // Сборка из отдельных компонентов: компоненты после split сепараторов
+        // не содержат, так что join не может «перескочить» на абсолютный путь
+        let dest = parts.iter().fold(root.clone(), |acc, p| acc.join(p));
         // Существующий dest-симлинк или symlink/junction среди предков —
         // отказ для этого файла (fail closed), запись через ссылку не идёт
         if fs::symlink_metadata(&dest)
@@ -419,6 +452,72 @@ fn checkpoint_restore_impl(
         }
     }
     Ok(restored)
+}
+
+/// Состояние одного файла снимка: «до» из чекпоинта + текущее с диска.
+/// Источник живого диффа для Review: правки мимо fs_write (shell и т.п.)
+/// в результатах инструментов не видны, чекпоинт покрывает их все.
+#[derive(Debug, Serialize)]
+pub struct CheckpointFileState {
+    pub rel: String,
+    /// base64 содержимого из снимка
+    pub before: String,
+    /// base64 текущего файла; None — удалён после снимка либо крупнее капа
+    pub current: Option<String>,
+}
+
+const CP_CURRENT_CAP: u64 = 2 * 1024 * 1024;
+
+#[tauri::command(async)]
+pub async fn checkpoint_files(
+    app: tauri::AppHandle,
+    path: String,
+    id: String,
+) -> Result<Vec<CheckpointFileState>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        if !cp_id_ok(&id) {
+            return Err("bad checkpoint id".into());
+        }
+        let dir = checkpoints_dir(&app, &path)?;
+        let file = dir.join(format!("{id}.json"));
+        let bytes = fs::read(&file).map_err(|e| e.to_string())?;
+        let store: CheckpointStore =
+            serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
+        let root = PathBuf::from(&path);
+        if !root.is_dir() {
+            return Err(format!("not a directory: {path}"));
+        }
+        let mut out = Vec::new();
+        for f in &store.files {
+            // Тот же гард пути, что у restore: только относительные без подъёма
+            let parts: Vec<&str> = f
+                .rel
+                .split(['\\', '/'])
+                .filter(|p| !p.is_empty())
+                .collect();
+            if parts.is_empty()
+                || parts.iter().any(|p| *p == ".." || *p == ".")
+                || f.rel.starts_with('\\')
+                || f.rel.starts_with('/')
+                || (cfg!(windows) && f.rel.contains(':'))
+            {
+                continue;
+            }
+            let dest = parts.iter().fold(root.clone(), |acc, p| acc.join(p));
+            let current = fs::read(&dest)
+                .ok()
+                .filter(|b| (b.len() as u64) <= CP_CURRENT_CAP)
+                .map(|b| B64.encode(b));
+            out.push(CheckpointFileState {
+                rel: f.rel.clone(),
+                before: f.data.clone(),
+                current,
+            });
+        }
+        Ok(out)
+    })
+    .await
+    .map_err(|e| format!("join error: {e}"))?
 }
 
 #[tauri::command(async)]

@@ -19,7 +19,21 @@
         "minHeight": 600,
         "center": true,
         "decorations": false,
-        "shadow": true
+        "shadow": true,
+        "label": "main"
+      },
+      {
+        "label": "quickentry",
+        "url": "index.html?window=quickentry",
+        "width": 540,
+        "height": 104,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "visible": false,
+        "skipTaskbar": true,
+        "resizable": false,
+        "shadow": false
       }
     ],
     "security": {
@@ -27,7 +41,7 @@
         "enable": true,
         "scope": []
       },
-      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost; media-src 'self' data: blob: asset: http://asset.localhost; object-src 'none'; frame-src 'none'"
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: asset: http://asset.localhost https:; font-src 'self' data: asset: http://asset.localhost; connect-src 'self' ipc: http://ipc.localhost; media-src 'self' data: blob: asset: http://asset.localhost; object-src 'none'; frame-src 'none'"
     }
   },
   "bundle": {

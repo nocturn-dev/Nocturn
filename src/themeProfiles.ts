@@ -7,6 +7,8 @@
  */
 
 import { AMBIENT_SCENES, type Appearance } from "./appearance";
+import { isCustomStyleId } from "./themeStyles";
+import { STYLE_PALETTES } from "./themeStyles";
 import type { Theme } from "./types";
 
 export interface ThemeProfile {
@@ -18,19 +20,12 @@ export interface ThemeProfile {
 
 const LS_KEY = "haloui-theme-profiles";
 
-const DARK_STYLES = [
-  "claude",
-  "midnight",
-  "sepia",
-  "abyss",
-  "storm",
-  "dusk",
-  "forest",
-  "rosewood",
-] as const;
+// Канонический список стилей - из данных themeStyles (включает 4 новых),
+// иначе профили с новыми стилями отбрасывались бы валидатором
+const DARK_STYLES: string[] = Object.keys(STYLE_PALETTES);
 
 /** Разбор одной записи: не объект — мимо; поля добираются дефолтами appearance */
-function parseProfile(raw: unknown): ThemeProfile | null {
+export function parseProfile(raw: unknown): ThemeProfile | null {
   if (typeof raw !== "object" || raw === null) return null;
   const p = raw as Record<string, unknown>;
   const name = typeof p.name === "string" ? p.name : "";
@@ -48,7 +43,13 @@ function parseProfile(raw: unknown): ThemeProfile | null {
     theme,
     appearance: {
       accent: typeof a.accent === "string" ? a.accent : "#d97757",
-      style: DARK_STYLES.includes(a.style as never) ? (a.style as Appearance["style"]) : "claude",
+      // custom-* пропускается: на чужой машине (шеринг темы) палитры нет —
+      // честная деградация в claude на уровне CSS, definition не возим
+      style:
+        DARK_STYLES.includes(a.style as never) ||
+        (typeof a.style === "string" && isCustomStyleId(a.style))
+          ? (a.style as Appearance["style"])
+          : "claude",
       scale: num(a.scale, 100, 90, 115),
       glassBlur: num(a.glassBlur, 14, 4, 20),
       termFont: num(a.termFont, 11.5, 10, 16),
@@ -60,6 +61,8 @@ function parseProfile(raw: unknown): ThemeProfile | null {
       officialOled: a.officialOled === true,
       officialContrast: a.officialContrast === true,
       officialMonoCode: a.officialMonoCode === true,
+      reduceMotion: a.reduceMotion === true,
+      motionScale: typeof a.motionScale === 'number' ? a.motionScale : 1,
       ambient: a.ambient === true,
       ambientScene: AMBIENT_SCENES.includes(a.ambientScene as never)
         ? (a.ambientScene as Appearance["ambientScene"])
@@ -68,6 +71,29 @@ function parseProfile(raw: unknown): ThemeProfile | null {
       ambientBrightness: num(a.ambientBrightness, 0.7, 0.3, 1),
       ambientDensity: num(a.ambientDensity, 0.7, 0.3, 1.5),
       ambientRender: a.ambientRender === "behind" ? "behind" : "front",
+      // Опциональные поля Appearance: если их НЕ добирать, применение профиля
+      // молча сбрасывает конструктор градиента, обои и оба тумблера
+      ambientGradFrom: typeof a.ambientGradFrom === "string" ? a.ambientGradFrom : undefined,
+      ambientGradTo: typeof a.ambientGradTo === "string" ? a.ambientGradTo : undefined,
+      ambientGradAngle: typeof a.ambientGradAngle === "number" ? a.ambientGradAngle : undefined,
+      chatWallpaper: typeof a.chatWallpaper === "string" ? a.chatWallpaper : undefined,
+      profileTheme: a.profileTheme === true,
+      projectAccent: a.projectAccent === true,
+      // Кастомизация (шаги 1-7): новые поля добираются дефолтами,
+      // иначе применение профиля молча сбрасывало бы их
+      radius: num(a.radius, 1, 0.4, 1.6),
+      msgScale: num(a.msgScale, 1, 0.85, 1.4),
+      density: num(a.density, 1, 0.6, 1.6),
+      contentWidth: num(a.contentWidth, 768, 640, 1600),
+      showMsgTime: a.showMsgTime === true,
+      accentGradient: a.accentGradient === true,
+      codeStyle: a.codeStyle === "light" ? "light" : "dark",
+      codeTheme: typeof a.codeTheme === "string" ? a.codeTheme : "midnight",
+      termPalette: typeof a.termPalette === "string" ? a.termPalette : "default",
+      termOpacity: num(a.termOpacity, 1, 0.3, 1),
+      termBlur: num(a.termBlur, 0, 0, 20),
+      uiFont: typeof a.uiFont === "string" ? a.uiFont : "",
+      monoFont: typeof a.monoFont === "string" ? a.monoFont : "",
     },
   };
 }

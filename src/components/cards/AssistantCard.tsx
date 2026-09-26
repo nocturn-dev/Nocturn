@@ -1,6 +1,8 @@
 import { summarizeArguments } from "../../diff";
-import { thinkingPhases, useLang } from "../../locales";
+import { useLang } from "../../locales";
 import { type Message } from "../../types";
+import type { StepRow } from "../../agent/steps";
+import { StepAccordion } from "./StepAccordion";
 import { shortModelName } from "../ProviderIcon";
 import { fmtInt } from "./util";
 import { CollapseButton } from "./CollapseButton";
@@ -63,7 +65,7 @@ function CodeBlock({
 
   const apply = async () => {
     try {
-      const path = await pickSaveFile("snippet.txt");
+      const path = await pickSaveFile("snippet.txt", "txt");
       if (!path) return;
       await runTool("fs_write", JSON.stringify({ path, content: text() }));
       setApplied(true);
@@ -102,10 +104,13 @@ function AssistantCardBase({
   message,
   model,
   results,
+  steps,
   hint,
   glassEffect,
+  showMsgTime,
   isStreaming,
   smooth,
+  printSpeed,
   showReasoning,
   caret,
 }: {
@@ -114,12 +119,18 @@ function AssistantCardBase({
   model: string;
   /** Результаты инструментов этого шага — рендерятся внутри карточки */
   results?: { id: string; content: string }[];
+  /** Шаги хода для аккордеона (merged-режим): вместо чипов + ToolStepCard */
+  steps?: StepRow[];
   /** Живой статус стрима этого хода («Размышляет…») — внутри карточки */
   hint?: string | null;
   /** Эффект стекла на карточке (тумблер в «Темах») */
   glassEffect?: boolean;
+  /** Время в шапке (кастомизация); показывается только когда известно (message.ts) */
+  showMsgTime?: boolean;
   isStreaming: boolean;
   smooth: boolean;
+  /** Множитель скорости печати (0.5 медленно / 1 обычно / 2 быстро) */
+  printSpeed: number;
   showReasoning: boolean;
   caret: boolean;
 }) {
@@ -131,31 +142,46 @@ function AssistantCardBase({
   const [shownLen, setShownLen] = useState(() =>
     isStreaming ? Math.max(0, message.content.length - 120) : message.content.length,
   );
+  // Зеркало shownLen между перезапусками эффекта (каждый новый контент его
+  // перезапускает): без него локальный счётчик сбрасывался на 120 символов назад
+  const shownMirror = useRef<number | null>(null);
   useEffect(() => {
     const target = message.content.length;
     if (!isStreaming || !smooth) {
+      shownMirror.current = target;
       setShownLen(target);
       return;
     }
     let raf = 0;
     let last = 0;
+    let shown = shownMirror.current ?? Math.max(0, target - 120);
     const tick = (now: number) => {
-      // D6: 100 мс (~10 кадров) вместо 33: каждый тик ре-парсит ВЕСЬ уже
-      // показанный markdown (react-markdown + highlight.js) — при 30 fps
-      // это была O(n²) работа с подсветкой прямо во время стрима
-      if (now - last >= 100) {
+      // 50 мс: тик ре-парсит показанный markdown (react-markdown + hljs) —
+      // 100 мс давали рваную печать по 10 кадров; 50 — плавно и без O(n²)
+      // на разумных длинах (бюджет D6 поднят: у машин пользователя запас есть)
+      if (now - last >= 50) {
         last = now;
-        setShownLen((prev) => {
-          const backlog = target - prev;
-          if (backlog <= 0) return prev;
-          return prev + Math.max(6, Math.ceil(backlog / 4));
-        });
+        const backlog = target - shown;
+        if (backlog <= 0) {
+          // Догнали текст — гасим rAF-цикл: пока модель думает/идёт tool-шаг,
+          // он раньше молотил вхолостую 60 раз/сек. Новый контент перезапустит
+          // эффект (deps по длине контента)
+          return;
+        }
+        // Множитель скорости: чем больше backlog, тем быстрее догоняем;
+        // printSpeed двигает темп (0.5 лениво / 2 почти вровень с потоком)
+        shown = Math.min(
+          target,
+          shown + Math.max(4, Math.ceil((backlog / 4) * printSpeed)),
+        );
+        shownMirror.current = shown;
+        setShownLen(shown);
       }
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [isStreaming, smooth, message.content.length]);
+  }, [isStreaming, smooth, printSpeed, message.content.length]);
 
   const displayContent =
     smooth && isStreaming
@@ -173,18 +199,6 @@ function AssistantCardBase({
     }
   }, [showReasoning, message.thought]);
   const [collapsed, setCollapsed] = useState(false);
-  const [phaseIdx, setPhaseIdx] = useState(0);
-  const phases = thinkingPhases(lang);
-
-  // Цикл фаз активности, пока модель стримит
-  useEffect(() => {
-    if (!isStreaming) return;
-    const t = window.setInterval(
-      () => setPhaseIdx((p) => (p + 1) % phases.length),
-      2500,
-    );
-    return () => window.clearInterval(t);
-  }, [isStreaming, phases.length]);
 
   const preview =
     message.content.replace(/[#*`>\n]+/g, " ").trim().slice(0, 70) ||
@@ -196,7 +210,7 @@ function AssistantCardBase({
         data-mid={mid}
         onClick={() => setCollapsed(false)}
         title={t("card.expand")}
-        className="anim-fade-up mr-auto flex w-fit max-w-[85%] items-center gap-2 rounded-lg border border-halo-line/70 bg-halo-surface/50 px-3 py-1.5 text-xs text-halo-muted transition-all duration-150 hover:border-halo-line hover:text-halo-text"
+        className="anim-fade-up mr-auto flex w-fit max-w-[85%] items-center gap-2 rounded-lg border border-halo-line/70 bg-halo-surface/50 px-3 py-1.5 text-xs text-halo-muted transition duration-150 hover:border-halo-line hover:text-halo-text"
       >
         <PlusIcon />
         <span className="truncate">{preview}</span>
@@ -220,6 +234,23 @@ function AssistantCardBase({
             {shortModelName(model)}
           </span>
         </span>
+        {/* Прогон ушёл на fallback-модель (429/5xx после ретраев) */}
+        {message.switchedTo && (
+          <span
+            title={t("card.switchedTo", { model: message.switchedTo })}
+            className="shrink-0 rounded bg-amber-400/15 px-1.5 py-0.5 text-[9px] font-medium text-amber-400"
+          >
+            ⇄ {shortModelName(message.switchedTo)}
+          </span>
+        )}
+        {showMsgTime && message.ts != null && (
+          <span className="text-[11px] tabular-nums text-halo-muted/70">
+            {new Date(message.ts).toLocaleTimeString([], {
+              hour: "2-digit",
+              minute: "2-digit",
+            })}
+          </span>
+        )}
         {message.workedMs != null && (
           <span className="text-[11px] text-halo-muted/70">
             {/* FIX: «Worked for» было непереведённым English, а десятичная
@@ -235,7 +266,8 @@ function AssistantCardBase({
         {isStreaming && (
           <span className="ml-auto flex items-center gap-1.5 text-[10px] text-halo-accent/90">
             <span className="typing-dot size-1 rounded-full bg-halo-accent" />
-            {phases[phaseIdx]}…
+            {/* Фейковые фазы («Планирование/Генерация кода») удалены:
+                живой статус хода приходит через hint из движка */}
           </span>
         )}
       </div>
@@ -264,7 +296,6 @@ function AssistantCardBase({
             {isStreaming && (
               <span className="flex items-center gap-1 text-[10px] text-halo-muted/70">
                 <span className="typing-dot size-1 rounded-full bg-halo-muted" />
-                {phases[phaseIdx]}
               </span>
             )}
           </div>
@@ -276,33 +307,41 @@ function AssistantCardBase({
         </div>
       )}
 
-      {message.toolCalls?.map((tc) => (
-        <div
-          key={tc.id}
-          className="mb-1 flex w-fit items-center gap-1.5 rounded-md border border-sky-400/25 bg-sky-400/5 px-2 py-1"
-        >
-          <span className="text-sky-400">
-            {tc.name === "subagent_run" ? <SubagentIcon /> : <ToolIcon />}
-          </span>
-          <span className="font-mono text-[11px] text-halo-text">
-            {tc.name}
-          </span>
-          <span className="max-w-64 truncate font-mono text-[10px] text-halo-muted">
-            {summarizeArguments(tc.name, tc.arguments)}
-          </span>
-        </div>
-      ))}
+      {/* Шаги хода: аккордеон Edit/Terminal/Explore/Asked с живыми деталями
+          (merged-режим); в раздельном режиме шаги остаются карточками ниже */}
+      {steps && steps.length > 0 ? (
+        <StepAccordion steps={steps} />
+      ) : (
+        <>
+          {message.toolCalls?.map((tc) => (
+            <div
+              key={tc.id}
+              className="mb-1 flex w-fit items-center gap-1.5 rounded-md border border-sky-400/25 bg-sky-400/5 px-2 py-1"
+            >
+              <span className="text-sky-400">
+                {tc.name === "subagent_run" ? <SubagentIcon /> : <ToolIcon />}
+              </span>
+              <span className="font-mono text-[11px] text-halo-text">
+                {tc.name}
+              </span>
+              <span className="max-w-64 truncate font-mono text-[10px] text-halo-muted">
+                {summarizeArguments(tc.name, tc.arguments)}
+              </span>
+            </div>
+          ))}
 
-      {/* Результаты инструментов этого шага — внутри ответа, отдельными
-          сворачиваемыми карточками (при клике по заголовку раскрываются) */}
-      {results?.map((r) => (
-        <ToolStepCard
-          key={r.id}
-          mid={r.id}
-          call={message.toolCalls?.find((tc) => tc.id === r.id)}
-          content={r.content}
-        />
-      ))}
+          {/* Результаты инструментов этого шага — внутри ответа, отдельными
+              сворачиваемыми карточками (при клике по заголовку раскрываются) */}
+          {results?.map((r) => (
+            <ToolStepCard
+              key={r.id}
+              mid={r.id}
+              call={message.toolCalls?.find((tc) => tc.id === r.id)}
+              content={r.content}
+            />
+          ))}
+        </>
+      )}
 
       <div className="markdown text-sm leading-relaxed text-halo-text">
         <ReactMarkdown

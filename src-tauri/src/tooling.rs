@@ -6,7 +6,7 @@ use crate::crypto;
 use crate::notes::notes_dir;
 use crate::perm;
 use crate::settings::{config_file, rejects_sensitive_path, save_json_config};
-use crate::{browser, computer, hooks, imagegen, mcp, tools};
+use crate::{browser, computer, hooks, imagegen, mcp, tools, websearch};
 use base64::engine::general_purpose::STANDARD as B64;
 use std::fs;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -18,6 +18,26 @@ use std::path::PathBuf;
 /// Имена mcp__<server>__<tool> маршрутизируются в подключённый MCP-сервер.
 /// По пути прогоняются хуки PreToolUse (может заблокировать) и PostToolUse
 /// (additionalContext дописывается к результату).
+/// Инструмент, отключённый пользователем для задачи (Session.disabledTools):
+/// серверный гардал к фронт-фильтру схем — модель может позвать скрытое.
+/// Отказ ДО perm-слоя и PreToolUse-хуков, как perm-проверка: хуки не должны
+/// исполняться для заведомо заблокированного вызова. Err уходит модели как
+/// обычная ошибка инструмента.
+fn ensure_not_user_disabled(
+    name: &str,
+    disabled: &Option<Vec<String>>,
+) -> Result<(), String> {
+    match disabled {
+        Some(list) if list.iter().any(|n| n == name) => Err(format!(
+            "tool \"{name}\" is disabled by the user for this task; continue without it"
+        )),
+        _ => Ok(()),
+    }
+}
+
+// IPC-граница tauri: плоские аргументы — контракт invoke с фронтенда
+// (как chat_stream в chat.rs)
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub async fn run_tool(
     app: tauri::AppHandle,
@@ -29,11 +49,17 @@ pub async fn run_tool(
     // requestId прогона: по нему Stop находит флаг отмены и убивает
     // исполняющийся процесс немедленно (shell_run, хуки)
     request_id: Option<String>,
+    // Чёрный список инструментов активной задачи (Session.disabledTools);
+    // субагенты наследуют его, не расширяя набор
+    disabled_tools: Option<Vec<String>>,
 ) -> Result<String, String> {
     use tauri::Manager;
 
     let args: serde_json::Value =
         serde_json::from_str(&arguments).map_err(|e| format!("invalid arguments JSON: {e}"))?;
+
+    // Отключённые пользователем: раньше perm-слоя, чтобы хуки не выполнялись
+    ensure_not_user_disabled(&name, &disabled_tools)?;
 
     // Серверный слой прав: бэкенд не «глухой исполнитель» — дубль фронт-логики
     // разрешений (App.tsx). Err уходит модели как обычная ошибка инструмента.
@@ -138,11 +164,33 @@ pub async fn run_tool(
         }
     }
 
-    let notes = notes_dir(&app)?;
+    // notes_dir (fs::create_dir_all) нужен только vault-инструментам: раньше
+    // он гонялся синхронно на tokio-воркере на КАЖДЫЙ тулл-колл, включая
+    // чисто-чатовые, и вставал поперёк стримов на медленном/сетевом диске
+    let notes = if name.starts_with("vault_") {
+        Some(notes_dir(&app)?)
+    } else {
+        None
+    };
+    // memory.json (конфиг-каталог) — только memory-инструментам (тот же мотив)
+    let memory_file = if name.starts_with("memory_") {
+        Some(crate::settings::config_file(&app, "memory.json")?)
+    } else {
+        None
+    };
     let data_dir = app
         .path()
         .app_data_dir()
         .map_err(|e| e.to_string())?;
+    // Синхронный fs::read + AES-расшифровка settings.json — в blocking-пул:
+    // на tokio-воркере это вставало поперёк всех SSE-стримов (класс бага,
+    // уже починенный в network.rs для CA_PEM)
+    let app_for_settings = app.clone();
+    let chat_api = tauri::async_runtime::spawn_blocking(move || {
+        crate::settings::load_settings(app_for_settings).ok()
+    })
+    .await
+    .unwrap_or(None);
     let result = execute_tool_inner(
         mcp_registry,
         browser_registry,
@@ -150,6 +198,8 @@ pub async fn run_tool(
         args.clone(),
         notes,
         data_dir,
+        memory_file,
+        chat_api,
         abort_flag.clone(),
     )
     .await?;
@@ -208,13 +258,21 @@ async fn wait_for_abort(flag: Option<&std::sync::Arc<AtomicBool>>) {
 }
 
 /// Собственно диспетчеризация инструмента (без хуков)
+// IPC-внутренняя граница: плоские параметры (как у run_tool с chat_stream)
+#[allow(clippy::too_many_arguments)]
 pub async fn execute_tool_inner(
     mcp_registry: tauri::State<'_, mcp::McpRegistry>,
     browser_registry: tauri::State<'_, browser::BrowserRegistry>,
     name: String,
     args: serde_json::Value,
-    notes_dir: std::path::PathBuf,
+    // Нужен только vault-инструментам (лениво из run_tool): см. заметку
+    // про синхронный IO в run_tool
+    notes_dir: Option<std::path::PathBuf>,
     data_dir: std::path::PathBuf,
+    // memory.json (конфиг-каталог) — только memory-инструментам
+    memory_file: Option<std::path::PathBuf>,
+    // Подключение чата (settings.json) для фолбэка image_generate
+    chat_api: Option<crate::settings::ApiSettings>,
     abort_flag: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
 ) -> Result<String, String> {
     let arguments = args.to_string();
@@ -249,8 +307,8 @@ pub async fn execute_tool_inner(
         })
         .await
         .map_err(|e| format!("tool task failed: {e}"))??;
-        let args: serde_json::Value = serde_json::from_str(&arguments)
-            .map_err(|e| format!("invalid arguments JSON: {e}"))?;
+        // args уже Value — раньше уходил в строку и парсился обратно
+        let args = args.clone();
         return tauri::async_runtime::spawn_blocking(move || {
             browser::execute_on(&conn, &name, &args)
         })
@@ -261,27 +319,29 @@ pub async fn execute_tool_inner(
     if let Some((server_raw, tool_raw)) = mcp::split_prefixed_name(&name) {
         let server = server_raw.to_string();
         let tool = tool_raw.to_string();
-        // Соединение берём синхронно (дешёвый Arc), блокирующий вызов — в потоке
-        let conn = {
+        // Соединение берём синхронно (дешёвый Arc)
+        let handle = {
             let map = mcp_registry.0.lock().map_err(|e| e.to_string())?;
             map.get(&server)
                 .cloned()
                 .ok_or_else(|| format!("MCP server \"{server}\" is not connected"))?
         };
-        let args: serde_json::Value = serde_json::from_str(&arguments)
-            .map_err(|e| format!("invalid arguments JSON: {e}"))?;
+        let args = args.clone();
         // Таймаут + abort: зависший/однопоточный MCP-сервер, переставший
         // отвечать, раньше вешал runTool навсегда — Stop не помогал, шаг
-        // агента стоял до перезапуска приложения
+        // агента стоял до перезапуска приложения. call_tool теперь async
+        // для обоих транспортов (stdio уходит в spawn_blocking внутри)
         const MCP_TOOL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
         let (server_c, tool_c) = (server.clone(), tool.clone());
-        let call = tauri::async_runtime::spawn_blocking(move || {
-            conn.call_tool(&tool_c, args)
+        let call = async {
+            handle
+                .call_tool(&tool_c, args)
+                .await
                 .map_err(|e| format!("mcp {server_c}.{tool_c}: {e}"))
-        });
+        };
         tokio::pin!(call);
         let result: String = tokio::select! {
-            res = &mut call => res.map_err(|e| format!("tool task failed: {e}"))??,
+            res = &mut call => res.map_err(|e| format!("tool task failed: {e}"))?,
             _ = tokio::time::sleep(MCP_TOOL_TIMEOUT) => {
                 return Err(format!(
                     "mcp {server}.{tool}: timed out after {}s",
@@ -296,13 +356,52 @@ pub async fn execute_tool_inner(
     }
     // Vault-инструменты (заметки): чтение, не мутируют — исполним в потоке
     if name.starts_with("vault_") {
+        let Some(notes_dir) = notes_dir else {
+            return Err("notes directory unavailable".to_string());
+        };
         return tauri::async_runtime::spawn_blocking(move || {
             tools::execute_vault_tool(&notes_dir, &name, &arguments)
         })
         .await
         .map_err(|e| format!("tool task failed: {e}"))?;
     }
-    // Генерация изображений: асинхронный HTTP, дубль-проверка тумблера
+    // Memory-инструменты: memory_save мутирует (perm-слой отфильтровал выше),
+    // memory_recall — чтение. Файл хранилища resolved в run_tool
+    if name.starts_with("memory_") {
+        let Some(memory_file) = memory_file else {
+            return Err("memory storage unavailable".to_string());
+        };
+        return tauri::async_runtime::spawn_blocking(move || {
+            crate::memory::execute_memory_tool(&memory_file, &name, &arguments)
+        })
+        .await
+        .map_err(|e| format!("tool task failed: {e}"))?;
+    }
+    // Веб-поиск: async HTTP, дубль-проверка тумблера. abort на входе: Stop
+    // не должен оставлять «отменённый» запрос в полёте (сам запрос ограничен
+    // таймаутом 20с)
+    if name == "web_search" {
+        if !websearch::config().enabled {
+            return Err("Web search is disabled in Settings".to_string());
+        }
+        if abort_flag
+            .as_ref()
+            .is_some_and(|f| f.load(std::sync::atomic::Ordering::Relaxed))
+        {
+            return Err("aborted by user".to_string());
+        }
+        let query = args
+            .get("query")
+            .and_then(|v| v.as_str())
+            .ok_or("missing required argument: query")?
+            .to_string();
+        let count = args.get("count").and_then(|v| v.as_u64());
+        return websearch::execute(&query, count).await;
+    }
+
+    // Генерация изображений: асинхронный HTTP, дубль-проверка тумблера.
+    // chat_api — текущее подключение из «Подключения к ИИ»: фолбэк, когда
+    // вкладка «Генерация изображений» не заполнена
     if name == "image_generate" {
         let prompt = args
             .get("prompt")
@@ -313,7 +412,17 @@ pub async fn execute_tool_inner(
             .get("size")
             .and_then(|v| v.as_str())
             .map(String::from);
-        return imagegen::generate(&data_dir, &prompt, size.as_deref()).await;
+        // abort: Stop должен останавливать и генерацию картинок, как любой
+        // другой инструмент — иначе «отменённый» шаг висит до ~9 минут
+        // и продолжает тратить кредиты API
+        return imagegen::generate(
+            &data_dir,
+            &prompt,
+            size.as_deref(),
+            chat_api.as_ref(),
+            abort_flag.as_deref(),
+        )
+        .await;
     }
     // Инструменты блокирующие (shell_run — до 300 сек): исполняем в
     // отдельном потоке, иначе главный поток окна замирает на весь таймаут.
@@ -397,6 +506,35 @@ pub fn imagegen_set_config(
     Ok(())
 }
 
+#[tauri::command(async)]
+pub fn websearch_get_config() -> websearch::WebSearchConfig {
+    let mut cfg = websearch::config();
+    // Ключ Brave шифруется на диске как ключи провайдеров (см. imagegen)
+    if crypto::is_encrypted(&cfg.brave_key) {
+        if let Some(plain) = crypto::decrypt(&cfg.brave_key) {
+            cfg.brave_key = plain;
+        }
+    }
+    cfg
+}
+
+#[tauri::command(async)]
+pub fn websearch_set_config(
+    app: tauri::AppHandle,
+    config: websearch::WebSearchConfig,
+) -> Result<(), String> {
+    let mut for_disk = config.clone();
+    if crypto::has_key()
+        && !for_disk.brave_key.is_empty()
+        && !crypto::is_encrypted(&for_disk.brave_key)
+    {
+        for_disk.brave_key = crypto::encrypt(&for_disk.brave_key)?;
+    }
+    save_json_config(&app, "websearch.json", &for_disk)?;
+    websearch::set_config(config);
+    Ok(())
+}
+
 // ---------- Свои звуки уведомлений ----------
 
 /// Разрешённые расширения своей мелодии + MIME для data URL
@@ -440,10 +578,13 @@ pub fn sound_import(app: tauri::AppHandle, src: String) -> Result<String, String
         .map(|e| e.to_string_lossy().to_string())
         .ok_or("file has no extension")?;
     sound_mime(&ext).ok_or(format!("unsupported audio format: .{ext}"))?;
-    let bytes = fs::read(&src_path).map_err(|e| e.to_string())?;
-    if bytes.len() > 5 * 1024 * 1024 {
+    // Лимит ДО чтения: иначе выбранный 10-гигабайтный файл тянулся в память
+    // целиком и падал OOM'ом раньше, чем проверка размера успевала сработать
+    let meta = fs::metadata(&src_path).map_err(|e| e.to_string())?;
+    if meta.len() > 5 * 1024 * 1024 {
         return Err("audio file is larger than 5 MB".into());
     }
+    let bytes = fs::read(&src_path).map_err(|e| e.to_string())?;
     let dir = sound_path(&app)?;
     // Удаляем старую копию с другим расширением, кладём новую
     for e in fs::read_dir(&dir).map_err(|e| e.to_string())?.flatten() {
@@ -648,6 +789,10 @@ pub fn get_tool_schemas(
         if let Some(extra) = vault.as_array() {
             arr.extend(extra.iter().cloned());
         }
+        // Долговременная память: факты (фронт фильтрует по своему тумблеру)
+        if let Some(extra) = crate::memory::memory_tool_schemas().as_array() {
+            arr.extend(extra.iter().cloned());
+        }
         if browser::config().enabled {
             let extra = browser::browser_tool_schemas()
                 .as_array()
@@ -665,6 +810,10 @@ pub fn get_tool_schemas(
         // Генерация изображений: только при включённом тумблере
         if imagegen::config().enabled {
             arr.push(imagegen::imagegen_tool_schema());
+        }
+        // Веб-поиск: только при включённом тумблере
+        if websearch::config().enabled {
+            arr.push(websearch::websearch_tool_schema());
         }
         // Фронтовые инструменты: исполнение целиком на вебвью (App.tsx),
         // Rust отдаёт только схемы
@@ -803,12 +952,39 @@ pub fn save_sessions(app: tauri::AppHandle, data: String) -> Result<(), String> 
     crate::fsutil::atomic_write(&path, data.as_bytes())
 }
 
+/// Обои чата: разрешить вебвью читать выбранное изображение через
+/// asset-протокол (по образцу ambient_video_register)
+// (async): Path::exists() на отвалившемся сетевом диске висит до SMB-таймаута —
+// sync-команда исполнялась на главном потоке и морозила GUI
+#[tauri::command(async)]
+pub fn wallpaper_register(app: tauri::AppHandle, path: String) -> Result<(), String> {
+    const OK: &[&str] = &["png", "jpg", "jpeg", "webp", "gif"];
+    let ext = std::path::Path::new(&path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase())
+        .ok_or("file has no extension")?;
+    if !OK.contains(&ext.as_str()) {
+        return Err(format!("unsupported image format: .{ext} (use png/jpg/webp/gif)"));
+    }
+    if !std::path::Path::new(&path).exists() {
+        return Err("file does not exist".into());
+    }
+    use tauri::Manager;
+    app.asset_protocol_scope()
+        .allow_file(&path)
+        .map_err(|e| format!("cannot allow wallpaper file: {e}"))
+}
+
 /// Ambient: разрешить вебвью читать выбранное пользователем видео через
 /// asset-протокол. Скоуп расширяется ТОЧКО на выбранный файл (allow_file) —
 /// никаких широких "**"-разрешений; расширение проверяем по whitelist.
-#[tauri::command]
+// (async): см. wallpaper_register — fs-доступ вне главного потока
+#[tauri::command(async)]
 pub fn ambient_video_register(app: tauri::AppHandle, path: String) -> Result<(), String> {
-    const OK: &[&str] = &["mp4", "webm", "ogv", "ogg", "mov", "m4v", "mkv"];
+    // ogv/mkv убраны: Chromium-движок (WebView2) не играет Matroska/Theora
+    // в <video> — пользователь получал тихо пустой слой вместо ошибки
+    const OK: &[&str] = &["mp4", "webm", "mov", "m4v"];
     let ext = std::path::Path::new(&path)
         .extension()
         .and_then(|e| e.to_str())
@@ -859,5 +1035,20 @@ mod tests {
         assert!(props["options"]["items"]["properties"]
             .get("preview")
             .is_some());
+    }
+
+    #[test]
+    fn user_disabled_tool_is_rejected() {
+        let disabled = Some(vec!["shell_run".to_string(), "mcp__x__y".to_string()]);
+        assert!(ensure_not_user_disabled("fs_read", &disabled).is_ok());
+        assert!(ensure_not_user_disabled("shell_run", &disabled).is_err());
+        assert!(ensure_not_user_disabled("mcp__x__y", &disabled).is_err());
+        // Нет списка / пустой список — всё разрешено
+        assert!(ensure_not_user_disabled("shell_run", &None).is_ok());
+        assert!(ensure_not_user_disabled("shell_run", &Some(vec![])).is_ok());
+        // Сообщение показывает имя и подсказывает продолжить без него
+        let err = ensure_not_user_disabled("shell_run", &disabled).unwrap_err();
+        assert!(err.contains("shell_run"));
+        assert!(err.contains("disabled by the user"));
     }
 }

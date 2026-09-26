@@ -65,83 +65,63 @@ html.light {
   color-scheme: light;
 }
 
-/* ---------- Стили тёмной темы (кастомизация, «Настройки → Темы»).
-   Применяются только в тёмном режиме; светлая не зависит. ---------- */
-html:not(.light)[data-style="midnight"] {
-  --halo-bg: #141416;
-  --halo-deep: #101012;
-  --halo-surface: #1e1e21;
-  --halo-raised: #28282b;
-  --halo-line: #34343a;
-  --halo-text: #e6e4ea;
-  --halo-muted: #94929a;
-  --halo-code-bg: #0d0d0f;
+/* ---------- Скругления (кастомизация): масштабный коэффициент.
+   Tailwind v4 компилирует rounded-* (включая частичные rounded-br-md)
+   в var(--radius-*), поэтому переопределение переменных масштабирует
+   ВСЕ углы сразу. rounded-full (круги) не трогаем. Дефолт 1 = значения
+   Tailwind без изменений. ---------- */
+:root {
+  /* Шрифты (кастомизация): дефолты = значения Tailwind побайтно */
+  --font-sans: var(
+    --halo-font-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    Roboto,
+    "Helvetica Neue",
+    "Noto Sans",
+    Arial,
+    sans-serif,
+    "Apple Color Emoji",
+    "Segoe UI Emoji",
+    "Segoe UI Symbol",
+    "Noto Color Emoji"
+  );
+  --font-mono: var(
+    --halo-font-mono,
+    ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    Monaco,
+    Consolas,
+    "Liberation Mono",
+    "Courier New",
+    monospace
+  );
+  /* Motion-токены: единый ритм анимаций. --motion-scale (0.7/1/1.4) —
+     пользовательский множитель из «Продвинутых настроек»; все длительности
+     считаются calc(... * scale), поэтому пресет двигает всё сразу */
+  --motion-scale: 1;
+  --motion-fast: calc(120ms * var(--motion-scale));
+  --motion-base: calc(220ms * var(--motion-scale));
+  --motion-slow: calc(320ms * var(--motion-scale));
+  --ease-enter: cubic-bezier(0.05, 0.7, 0.1, 1);
+  --ease-exit: cubic-bezier(0.3, 0, 0.8, 0.15);
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --radius-sm: calc(0.25rem * var(--halo-radius-scale, 1));
+  --radius-md: calc(0.375rem * var(--halo-radius-scale, 1));
+  --radius-lg: calc(0.5rem * var(--halo-radius-scale, 1));
+  --radius-xl: calc(0.75rem * var(--halo-radius-scale, 1));
+  --radius-2xl: calc(1rem * var(--halo-radius-scale, 1));
 }
-html:not(.light)[data-style="sepia"] {
-  --halo-bg: #2b2620;
-  --halo-deep: #241f1a;
-  --halo-surface: #332d26;
-  --halo-raised: #3d362e;
-  --halo-line: #474036;
-  --halo-text: #ece3d2;
-  --halo-muted: #a89a86;
-  --halo-code-bg: #1c1813;
-}
-/* Abyss — Чёрное море: глубокий сине-зелёный */
-html:not(.light)[data-style="abyss"] {
-  --halo-bg: #0c1616;
-  --halo-deep: #091012;
-  --halo-surface: #122020;
-  --halo-raised: #182b2a;
-  --halo-line: #223a38;
-  --halo-text: #dcebe6;
-  --halo-muted: #7fa39b;
-  --halo-code-bg: #0a1312;
-}
-/* Storm — полярная ночь: холодный сине-серый */
-html:not(.light)[data-style="storm"] {
-  --halo-bg: #10141c;
-  --halo-deep: #0c0f16;
-  --halo-surface: #181d27;
-  --halo-raised: #202633;
-  --halo-line: #2b3342;
-  --halo-text: #e2e7f0;
-  --halo-muted: #8d97ab;
-  --halo-code-bg: #0b0e14;
-}
-/* Dusk — поздний вечер: тёмный сине-фиолетовый */
-html:not(.light)[data-style="dusk"] {
-  --halo-bg: #16121f;
-  --halo-deep: #110e18;
-  --halo-surface: #1f1a2b;
-  --halo-raised: #292337;
-  --halo-line: #352d46;
-  --halo-text: #e9e4f2;
-  --halo-muted: #9b91ad;
-  --halo-code-bg: #120e1a;
-}
-/* Forest — ночный лес: глубокий тёмно-зелёный */
-html:not(.light)[data-style="forest"] {
-  --halo-bg: #101613;
-  --halo-deep: #0c110e;
-  --halo-surface: #182019;
-  --halo-raised: #202a21;
-  --halo-line: #2c382c;
-  --halo-text: #e4ece2;
-  --halo-muted: #93a494;
-  --halo-code-bg: #0b100c;
-}
-/* Rosewood — тёмный с тёплым розово-коричневым отливом */
-html:not(.light)[data-style="rosewood"] {
-  --halo-bg: #1a1214;
-  --halo-deep: #140d0f;
-  --halo-surface: #241a1d;
-  --halo-raised: #2f2225;
-  --halo-line: #3d2c30;
-  --halo-text: #f0e6e4;
-  --halo-muted: #a89395;
-  --halo-code-bg: #130c0e;
-}
+
+
+/* ---------- Стили тем (кастомизация, «Настройки → Темы») ----------
+   Палитры стилей живут в данных (src/themeStyles.ts) и инжектируются
+   как <style id="halo-theme-styles"> из applyAppearance: у каждого стиля
+   есть и тёмный, и светлый вариант. Базовая палитра «claude» — выше
+   (:root и html.light). ---------- */
+
 
 @theme inline {
   --color-halo-bg: var(--halo-bg);
@@ -162,6 +142,9 @@ html,
 body,
 #root {
   height: 100%;
+  /* S17: десктопный WebView — гасим scroll-chaining (терминал → лента)
+     и резиновый отскок */
+  overscroll-behavior: none;
 }
 
 /* Плавная смена темы: фон и рамки «перетекают», а не щёлкают */
@@ -177,6 +160,17 @@ header,
 
 body {
   @apply bg-halo-bg font-sans text-halo-text antialiased;
+}
+
+/* ---------- Акцент-градиент (кастомизация): заливка элементов с
+   bg-halo-accent градиентом accent -> deep. Текстовые акценты
+   (text-halo-accent, SVG-иконки) не трогаем: background-clip: text
+   сделал бы их невидимыми. Дефолт (класса нет) = плоский цвет. ---------- */
+html.accent-gradient .bg-halo-accent {
+  background-image: linear-gradient(135deg, var(--halo-accent), var(--halo-accent-deep));
+}
+html.accent-gradient .bg-halo-accent:hover {
+  background-image: linear-gradient(135deg, var(--halo-accent-deep), var(--halo-accent));
 }
 
 /* ---------- Микроанимации ---------- */
@@ -209,21 +203,150 @@ body {
   }
 }
 .anim-fade-up {
-  animation: halo-fade-up 0.25s ease both;
+  animation: halo-fade-up var(--motion-base) var(--ease-enter) both;
 }
 .anim-pop {
-  animation: halo-pop 0.18s cubic-bezier(0.2, 0.8, 0.3, 1) both;
+  animation: halo-pop var(--motion-base) var(--ease-enter) both;
+}
+/* Плавное закрытие модалок: класс вешается на время выхода, потом unmount */
+.anim-pop-out {
+  animation: halo-pop-out var(--motion-fast) var(--ease-exit) both;
+  /* Живой backdrop-blur пересчитывается каждый кадр — на выходе он не нужен */
+  backdrop-filter: none;
+}
+.anim-fade-out {
+  animation: halo-fade-out var(--motion-fast) var(--ease-exit) both;
+}
+@keyframes halo-fade-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+/* Плавный морф размеров модалки через View Transitions API: снапшоты
+   старого/нового состояния анимируются на композиторе — никакого reflow.
+   Без VT-поддержки (старый WebKitGTK) — мгновенная смена размера */
+.settings-vt {
+  view-transition-name: settings-panel;
+}
+::view-transition-old(settings-panel),
+::view-transition-new(settings-panel) {
+  animation-duration: 240ms;
+  animation-timing-function: cubic-bezier(0.2, 0.8, 0.3, 1);
+}
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 150ms;
+}
+/* Превью змейки на карточке «Отдыха»: сегменты ползут при наведении */
+.group:hover .snake-preview-seg {
+  animation: snake-crawl 1.2s ease-in-out infinite;
+}
+@keyframes snake-crawl {
+  0%, 100% { transform: translateX(0); }
+  50% { transform: translateX(6px); }
+}
+html.motion-reduced .snake-preview-seg {
+  animation: none;
+}
+
+/* Найденный через поиск пункт: короткая вспышка акцентом */
+.search-hit {
+  animation: search-hit 1.6s ease both;
+  border-radius: 12px;
+}
+@keyframes search-hit {
+  0%, 60% {
+    outline: 1px solid var(--halo-accent);
+    outline-offset: 6px;
+    background: color-mix(in srgb, var(--halo-accent) 10%, transparent);
+  }
+  100% {
+    outline: 1px solid transparent;
+    background: transparent;
+  }
+}
+
+/* Панель поиска (Ctrl+K): въезд сверху + затухание, морф только панели */
+.search-vt {
+  view-transition-name: search-panel;
+}
+::view-transition-old(search-panel),
+::view-transition-new(search-panel) {
+  animation-duration: var(--motion-base);
+  animation-timing-function: var(--ease-enter);
+}
+/* Внутренние anim-классы не нужны: морфом управляет VT-снапшот */
+.search-vt.anim-pop,
+.search-vt.anim-pop-out {
+  animation: none;
+}
+@keyframes halo-pop-out {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.96);
+  }
 }
 .anim-fade {
-  animation: halo-fade 0.2s ease both;
+  animation: halo-fade var(--motion-base) ease both;
+}
+/* Панели справа (Review/План/Браузер): въезд слева-направо + затухание.
+   До этого класса не существовало в CSS — панели появлялись мгновенно */
+.anim-slide-left {
+  animation: halo-slide-left var(--motion-slow) var(--ease-enter) both;
+}
+@keyframes halo-slide-left {
+  from {
+    opacity: 0;
+    transform: translateX(28px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.anim-slide-left-out {
+  animation: halo-slide-left-out var(--motion-fast) var(--ease-exit) both;
+}
+@keyframes halo-slide-left-out {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: translateX(28px);
+  }
 }
 @media (prefers-reduced-motion: reduce) {
   .anim-fade-up,
   .anim-pop,
   .anim-fade,
+  .anim-slide-left,
+  .anim-slide-left-out,
   .typing-dot,
-  .nav-tick-in {
+  .nav-tick-in,
+  .splash-pulse {
     animation: none;
+  }
+}
+
+/* Splash: пульс лого (S9: раньше <style> реинжектился из компонента
+   на каждый рендер и не глушился при prefers-reduced-motion) */
+.splash-pulse {
+  animation: splash-pulse 2.4s ease-in-out infinite;
+}
+@keyframes splash-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.85;
+  }
+  50% {
+    transform: scale(1.06);
+    opacity: 1;
   }
 }
 
@@ -237,6 +360,24 @@ body {
   .animate-bounce {
     animation: none !important;
   }
+}
+
+/* Motion/Reduced (фидбек 26.09): тумблер в «Кастомизации» форсит то же
+   глушение поверх системной настройки — тот же список + ambient-glow.
+   Canvas-сцены ставит на паузу App (paused у AmbientLayer) */
+html.motion-reduced .anim-fade-up,
+html.motion-reduced .anim-pop,
+html.motion-reduced .anim-pop-out,
+html.motion-reduced .anim-fade,
+html.motion-reduced .typing-dot,
+html.motion-reduced .nav-tick-in,
+html.motion-reduced .splash-pulse,
+html.motion-reduced .animate-pulse,
+html.motion-reduced .animate-ping,
+html.motion-reduced .animate-spin,
+html.motion-reduced .animate-bounce,
+html.motion-reduced body::before {
+  animation: none !important;
 }
 
 ::selection {
@@ -266,6 +407,10 @@ body {
 }
 
 /* ---------- Markdown в ответах ассистента ---------- */
+/* Масштаб текста ответов (кастомизация): дефолт 1 = как было */
+.markdown {
+  font-size: calc(0.875rem * var(--halo-msg-scale, 1));
+}
 .markdown > :first-child {
   margin-top: 0;
 }
@@ -355,8 +500,12 @@ body {
   background: var(--halo-raised);
   border-radius: 0.375rem;
   padding: 0.1rem 0.35rem;
-  font-size: 0.8125rem;
-  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  font-size: calc(0.8125rem * var(--halo-msg-scale, 1));
+  font-family: var(--font-mono);
+}
+.markdown pre,
+.markdown pre code {
+  color: var(--halo-code-text, var(--halo-text));
 }
 .markdown pre {
   background: var(--halo-code-bg);
@@ -369,8 +518,23 @@ body {
 .markdown pre code {
   background: transparent;
   padding: 0;
-  font-size: 0.8125rem;
-  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  font-size: calc(0.8125rem * var(--halo-msg-scale, 1));
+  font-family: var(--font-mono);
+}
+
+/* ---------- Плотность и ширина ленты сообщений (кастомизация).
+   Дефолты = прежний дизайн: gap-5 (1.25rem) и max-w-3xl (48rem).
+   Правила без слоя — осознанно сильнее Tailwind-утилит на контейнере. ---------- */
+.msg-feed {
+  gap: calc(1.25rem * var(--halo-density, 1));
+  max-width: var(--halo-content-width, 48rem);
+}
+
+/* S17: layout/paint-изоляция карточек ленты — пересчёт стрим-кадра не гоняет
+   layout сотен узлов по всей ленте. fixed-потомков внутри карточек нет
+   (проверено), конфликтов с содержимым нет */
+.msg-feed > * {
+  contain: content;
 }
 
 /* ---------- Индикатор «Печатает…» ---------- */
@@ -415,24 +579,45 @@ body {
 
 /* ---------- Эффект стекла (переключается в «Настройках → Темы») ----------
    Под панелями появляется мягкий градиентный «фон рабочего стола»,
-   а сами панели становятся полупрозрачными с размытием. Работает
-   поверх любой темы: цвета берутся из переменных текущей темы. */
+   а сами панели становятся полупрозрачными с размытием.
+   Градиент выводится из ПАЛИТРЫ (accent/deep/bg), а не из хардкода:
+   раньше тёплые терракотовые пятна не менялись со стилем, и смена темы
+   была видна только на сайдбаре (фидбек 26.09). Для движков без
+   color-mix — фолбэк на исходные фиксированные тона. */
 html.glass body {
   background: transparent;
 }
-html.glass {
-  background:
-    radial-gradient(700px 450px at 12% 18%, rgba(217, 119, 87, 0.22), transparent 70%),
-    radial-gradient(800px 550px at 88% 85%, rgba(110, 85, 60, 0.4), transparent 70%),
-    radial-gradient(500px 350px at 70% 10%, rgba(160, 120, 90, 0.16), transparent 70%),
-    var(--halo-bg);
+@supports (background: color-mix(in srgb, red, blue)) {
+  html.glass {
+    background:
+      radial-gradient(700px 450px at 12% 18%, color-mix(in srgb, var(--halo-accent) 22%, transparent), transparent 70%),
+      radial-gradient(800px 550px at 88% 85%, color-mix(in srgb, var(--halo-deep) 55%, transparent), transparent 70%),
+      radial-gradient(500px 350px at 70% 10%, color-mix(in srgb, var(--halo-accent) 10%, transparent), transparent 70%),
+      var(--halo-bg);
+  }
+  html.light.glass {
+    background:
+      radial-gradient(700px 450px at 12% 18%, color-mix(in srgb, var(--halo-accent) 14%, transparent), transparent 70%),
+      radial-gradient(800px 550px at 88% 85%, color-mix(in srgb, var(--halo-deep) 22%, transparent), transparent 70%),
+      radial-gradient(500px 350px at 70% 10%, color-mix(in srgb, var(--halo-accent) 7%, transparent), transparent 70%),
+      var(--halo-bg);
+  }
 }
-html.light.glass {
-  background:
-    radial-gradient(700px 450px at 12% 18%, rgba(217, 119, 87, 0.16), transparent 70%),
-    radial-gradient(800px 550px at 88% 85%, rgba(140, 130, 100, 0.28), transparent 70%),
-    radial-gradient(500px 350px at 70% 10%, rgba(200, 180, 150, 0.25), transparent 70%),
-    var(--halo-bg);
+@supports not (background: color-mix(in srgb, red, blue)) {
+  html.glass {
+    background:
+      radial-gradient(700px 450px at 12% 18%, rgba(217, 119, 87, 0.22), transparent 70%),
+      radial-gradient(800px 550px at 88% 85%, rgba(110, 85, 60, 0.4), transparent 70%),
+      radial-gradient(500px 350px at 70% 10%, rgba(160, 120, 90, 0.16), transparent 70%),
+      var(--halo-bg);
+  }
+  html.light.glass {
+    background:
+      radial-gradient(700px 450px at 12% 18%, rgba(217, 119, 87, 0.16), transparent 70%),
+      radial-gradient(800px 550px at 88% 85%, rgba(140, 130, 100, 0.28), transparent 70%),
+      radial-gradient(500px 350px at 70% 10%, rgba(200, 180, 150, 0.25), transparent 70%),
+      var(--halo-bg);
+  }
 }
 /* Полупрозрачность панелей */
 html.glass .bg-halo-bg {
@@ -479,6 +664,45 @@ html.sidebar-glass aside {
   backdrop-filter: blur(calc(var(--halo-blur, 14px) * 1.6)) saturate(1.35);
   -webkit-backdrop-filter: blur(calc(var(--halo-blur, 14px) * 1.6)) saturate(1.35);
   box-shadow: inset -1px 0 0 color-mix(in srgb, var(--halo-line, #3d3c38) 80%, transparent);
+}
+
+/* C5: WebKitGTK < 2.40 отбрасывает color-mix декларацию целиком — «стекло»
+   исчезало бесследно. Деградация: непрозрачные панели вместо молчаливой
+   пропажи фона (декоративный ambient-glow сознательно не фолбэчим) */
+@supports not (background: color-mix(in srgb, red, blue)) {
+  html.glass .glass-pane {
+    background: var(--halo-deep);
+  }
+  html.glass .bg-halo-bg {
+    background: var(--halo-bg);
+  }
+  html.glass .bg-halo-surface {
+    background: var(--halo-surface);
+  }
+  html.glass .bg-halo-raised {
+    background: var(--halo-raised);
+  }
+  html.sidebar-glass aside {
+    background-color: var(--halo-surface);
+  }
+  ::selection {
+    background: var(--halo-accent);
+  }
+}
+
+/* Фон терминала через класс, а не inline-стиль: у inline нет механизма
+   фолбэка, и на движках без color-mix фон становился прозрачным */
+.terminal-surface {
+  background-color: var(--halo-deep);
+}
+@supports (background: color-mix(in srgb, red, blue)) {
+  .terminal-surface {
+    background-color: color-mix(
+      in srgb,
+      var(--halo-deep) calc(var(--halo-term-opacity, 1) * 100%),
+      transparent
+    );
+  }
 }
 
 /* ---------- Ползунки кастомизации: заметный трек и круглый ручка ---------- */
@@ -627,40 +851,6 @@ html.light .ambient-layer {
   display: none;
 }
 
-/* ---------- Превью кода: две палитры (GitHub Light / Dark) рядом ---------- */
-.codepv-pre {
-  margin: 0;
-  padding: 10px 12px;
-  border-radius: 10px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 11px;
-  line-height: 1.65;
-  overflow: hidden;
-  white-space: pre;
-}
-.codepv-light {
-  background: #ffffff;
-  color: #24292f;
-  border: 1px solid #d0d7de;
-}
-.codepv-light .cp-kw { color: #cf222e; }
-.codepv-light .cp-ty { color: #953800; }
-.codepv-light .cp-st { color: #0a3069; }
-.codepv-light .cp-nm { color: #0550ae; }
-.codepv-light .cp-vr { color: #953800; }
-.codepv-light .cp-pr { color: #116329; }
-.codepv-dark {
-  background: #0d1117;
-  color: #e6edf3;
-  border: 1px solid #30363d;
-}
-.codepv-dark .cp-kw { color: #ff7b72; }
-.codepv-dark .cp-ty { color: #ffa657; }
-.codepv-dark .cp-st { color: #a5d6ff; }
-.codepv-dark .cp-nm { color: #79c0ff; }
-.codepv-dark .cp-vr { color: #ffa657; }
-.codepv-dark .cp-pr { color: #7ee787; }
-
 /* Ambient «за интерфейсом»: слой уходит под контент — сцену видно сквозь
    полупрозрачные панели и в зазорах; оверлей в этом режиме не нужен */
 html[data-ambient-render="behind"] .ambient-layer {
@@ -672,6 +862,12 @@ html[data-ambient-render="behind"] .ambient-layer::after {
 /* то же для сцены glow (body::before) */
 html[data-ambient-render="behind"]:not([data-ambient-scene]) body::before {
   z-index: -1;
+}
+/* Фидбек 26.09: в режиме «за интерфейсом» непрозрачный фон чата полностью
+   перекрывал слой — корень чата становится чуть прозрачным, сцена мягко
+   просвечивает (без стекла, у которого своя политика прозрачности) */
+html[data-ambient-render="behind"].ambient:not(.glass) .bg-halo-bg {
+  background: color-mix(in srgb, var(--halo-bg) 86%, transparent);
 }
 
 /* Стекло выключено → карточка ответа строго плотная: html.glass-правила

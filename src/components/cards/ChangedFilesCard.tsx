@@ -8,9 +8,13 @@ import { memo, useMemo, useState } from "react";
 function ChangedFilesCardBase({
   files,
   onUndo,
+  onReview,
 }: {
   files: ChangedFile[];
   onUndo: (f: ChangedFile) => void;
+  /** Review: открыть правую панель с живым диффом прогона (App собирает
+   *  fs_write-диффы + чекпоинт). Без колбэка кнопка не рендерится */
+  onReview?: () => void;
 }) {
   const { t } = useLang();
   const [open, setOpen] = useState(false);
@@ -55,7 +59,18 @@ function ChangedFilesCardBase({
         <span className="text-[10px] font-medium text-red-400">
           −{total.removed}
         </span>
-        <span className="ml-auto text-halo-muted">
+        {onReview && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onReview();
+            }}
+            className="ml-auto flex shrink-0 items-center gap-1 rounded-md border border-halo-line px-2 py-0.5 text-[10px] text-halo-muted transition-colors hover:border-halo-accent/50 hover:text-halo-text"
+          >
+            Review ↗
+          </button>
+        )}
+        <span className={`text-halo-muted ${onReview ? "" : "ml-auto"}`}>
           <ChevronDownIcon className={open ? "" : "-rotate-90"} />
         </span>
       </button>
@@ -79,6 +94,10 @@ function ChangedFilesCardBase({
                     }
                     className="flex min-w-0 flex-1 items-center gap-2 text-left"
                   >
+                    {/* Нумерация как в Codex: 1. файл путь/ +a −d */}
+                    <span className="w-4 shrink-0 text-right text-[10px] tabular-nums text-halo-muted/60">
+                      {i + 1}.
+                    </span>
                     <span className="text-halo-muted">
                       <ChevronDownIcon className={expanded ? "" : "-rotate-90"} />
                     </span>

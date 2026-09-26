@@ -46,25 +46,22 @@ const PALETTE = [
   "#7fa7ef", "#d498ef", "#7fd8ef", "#f5f3ee",
 ];
 
-/** Достать базовый цвет: мусорный индекс из SGR даёт дефолт, не undefined */
-function paletteAt(i: number): string {
-  return PALETTE[i] ?? "#d6d3cc";
-}
-
-/** Цвет из 256-палитры (16 базовых + куб 6×6×6 + градации серого) */
-function color256(n: number): string {
-  if (n >= 0 && n < 16) return paletteAt(n);
-  if (n < 232) {
-    const c = n - 16;
-    const steps = [0, 95, 135, 175, 215, 255];
-    const r = steps[Math.floor(c / 36)];
-    const g = steps[Math.floor((c % 36) / 6)];
-    const b = steps[c % 6];
-    return `rgb(${r},${g},${b})`;
-  }
-  const v = 8 + (n - 232) * 10;
-  return `rgb(${v},${v},${v})`;
-}
+/** ANSI-палитры терминала (кастомизация): id -> 16 базовых цветов */
+export const TERMINAL_PALETTES: Record<string, string[]> = {
+  default: PALETTE,
+  "one-dark": [
+    "#282c34", "#e06c75", "#98c379", "#e5c07b",
+    "#61afef", "#c678dd", "#56b6c2", "#abb2bf",
+    "#3e4451", "#ef596f", "#89ca78", "#f2cc60",
+    "#70bdf1", "#d29cf2", "#6cc7ca", "#ffffff",
+  ],
+  gruvbox: [
+    "#282828", "#cc241d", "#98971a", "#d79921",
+    "#458588", "#b16286", "#689d6a", "#a89984",
+    "#928374", "#fb4934", "#b8bb26", "#fabd2f",
+    "#83a598", "#d3869b", "#8ec07c", "#ebdbb2",
+  ],
+};
 
 export class Vt {
   readonly cols: number;
@@ -77,10 +74,34 @@ export class Vt {
   private style: Style = { ...DEFAULT_STYLE };
   private response = "";
 
-  constructor(cols = 120, rows = 33) {
+  /** 16 базовых ANSI-цветов (кастомизация); дефолт — фирменная палитра */
+  private colors: string[];
+
+  constructor(cols = 120, rows = 33, palette?: string[]) {
     this.cols = cols;
     this.rowsCount = rows;
+    this.colors = palette && palette.length === 16 ? palette : PALETTE;
     for (let i = 0; i < rows; i++) this.rows.push(this.blankRow());
+  }
+
+  /** Достать базовый цвет: мусорный индекс из SGR даёт дефолт, не undefined */
+  private paletteAt(i: number): string {
+    return this.colors[i] ?? "#d6d3cc";
+  }
+
+  /** Цвет из 256-палитры (16 базовых + куб 6×6×6 + градации серого) */
+  private color256(n: number): string {
+    if (n >= 0 && n < 16) return this.paletteAt(n);
+    if (n < 232) {
+      const c = n - 16;
+      const steps = [0, 95, 135, 175, 215, 255];
+      const r = steps[Math.floor(c / 36)];
+      const g = steps[Math.floor((c % 36) / 6)];
+      const b = steps[c % 6];
+      return `rgb(${r},${g},${b})`;
+    }
+    const v = 8 + (n - 232) * 10;
+    return `rgb(${v},${v},${v})`;
   }
 
   private blankRow(): Cell[] {
@@ -215,7 +236,10 @@ export class Vt {
       .map((p) => (p === "" ? NaN : parseInt(p, 10)));
     const n = (idx: number, dflt: number): number => {
       const v = nums[idx];
-      return v === undefined || isNaN(v) ? dflt : v;
+      if (v === undefined || isNaN(v)) return dflt;
+      // Потолок параметра, как в xterm: длинный цифровой параметр из
+      // битой/malformed-последовательности раньше уезжал в циклы ниже
+      return v > 65535 ? 65535 : v;
     };
 
     if (private_) {
@@ -316,7 +340,11 @@ export class Vt {
   }
 
   private insertLines(n: number) {
-    for (let k = 0; k < n; k++) {
+    // Кламп к размеру экрана: splice+pop в цикле с n от malformed-входа
+    // (`\x1b[999999999L`) вешал UI-поток навсегда — реальных вставок
+    // больше, чем строк на экране, не бывает
+    const count = Math.min(n, this.rowsCount);
+    for (let k = 0; k < count; k++) {
       this.rows.splice(this.row, 0, this.blankRow());
       this.rows.pop();
     }
@@ -346,17 +374,17 @@ export class Vt {
       else if (p === 22) { this.style.bold = false; this.style.dim = false; }
       else if (p === 23) this.style.italic = false;
       else if ((p >= 30 && p <= 37) || (p >= 90 && p <= 97)) {
-        this.style.color = paletteAt(p >= 90 ? p - 90 + 8 : p - 30);
+        this.style.color = this.paletteAt(p >= 90 ? p - 90 + 8 : p - 30);
       } else if (p === 39) this.style.color = undefined;
       else if ((p >= 40 && p <= 47) || (p >= 100 && p <= 107)) {
-        this.style.bg = paletteAt(p >= 100 ? p - 100 + 8 : p - 40);
+        this.style.bg = this.paletteAt(p >= 100 ? p - 100 + 8 : p - 40);
       } else if (p === 49) this.style.bg = undefined;
       else if (p === 38 || p === 48) {
         const target = p === 38 ? "color" : "bg";
         // i-инкремент цикла (+1) учитываем в сдвиге: после 38;5;C следующая
         // итерация должна начаться с параметра C+1, после 38;2;r;g;b — с b+1
         if (nums[i + 1] === 5) {
-          const c = color256(nums[i + 2] ?? 0);
+          const c = this.color256(nums[i + 2] ?? 0);
           if (target === "color") this.style.color = c;
           else this.style.bg = c;
           i += 2;

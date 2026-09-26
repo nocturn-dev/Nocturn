@@ -8,8 +8,15 @@ import type {
   UsageEvent,
 } from "./types";
 import { useLang } from "./locales";
-import { parseWriteResult, normalizePath } from "./diff";
-import { dayKeyLocal } from "./time";
+import {
+  diffLines,
+  diffStats,
+  normalizePath,
+  parseWriteResult,
+} from "./diff";
+import { DiffPanel, type DiffPanelFile } from "./components/DiffPanel";
+import { PlanSidePanel } from "./components/PlanSidePanel";
+import { checkpointFiles } from "./api";
 import {
   firstConfirm,
 } from "./interactions";
@@ -20,54 +27,36 @@ import { useAgentRun } from "./hooks/useAgentRun";
 import {
   loadSettings,
   saveSettings,
-  loadProfiles,
-  saveProfiles,
-  setKeyEncryption,
-  cryptoStatus,
-  cryptoSetup,
-  cryptoUnlock,
-  cryptoReset,
   loadProjectsStore,
   saveProjectsStore,
   testConnection,
-  detectOllama,
   runTool,
   invalidateToolSchemas,
   mcpAutoconnect,
-  loadSessions,
-  saveSessions,
-  setTrayVariant,
-  providerFromBaseUrl,
   notesList,
   notesRead,
   notesWrite,
   notesDelete,
   keepAwake,
-  DEFAULT_SETTINGS,
-  type ApiSettings,
-  type ApiProfile,
-  type ModelInfo,
+  onClearDataRequest,
+  onQuickEntryTask,
+  quickentrySetBind,
+  factoryReset,
 } from "./api";
+import { invoke } from "@tauri-apps/api/core";
+import { useApiSettings } from "./hooks/useApiSettings";
+import { useSessions } from "./hooks/useSessions";
 import {
   loadPromptLibrary,
   savePromptLibrary,
   builtinPresetsFor,
   type PromptPreset,
 } from "./presets";
-import {
-  loadAppearance,
-  saveAppearance,
-  applyAppearance,
-  type Appearance,
-} from "./appearance";
-import {
-  loadThemeProfiles,
-  saveThemeProfiles,
-  type ThemeProfile,
-} from "./themeProfiles";
 import Sidebar from "./components/Sidebar";
 import NocturnMark from "./components/NocturnMark";
 import Splash from "./components/Splash";
+import Onboarding, { type OnboardingResult } from "./components/Onboarding";
+import ResetConfirmModal from "./components/ResetConfirmModal";
 
 
 import ChatArea from "./components/ChatArea";
@@ -101,6 +90,13 @@ import {
 } from "./subagents";
 import { loadLimits, saveLimits, type HardLimits } from "./limits";
 import { uid } from "./hooks/useAgentRun";
+import { useToasts } from "./hooks/useToasts";
+import { registerCustomFonts } from "./fonts";
+import { applyUserCss, readUserCss } from "./userCss";
+import { TERMINAL_PALETTES } from "./vt";
+import { useAppearanceUi } from "./hooks/useAppearanceUi";
+import { useBoolPref, useNumPref, useStringPref } from "./hooks/usePrefs";
+import { withViewTransition } from "./motion";
 import { AmbientLayer } from "./components/AmbientLayer";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 
@@ -109,25 +105,21 @@ const clampNum = (v: number, min: number, max: number) =>
 
 export default function App() {
   const { lang, t } = useLang();
-  // Демо-чаты не создаём: список стартует пустым, задачи — только те,
-  // что создал пользователь («Новая задача» / автоматизации)
-  const [sessions, setSessions] = useState<Session[]>([]);
   // Проекты: единственный источник истины — projects.json (загружается
   // ниже при старте). Демо-проекты не создаём: список стартует пустым
   // и наполняется только вручную («+» во вкладке «Проекты»)
   const [projects, setProjects] = useState<Project[]>([]);
-  const [activeId, setActiveId] = useState<string | null>(null);
-  // Профили ключей — отдельное хранилище profiles.json
-  const [profiles, setProfiles] = useState<ApiProfile[]>([]);
-  const [activeProfileId, setActiveProfileId] = useState("");
-  const profilesLoadedRef = useRef(false);
-  // Настройки ещё не загружены с диска — автосейв ждёт, чтобы не затереть файл
-  const settingsLoadedRef = useRef(false);
   const projectsLoadedRef = useRef(false);
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   // Раздел настроек для программного открытия (плагины из сайдбара)
   const [settingsSection, setSettingsSection] = useState<Section | null>(null);
+  // Пользовательские шрифты: регистрация FontFace после старта
+  useEffect(() => {
+    void registerCustomFonts();
+    applyUserCss(readUserCss());
+  }, []);
+
   // Автообновление: разовая проверка после старта (native-only, тихо)
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -145,19 +137,12 @@ export default function App() {
   // Экран «Автоматизации»
   const [automationsOpen, setAutomationsOpen] = useState(false);
   // Плавающие уведомления (чекпоинты и пр.) — без строк в чате
-  const [toasts, setToasts] = useState<{ id: string; text: string }[]>([]);
-  const addToast = useCallback((text: string) => {
-    const id = uid();
-    setToasts((prev) => [...prev.slice(-3), { id, text }]);
-    window.setTimeout(
-      () => setToasts((prev) => prev.filter((x) => x.id !== id)),
-      4200,
-    );
-  }, []);
+  const { toasts, addToast } = useToasts();
   // Панель живого просмотра браузера агента + тумблер автооткрытия
   const [browserPanelOpen, setBrowserPanelOpen] = useState(false);
-  const [browserAutoPanel, setBrowserAutoPanel] = useState(
-    () => localStorage.getItem("haloui-browser-panel") !== "0",
+  const [browserAutoPanel, setBrowserAutoPanel] = useBoolPref(
+    "haloui-browser-panel",
+    true,
   );
   const browserAutoPanelRef = useRef(browserAutoPanel);
   useEffect(() => {
@@ -167,6 +152,14 @@ export default function App() {
   // выдержка внутри Splash; после фейда Splash зовёт onGone — убираем его
   const [splashDone, setSplashDone] = useState(false);
   const [splashVisible, setSplashVisible] = useState(true);
+  // Онбординг первого запуска: показываем после загрузки хранилищ (splashDone);
+  // флаг haloui-onboarded ставится по завершению визарда или «Пропустить всё»
+  const [onboardingOpen, setOnboardingOpen] = useState(
+    () => !localStorage.getItem("haloui-onboarded"),
+  );
+  // Полный сброс из трея: подтверждение спрашиваем модалкой в окне
+  const [resetOpen, setResetOpen] = useState(false);
+  const [resetBusy, setResetBusy] = useState(false);
 
   // созданный — удаляем
   const handleUndoWrite = useCallback(async (f: ChangedFile) => {
@@ -181,24 +174,44 @@ export default function App() {
     }
   }, []);
 
-  const [theme, setTheme] = useState<Theme>(() =>
-    localStorage.getItem("haloui-theme") === "light" ? "light" : "dark",
-  );
-  const [glass, setGlass] = useState(
-    () => localStorage.getItem("haloui-glass") === "1",
-  );
-  // Кастомизация оформления (акцент, стиль тёмной, масштаб, шрифт терминала)
-  const [appearance, setAppearance] = useState<Appearance>(loadAppearance);
-  // Профили внешнего вида: именованные пресеты (Theme + Appearance)
-  const [themeProfiles, setThemeProfiles] = useState<ThemeProfile[]>(loadThemeProfiles);
+  // ---------- Review: живой дифф прогона в правой панели ----------
+  const [diffReview, setDiffReview] = useState<{
+    open: boolean;
+    files: DiffPanelFile[];
+  }>({ open: false, files: [] });
+
+  // ---------- Панель плана (Plan Mode): авто-открытие при смене режима ----------
+  const [planPanelOpen, setPlanPanelOpen] = useState(false);
+
+  // ---------- Цитата из Review-панели: клик по строке диффа → композер ----------
+  // nonce заставляет ChatArea реагировать и на повторный клик по той же строке
+  const [diffQuote, setDiffQuote] = useState<{ text: string; nonce: number } | null>(null);
+  const handleDiffQuote = useCallback((path: string, line: number, text: string) => {
+    setDiffQuote((prev) => ({
+      text: `${path}:${line}${text.trim() ? `\n${text.trim()}` : ""}`,
+      nonce: (prev?.nonce ?? 0) + 1,
+    }));
+  }, []);
+
+  // Домен «Оформление»: тема, стекло, кастомизация, профили вида
+  const {
+    theme,
+    setTheme,
+    glass,
+    setGlass,
+    appearance,
+    setAppearance,
+    themeProfiles,
+    setThemeProfiles,
+    applyThemeProfile,
+  } = useAppearanceUi();
   // Эргономика: сторона сайдбара, скрытие стартовых подсказок,
   // ширина сайдбара и высота терминала (всё — drag/настройки, с запоминанием)
-  const [sidebarSide, setSidebarSide] = useState<"left" | "right">(() =>
-    localStorage.getItem("haloui-sidebar-side") === "right" ? "right" : "left",
+  const [sidebarSide, setSidebarSide] = useStringPref<"left" | "right">(
+    "haloui-sidebar-side",
+    "left",
   );
-  const [hideStarter, setHideStarter] = useState(
-    () => localStorage.getItem("haloui-hide-starter") === "1",
-  );
+  const [hideStarter, setHideStarter] = useBoolPref("haloui-hide-starter", false);
   // Заметки (M-N1): список + открытая заметка
   const [notes, setNotes] = useState<Note[]>([]);
   const [openNoteFile, setOpenNoteFile] = useState<string | null>(null);
@@ -207,62 +220,55 @@ export default function App() {
   const [chainRunning, setChainRunning] = useState(false);
   const [chain, setChain] = useState<ChainState | null>(null);
   const [chainMonitorOpen, setChainMonitorOpen] = useState(false);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(
-    () => localStorage.getItem("haloui-sidebar-collapsed") === "1",
+  const [sidebarCollapsed, setSidebarCollapsed] = useBoolPref(
+    "haloui-sidebar-collapsed",
+    false,
   );
-  const [sidebarWidth, setSidebarWidth] = useState(() => {
-    const v = parseInt(localStorage.getItem("haloui-sidebar-width") ?? "340", 10);
+  const [sidebarWidth, setSidebarWidth] = useNumPref(
+    "haloui-sidebar-width",
+    340,
     // Старые дефолты (288/320) не влезали в текущий контент — мигрируем
-    const w = isNaN(v) || v === 288 || v === 320 ? 340 : v;
-    return clampNum(w, 220, 440);
-  });
-  const [terminalHeight, setTerminalHeight] = useState(() => {
-    const v = parseInt(localStorage.getItem("haloui-terminal-height") ?? "42", 10);
-    return clampNum(isNaN(v) ? 42 : v, 25, 70);
-  });
-  // Поведение генерации: скролл и печать
-  const [scrollFollow, setScrollFollow] = useState(
-    () => localStorage.getItem("haloui-scroll-follow") === "1",
+    (v) => (isNaN(v) || v === 288 || v === 320 ? 340 : clampNum(v, 220, 440)),
   );
-  const [streamSmooth, setStreamSmooth] = useState(
-    () => localStorage.getItem("haloui-stream-smooth") !== "0",
+  const [terminalHeight, setTerminalHeight] = useNumPref(
+    "haloui-terminal-height",
+    42,
+    (v) => clampNum(isNaN(v) ? 42 : v, 25, 70),
+  );
+  // Поведение генерации: скролл и печать
+  const [scrollFollow, setScrollFollow] = useBoolPref("haloui-scroll-follow", false);
+  const [streamSmooth, setStreamSmooth] = useBoolPref("haloui-stream-smooth", true);
+  // Скорость плавной печати: множитель догоняющего темпаAssistantCard
+  const [printSpeed, setPrintSpeed] = useNumPref("haloui-print-speed", 1, (v) =>
+    [0.5, 1, 2].includes(v) ? v : 1,
   );
   // Рассуждения: раскрывать блок размышлений автоматически
-  const [showReasoning, setShowReasoning] = useState(
-    () => localStorage.getItem("haloui-show-reasoning") === "1",
+  const [showReasoning, setShowReasoning] = useBoolPref("haloui-show-reasoning", false);
+  // Вид ленты по умолчанию: normal — только ответы, thinking — с размышлениями,
+  // verbose — плюс сообщения пользователя; сегмент в «Основном» двигает обе prefs
+  const [transcriptView, setTranscriptView] = useStringPref<"normal" | "thinking" | "verbose">(
+    "haloui-transcript-view",
+    "normal",
   );
   // Автопродолжение ask_user: вопрос без ответа 5 минут — агент продолжит сам
-  const [askAutoContinue, setAskAutoContinue] = useState(
-    () => localStorage.getItem("haloui-ask-auto-continue") !== "0",
-  );
+  const [askAutoContinue, setAskAutoContinue] = useBoolPref("haloui-ask-auto-continue", true);
   // Оболочка консоли терминала: auto | powershell | cmd | gitbash
-  const [termShell, setTermShell] = useState<string>(
-    () => localStorage.getItem("haloui-term-shell") || "auto",
-  );
+  const [termShell, setTermShell] = useStringPref<string>("haloui-term-shell", "auto");
   // Скрывать в трей при закрытии окна (выход — из меню трея)
-  const [closeToTray, setCloseToTray] = useState(
-    () => localStorage.getItem("haloui-close-to-tray") === "1",
-  );
+  const [closeToTray, setCloseToTray] = useBoolPref("haloui-close-to-tray", false);
   // Авто-архив: старые задачи (без пина, старше срока) уходят в архив
-  const [autoArchive, setAutoArchive] = useState(
-    () => localStorage.getItem("haloui-auto-archive") === "1",
+  const [autoArchive, setAutoArchive] = useBoolPref("haloui-auto-archive", false);
+  const [archiveRetention, setArchiveRetention] = useNumPref(
+    "haloui-archive-retention",
+    7,
+    (v) => (v === 3 || v === 30 ? v : 7),
   );
-  const [archiveRetention, setArchiveRetention] = useState<number>(() => {
-    const raw = Number(localStorage.getItem("haloui-archive-retention"));
-    return raw === 3 || raw === 30 ? raw : 7;
-  });
-  const [streamCaret, setStreamCaret] = useState(
-    () => localStorage.getItem("haloui-stream-caret") !== "0",
-  );
+  const [streamCaret, setStreamCaret] = useBoolPref("haloui-stream-caret", true);
   // Показ сообщений пользователя в чате (можно скрыть — останутся только ответы)
-  const [showUserMsgs, setShowUserMsgs] = useState(
-    () => localStorage.getItem("haloui-show-user-msgs") !== "0",
-  );
+  const [showUserMsgs, setShowUserMsgs] = useBoolPref("haloui-show-user-msgs", true);
   // Объединять весь ход агента (мысли + команды + результаты + текст)
   // в одну карточку ответа; иначе каждый шаг — отдельная карточка
-  const [groupTurns, setGroupTurns] = useState(
-    () => localStorage.getItem("haloui-group-turns") !== "0",
-  );
+  const [groupTurns, setGroupTurns] = useBoolPref("haloui-group-turns", true);
   // Журнал использования (раздел «Статистика»): одна запись на отправку
   const [usageLog, setUsageLog] = useState<UsageEvent[]>(() => {
     try {
@@ -272,36 +278,110 @@ export default function App() {
       return [];
     }
   });
+  // Зеркало для отложенного флаша (flush-эффект монтируется один раз)
+  const usageLogRef = useRef(usageLog);
+  useEffect(() => {
+    usageLogRef.current = usageLog;
+  }, [usageLog]);
   // Окно настроек по умолчанию большое (отдельное окно ~1200×820), а не компактное
-  const [settingsLarge, setSettingsLarge] = useState(
-    () => localStorage.getItem("haloui-settings-large") === "1",
-  );
-  // Гейт мастер-пароля: loading → none / unlock / create.
-  // Пока не «none» — автосейвы ключей заблокированы (защита от затирания)
-  const [cryptoGate, setCryptoGate] = useState<"loading" | "none" | "unlock" | "create" | "disable">("loading");
+  const [settingsLarge, setSettingsLarge] = useBoolPref("haloui-settings-large", false);
   // Память проектов: контекст предыдущих задач в новых сессиях
-  const [memoryEnabled, setMemoryEnabled] = useState(
-    () => localStorage.getItem("haloui-memory") === "1",
-  );
+  const [memoryEnabled, setMemoryEnabled] = useBoolPref("haloui-memory", false);
   // Призрачный логотип на фоне чата
-  const [chatMark, setChatMark] = useState(
-    () => localStorage.getItem("haloui-chat-mark") !== "0",
-  );
+  const [chatMark, setChatMark] = useBoolPref("haloui-chat-mark", true);
   // Эффект стекла на карточках ответов ИИ
-  const [msgGlass, setMsgGlass] = useState(
-    () => localStorage.getItem("haloui-msg-glass") === "1",
+  const [msgGlass, setMsgGlass] = useBoolPref("haloui-msg-glass", false);
+
+  // Saved-тост (фидбек 26.09): изменения в открытых настройках не тостят
+  // вовсе (слайдер масштаба хоть по 1% — ни одного лишнего окна); один тост
+  // «Сохранено» — при закрытии модалки, если что-то менялось
+  const settingsTouchedRef = useRef(false);
+  const settingsFingerprint = useMemo(
+    () => JSON.stringify(appearance) + theme + String(glass),
+    [appearance, theme, glass],
   );
+  const prevFingerprintRef = useRef<string | null>(null);
+  useEffect(() => {
+    // prev-хук: изменение отпечатка ВНУТРИ открытых настроек = dirty;
+    // монтирование и само открытие «изменением» не считаются
+    if (!settingsOpen) {
+      prevFingerprintRef.current = null;
+      return;
+    }
+    if (prevFingerprintRef.current !== null && prevFingerprintRef.current !== settingsFingerprint) {
+      settingsTouchedRef.current = true;
+    }
+    prevFingerprintRef.current = settingsFingerprint;
+  }, [settingsFingerprint, settingsOpen]);
+  const closeSettings = useCallback(() => {
+    if (settingsTouchedRef.current) {
+      settingsTouchedRef.current = false;
+      addToast(t("settings.saved"));
+    }
+    setSettingsOpen(false);
+  }, [addToast, t]);
+
   const [searchOpen, setSearchOpen] = useState(false);
   // Терминальный режим (M4.5): панель снизу
   const [terminalOpen, setTerminalOpen] = useState(false);
-  const [apiSettings, setApiSettings] = useState<ApiSettings>({
-    ...DEFAULT_SETTINGS,
+  // Реф «идёт ли стрим» — пишется из streamingId агента ниже; читается автосейвом
+  const streamingActiveRef = useRef(false);
+  // Домен «Задачи»: данные сессий, загрузка истории, автосейв, мутаторы
+  const {
+    sessions,
+    setSessions,
+    sessionsRef,
+    activeId,
+    setActiveId,
+    activeSession,
+    activeSessionRef,
+    loadHistory,
+    notifyModelChanged,
+    archiveOldNow,
+    agentAllowlists,
+    handleSetSystemPrompt,
+    handleToggleAgent,
+    handleSetPermissionMode,
+    handleToggleDisabledTool,
+    handleSetSessionAllowed,
+    handleSetAllowedCommands,
+    handleTogglePin,
+    handleDuplicate,
+    handleArchiveSession,
+    handleTagSession,
+    handleExportSession,
+    handleExportAllChats,
+  } = useSessions({
+    addToast,
+    autoArchive,
+    archiveRetention,
+    setUsageLog,
+    streamingActiveRef,
   });
-  const [apiStatus, setApiStatus] = useState<{
-    kind: "idle" | "checking" | "ok" | "error";
-    message?: string;
-    models?: ModelInfo[];
-  }>({ kind: "idle" });
+
+  // Домен «Подключение к ИИ»: настройки, профили, шифрование, статус соединения
+  const {
+    apiSettings,
+    setApiSettings,
+    apiStatus,
+    setApiStatus,
+    profiles,
+    activeProfileId,
+    cryptoGate,
+    ollamaModels,
+    loadInitial,
+    detectLocal,
+    handleTestConnection,
+    handleSaveSettings,
+    handleEncryptionToggle,
+    handleGateSubmit,
+    handleGateReset,
+    handleGateCancel,
+    handleAddProfile,
+    handleApplyProfile,
+    handleDeleteProfile,
+    handleUseLocalModel,
+  } = useApiSettings({ activeId, sessions, setSessions, appearance });
   // Hard Limit: лимиты расхода на задачу (localStorage) — реф синхронный,
   // его читает handleSend, который живёт в замыкании
   const [limits, setLimits] = useState<HardLimits>(loadLimits);
@@ -323,7 +403,6 @@ export default function App() {
   const [promptLibrary, setPromptLibrary] = useState<PromptPreset[]>(() =>
     loadPromptLibrary(),
   );
-  const [ollamaModels, setOllamaModels] = useState<string[] | null>(null);
   // Корневая папка проекта для файлового менеджера (M4.2), помнит выбор
   const [projectRoot, setProjectRoot] = useState<string | null>(() =>
     localStorage.getItem("haloui-project-root"),
@@ -334,7 +413,6 @@ export default function App() {
     projectRootRef.current = projectRoot;
   }, [projectRoot]);
 
-  const historyLoadedRef = useRef(false);
   const [menu, setMenu] = useState<{
     id: string;
     x: number;
@@ -344,13 +422,9 @@ export default function App() {
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [renamingId, setRenamingId] = useState<string | null>(null);
 
-  // Тема применяется мгновенно и запоминается.
-  // Official-тема всегда тёмная: светлая не применяется, пока она включена
-  useEffect(() => {
-    const forceDark = appearance.official;
-    document.documentElement.classList.toggle("light", theme === "light" && !forceDark);
-    localStorage.setItem("haloui-theme", theme);
-  }, [theme, appearance.official]);
+  // Тема применяется мгновенно и запоминается — в useAppearanceUi (S7:
+  // здесь был дословный дубль эффекта, два источника правды разъезжались
+  // бы при правке одного из них)
 
   // «Не давать ПК уснуть»: тумблер переживает перезапуск, но ОС-уровневый
   // флаг сбрасывается вместе с процессом — восстанавливаем при старте
@@ -359,12 +433,6 @@ export default function App() {
       void keepAwake(true).catch(() => {});
     }
   }, []);
-
-  // Эффект стекла — независимый слой поверх любой темы
-  useEffect(() => {
-    document.documentElement.classList.toggle("glass", glass);
-    localStorage.setItem("haloui-glass", glass ? "1" : "0");
-  }, [glass]);
 
   // Корневая папка файлового менеджера запоминается между запусками
   useEffect(() => {
@@ -398,33 +466,6 @@ export default function App() {
     void refreshNotes();
   }, [refreshNotes]);
 
-  // Кастомизация применяется мгновенно и запоминается
-  useEffect(() => {
-    applyAppearance(appearance);
-    saveAppearance(appearance);
-    // Иконка трея следует за знаком приложения (bold/classic)
-    void setTrayVariant(appearance.markStyle).catch(() => {});
-  }, [appearance]);
-
-  // Профили внешнего вида: персистентность
-  useEffect(() => {
-    saveThemeProfiles(themeProfiles);
-  }, [themeProfiles]);
-
-  // Применение профиля одним кликом: подмена темы и оформления целиком
-  // (glass — отдельный тумблер, в профиль не входит и не трогается)
-  const applyThemeProfile = useCallback((p: ThemeProfile) => {
-    setTheme(p.theme);
-    setAppearance(p.appearance);
-  }, []);
-
-  // Эргономика: персистентность настроек
-  useEffect(() => {
-    localStorage.setItem("haloui-sidebar-side", sidebarSide);
-  }, [sidebarSide]);
-  useEffect(() => {
-    localStorage.setItem("haloui-sidebar-collapsed", sidebarCollapsed ? "1" : "0");
-  }, [sidebarCollapsed]);
   // Плавающая кнопка возврата появляется с небольшой задержкой,
   // когда панель уже складывается — без щелчка
   const [sparkVisible, setSparkVisible] = useState(false);
@@ -436,86 +477,27 @@ export default function App() {
     const t = window.setTimeout(() => setSparkVisible(true), 160);
     return () => window.clearTimeout(t);
   }, [sidebarCollapsed]);
-  useEffect(() => {
-    localStorage.setItem("haloui-hide-starter", hideStarter ? "1" : "0");
-  }, [hideStarter]);
-  useEffect(() => {
-    localStorage.setItem("haloui-sidebar-width", String(sidebarWidth));
-  }, [sidebarWidth]);
-  useEffect(() => {
-    localStorage.setItem("haloui-terminal-height", String(terminalHeight));
-  }, [terminalHeight]);
-  useEffect(() => {
-    localStorage.setItem("haloui-scroll-follow", scrollFollow ? "1" : "0");
-  }, [scrollFollow]);
-  useEffect(() => {
-    localStorage.setItem("haloui-stream-smooth", streamSmooth ? "1" : "0");
-  }, [streamSmooth]);
-  useEffect(() => {
-    localStorage.setItem("haloui-show-reasoning", showReasoning ? "1" : "0");
-  }, [showReasoning]);
-  useEffect(() => {
-    localStorage.setItem("haloui-ask-auto-continue", askAutoContinue ? "1" : "0");
-  }, [askAutoContinue]);
-  useEffect(() => {
-    localStorage.setItem("haloui-term-shell", termShell);
-  }, [termShell]);
-  useEffect(() => {
-    localStorage.setItem("haloui-close-to-tray", closeToTray ? "1" : "0");
-  }, [closeToTray]);
-  useEffect(() => {
-    localStorage.setItem("haloui-auto-archive", autoArchive ? "1" : "0");
-  }, [autoArchive]);
-  useEffect(() => {
-    localStorage.setItem("haloui-archive-retention", String(archiveRetention));
-  }, [archiveRetention]);
 
-  /** Ручной авто-архив: задачи старше срока (кроме закреплённых и активной) */
-  const archiveOldNow = useCallback(() => {
-    const cutoff = Date.now() - archiveRetention * 86_400_000;
-    const ids = new Set(
-      sessions
-        .filter(
-          (s) =>
-            !s.archived &&
-            !s.pinned &&
-            s.id !== activeId &&
-            (s.updatedAt ?? s.createdAt) < cutoff,
-        )
-        .map((s) => s.id),
-    );
-    if (ids.size > 0) {
-      setSessions((prev) =>
-        prev.map((s) => (ids.has(s.id) ? { ...s, archived: true } : s)),
-      );
-    }
-    addToast(t("main.archivedN", { n: ids.size }));
-  }, [sessions, activeId, archiveRetention, addToast, t]);
-
+  // Журнал использования: stringify до 5000 записей на каждый чейндж —
+  // синхронный на главном потоке. Пишем отложенно (dirty + интервал +
+  // beforeunload), как автосейв сессий
+  const usageDirtyRef = useRef(false);
   useEffect(() => {
-    localStorage.setItem("haloui-stream-caret", streamCaret ? "1" : "0");
-  }, [streamCaret]);
-  useEffect(() => {
-    localStorage.setItem("haloui-show-user-msgs", showUserMsgs ? "1" : "0");
-  }, [showUserMsgs]);
-  useEffect(() => {
-    localStorage.setItem("haloui-group-turns", groupTurns ? "1" : "0");
-  }, [groupTurns]);
-  useEffect(() => {
-    localStorage.setItem("haloui-usage", JSON.stringify(usageLog.slice(-4999)));
+    usageDirtyRef.current = true;
   }, [usageLog]);
   useEffect(() => {
-    localStorage.setItem("haloui-settings-large", settingsLarge ? "1" : "0");
-  }, [settingsLarge]);
-  useEffect(() => {
-    localStorage.setItem("haloui-memory", memoryEnabled ? "1" : "0");
-  }, [memoryEnabled]);
-  useEffect(() => {
-    localStorage.setItem("haloui-chat-mark", chatMark ? "1" : "0");
-  }, [chatMark]);
-  useEffect(() => {
-    localStorage.setItem("haloui-msg-glass", msgGlass ? "1" : "0");
-  }, [msgGlass]);
+    const flushUsage = () => {
+      if (!usageDirtyRef.current) return;
+      usageDirtyRef.current = false;
+      localStorage.setItem("haloui-usage", JSON.stringify(usageLogRef.current.slice(-4999)));
+    };
+    const id = window.setInterval(flushUsage, 10_000);
+    window.addEventListener("beforeunload", flushUsage);
+    return () => {
+      window.clearInterval(id);
+      window.removeEventListener("beforeunload", flushUsage);
+    };
+  }, []);
 
   // Drag-ресайз сайдбара и терминала: слушатели вешаются один раз,
   // активная зона выбирается рефом на mousedown
@@ -564,7 +546,9 @@ export default function App() {
       window.removeEventListener("mouseup", onUp);
       window.removeEventListener("blur", onBlur);
     };
-  }, [sidebarSide]);
+    // setSidebarWidth/setTerminalHeight — стабильные useState-сеттеры из
+    // useNumPref; перечислены явно: сквозь хук линтер стабильности не видит
+  }, [sidebarSide, setSidebarWidth, setTerminalHeight]);
 
   const startSidebarResize = () => {
     resizeRef.current = "sidebar";
@@ -582,77 +566,28 @@ export default function App() {
 
   // Загружаем сохранённые настройки API и историю при старте
   useEffect(() => {
-    const settingsReady = loadSettings()
-      .then((s) => {
-        if (s.api_key || s.base_url || s.model) {
-          // Старые настройки без метки провайдера — восстанавливаем по URL
-          if (!s.provider) s.provider = providerFromBaseUrl(s.base_url);
-          setApiSettings(s);
-          // Свежий список моделей при старте — для vision-предупреждений
-          if (s.api_key && s.base_url) {
-            setApiStatus({ kind: "checking" });
-            testConnection(s.base_url, s.api_key)
-              .then((models) =>
-                setApiStatus({
-                  kind: "ok",
-                  models,
-                  message: t("api.connected", { n: models.length }),
-                }),
-              )
-              .catch((e) =>
-                setApiStatus({ kind: "error", message: String(e) }),
-              );
-          }
-        }
-      })
-      .catch(() => {
-        // Настройек ещё нет — остаёмся с дефолтами
-      })
-      .finally(() => {
-        settingsLoadedRef.current = true;
-      });
-    // Профили: отдельное хранилище, при первом запуске мигрируют из settings.json
-    const profilesReady = loadProfiles()
-      .then((store) => {
-        // Защита от битого/неожиданного ответа хранилища
-        setProfiles(
-          Array.isArray((store as { profiles?: unknown })?.profiles)
-            ? (store.profiles as ApiProfile[])
-            : [],
-        );
-        setActiveProfileId(
-          typeof (store as { active?: unknown })?.active === "string"
-            ? (store.active as string)
-            : "",
-        );
-      })
-      .catch(() => {})
-      .finally(() => {
-        profilesLoadedRef.current = true;
-      });
-    // Гейт мастер-пароля: если шифрование включено и хранилище заперто —
-    // блокируем интерфейс окном входа до разблокировки
-    cryptoStatus()
-      .then((cs) => {
-        if (cs.enabled && !cs.unlocked) {
-          setCryptoGate(cs.setup ? "unlock" : "create");
-        } else {
-          setCryptoGate("none");
-        }
-      })
-      .catch(() => setCryptoGate("none"));
+    // Домен API: настройки + профили + гейт пароля (внутри хука)
+    const apiReady = loadInitial();
     // Проекты: миграция из localStorage в projects.json
     const projectsReady = loadProjectsStore()
       .then((recs) => {
         if (Array.isArray(recs) && recs.length > 0) {
           setProjects(
-            recs.map((r) => {
-              const rec = r as { id: string; name: string; profile_id?: string };
-              return {
-                id: rec.id,
-                name: rec.name,
-                profileId: rec.profile_id || undefined,
-              };
+            // Диск не доверяем: битая запись (name: null и т.п.) раньше
+            // доезжала до UI как undefined и падала в рендере сайдбара
+            recs.flatMap((r) => {
+              if (typeof r !== "object" || r === null) return [];
+              const rec = r as Record<string, unknown>;
+              if (typeof rec.id !== "string" || typeof rec.name !== "string") return [];
+              return [
+                {
+                  id: rec.id,
+                  name: rec.name,
+                  profileId:
+                    typeof rec.profile_id === "string" ? rec.profile_id : undefined,
+                  accent: typeof rec.accent === "string" ? rec.accent : undefined,
+                },
+              ];
             }),
           );
         }
@@ -662,212 +597,17 @@ export default function App() {
       .finally(() => {
         projectsLoadedRef.current = true;
       });
-    const historyReady = loadSessions()
-      .then((data) => {
-        if (data) {
-          try {
-            const parsed = JSON.parse(data) as Session[];
-            if (Array.isArray(parsed) && parsed.length > 0) {
-              // Авто-архив при старте: старые задачи (кроме закреплённых) — в архив
-              if (autoArchive) {
-                const cutoff = Date.now() - archiveRetention * 86_400_000;
-                const staleIds = new Set(
-                  parsed
-                    .filter(
-                      (s) =>
-                        !s.archived &&
-                        !s.pinned &&
-                        (s.updatedAt ?? s.createdAt) < cutoff,
-                    )
-                    .map((s) => s.id),
-                );
-                if (staleIds.size > 0) {
-                  setSessions((prev) => {
-                    // C4: сессии, созданные пользователем, пока история
-                    // читалась с диска, не должны затираться снапшотом
-                    const diskIds = new Set(parsed.map((s) => s.id));
-                    const localOnly = prev.filter((s) => !diskIds.has(s.id));
-                    return [
-                      ...localOnly,
-                      ...parsed.map((s) =>
-                        staleIds.has(s.id) ? { ...s, archived: true } : s,
-                      ),
-                    ];
-                  });
-                  addToast(t("main.archivedN", { n: staleIds.size }));
-                  return;
-                }
-              }
-              setSessions((prev) => {
-                // C4: merge, не замена — за время холодного чтения диска
-                // (антивирус, медленный SSD) пользователь успевал создать
-                // задачу, и setSessions(parsed) терял её навсегда
-                const diskIds = new Set(parsed.map((s) => s.id));
-                const localOnly = prev.filter((s) => !diskIds.has(s.id));
-                return localOnly.length > 0 ? [...localOnly, ...parsed] : parsed;
-              });
-              // Бэкфилл журнала использования из старой истории
-              // (без дат сообщений — относим расход ко дню создания задачи)
-              if (
-                !localStorage.getItem("haloui-usage-backfill") &&
-                !localStorage.getItem("haloui-usage")
-              ) {
-                const backfill: UsageEvent[] = [];
-                for (const s of parsed) {
-                  const day = dayKeyLocal(new Date(s.createdAt));
-                  for (const m of s.messages) {
-                    if (m.role === "assistant" && m.usage) {
-                      backfill.push({
-                        day,
-                        prompt: m.usage.prompt,
-                        completion: m.usage.completion,
-                        model: m.model ?? "?",
-                        workedMs: m.workedMs ?? 0,
-                      });
-                    }
-                  }
-                }
-                if (backfill.length > 0) setUsageLog(backfill);
-                localStorage.setItem("haloui-usage-backfill", "1");
-              }
-            }
-          } catch {
-            // повреждённая история — начинаем с чистого листа
-          }
-        }
-      })
-      .catch(() => {})
-      .finally(() => {
-        historyLoadedRef.current = true;
-      });
-    // Сплэш: приложение готово, когда все четыре хранилища прочитаны
+    const historyReady = loadHistory();
+    // Сплэш: приложение готово, когда все хранилища прочитаны
     // (ошибки не мешают готовности — .finally уже отработал в каждом)
-    void Promise.all([
-      settingsReady,
-      profilesReady,
-      projectsReady,
-      historyReady,
-    ]).then(() => setSplashDone(true));
+    void Promise.all([apiReady, projectsReady, historyReady]).then(() =>
+      setSplashDone(true),
+    );
     // mount-only: загрузка выполняется один раз за сессию; autoArchive/
     // archiveRetention/addToast/t — снимок на момент старта, повторный
     // запуск эффекта при их смене перечитывал бы хранилища заново
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  // Автосохранение истории.
-  // FIX [perf]: раньше трейлинг-дебаунс 400мс перезапускался каждой дельтой
-  // стрима, а потом строкифицировал ВЕСЬ стор (включая base64-вложения) на
-  // главном потоке. Теперь dirty-флаг + периодический сейв: не чаще раза
-  // в 3с независимо от плотности стрима, а окно потери данных ограничено.
-  const sessionsDirtyRef = useRef(false);
-  useEffect(() => {
-    if (!historyLoadedRef.current) return;
-    sessionsDirtyRef.current = true;
-  }, [sessions]);
-  // Во время активного стрима stringify всего стора (с base64-вложениями)
-  // каждые 3с давал регулярные фризы: дельты держат стор «грязным»
-  // постоянно. Стримим → пропускаем, dirty остаётся; сбросим на finalize
-  // (следующий тик после окончания) или на beforeunload.
-  // streamingId объявлен ниже (useAgentRun) — пишем в ref там же.
-  const streamingActiveRef = useRef(false);
-  useEffect(() => {
-    // C14: очередь записи — flush-интервал 3с не ждал завершения предыдущего
-    // saveSessions; на больших историях stringify+IPC превышали 3с, два
-    // параллельных invoke заканчивались в произвольном порядке, и на диск
-    // мог лечь более старый снапшот
-    const saveQueue = { p: Promise.resolve() };
-    let failStreak = 0;
-    const enqueueSave = (payload: string) => {
-      saveQueue.p = saveQueue.p
-        .then(() => saveSessions(payload))
-        .then(() => {
-          failStreak = 0;
-        })
-        .catch(() => {
-          // Тихий .catch терял правки навсегда: помечаем стор снова грязным
-          // (ретрай на следующем тике) и один раз показываем ошибку
-          sessionsDirtyRef.current = true;
-          failStreak += 1;
-          if (failStreak === 3) addToast(t("error.saveFailed"));
-        });
-    };
-    const flush = () => {
-      if (!sessionsDirtyRef.current) return;
-      if (streamingActiveRef.current) return;
-      sessionsDirtyRef.current = false;
-      enqueueSave(JSON.stringify(sessionsRef.current));
-    };
-    // A15: 10 с вместо 3 с — stringify всего стора (с base64-вложениями,
-    // теперь сжатыми) на каждый тик давал периодические фризы; окно потери
-    // при краше ограничено beforeunload-флашем
-    const id = window.setInterval(flush, 10_000);
-    // Закрытие окна — последний сейв, если есть несохранённое
-    window.addEventListener("beforeunload", flush);
-    return () => {
-      window.clearInterval(id);
-      window.removeEventListener("beforeunload", flush);
-      // Размонтирование (StrictMode/HMR): не теряем накопленное
-      const wasStreaming = streamingActiveRef.current;
-      streamingActiveRef.current = false;
-      if (wasStreaming) {
-        enqueueSave(JSON.stringify(sessionsRef.current));
-      } else {
-        flush();
-      }
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Автосохранение настроек API: любое изменение (включая смену профиля
-  // из чата) попадает на диск без кнопки «Сохранить».
-  // Пока гейт пароля не пройден — не пишем (не затираем зашифрованные поля)
-  useEffect(() => {
-    if (!settingsLoadedRef.current || cryptoGate !== "none") return;
-    const t = window.setTimeout(() => {
-      saveSettings(apiSettings).catch(() => {});
-    }, 500);
-    return () => window.clearTimeout(t);
-  }, [apiSettings, cryptoGate]);
-
-  // C15: уведомление «модель изменена» живёт в обработчике ручной смены
-  // модели (onModelChange ниже). Эффект на [apiSettings.model, activeId]
-  // срабатывал и при ПОДСТАНОВКЕ модели профилем при открытии чата:
-  // переключение между задачами с разными профилями засоряло историю
-  // обоих чатов мусорными сообщениями, персистящимися в sessions.json
-  const notifyModelChanged = useCallback(
-    (model: string) => {
-      setSessions((cur) =>
-        cur.map((s) =>
-          s.id === activeId && s.messages.length > 0
-            ? {
-                ...s,
-                messages: [
-                  ...s.messages,
-                  {
-                    id: uid(),
-                    role: "assistant" as const,
-                    content: t("chat.modelChanged", { model }),
-                  },
-                ],
-              }
-            : s,
-        ),
-      );
-    },
-    [activeId, t],
-  );
-
-  // Автосохранение профилей (profiles.json); ключи шифруются, если включено
-  useEffect(() => {
-    if (!profilesLoadedRef.current || cryptoGate !== "none") return;
-    const t = window.setTimeout(() => {
-      saveProfiles(
-        { profiles, active: activeProfileId },
-        apiSettings.encrypt_keys ?? false,
-      ).catch(() => {});
-    }, 300);
-    return () => window.clearTimeout(t);
-  }, [profiles, activeProfileId, apiSettings.encrypt_keys, cryptoGate]);
 
   // Автосохранение проектов (projects.json, миграция из localStorage)
   useEffect(() => {
@@ -878,207 +618,71 @@ export default function App() {
           id: p.id,
           name: p.name,
           profile_id: p.profileId ?? "",
+          accent: p.accent ?? null,
         })),
       ).catch(() => {});
     }, 400);
     return () => window.clearTimeout(t);
   }, [projects]);
 
-  const handleTestConnection = useCallback(() => {
-    setApiStatus({ kind: "checking" });
-    testConnection(apiSettings.base_url, apiSettings.api_key)
-      .then((models) =>
-        setApiStatus({
-          kind: "ok",
-          models,
-          message: t("api.connected", { n: models.length }),
-        }),
-      )
-      .catch((e) => setApiStatus({ kind: "error", message: String(e) }));
-  }, [apiSettings.base_url, apiSettings.api_key, t]);
+  // Создание задачи с наследованием профиля проекта. Используется и для
+  // «Новая задача», и для предварительного включения тумблеров (агент/режим/
+  // промт/инструменты) до того, как чат существует
+  const createChat = useCallback(
+    (over: Partial<Session>): void => {
+      const project = projects.find((p) => p.id === activeProjectId);
+      const session: Session = {
+        id: uid(),
+        title: t("chat.new"),
+        createdAt: Date.now(),
+        messages: [],
+        projectId: activeProjectId ?? undefined,
+        profileId: activeProfileId || project?.profileId || undefined,
+        ...over,
+      };
+      setSessions((prev) => [session, ...prev]);
+      setActiveId(session.id);
+    },
+    [activeProjectId, activeProfileId, projects, t, setSessions, setActiveId],
+  );
 
-  const handleSaveSettings = async () => {
-    await saveSettings(apiSettings);
+  // Opt-in «Тема из профиля»: при переключении профиля (или открытии чата,
+  // привязанного к нему) применяется сохранённое в профиле оформление
+  const profileThemeOn = appearance.profileTheme ?? false;
+  useEffect(() => {
+    if (!profileThemeOn) return;
+    const p = profiles.find((x) => x.id === activeProfileId);
+    if (!p?.appearance) return;
+    setAppearance((cur) => ({ ...cur, ...p.appearance }));
+  }, [profileThemeOn, activeProfileId, profiles, setAppearance]);
+
+  // Opt-in «Акцент проекта»: при выборе проекта применяется его акцент.
+  // При выходе из проекта акцент остаётся текущим (меняется вручную)
+  const projectAccentOn = appearance.projectAccent ?? false;
+  useEffect(() => {
+    if (!projectAccentOn || !activeProjectId) return;
+    const acc = projects.find((p) => p.id === activeProjectId)?.accent;
+    if (acc) setAppearance((cur) => ({ ...cur, accent: acc }));
+  }, [projectAccentOn, activeProjectId, projects, setAppearance]);
+
+  // Акцент проекта: hex через prompt (по образцу тега задачи)
+  const handleProjectAccent = (id: string) => {
+    const cur = projects.find((p) => p.id === id)?.accent ?? "";
+    const input = window.prompt(t("menu.projectAccent"), cur);
+    if (input === null) return;
+    const hex = input.trim();
+    if (hex !== "" && !/^#[0-9a-fA-F]{6}$/.test(hex)) {
+      addToast(t("menu.projectAccentBad"));
+      return;
+    }
+    setProjects((prev) =>
+      prev.map((p) => (p.id === id ? { ...p, accent: hex || undefined } : p)),
+    );
   };
 
-  // Ожидание создания мастер-пароля при включении тумблера шифрования
-  const encPendingRef = useRef(false);
-
-  /** Перечитать ключи с диска (после разблокировки/смены шифрования) */
-  const reloadSecrets = useCallback(async () => {
-    const [s, store] = await Promise.all([loadSettings(), loadProfiles()]);
-    setApiSettings(s);
-    setProfiles(store.profiles ?? []);
-    setActiveProfileId(store.active ?? "");
-  }, []);
-
-  /** Тумблер шифрования: включение открывает окно создания мастер-пароля,
-      выключение — окно разблокировки (расшифровать можно только с паролем) */
-  const handleEncryptionToggle = useCallback(
-    async (enable: boolean) => {
-      if (enable) {
-        encPendingRef.current = true;
-        setCryptoGate("create");
-        return true;
-      }
-      setCryptoGate("disable");
-      return true;
-    },
-    [],
-  );
-
-  /** Сабмит из окна гейта: создание пароля, разблокировка или отключение шифрования */
-  const handleGateSubmit = useCallback(
-    async (password: string) => {
-      // cryptoSetup/cryptoUnlock бросают при неверном пароле — гейт показывает ошибку
-      try {
-        if (cryptoGate === "create") {
-          await cryptoSetup(password);
-          if (encPendingRef.current) {
-            await setKeyEncryption(true);
-            encPendingRef.current = false;
-          }
-          await reloadSecrets();
-          setCryptoGate("none");
-          return true;
-        }
-        // unlock и disable: сначала проверяем пароль
-        await cryptoUnlock(password);
-        if (cryptoGate === "disable") {
-          await setKeyEncryption(false);
-        }
-        await reloadSecrets();
-        setCryptoGate("none");
-        return true;
-      } catch {
-        return false;
-      }
-    },
-    [cryptoGate, reloadSecrets],
-  );
-
-  /** «Забыли пароль»: сброс шифрования, зашифрованные ключи утеряны */
-  const handleGateReset = useCallback(async () => {
-    await cryptoReset().catch(() => {});
-    encPendingRef.current = false;
-    await reloadSecrets();
-    setCryptoGate("none");
-  }, [reloadSecrets]);
-
-  /** Отмена гейта, открытого из тумблера: ничего не включаем/не выключаем */
-  const handleGateCancel = useCallback(() => {
-    encPendingRef.current = false;
-    setCryptoGate("none");
-  }, []);
-
-  // Idle-lock: если хранилище само заперлось (15 мин без операций с ключом) —
-  // при возврате в окно показываем гейт разблокировки, иначе зашифрованные
-  // операции начнут падать «vault is locked» без понятного объяснения
-  const cryptoGateRef = useRef(cryptoGate);
-  const vaultWasUnlockedRef = useRef(false);
-  useEffect(() => {
-    cryptoGateRef.current = cryptoGate;
-  }, [cryptoGate]);
-  useEffect(() => {
-    let alive = true;
-    const check = async () => {
-      try {
-        const st = await cryptoStatus();
-        if (!alive) return;
-        if (st.enabled && st.setup && !st.unlocked && vaultWasUnlockedRef.current) {
-          vaultWasUnlockedRef.current = false;
-          if (cryptoGateRef.current === "none") setCryptoGate("unlock");
-        } else if (st.unlocked) {
-          vaultWasUnlockedRef.current = true;
-        }
-      } catch {
-        // браузерное превью — крипто нет
-      }
-    };
-    const iv = window.setInterval(check, 30_000);
-    window.addEventListener("focus", check);
-    void check();
-    return () => {
-      alive = false;
-      window.clearInterval(iv);
-      window.removeEventListener("focus", check);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // ---------- Профили API: отдельное хранилище + привязка к чату/проекту ----------
-
-  /** Подставить связку профиля в активные настройки */
-  const applyProfileSettings = useCallback((p: ApiProfile) => {
-    setApiSettings((prev) => ({
-      ...prev,
-      api_key: p.api_key,
-      base_url: p.base_url,
-      model: p.model,
-      provider: p.provider,
-    }));
-  }, []);
-
-  /** Сохранить текущие ключ+URL+модель как новый профиль и привязать к чату */
-  const handleAddProfile = useCallback(
-    (name: string) => {
-      const profile: ApiProfile = {
-        // uuid, не Date.now(): два профиля в одну миллисекунду получали
-        // одинаковый id — дубли ключей и коллизии React-ключей
-        id: `p-${crypto.randomUUID()}`,
-        name: name.trim() || providerFromBaseUrl(apiSettings.base_url),
-        api_key: apiSettings.api_key,
-        base_url: apiSettings.base_url,
-        model: apiSettings.model,
-        provider: apiSettings.provider,
-      };
-      setProfiles((prev) => [...prev, profile]);
-      setActiveProfileId(profile.id);
-      // Привязка к активному чату — при его открытии профиль вернётся
-      setSessions((prev) =>
-        prev.map((s) =>
-          s.id === activeId ? { ...s, profileId: profile.id } : s,
-        ),
-      );
-    },
-    [apiSettings, activeId],
-  );
-
-  /** Переключиться на профиль: подставить настройки + привязать к чату */
-  const handleApplyProfile = useCallback(
-    (id: string) => {
-      const p = profiles.find((x) => x.id === id);
-      if (!p) return;
-      setActiveProfileId(id);
-      applyProfileSettings(p);
-      setSessions((prev) =>
-        prev.map((s) => (s.id === activeId ? { ...s, profileId: id } : s)),
-      );
-    },
-    [profiles, activeId, applyProfileSettings],
-  );
-
-  const handleDeleteProfile = useCallback(
-    (id: string) => {
-      setProfiles((prev) => prev.filter((p) => p.id !== id));
-      if (activeProfileId === id) setActiveProfileId("");
-    },
-    [activeProfileId],
-  );
-
-  // Открытие чата с привязанным профилем — подставляем его связку.
-  // Сравнение по id профиля: настройки могли менять вручную, не перетираем
-  useEffect(() => {
-    const s = sessions.find((x) => x.id === activeId);
-    if (!s?.profileId || s.profileId === activeProfileId) return;
-    const p = profiles.find((x) => x.id === s.profileId);
-    if (!p) return; // профиль удалён — остаёмся на текущих настройках
-    setActiveProfileId(p.id);
-    applyProfileSettings(p);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeId]);
-
   const handleNewChat = useCallback(() => {
+    // Переход к пустой ленте — через View Transition (кроссфейд ленты)
+    withViewTransition(() => {
     // Не плодим пустые задачи подряд
     const cur = sessionsRef.current.find((s) => s.id === activeId);
     if (cur && cur.messages.length === 0) {
@@ -1105,19 +709,19 @@ export default function App() {
     };
     setSessions((prev) => [session, ...prev]);
     setActiveId(session.id);
-  }, [activeId, activeProjectId, activeProfileId, projects, t]);
-
-  // Автообнаружение Ollama: при старте и каждые 30 секунд
-  const detectLocal = useCallback(() => {
-    detectOllama()
-      .then((models) => setOllamaModels(models))
-      .catch(() => setOllamaModels(null));
-  }, []);
-  useEffect(() => {
-    detectLocal();
-    const iv = window.setInterval(detectLocal, 30_000);
-    return () => window.clearInterval(iv);
-  }, [detectLocal]);
+    });
+  // sessionsRef/setActiveId/setSessions — стабильные (реф и useState-сеттеры
+  // из useSessions); перечислены явно: сквозь хук линтер стабильности не видит
+  }, [
+    activeId,
+    activeProjectId,
+    activeProfileId,
+    projects,
+    t,
+    sessionsRef,
+    setActiveId,
+    setSessions,
+  ]);
 
   // MCP: автоконнект включённых серверов при старте (фоново, ошибки молча)
   useEffect(() => {
@@ -1125,33 +729,6 @@ export default function App() {
       .then(() => invalidateToolSchemas())
       .catch(() => {});
   }, []);
-
-  // Переключение на локальную модель: Ollama не требует ключа.
-  // Merge, а не замена: полная замена выбрасывала encrypt_keys, и автосейв
-  // молча снимал шифрование профилей
-  const handleUseLocalModel = (id: string) => {
-    setApiSettings((prev) => ({
-      ...prev,
-      api_key: "ollama",
-      base_url: "http://localhost:11434/v1",
-      model: id,
-      provider: "custom",
-    }));
-  };
-
-  // Зеркало sessions для асинхронных операций (история запроса к модели)
-  const sessionsRef = useRef(sessions);
-  useEffect(() => {
-    sessionsRef.current = sessions;
-  }, [sessions]);
-
-  const activeSession = sessions.find((s) => s.id === activeId) ?? null;
-  // Снимок для длинных агентных прогонов: в уведомлениях должно быть
-  // актуальное название задачи/проект/модель, а не замыкание на момент старта
-  const activeSessionRef = useRef(activeSession);
-  useEffect(() => {
-    activeSessionRef.current = activeSession;
-  }, [activeSession]);
 
   // ---------- Уведомления о завершении / подтверждении (когда окно не в фокусе) ----------
   // Конфиг субагентов (M3): роли/параллельность/тумблер — subagents.json
@@ -1244,6 +821,7 @@ export default function App() {
     handleConfirmDecision,
     handleAskAnswer,
     chainAbortRef,
+    lastCheckpointRef,
   } = useAgentRun({
     setSessions,
     sessionsRef,
@@ -1266,8 +844,11 @@ export default function App() {
     limitsRef,
     memoryEnabled,
   });
-  // Для автосейва: активный стрим (объявлен ниже декларации ref — см. эффект автосейва)
-  streamingActiveRef.current = streamingId !== null;
+  // Для автосейва: активный стрим. Эффект вместо записи в теле рендера —
+  // под React Compiler мутация ref во время рендера вне модели
+  useEffect(() => {
+    streamingActiveRef.current = streamingId !== null;
+  }, [streamingId]);
 
   // C9: стабильные обёртки для колбэков движка — handleSend/handleStop
   // пересоздаются каждый рендер (heavy-хук), а ChatArea получает их пропсами.
@@ -1281,6 +862,38 @@ export default function App() {
     handleStopRef.current = handleStop;
   });
   const stableHandleStop = useCallback(() => handleStopRef.current(), []);
+
+  // Quick Entry: Enter во втором окне → новая задача с текстом. Движок
+  // однопоточный: при живом прогоне показываем тост, иначе handleSend
+  // молча отбросил бы текст (guard внутри)
+  useEffect(() => {
+    // StrictMode double-mount: см. комментарий у onClearDataRequest
+    let disposed = false;
+    let un: (() => void) | undefined;
+    void onQuickEntryTask((text) => {
+      if (disposed) return;
+      if (activeRunRef.current !== null) {
+        addToast(t("quickentry.busy"));
+        return;
+      }
+      void stableHandleSend(text);
+    }).then((u) => {
+      if (disposed) u();
+      else un = u;
+    });
+    return () => {
+      disposed = true;
+      un?.();
+    };
+  }, [activeRunRef, addToast, t, stableHandleSend]);
+
+  // Quick Entry: применить сохранённый ремап комбо (дефолт уже зарегистрирован
+  // на бекенде в setup; промах — комбо занято, остаётся дефолт)
+  useEffect(() => {
+    const saved = localStorage.getItem("haloui-quickentry-bind");
+    if (saved) void quickentrySetBind(saved).catch(() => {});
+  }, []);
+
   // pendingConfirm/pendingAsk раньше считались IIFE прямо в JSX: новый объект
   // каждый рендер убивал сравнение пропсов у карточек-подтверждений
   const pendingConfirm = useMemo(() => {
@@ -1329,6 +942,63 @@ export default function App() {
     return set;
     // eslint-disable-next-line react-hooks/exhaustive-deps -- ключ отсекает ежекадровый пересчёт
   }, [writeKey]);
+
+  // ---------- Review: живой дифф прогона в правой панели ----------
+  // fs_write-диффы берутся мгновенно из результатов инструментов; чекпоинт
+  // прогона покрывает правки мимо fs_write (shell и т.п.): «снимок до ↔
+  // файл на диске сейчас». Бинарники и файлы крупнее капа — пропускаем
+  const handleReviewChanges = useCallback(
+    async (fsWrites: ChangedFile[]) => {
+      const utf8 = new TextDecoder("utf-8", { fatal: true });
+      const decode = (b64: string): string | null => {
+        try {
+          const bin = atob(b64);
+          return utf8.decode(Uint8Array.from(bin, (c) => c.charCodeAt(0)));
+        } catch {
+          return null;
+        }
+      };
+      const byPath = new Map<string, DiffPanelFile>();
+      const push = (
+        path: string,
+        before: string | null,
+        after: string,
+        created: boolean,
+      ) => {
+        const s = diffStats(diffLines(before ?? "", after));
+        const dir = path.replace(/[\\/][^\\/]+$/, "");
+        byPath.set(normalizePath(path), {
+          path,
+          base: path.slice(dir ? dir.length + 1 : 0),
+          dir,
+          added: s.added,
+          removed: s.removed,
+          created,
+          before,
+          after,
+        });
+      };
+      for (const f of fsWrites) push(f.path, f.before, f.after, f.created);
+      const cp = lastCheckpointRef.current;
+      if (cp) {
+        try {
+          const states = await checkpointFiles(cp.root, cp.id);
+          for (const st of states) {
+            const before = decode(st.before);
+            const after = st.current ? decode(st.current) : "";
+            if (before == null || after == null) continue;
+            // Чекпоинт приоритетнее fs_write: он видит итог всего прогона
+            push(st.rel, before, after, false);
+          }
+        } catch {
+          // снимок недоступен (ротация CP_KEEP/удалён) — остаётся fs_write
+        }
+      }
+      setDiffReview({ open: true, files: [...byPath.values()] });
+    },
+    // ref стабилен; включён для exhaustive-deps
+    [lastCheckpointRef],
+  );
 
   // Latest-ref паттерн: слушатель keydown вешается ровно один раз,
   // а актуальные обработчики читаются через реф
@@ -1418,15 +1088,17 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Диспетчер действий биндов — актуальные обработчики через реф
+  // Диспетчер действий биндов — актуальные обработчики через реф.
+  // Эффект без deps вместо присваивания в теле рендера (React Compiler)
   const dispatchShortcutRef = useRef<(a: ShortcutAction) => void>(() => {});
-  dispatchShortcutRef.current = (action: ShortcutAction) => {
+  useEffect(() => {
+    dispatchShortcutRef.current = (action: ShortcutAction) => {
     switch (action) {
       case "new_task":
         handleNewChatRef.current();
         break;
       case "search":
-        setSearchOpen(true);
+        withViewTransition(() => setSearchOpen(true));
         break;
       case "open_settings":
         setSettingsSection("main");
@@ -1450,6 +1122,9 @@ export default function App() {
       case "toggle_sidebar":
         setSidebarCollapsed((v) => !v);
         break;
+      case "toggle_fullscreen":
+        void invoke("window_toggle_fullscreen").catch(() => {});
+        break;
       case "cycle_perm_mode": {
         if (!activeId) break;
         const order: PermissionMode[] = ["ask", "plan", "edit", "full"];
@@ -1457,13 +1132,17 @@ export default function App() {
           prev.map((s) => {
             if (s.id !== activeId) return s;
             const idx = order.indexOf(s.permissionMode ?? "ask");
-            return { ...s, permissionMode: order[(idx + 1) % order.length] };
+            const next = order[(idx + 1) % order.length];
+            // План-режим — открыть панель плана (авто-открытие, Волна 3)
+            if (next === "plan") setPlanPanelOpen(true);
+            return { ...s, permissionMode: next };
           }),
         );
         break;
       }
     }
   };
+  });
 
   // Глобальные бинды: матч по e.code (физическая клавиша) — работает
   // на любой раскладке. Комбо без модификаторов игнорируются (не мешать
@@ -1527,15 +1206,6 @@ export default function App() {
     if (streamingTargetRef.current === activeId) handleStop();
     setSessions((prev) =>
       prev.map((s) => (s.id === activeId ? { ...s, messages: [] } : s)),
-    );
-  };
-
-  const handleSetSystemPrompt = (prompt: string | null) => {
-    if (!activeId) return;
-    setSessions((prev) =>
-      prev.map((s) =>
-        s.id === activeId ? { ...s, systemPrompt: prompt ?? undefined } : s,
-      ),
     );
   };
 
@@ -1710,56 +1380,6 @@ export default function App() {
     }
   };
 
-  const handleToggleAgent = () => {
-    if (!activeId) return;
-    setSessions((prev) =>
-      prev.map((s) =>
-        s.id === activeId ? { ...s, agentMode: !s.agentMode } : s,
-      ),
-    );
-  };
-
-  // Режим разрешений агента (plan / ask / edit / full) — для активной задачи
-  const handleSetPermissionMode = (mode: PermissionMode) => {
-    if (!activeId) return;
-    setSessions((prev) =>
-      prev.map((s) =>
-        s.id === activeId ? { ...s, permissionMode: mode } : s,
-      ),
-    );
-  };
-
-  // Глобальный просмотр allowlist'ов: правка разрешений любой задачи
-  const agentAllowlists = useMemo(
-    () =>
-      sessions
-        .filter((s) => (s.allowedCommands?.length ?? 0) > 0)
-        .map((s) => ({ id: s.id, title: s.title, commands: s.allowedCommands ?? [] })),
-    [sessions],
-  );
-
-  const handleSetSessionAllowed = (id: string, list: string[]) => {
-    setSessions((prev) =>
-      prev.map((s) =>
-        s.id === id
-          ? { ...s, allowedCommands: list.length > 0 ? list : undefined }
-          : s,
-      ),
-    );
-  };
-
-  // Редактор allowlist (M5.2): правка списка «Всегда для задачи» активной задачи
-  const handleSetAllowedCommands = (list: string[]) => {
-    if (!activeId) return;
-    setSessions((prev) =>
-      prev.map((s) =>
-        s.id === activeId
-          ? { ...s, allowedCommands: list.length > 0 ? list : undefined }
-          : s,
-      ),
-    );
-  };
-
   const handleApplyPreset = (prompt: string) => {
     if (activeSession) {
       handleSetSystemPrompt(prompt);
@@ -1777,11 +1397,6 @@ export default function App() {
     setActiveId(session.id);
   };
 
-  const handleTogglePin = (id: string) =>
-    setSessions((prev) =>
-      prev.map((s) => (s.id === id ? { ...s, pinned: !s.pinned } : s)),
-    );
-
   const handleRenameCommit = (id: string, title: string) => {
     if (projects.some((p) => p.id === id)) {
       handleRenameProject(id, title);
@@ -1795,32 +1410,6 @@ export default function App() {
     setRenamingId(null);
   };
 
-  const handleDuplicate = (id: string) =>
-    setSessions((prev) => {
-      const idx = prev.findIndex((s) => s.id === id);
-      const src = idx >= 0 ? prev[idx] : undefined;
-      if (!src) return prev;
-      // FIX: раньше копия переносила только title/messages/pinned/projectId —
-      // agentMode, permissionMode, systemPrompt, allowedCommands, profileId,
-      // tag и plan молча терялись (дубликат агентной задачи превращался
-      // в обычный чат). Переносим все поля сессии, заменяя идентифицирующие.
-      const { id: _id, createdAt: _createdAt, ...rest } = src;
-      const copy: Session = {
-        ...rest,
-        id: uid(),
-        title: `${src.title} ${t("session.copy")}`,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-        // Копия всегда живёт в основном списке, даже если оригинал в архиве
-        archived: false,
-        messages: src.messages.map((m) => ({ ...m, id: uid() })),
-      };
-      const next = [...prev];
-      // FIX: findIndex мог вернуть -1 → вставка в начало списка;
-      // здесь idx гарантированно валиден (проверен выше)
-      next.splice(idx + 1, 0, copy);
-      return next;
-    });
 
   const handleDelete = (id: string) => {
     // C12: удаление активной задачи не прерывало прогон — цикл продолжал
@@ -1828,22 +1417,6 @@ export default function App() {
     if (streamingTargetRef.current === id) handleStop();
     setSessions((prev) => prev.filter((s) => s.id !== id));
     if (activeId === id) setActiveId(null);
-  };
-
-  // Архивация чата: скрыть из списка / вернуть
-  const handleArchiveSession = (id: string, archived: boolean) => {
-    setSessions((prev) =>
-      prev.map((s) => (s.id === id ? { ...s, archived } : s)),
-    );
-  };
-
-  // Тег чата: короткая метка в списке (undefined — снять)
-  const handleTagSession = (id: string, tag?: string) => {
-    setSessions((prev) =>
-      prev.map((s) =>
-        s.id === id ? { ...s, tag: tag?.trim() || undefined } : s,
-      ),
-    );
   };
 
   const handleAddProject = (name: string) => {
@@ -1899,12 +1472,77 @@ export default function App() {
     }
   };
 
+  // ---------- Онбординг первого запуска и полный сброс ----------
+
+  // Событие трея «Clear All Data»: подписка ставится один раз на монтирование
+  useEffect(() => {
+    // StrictMode double-mount: cleanup первого монтирования срабатывает ДО
+    // резолва промиса, и первая подписка оставалась жить вечно
+    let disposed = false;
+    let un: (() => void) | undefined;
+    void onClearDataRequest(() => {
+      if (!disposed) setResetOpen(true);
+    }).then((u) => {
+      if (disposed) u();
+      else un = u;
+    });
+    return () => {
+      disposed = true;
+      un?.();
+    };
+  }, []);
+
+  const handleFactoryReset = async () => {
+    setResetBusy(true);
+    try {
+      localStorage.clear(); // флаг онбординга и UI-превьюшки — заводское состояние
+      await factoryReset(); // Rust стирает каталоги данных и перезапускает процесс
+    } catch {
+      setResetBusy(false);
+      addToast(t("reset.failed"));
+    }
+  };
+
+  // Живое превью из онбординга: сеттеры сами применяют и запоминают
+  const handleOnboardingTheme = (th: Theme) => setTheme(th);
+  const handleOnboardingAccent = (hex: string) =>
+    setAppearance((a) => ({ ...a, accent: hex }));
+
+  const handleOnboardingFinish = async (res: OnboardingResult) => {
+    localStorage.setItem("haloui-onboarded", "1");
+    setOnboardingOpen(false);
+    if (!res.settings) return;
+    try {
+      const cur = await loadSettings();
+      const merged = { ...cur, ...res.settings };
+      setApiSettings(merged);
+      await saveSettings(merged);
+      if (merged.api_key && merged.base_url) {
+        setApiStatus({ kind: "checking" });
+        testConnection(merged.base_url, merged.api_key)
+          .then((models) =>
+            setApiStatus({
+              kind: "ok",
+              models,
+              message: t("api.connected", { n: models.length }),
+            }),
+          )
+          .catch((e) => setApiStatus({ kind: "error", message: String(e) }));
+      }
+    } catch {
+      // сохранить не вышло — не валим онбординг, ключ можно ввести в настройках
+    }
+  };
+
   // Выбор из поиска: активируем задачу и синхронизируем фильтр проекта,
   // чтобы задача не «пропала» из списка
   const handleSearchSelect = (id: string) => {
-    const session = sessions.find((s) => s.id === id);
-    setActiveProjectId(session?.projectId ?? null);
-    setActiveId(id);
+    withViewTransition(() => {
+      const session = sessions.find((s) => s.id === id);
+      setActiveProjectId(session?.projectId ?? null);
+      setActiveId(id);
+      setSearchOpen(false);
+    });
   };
 
   const menuProject = menu?.kind === "project" ? projects.find((p) => p.id === menu.id) : null;
@@ -1922,14 +1560,17 @@ export default function App() {
     handleOpenNote,
     handleRunChain,
   });
-  slashLatest.current = {
-    handleNewChat,
-    handleClearChat,
-    handleToggleAgent,
-    handleApplyPreset,
-    handleOpenNote,
-    handleRunChain,
-  };
+  // Эффект без deps вместо присваивания в теле рендера (React Compiler)
+  useEffect(() => {
+    slashLatest.current = {
+      handleNewChat,
+      handleClearChat,
+      handleToggleAgent,
+      handleApplyPreset,
+      handleOpenNote,
+      handleRunChain,
+    };
+  });
 
   const slashCommands: SlashCommand[] = useMemo(() => {
     const roleNames = [
@@ -2020,13 +1661,17 @@ export default function App() {
 
     return list;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lang, notes, promptLibrary, chainRunning, userCommands]);
+  }, [lang, notes, promptLibrary]);
 
   const menuItems: MenuItem[] = menuProject
     ? [
         {
           label: t("menu.rename"),
           onSelect: () => setRenamingId(menuProject.id),
+        },
+        {
+          label: t("menu.projectAccent"),
+          onSelect: () => handleProjectAccent(menuProject.id),
         },
         {
           label: confirmingDelete ? t("menu.deleteConfirm") : t("menu.delete"),
@@ -2084,6 +1729,14 @@ export default function App() {
           separator: true,
           onSelect: () => handleCopyTitle(menuSession.title),
         },
+        {
+          label: t("menu.exportMd"),
+          onSelect: () => void handleExportSession(menuSession.id, "md"),
+        },
+        {
+          label: t("menu.exportJson"),
+          onSelect: () => void handleExportSession(menuSession.id, "json"),
+        },
         ...projects
           .filter((p) => p.id !== menuSession.projectId)
           .map((p, i): MenuItem => ({
@@ -2132,15 +1785,17 @@ export default function App() {
           <AmbientLayer
             scene={appearance.ambientScene}
             videoPath={appearance.ambientVideo}
-            brightness={appearance.ambientBrightness}
             density={appearance.ambientDensity}
-            paused={streamingId !== null}
+            paused={streamingId !== null || appearance.reduceMotion === true}
+            gradFrom={appearance.ambientGradFrom}
+            gradTo={appearance.ambientGradTo}
+            gradAngle={appearance.ambientGradAngle}
           />
         )}
         <button
           onClick={() => setSidebarCollapsed(false)}
           title={t("sidebar.expand")}
-          className={`absolute top-2 z-40 flex size-8 items-center justify-center rounded-lg text-halo-accent transition-all duration-200 hover:bg-halo-hover ${
+          className={`absolute top-2 z-40 flex size-8 items-center justify-center rounded-lg text-halo-accent transition duration-200 hover:bg-halo-hover ${
             sparkVisible ? "opacity-100" : "pointer-events-none opacity-0"
           } ${
             sidebarSide === "right" ? "right-3" : "left-3"
@@ -2158,7 +1813,7 @@ export default function App() {
         activeId={activeId}
         renamingId={renamingId}
         onNewChat={handleNewChat}
-        onSelect={setActiveId}
+        onSelect={(id) => withViewTransition(() => setActiveId(id))}
         onOpenSettings={() => {
           setSettingsSection("main");
           setSettingsOpen(true);
@@ -2168,7 +1823,7 @@ export default function App() {
           setSettingsOpen(true);
         }}
         onOpenAutomations={() => setAutomationsOpen(true)}
-        onOpenSearch={() => setSearchOpen(true)}
+        onOpenSearch={() => withViewTransition(() => setSearchOpen(true))}
         onSessionMenu={openMenu}
         onDeleteSession={handleDelete}
         onArchiveSession={handleArchiveSession}
@@ -2205,6 +1860,7 @@ export default function App() {
         typing={typing}
         activity={activity}
         onUndoWrite={handleUndoWrite}
+        onReviewChanges={handleReviewChanges}
         subRuns={subRuns}
         plan={activeSession?.plan}
         userCommands={mergedUserCommands}
@@ -2220,7 +1876,17 @@ export default function App() {
         isLocal={/localhost|127\.0\.0\.1/.test(apiSettings.base_url)}
         agentMode={activeSession?.agentMode ?? false}
         permissionMode={activeSession?.permissionMode ?? "ask"}
-        onPermissionModeChange={handleSetPermissionMode}
+        onPermissionModeChange={(m) => {
+          // «План» — панель плана открывается сама (и из поповера, и при
+          // создании задачи сразу в плане)
+          if (m === "plan") setPlanPanelOpen(true);
+          if (activeId) handleSetPermissionMode(m);
+          else createChat({ permissionMode: m });
+        }}
+        disabledTools={activeSession?.disabledTools ?? []}
+        onToggleDisabledTool={(tool) =>
+          activeId ? handleToggleDisabledTool(tool) : createChat({ disabledTools: [tool] })
+        }
         pendingConfirm={pendingConfirm}
         pendingAsk={pendingAsk}
         onAskAnswer={handleAskAnswer}
@@ -2228,6 +1894,7 @@ export default function App() {
         promptPresets={builtinPresetsFor(lang)}
         customPresets={promptLibrary}
         onSend={stableHandleSend}
+        pendingQuote={diffQuote}
         queued={queuedProps}
         onQueue={(text, attachments, quote) =>
           setQueuedMsgs((prev) => [
@@ -2260,18 +1927,28 @@ export default function App() {
           setSettingsSection("main");
           setSettingsOpen(true);
         }}
-        onSetSystemPrompt={handleSetSystemPrompt}
+        onSetSystemPrompt={(p) =>
+          activeId || p == null
+            ? handleSetSystemPrompt(p)
+            : createChat({ systemPrompt: p })
+        }
         onApplyPreset={handleApplyPreset}
-        onToggleAgent={handleToggleAgent}
+        onToggleAgent={() =>
+          activeId ? handleToggleAgent() : createChat({ agentMode: true })
+        }
         terminalOpen={terminalOpen}
         onToggleTerminal={() => setTerminalOpen((v) => !v)}
         projectRoot={projectRoot}
         termShell={termShell}
+        termPalette={TERMINAL_PALETTES[appearance.termPalette ?? "default"]}
+        termBlur={appearance.termBlur}
+        chatWallpaper={appearance.chatWallpaper ?? ""}
         hideStarter={hideStarter}
         onToggleStarter={() => setHideStarter((v) => !v)}
         terminalHeightPct={terminalHeight}
         onTerminalResizeStart={startTerminalResize}
         scrollFollow={scrollFollow}
+        printSpeed={printSpeed}
         streamSmooth={streamSmooth}
         showReasoning={showReasoning}
         streamCaret={streamCaret}
@@ -2279,6 +1956,7 @@ export default function App() {
         groupTurns={groupTurns}
         chatMark={chatMark}
         msgGlass={msgGlass}
+        showMsgTime={appearance.showMsgTime ?? false}
         showWindowControls={sidebarSide === "left"}
         headerInset={sidebarCollapsed ? sidebarSide : null}
         slashCommands={slashCommands}
@@ -2328,6 +2006,7 @@ export default function App() {
       {settingsOpen && (
       <SettingsModal
         open={settingsOpen}
+        usageLog={usageLog}
         theme={theme}
         glass={glass}
         appearance={appearance}
@@ -2345,8 +2024,12 @@ export default function App() {
         onScrollFollowChange={setScrollFollow}
         streamSmooth={streamSmooth}
         onStreamSmoothChange={setStreamSmooth}
+        printSpeed={printSpeed}
+        onPrintSpeedChange={setPrintSpeed}
         showReasoning={showReasoning}
         onShowReasoningChange={setShowReasoning}
+        transcriptView={transcriptView}
+        onTranscriptViewChange={setTranscriptView}
         askAutoContinue={askAutoContinue}
         onAskAutoContinueChange={setAskAutoContinue}
         autoArchive={autoArchive}
@@ -2358,6 +2041,7 @@ export default function App() {
         archiveRetention={archiveRetention}
         onArchiveRetentionChange={setArchiveRetention}
         onArchiveNow={archiveOldNow}
+        onExportChats={() => void handleExportAllChats()}
         streamCaret={streamCaret}
         onStreamCaretChange={setStreamCaret}
         showUserMsgs={showUserMsgs}
@@ -2423,7 +2107,7 @@ export default function App() {
         onSaveSettings={handleSaveSettings}
         onDetectOllama={detectLocal}
         onUseLocalModel={handleUseLocalModel}
-        onClose={() => setSettingsOpen(false)}
+        onClose={() => closeSettings()}
       />
       )}
       </ErrorBoundary>
@@ -2439,7 +2123,39 @@ export default function App() {
           onClose={() => setBrowserPanelOpen(false)}
         />
       )}
+      <DiffPanel
+        open={diffReview.open}
+        files={diffReview.files}
+        onQuote={handleDiffQuote}
+        onClose={() => setDiffReview((p) => ({ ...p, open: false }))}
+      />
+      <PlanSidePanel
+        open={planPanelOpen}
+        plan={activeSession?.plan ?? []}
+        canApprove={activeId !== null}
+        onApprove={() => {
+          handleSetPermissionMode("ask");
+          setPlanPanelOpen(false);
+        }}
+        onCopied={() => addToast(t("plan.copied"))}
+        onClose={() => setPlanPanelOpen(false)}
+      />
       <Toasts items={toasts} />
+      {onboardingOpen && splashDone && (
+        <Onboarding
+          theme={theme}
+          onTheme={handleOnboardingTheme}
+          onAccent={handleOnboardingAccent}
+          onFinish={(r) => void handleOnboardingFinish(r)}
+        />
+      )}
+      {resetOpen && (
+        <ResetConfirmModal
+          busy={resetBusy}
+          onConfirm={() => void handleFactoryReset()}
+          onCancel={() => setResetOpen(false)}
+        />
+      )}
       {cryptoGate !== "none" && cryptoGate !== "loading" && (
         <CryptoGate
           setup={cryptoGate === "create"}
@@ -2458,7 +2174,7 @@ export default function App() {
           open={searchOpen}
           sessions={sessions}
           onSelect={handleSearchSelect}
-          onClose={() => setSearchOpen(false)}
+          onClose={() => withViewTransition(() => setSearchOpen(false))}
         />
       )}
       {menu && (menuSession || menuProject || menuNote) && (

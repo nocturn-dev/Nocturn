@@ -33,12 +33,27 @@ const fmtDuration = (ms: number, t: TFn): string => {
 const dayKey = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
-/** Раздел «Статистика»: сводка, тепловая карта активности, тренд и донат моделей.
-    События считаются из всех чатов (sessions.json), а не только текущего запуска */
-export default function UsageSection({ sessions }: { sessions: Session[] }) {
+/** Блок статистики: сводка, тепловая карта активности, тренд и донат моделей.
+    События считаются из всех чатов (sessions.json), а не только текущего запуска.
+    Внутри вкладки «Обзор» шапка скрыта, а диапазон управляется общим селектором
+    периода (rangeDays/onRangeChange) */
+export default function UsageSection({
+  sessions,
+  rangeDays,
+  onRangeChange,
+  showHeader = true,
+}: {
+  sessions: Session[];
+  rangeDays?: 7 | 30;
+  onRangeChange?: (d: 7 | 30) => void;
+  showHeader?: boolean;
+}) {
   const { t, lang } = useLang();
   const [mode, setMode] = useState<"daily" | "weekly" | "cumulative">("daily");
-  const [range, setRange] = useState<7 | 30>(7);
+  const [innerRange, setInnerRange] = useState<7 | 30>(7);
+  const range = rangeDays ?? innerRange;
+  const setRange = (r: 7 | 30) =>
+    onRangeChange ? onRangeChange(r) : setInnerRange(r);
   const [tick, setTick] = useState(0); // Refresh: пересчёт по требованию
   // Пользовательские цвета моделей (model → hex), хранятся в colors.json
   const [colors, setColors] = useState<Record<string, string>>({});
@@ -203,12 +218,14 @@ export default function UsageSection({ sessions }: { sessions: Session[] }) {
 
   return (
     <div>
-      <div className="mb-4 flex items-center gap-3">
-        <h3 className="text-sm font-semibold text-halo-text">{t("usage.title")}</h3>
-        <span className="rounded-full bg-halo-hover px-2.5 py-0.5 text-xs text-halo-muted">
-          {t("usage.appUsage")}
-        </span>
-      </div>
+      {showHeader && (
+        <div className="mb-4 flex items-center gap-3">
+          <h3 className="text-sm font-semibold text-halo-text">{t("usage.title")}</h3>
+          <span className="rounded-full bg-halo-hover px-2.5 py-0.5 text-xs text-halo-muted">
+            {t("usage.appUsage")}
+          </span>
+        </div>
+      )}
 
       {/* Сводка */}
       <div className="mb-4 grid grid-cols-5 rounded-xl border border-halo-line bg-halo-surface/50 py-3">
@@ -251,23 +268,25 @@ export default function UsageSection({ sessions }: { sessions: Session[] }) {
         <Heatmap key={`hm-${tick}-${mode}`} weeks={data.weeks} mode={mode} cumByDay={data.cumByDay} color={heatColor} lang={lang} />
       </div>
 
-      {/* Диапазон + тренд */}
-      <div className="mb-2 flex items-center justify-between">
-        <span className="text-sm font-medium text-halo-text">{t("usage.timeRange")}</span>
-        <div className="flex gap-1 rounded-lg bg-halo-deep p-0.5">
-          {([7, 30] as const).map((r) => (
-            <button
-              key={r}
-              onClick={() => setRange(r)}
-              className={`rounded-md px-2.5 py-0.5 text-[11px] transition-colors ${
-                range === r ? "bg-halo-hover-strong text-halo-text" : "text-halo-muted hover:text-halo-text"
-              }`}
-            >
-              {t(r === 7 ? "usage.last7" : "usage.last30")}
-            </button>
-          ))}
+      {/* Диапазон + тренд: при управлении из «Обзора» селектор наверху */}
+      {rangeDays === undefined && (
+        <div className="mb-2 flex items-center justify-between">
+          <span className="text-sm font-medium text-halo-text">{t("usage.timeRange")}</span>
+          <div className="flex gap-1 rounded-lg bg-halo-deep p-0.5">
+            {([7, 30] as const).map((r) => (
+              <button
+                key={r}
+                onClick={() => setRange(r)}
+                className={`rounded-md px-2.5 py-0.5 text-[11px] transition-colors ${
+                  range === r ? "bg-halo-hover-strong text-halo-text" : "text-halo-muted hover:text-halo-text"
+                }`}
+              >
+                {t(r === 7 ? "usage.last7" : "usage.last30")}
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
       <div className={`${card} mb-4`}>
         <p className="mb-3 text-sm font-medium text-halo-text">{t("usage.trend")}</p>

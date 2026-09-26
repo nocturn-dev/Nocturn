@@ -1,0 +1,5 @@
+#!/bin/sh
+# Быстрая проверка перед каждым коммитом: tsc + eslint + vitest.
+# Полный прогон (clippy, cargo test, сборка): node scripts/verify.mjs all
+# Пропустить разово: git commit --no-verify
+exec node "$(dirname "$0")/../scripts/verify.mjs" fast

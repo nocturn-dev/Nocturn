@@ -1,0 +1,377 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`chat cards snapshots > AssistantCard: markdown + usage, вне стрима 1`] = `
+<div
+  class="anim-fade-up group relative mr-auto w-fit max-w-[85%] rounded-xl border border-halo-line/70 px-4 py-3 shadow-sm ai-card-solid"
+  data-mid="a1"
+>
+  <button
+    class="absolute -top-2 right-2 flex size-5 items-center justify-center rounded-full border border-halo-line bg-halo-deep text-halo-muted opacity-0 shadow-sm transition duration-150 hover:text-halo-text group-hover:opacity-100"
+    title="Collapse"
+  >
+    <svg
+      fill="none"
+      height="10"
+      stroke="currentColor"
+      stroke-linecap="round"
+      stroke-width="2.5"
+      viewBox="0 0 24 24"
+      width="10"
+    >
+      <path
+        d="M5 12h14"
+      />
+    </svg>
+  </button>
+  <div
+    class="mb-1 flex items-center gap-2.5 pr-6"
+  >
+    <span
+      class="flex items-center gap-1.5"
+    >
+      <span
+        class="flex shrink-0 items-center justify-center rounded-full bg-halo-raised font-semibold uppercase text-halo-text"
+        style="width: 16px; height: 16px; font-size: 9px;"
+        title="glm-5.3-flash"
+      >
+        <span>
+          g
+        </span>
+      </span>
+      <span
+        class="max-w-44 truncate text-[11px] font-semibold text-halo-text/90"
+      >
+        glm-5.3-flash
+      </span>
+    </span>
+  </div>
+  <div
+    class="markdown text-sm leading-relaxed text-halo-text"
+  >
+    <p>
+      Ответ с 
+      <strong>
+        жирным
+      </strong>
+       и 
+      <code>
+        кодом
+      </code>
+      .
+    </p>
+  </div>
+  <div
+    class="mt-2 flex items-center gap-3 border-t border-halo-line/50 pt-2 text-[10px] text-halo-muted/70"
+  >
+    <span
+      title="Prompt tokens"
+    >
+      ↑ 
+      120
+    </span>
+    <span
+      title="Completion tokens"
+    >
+      ↓ 
+      45
+    </span>
+    <span
+      title="Total tokens"
+    >
+      Σ 
+      165
+    </span>
+  </div>
+  <p
+    class="mt-1.5 text-[10px] italic text-halo-muted/50"
+  >
+    This response is AI-generated, for reference only.
+  </p>
+</div>
+`;
+
+exports[`chat cards snapshots > AssistantCard: с thinking-блоком 1`] = `
+<div
+  class="anim-fade-up group relative mr-auto w-fit max-w-[85%] rounded-xl border border-halo-line/70 px-4 py-3 shadow-sm ai-card-solid"
+  data-mid="a2"
+>
+  <button
+    class="absolute -top-2 right-2 flex size-5 items-center justify-center rounded-full border border-halo-line bg-halo-deep text-halo-muted opacity-0 shadow-sm transition duration-150 hover:text-halo-text group-hover:opacity-100"
+    title="Collapse"
+  >
+    <svg
+      fill="none"
+      height="10"
+      stroke="currentColor"
+      stroke-linecap="round"
+      stroke-width="2.5"
+      viewBox="0 0 24 24"
+      width="10"
+    >
+      <path
+        d="M5 12h14"
+      />
+    </svg>
+  </button>
+  <div
+    class="mb-1 flex items-center gap-2.5 pr-6"
+  >
+    <span
+      class="flex items-center gap-1.5"
+    >
+      <span
+        class="flex shrink-0 items-center justify-center rounded-full bg-halo-raised font-semibold uppercase text-halo-text"
+        style="width: 16px; height: 16px; font-size: 9px;"
+        title="claude-sonnet"
+      >
+        <span>
+          c
+        </span>
+      </span>
+      <span
+        class="max-w-44 truncate text-[11px] font-semibold text-halo-text/90"
+      >
+        claude-sonnet
+      </span>
+    </span>
+  </div>
+  <div
+    class="mb-1.5"
+  >
+    <div
+      class="flex items-center gap-2"
+    >
+      <button
+        class="flex items-center gap-1 text-[11px] font-medium text-halo-muted transition-colors hover:text-halo-text"
+      >
+        <svg
+          class="transition-transform duration-200 "
+          fill="none"
+          height="12"
+          stroke="currentColor"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="2.2"
+          viewBox="0 0 24 24"
+          width="12"
+        >
+          <path
+            d="m6 9 6 6 6-6"
+          />
+        </svg>
+        Thought
+      </button>
+    </div>
+    <div
+      class="anim-fade-up mt-1.5 whitespace-pre-wrap rounded-lg border border-halo-line/60 bg-halo-raised/40 px-3 py-2 text-xs italic leading-relaxed text-halo-muted"
+    >
+      Пользователь просит короткий ответ.
+    </div>
+  </div>
+  <div
+    class="markdown text-sm leading-relaxed text-halo-text"
+  >
+    <p>
+      Готово.
+    </p>
+  </div>
+  <p
+    class="mt-1.5 text-[10px] italic text-halo-muted/50"
+  >
+    This response is AI-generated, for reference only.
+  </p>
+</div>
+`;
+
+exports[`chat cards snapshots > ToolStepCard: denied 1`] = `
+<div
+  class="anim-fade-up mr-auto w-fit max-w-[85%] rounded-xl border bg-halo-surface/40 px-3 py-2 transition-colors duration-150 border-red-400/40"
+  data-mid="m2"
+>
+  <button
+    class="flex w-full items-center gap-2 text-left"
+  >
+    <span
+      class="text-red-400"
+    >
+      <svg
+        fill="none"
+        height="12"
+        stroke="currentColor"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        stroke-width="1.8"
+        viewBox="0 0 24 24"
+        width="12"
+      >
+        <path
+          d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"
+        />
+      </svg>
+    </span>
+    <span
+      class="font-mono text-[11px] font-semibold text-halo-text"
+    >
+      fs_write
+    </span>
+    <span
+      class="shrink-0 text-[10px] text-red-400"
+    >
+      Denied by user
+    </span>
+    <svg
+      class="transition-transform duration-200 -rotate-90"
+      fill="none"
+      height="12"
+      stroke="currentColor"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      stroke-width="2.2"
+      viewBox="0 0 24 24"
+      width="12"
+    >
+      <path
+        d="m6 9 6 6 6-6"
+      />
+    </svg>
+  </button>
+</div>
+`;
+
+exports[`chat cards snapshots > ToolStepCard: shell_run с выводом 1`] = `
+<div
+  class="anim-fade-up mr-auto w-fit max-w-[85%] rounded-xl border bg-halo-surface/40 px-3 py-2 transition-colors duration-150 border-halo-line/60"
+  data-mid="m1"
+>
+  <button
+    class="flex w-full items-center gap-2 text-left"
+  >
+    <span
+      class="text-halo-muted"
+    >
+      <svg
+        fill="none"
+        height="12"
+        stroke="currentColor"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        stroke-width="1.8"
+        viewBox="0 0 24 24"
+        width="12"
+      >
+        <path
+          d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"
+        />
+      </svg>
+    </span>
+    <span
+      class="font-mono text-[11px] font-semibold text-halo-text"
+    >
+      shell_run
+    </span>
+    <span
+      class="max-w-72 truncate font-mono text-[10px] text-halo-muted"
+    >
+      {"cmd":"ls"}
+    </span>
+    <span
+      class="shrink-0 text-[10px] text-halo-muted"
+    >
+      Result
+    </span>
+    <svg
+      class="transition-transform duration-200 -rotate-90"
+      fill="none"
+      height="12"
+      stroke="currentColor"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      stroke-width="2.2"
+      viewBox="0 0 24 24"
+      width="12"
+    >
+      <path
+        d="m6 9 6 6 6-6"
+      />
+    </svg>
+  </button>
+</div>
+`;
+
+exports[`chat cards snapshots > UserCard: текст + вложение 1`] = `
+<div
+  class="anim-fade-up group relative ml-auto flex w-fit max-w-[85%] items-end gap-2 shadow-sm"
+  data-mid="u1"
+>
+  <div
+    class="min-w-0 w-fit rounded-2xl rounded-br-md px-4 py-3 bg-halo-raised"
+  >
+    <button
+      class="absolute -top-2 right-2 flex size-5 items-center justify-center rounded-full border border-halo-line bg-halo-deep text-halo-muted opacity-0 shadow-sm transition duration-150 hover:text-halo-text group-hover:opacity-100"
+      title="Collapse"
+    >
+      <svg
+        fill="none"
+        height="10"
+        stroke="currentColor"
+        stroke-linecap="round"
+        stroke-width="2.5"
+        viewBox="0 0 24 24"
+        width="10"
+      >
+        <path
+          d="M5 12h14"
+        />
+      </svg>
+    </button>
+    <div
+      class="flex flex-wrap gap-2 mb-2"
+    >
+      <div
+        class="group/img relative"
+      >
+        <img
+          alt="shot.png"
+          class="max-h-44 rounded-lg border border-halo-line/60 object-cover"
+          src="data:image/png;base64,x"
+        />
+        <button
+          class="absolute right-1.5 top-1.5 flex size-6 items-center justify-center rounded-md border border-halo-line bg-halo-surface text-halo-muted opacity-0 shadow-sm transition hover:text-halo-text group-hover/img:opacity-100"
+          data-reuse-img-btn="true"
+          title="Reuse in composer"
+        >
+          <svg
+            aria-hidden="true"
+            fill="none"
+            height="12"
+            stroke="currentColor"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="1.6"
+            viewBox="0 0 24 24"
+            width="12"
+          >
+            <path
+              d="M8 4H5a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h3"
+            />
+            <path
+              d="M16 4h3a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-3"
+            />
+            <path
+              d="M20 12H10"
+            />
+            <path
+              d="m14 8-4 4 4 4"
+            />
+          </svg>
+        </button>
+      </div>
+    </div>
+    <p
+      class="break-words whitespace-pre-wrap text-sm leading-relaxed text-halo-text"
+    >
+      Смотри скриншот
+    </p>
+  </div>
+</div>
+`;

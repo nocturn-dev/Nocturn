@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import type { Project, Session } from "../types";
 import WindowControls from "./WindowControls";
 import { pickFolder, listDir, gitStatus, checkpointList, checkpointRestore, checkpointDelete, type CheckpointMeta, type FileEntry, type NoteInfo } from "../api";
@@ -198,7 +198,7 @@ export default function Sidebar({
             onSessionMenu(s.id, e.clientX, e.clientY);
           }}
           title={s.tag ? `[${s.tag}] ${s.title}` : s.title}
-          className={`flex w-full items-center gap-1.5 rounded-md px-2 py-2 text-left text-sm transition-all duration-150 ${
+          className={`flex w-full items-center gap-1.5 rounded-md px-2 py-2 text-left text-sm transition duration-150 ${
             s.id === activeId
               ? "bg-halo-hover-strong text-halo-text"
               : "text-halo-muted hover:bg-halo-hover hover:text-halo-text"
@@ -985,7 +985,10 @@ function TagIcon() {
  * раскрытие по клику, клик по файлу копирует абсолютный путь.
  * Файлы, изменённые агентом в активной задаче, помечаются точкой (M4.3).
  */
-function FileTree({
+// F6: memo — во время стрима App перерисовывается на каждый флэш дельт,
+// а пропсы FileTree стабильны (root + мемоизированный modifiedFiles):
+// без memo дерево файлов рекурсивно перестраивалось 60 раз/сек
+const FileTree = memo(function FileTree({
   root,
   modifiedFiles,
 }: {
@@ -1155,7 +1158,7 @@ function FileTree({
   };
 
   return <div>{renderEntries(root, 1)}</div>;
-}
+});
 
 /** Инлайн-переименование: Enter/уход фокуса — сохранить, Escape — отменить */
 function RenameInput({

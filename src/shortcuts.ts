@@ -15,6 +15,7 @@ export const SHORTCUT_ACTIONS = [
   "toggle_terminal",
   "toggle_sidebar",
   "cycle_perm_mode",
+  "toggle_fullscreen",
 ] as const;
 
 export type ShortcutAction = (typeof SHORTCUT_ACTIONS)[number];
@@ -38,6 +39,7 @@ export const SHORTCUT_DEFAULTS: ShortcutBinds = {
   toggle_terminal: "Ctrl+`",
   toggle_sidebar: "Ctrl+B",
   cycle_perm_mode: "Ctrl+Shift+M",
+  toggle_fullscreen: "F11",
 };
 
 /** Развёрнутые подписи действий (ключи локали) */
@@ -50,6 +52,7 @@ export const SHORTCUT_LABEL_KEYS: Record<ShortcutAction, string> = {
   toggle_terminal: "sc.terminal",
   toggle_sidebar: "sc.sidebar",
   cycle_perm_mode: "sc.permMode",
+  toggle_fullscreen: "win.fullscreen",
 };
 
 export interface ComboParts {
@@ -131,5 +134,40 @@ export function comboFromEvent(e: KeyboardEvent): string | null {
   if (e.altKey) parts.push("Alt");
   parts.push(key);
   return parts.join("+");
+}
+
+/**
+ * Комбо Quick Entry в формате плагина ("ctrl+alt+space"). Набор клавиш
+ * ограничен буквами/цифрами/F-клавишами/Space — ровно то, что гарантированно
+ * понимает парсер Shortcut на бекенде. Голая клавиша без модификаторов
+ * запрещена: глобальный хоткей перехватывал бы её в каждом приложении.
+ */
+export function quickentryComboFromEvent(e: KeyboardEvent): string | null {
+  if (
+    ["ControlLeft", "ControlRight", "ShiftLeft", "ShiftRight", "AltLeft", "AltRight", "MetaLeft", "MetaRight"].includes(e.code)
+  ) {
+    return null;
+  }
+  let key: string | null = null;
+  if (/^Key[A-Z]$/.test(e.code)) key = e.code.slice(3).toLowerCase();
+  else if (/^Digit\d$/.test(e.code)) key = e.code.slice(5);
+  else if (/^F\d{1,2}$/.test(e.code)) key = e.code.toLowerCase();
+  else if (e.code === "Space") key = "space";
+  if (!key) return null;
+  const parts: string[] = [];
+  if (e.ctrlKey || e.metaKey) parts.push("ctrl");
+  if (e.shiftKey) parts.push("shift");
+  if (e.altKey) parts.push("alt");
+  if (parts.length === 0) return null;
+  parts.push(key);
+  return parts.join("+");
+}
+
+/** "ctrl+alt+space" → "Ctrl+Alt+Space" (первая буква каждого токена) */
+export function prettyQuickentryCombo(combo: string): string {
+  return combo
+    .split("+")
+    .map((tok) => tok.charAt(0).toUpperCase() + tok.slice(1))
+    .join("+");
 }
 
