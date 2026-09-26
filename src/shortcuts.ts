@@ -16,6 +16,7 @@ export const SHORTCUT_ACTIONS = [
   "toggle_sidebar",
   "cycle_perm_mode",
   "toggle_fullscreen",
+  "hard_mode",
 ] as const;
 
 export type ShortcutAction = (typeof SHORTCUT_ACTIONS)[number];
@@ -40,6 +41,7 @@ export const SHORTCUT_DEFAULTS: ShortcutBinds = {
   toggle_sidebar: "Ctrl+B",
   cycle_perm_mode: "Ctrl+Shift+M",
   toggle_fullscreen: "F11",
+  hard_mode: "Ctrl+Shift+H",
 };
 
 /** Развёрнутые подписи действий (ключи локали) */
@@ -53,6 +55,7 @@ export const SHORTCUT_LABEL_KEYS: Record<ShortcutAction, string> = {
   toggle_sidebar: "sc.sidebar",
   cycle_perm_mode: "sc.permMode",
   toggle_fullscreen: "win.fullscreen",
+  hard_mode: "sc.hardMode",
 };
 
 export interface ComboParts {

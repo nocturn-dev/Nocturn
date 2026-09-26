@@ -240,7 +240,15 @@ export default function App() {
   const [streamSmooth, setStreamSmooth] = useBoolPref("haloui-stream-smooth", true);
   // Скорость плавной печати: множитель догоняющего темпаAssistantCard
   // Hard-Mode: терминальный скин (моношрифт, без стекла/скруглений/ambient)
+  // Тумблер в «Основном» только РАЗРЕШАЕТ режим; вход/выход — хоткей
+  // hard_mode (дефолт Ctrl+Shift+H, переназначается)
   const [hardMode, setHardMode] = useBoolPref("haloui-hard-mode", false);
+  const [hardSkin, setHardSkin] = useBoolPref("haloui-hard-skin", false);
+  const hardModeRef = useRef(hardMode);
+  useEffect(() => {
+    hardModeRef.current = hardMode;
+    if (!hardMode) setHardSkin(false); // тумблер выключен — скин снимается
+  }, [hardMode, setHardSkin]);
   const [printSpeed, setPrintSpeed] = useNumPref("haloui-print-speed", 1, (v) =>
     [0.5, 1, 2].includes(v) ? v : 1,
   );
@@ -922,8 +930,8 @@ export default function App() {
   }, [streamingId]);
 
   useEffect(() => {
-    document.documentElement.classList.toggle("hard-mode", hardMode);
-  }, [hardMode]);
+    document.documentElement.classList.toggle("hard-mode", hardMode && hardSkin);
+  }, [hardMode, hardSkin]);
 
   // Обои: класс на html — CSS делает сайдбар/чат чуть прозрачными,
   // чтобы фон уходил за сайдбар (раньше обои обрывались на его границе)
@@ -1139,6 +1147,10 @@ export default function App() {
         break;
       case "toggle_fullscreen":
         void invoke("window_toggle_fullscreen").catch(() => {});
+        break;
+      case "hard_mode":
+        if (hardModeRef.current) setHardSkin((v) => !v);
+        else addToast(t("hard.needEnable"));
         break;
       case "cycle_perm_mode": {
         if (!activeId) break;
@@ -1626,16 +1638,7 @@ export default function App() {
         desc: t("cmd.glass"),
         run: () => setGlass((v) => !v),
       },
-      {
-        name: "hard",
-        desc: t("cmd.hard"),
-        run: () => setHardMode((v) => !v),
-      },
-      {
-        name: "q",
-        desc: t("cmd.q"),
-        run: () => setHardMode(false),
-      },
+
       {
         name: "provider",
         desc: t("cmd.provider"),
@@ -2180,7 +2183,7 @@ export default function App() {
         onCopied={() => addToast(t("plan.copied"))}
         onClose={() => setPlanPanelOpen(false)}
       />
-      {hardMode && (
+      {hardMode && hardSkin && (
         <div
           data-tauri-drag-region
           className="hard-banner"
