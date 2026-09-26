@@ -236,40 +236,7 @@ html.accent-gradient .bg-halo-accent:hover {
 ::view-transition-new(root) {
   animation-duration: 150ms;
 }
-/* Баннер Hard-Mode: снизу, чтобы не мешать кнопкам окна */
-.hard-banner {
-  position: fixed;
-  inset-inline: 0;
-  bottom: 0;
-  z-index: 90;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 24px;
-  font-family: var(--halo-font-mono, ui-monospace, Consolas, monospace);
-  font-size: 10px;
-  letter-spacing: 0.2em;
-  color: var(--halo-accent);
-  background: var(--halo-deep);
-  border-top: 1px solid var(--halo-accent);
-  pointer-events: auto;
-  user-select: none;
-}
 
-/* ---------- Hard-Mode: терминальный скин (/hard) ---------- */
-html.hard-mode {
-  /* Прямые углы везде: радиус-токены умножаются на этот масштаб */
-  --halo-radius-scale: 0;
-  --halo-font-ui: "JetBrains Mono", "Cascadia Mono", ui-monospace, Consolas, monospace;
-}
-html.hard-mode .glass-pane,
-html.hard-mode .msg-glass {
-  backdrop-filter: none;
-  background-color: var(--halo-surface) !important;
-}
-html.hard-mode .ambient-layer,
-html.hard-mode body::before {
-  display: none;
 }
 
 /* Превью змейки на карточке «Отдыха»: сегменты ползут при наведении */

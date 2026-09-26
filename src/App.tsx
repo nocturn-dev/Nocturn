@@ -97,6 +97,7 @@ import { TERMINAL_PALETTES } from "./vt";
 import { useAppearanceUi } from "./hooks/useAppearanceUi";
 import { useBoolPref, useNumPref, useStringPref } from "./hooks/usePrefs";
 import { withViewTransition } from "./motion";
+import HardTerminal from "./components/HardTerminal";
 import { AmbientLayer } from "./components/AmbientLayer";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 
@@ -245,10 +246,12 @@ export default function App() {
   const [hardMode, setHardMode] = useBoolPref("haloui-hard-mode", false);
   const [hardSkin, setHardSkin] = useBoolPref("haloui-hard-skin", false);
   const hardModeRef = useRef(hardMode);
+  const hardSkinRef = useRef(hardSkin);
   useEffect(() => {
     hardModeRef.current = hardMode;
+    hardSkinRef.current = hardSkin;
     if (!hardMode) setHardSkin(false); // тумблер выключен — скин снимается
-  }, [hardMode, setHardSkin]);
+  }, [hardMode, hardSkin, setHardSkin]);
   const [printSpeed, setPrintSpeed] = useNumPref("haloui-print-speed", 1, (v) =>
     [0.5, 1, 2].includes(v) ? v : 1,
   );
@@ -1185,6 +1188,16 @@ export default function App() {
   });
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // В Hard-Mode (полноэкранный терминал) глобальные бинды глушим —
+      // клавиши принадлежат шеллу; исключение — выход (hard_mode)
+      if (hardSkinRef.current) {
+        const bind = bindsRef.current.hard_mode;
+        if (bind && comboMatches(bind, e)) {
+          e.preventDefault();
+          dispatchShortcutRef.current("hard_mode");
+        }
+        return;
+      }
       for (const action of SHORTCUT_ACTIONS) {
         const bind = bindsRef.current[action];
         if (!bind) continue;
@@ -2183,13 +2196,9 @@ export default function App() {
         onCopied={() => addToast(t("plan.copied"))}
         onClose={() => setPlanPanelOpen(false)}
       />
+      {/* Hard-Mode: полноэкранный живой терминал поверх «спящего» UI */}
       {hardMode && hardSkin && (
-        <div
-          data-tauri-drag-region
-          className="hard-banner"
-        >
-          {t("hard.banner")}
-        </div>
+        <HardTerminal cwd={projectRootRef.current ?? undefined} />
       )}
       <Toasts items={toasts} />
       {onboardingOpen && splashDone && (
