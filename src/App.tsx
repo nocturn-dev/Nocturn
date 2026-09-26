@@ -2198,7 +2198,10 @@ export default function App() {
       />
       {/* Hard-Mode: полноэкранный живой терминал поверх «спящего» UI */}
       {hardMode && hardSkin && (
-        <HardTerminal cwd={projectRootRef.current ?? undefined} />
+        <HardTerminal
+          cwd={projectRootRef.current ?? undefined}
+          combo={bindsRef.current.hard_mode ?? "Ctrl+Shift+H"}
+        />
       )}
       <Toasts items={toasts} />
       {onboardingOpen && splashDone && (
