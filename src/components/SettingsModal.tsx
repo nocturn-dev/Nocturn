@@ -72,6 +72,9 @@ interface SettingsModalProps {
   /** Множитель скорости плавной печати (0.5 / 1 / 2) */
   printSpeed: number;
   onPrintSpeedChange: (v: number) => void;
+  /** Hard-Mode: терминальный скин */
+  hardMode: boolean;
+  onHardModeChange: (v: boolean) => void;
   showReasoning: boolean;
   onShowReasoningChange: (v: boolean) => void;
   /** Вид ленты по умолчанию: normal | thinking | verbose */
@@ -230,6 +233,8 @@ export default function SettingsModal({
   scrollFollow,
   onScrollFollowChange,
   streamSmooth,
+  hardMode,
+  onHardModeChange,
   printSpeed,
   showReasoning,
   transcriptView,
@@ -619,6 +624,8 @@ export default function SettingsModal({
               streamSmooth={streamSmooth}
               onStreamSmoothChange={onStreamSmoothChange}
               printSpeed={printSpeed}
+              hardMode={hardMode}
+              onHardModeChange={onHardModeChange}
               onPrintSpeedChange={onPrintSpeedChange}
               showReasoning={showReasoning}
               onShowReasoningChange={onShowReasoningChange}

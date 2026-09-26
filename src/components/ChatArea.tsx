@@ -14,7 +14,6 @@ import { uid } from "../hooks/useAgentRun";
 import WindowControls from "./WindowControls";
 import ProviderIcon, { brandName } from "./ProviderIcon";
 import { useLang } from "../locales";
-import { convertFileSrc } from "@tauri-apps/api/core";
 import { dayPeriod } from "../time";
 import { getUserDisplayName } from "../userProfile";
 import { BUILTIN_SKILLS, type Skill } from "../skills";
@@ -136,7 +135,6 @@ interface ChatAreaProps {
   /** Призрачный логотип на фоне ленты чата */
   chatMark: boolean;
   /** Обои чата: путь к картинке за лентой ("" — выключено) */
-  chatWallpaper: string;
   /** Эффект стекла на карточках ответов ИИ */
   msgGlass: boolean;
   /** Время в шапке ответов модели (кастомизация) */
@@ -342,7 +340,6 @@ export default function ChatArea({
   showUserMsgs,
   groupTurns,
   chatMark,
-  chatWallpaper,
   msgGlass,
   showMsgTime,
   showWindowControls,
@@ -1417,16 +1414,6 @@ export default function ChatArea({
           <span className="text-halo-accent"><QuoteIcon /></span>
           {t("chat.askAboutSelection")}
         </button>
-      )}
-      {/* Обои чата: картинка за лентой, под призрачным логотипом (кастомизация) */}
-      {chatWallpaper && (
-        <div className="pointer-events-none absolute inset-0 z-0 overflow-hidden">
-          <img
-            src={convertFileSrc(chatWallpaper)}
-            alt=""
-            className="h-full w-full object-cover opacity-35"
-          />
-        </div>
       )}
       {/* Призрачный логотип на фоне ленты (за контентом, тумблер в «Темах») */}
       {chatMark && visible.length > 0 && (
