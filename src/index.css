@@ -237,8 +237,6 @@ html.accent-gradient .bg-halo-accent:hover {
   animation-duration: 150ms;
 }
 
-}
-
 /* Превью змейки на карточке «Отдыха»: сегменты ползут при наведении */
 .group:hover .snake-preview-seg {
   animation: snake-crawl 1.2s ease-in-out infinite;
