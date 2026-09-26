@@ -57,4 +57,28 @@ describe("Vt", () => {
     expect(rowText(vt, 0)).toBe("abcd");
     expect(rowText(vt, 1)).toBe("ef");
   });
+
+  it("giant CSI L (malformed input) completes instantly and stays bounded", () => {
+    const vt = new Vt(40, 5);
+    vt.feed("base");
+    const start = Date.now();
+    // Раньше: 1e9 итераций splice+pop — вечное зависание UI-потока.
+    // Семантика L: вставка строк на курсоре выталкивает контент за экран
+    vt.feed("\x1b[999999999L");
+    expect(Date.now() - start).toBeLessThan(1000);
+    // Экран не разросся, контент вытеснен вставками (как в реальном терминале)
+    expect(vt.rows.length).toBe(5);
+    expect(rowText(vt, 0)).toBe("");
+  });
+
+  it("CSI param ceiling (xterm-style 65535) does not blow up cursor ops", () => {
+    const start = Date.now();
+    const vt = new Vt(40, 5);
+    vt.feed("\x1b[999999999B\x1b[999999999Ctail");
+    expect(Date.now() - start).toBeLessThan(1000);
+    // Курсор зажат экраном; «tail» записан с мягким переносом на нижней строке
+    expect(vt.rows.length).toBe(5);
+    expect(vt.row).toBe(4);
+    expect(rowText(vt, 4)).toContain("ail");
+  });
 });

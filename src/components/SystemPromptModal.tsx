@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useDelayedUnmount } from "../motion";
 import { useLang } from "../locales";
 
 interface SystemPromptModalProps {
@@ -36,15 +37,16 @@ export default function SystemPromptModal({
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose]);
 
-  if (!open) return null;
+  const show = useDelayedUnmount(open, 170);
+  if (!show) return null;
 
   return (
     <div
-      className="anim-fade fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm"
+      className={`fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm ${open ? "anim-fade" : "anim-fade-out"}`}
       onClick={onClose}
     >
       <div
-        className="glass-pane anim-pop w-full max-w-xl rounded-2xl border border-halo-line bg-halo-deep p-5 shadow-2xl"
+        className={`glass-pane w-full max-w-xl rounded-2xl border border-halo-line bg-halo-deep p-5 shadow-2xl ${open ? "anim-pop" : "anim-pop-out"}`}
         onClick={(e) => e.stopPropagation()}
       >
         <h2 className="text-base font-semibold text-halo-text">

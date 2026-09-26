@@ -67,10 +67,10 @@ export default function Splash({
         transition: `opacity ${FADE_MS}ms ease, background 300ms ease`,
       }}
     >
-      {/* Пульс лого: единственная keyframes-анимация объявлена локально,
-          чтобы не трогать общий index.css */}
-      <style>{`@keyframes splash-pulse { 0%, 100% { transform: scale(1); opacity: 0.85; } 50% { transform: scale(1.06); opacity: 1; } }`}</style>
-      <div style={{ animation: "splash-pulse 2.4s ease-in-out infinite" }}>
+      {/* Пульс лого: keyframes и анимация живут в index.css — раньше
+          <style> реинжектился на каждый рендер и не глушился при
+          prefers-reduced-motion (S9) */}
+      <div className="splash-pulse">
         <NocturnMark size={64} />
       </div>
       {/* Подпись — только на этапе 2, мягкое появление */}

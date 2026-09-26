@@ -45,3 +45,30 @@ export function loadLimits(): HardLimits {
 export function saveLimits(l: HardLimits): void {
   localStorage.setItem(LS_KEY, JSON.stringify(l));
 }
+
+/** Ключ локали сработавшего лимита */
+export type HardLimitHit = "limits.hitTokens" | "limits.hitUsd";
+
+/**
+ * Чистая проверка лимита по накопленному расходу. null — лимит не достигнут.
+ * Логика решений раньше была зарыта в handleSend; вынесена сюда для тестов.
+ */
+export function evalHardLimit(
+  lim: HardLimits,
+  usage: { prompt: number; completion: number },
+): HardLimitHit | null {
+  const total = usage.prompt + usage.completion;
+  if (lim.maxTokens != null && lim.maxTokens > 0 && total > lim.maxTokens) {
+    return "limits.hitTokens";
+  }
+  if (
+    lim.maxUsd != null &&
+    lim.maxUsd > 0 &&
+    lim.usdPer1M != null &&
+    lim.usdPer1M > 0
+  ) {
+    const usd = (total / 1_000_000) * lim.usdPer1M;
+    if (usd > lim.maxUsd) return "limits.hitUsd";
+  }
+  return null;
+}

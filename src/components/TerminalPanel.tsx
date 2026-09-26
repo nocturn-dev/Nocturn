@@ -30,6 +30,12 @@ interface TerminalPanelProps {
   projectRoot: string | null;
   /** Оболочка консоли: auto | powershell | cmd | gitbash */
   termShell: string;
+  /** 16 ANSI-цветов из выбранной палитры (кастомизация) */
+  termPalette?: string[];
+  /** Размытие фона терминала, px; 0 — фильтр не ставится вовсе (S3:
+   *  backdrop-filter с любым значением, даже blur(0px), заставляет движок
+   *  снапшотить фон каждый кадр) */
+  termBlur?: number;
   /** Высота панели, % от чата (drag за верхнюю границу) */
   heightPct: number;
   onResizeStart: () => void;
@@ -145,6 +151,8 @@ export default function TerminalPanel({
   streamingMsgId,
   pendingConfirm,
   projectRoot,
+  termPalette,
+  termBlur = 0,
   termShell,
   heightPct,
   onResizeStart,
@@ -161,7 +169,10 @@ export default function TerminalPanel({
   const [awaiting, setAwaiting] = useState(false);
   const awaitingRef = useRef(false);
   const decisionRef = useRef(onConfirmDecision);
-  decisionRef.current = onConfirmDecision;
+  // Эффект вместо записи в ref в теле рендера (React Compiler)
+  useEffect(() => {
+    decisionRef.current = onConfirmDecision;
+  }, [onConfirmDecision]);
 
   /** Дописываем ANSI-строку в буфер строк (append-only) */
   const write = (s: string) => {
@@ -446,10 +457,15 @@ export default function TerminalPanel({
   }, [awaiting, t]);
 
   // ---------- Режим «Консоль»: PTY + VT-эмулятор (M6) ----------
-  const vtRef = useRef<Vt>(new Vt(PTY_COLS, PTY_ROWS));
+  // Ленивая инициализация: useRef(new Vt(...)) строил экран 33×120 (~4k ячеек)
+  // на КАЖДЫЙ рендер, хотя сохранялся только первый результат
+  const vtRef = useRef<Vt | null>(null);
+  if (vtRef.current === null) {
+    vtRef.current = new Vt(PTY_COLS, PTY_ROWS, termPalette);
+  }
   const createdRef = useRef(false);
   const exitedRef = useRef(false);
-  const [consoleRows, setConsoleRows] = useState(vtRef.current.render());
+  const [consoleRows, setConsoleRows] = useState(() => vtRef.current!.render());
 
   // Создание PTY и подписка на вывод — при первом включении консоли
   useEffect(() => {
@@ -458,6 +474,34 @@ export default function TerminalPanel({
     // Unlisten'ы собираем в массив: async-IIFE возвращает промис, а не cleanup,
     // поэтому подписки снимаем только через внешний cleanup эффекта
     const unlistens: (() => void)[] = [];
+    // Батчинг вывода: бекенд эмитит pty-output на каждый read() до 4KB —
+    // без коалесинга вывод `dir /s` давал сотни полных ререндеров консоли
+    // в секунду. Копим буфер, кормим VT раз в кадр; rAF не тикает в
+    // скрытом окне — фолбэк-таймер держит темп и ограничивает буфер.
+    // Переменные — в скоупе эффекта: cleanup должен уметь снять таймер
+    let pending = "";
+    let flushScheduled = false;
+    let flushTimer: number | undefined;
+    const flushVt = () => {
+      flushScheduled = false;
+      flushTimer = undefined;
+      const vt = vtRef.current;
+      if (disposed || !vt || pending === "") return;
+      vt.feed(pending);
+      pending = "";
+      const resp = vt.takeResponse();
+      if (resp) void ptyWrite(PTY_ID, resp);
+      setConsoleRows(vt.render());
+    };
+    const scheduleFlush = () => {
+      if (flushScheduled) return;
+      flushScheduled = true;
+      if (document.hidden) {
+        flushTimer = window.setTimeout(flushVt, 50);
+      } else {
+        requestAnimationFrame(flushVt);
+      }
+    };
     void (async () => {
       try {
         if (!createdRef.current) {
@@ -474,10 +518,9 @@ export default function TerminalPanel({
           "pty-output",
           (e) => {
             if (e.payload.id !== PTY_ID || disposed) return;
-            vtRef.current.feed(e.payload.data);
-            const resp = vtRef.current.takeResponse();
-            if (resp) void ptyWrite(PTY_ID, resp);
-            setConsoleRows(vtRef.current.render());
+            pending += e.payload.data;
+            if (pending.length > 1_000_000) flushVt();
+            else scheduleFlush();
           },
         );
         if (disposed) {
@@ -488,8 +531,8 @@ export default function TerminalPanel({
         const offExit = await listen<string>("pty-exit", (e) => {
           if (e.payload !== PTY_ID || disposed) return;
           exitedRef.current = true;
-          vtRef.current.feed(`\r\n\x1b[2m${t("terminal.exited")}\x1b[0m\r\n`);
-          setConsoleRows(vtRef.current.render());
+          vtRef.current!.feed(`\r\n\x1b[2m${t("terminal.exited")}\x1b[0m\r\n`);
+          setConsoleRows(vtRef.current!.render());
         });
         if (disposed) {
           offExit();
@@ -502,6 +545,7 @@ export default function TerminalPanel({
     })();
     return () => {
       disposed = true;
+      if (flushTimer !== undefined) window.clearTimeout(flushTimer);
       for (const off of unlistens) off();
       unlistens.length = 0;
     };
@@ -591,9 +635,8 @@ export default function TerminalPanel({
       if (e.key === "Enter") {
         e.preventDefault();
         exitedRef.current = false;
-        vtRef.current = new Vt(PTY_COLS, PTY_ROWS);
-        setConsoleRows(vtRef.current.render());
-        createdRef.current = false;
+        vtRef.current = new Vt(PTY_COLS, PTY_ROWS, termPalette);
+        setConsoleRows(vtRef.current.render());        createdRef.current = false;
         // Сначала дожидаемся kill, только потом создаём: иначе create
         // может сработать до завершения kill и потерять шелл
         void ptyKill(PTY_ID)
@@ -659,8 +702,20 @@ export default function TerminalPanel({
 
   return (
     <div
-      className="relative flex shrink-0 flex-col border-t border-halo-line bg-halo-deep"
-      style={{ height: `${heightPct}%` }}
+      style={{
+        height: `${heightPct}%`,
+        // S3: blur ставится только при ненулевом слайдере; blur(0px) — не
+        // no-op, а платный снапшот фона каждый кадр. Webkit-префикс для
+        // WKWebView (остальные места продублированы в index.css). Фон —
+        // класс .terminal-surface: у inline color-mix нет фолбэка
+        ...(termBlur > 0
+          ? {
+              backdropFilter: `blur(${termBlur}px)`,
+              WebkitBackdropFilter: `blur(${termBlur}px)`,
+            }
+          : {}),
+      }}
+      className="terminal-surface relative flex shrink-0 flex-col border-t border-halo-line"
     >
       {/* Drag за верхнюю границу — меняем высоту панели */}
       <div

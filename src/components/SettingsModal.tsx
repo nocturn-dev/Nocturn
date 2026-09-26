@@ -1,6 +1,12 @@
-import { useEffect, useState } from "react";
-import type { Session, Theme } from "../types";
-import UsageSection from "./UsageSection";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useDelayedUnmount, withViewTransition } from "../motion";
+import { flushSync } from "react-dom";
+import type { Session, Theme, UsageEvent } from "../types";
+import { ReflectSection } from "./settings/ReflectSection";
+import { WebSearchSection } from "./settings/WebSearchSection";
+import { ProfileSection } from "./settings/ProfileSection";
+import { RestSection, type GameId } from "./settings/RestSection";
+import { SETTINGS_SEARCH_INDEX } from "./settings/searchIndex";
 import SubagentsSection from "./SubagentsSection";
 import CommandsSection from "./CommandsSection";
 import PluginsSection from "./PluginsSection";
@@ -63,8 +69,14 @@ interface SettingsModalProps {
   onScrollFollowChange: (v: boolean) => void;
   streamSmooth: boolean;
   onStreamSmoothChange: (v: boolean) => void;
+  /** Множитель скорости плавной печати (0.5 / 1 / 2) */
+  printSpeed: number;
+  onPrintSpeedChange: (v: number) => void;
   showReasoning: boolean;
   onShowReasoningChange: (v: boolean) => void;
+  /** Вид ленты по умолчанию: normal | thinking | verbose */
+  transcriptView: "normal" | "thinking" | "verbose";
+  onTranscriptViewChange: (v: "normal" | "thinking" | "verbose") => void;
   askAutoContinue: boolean;
   onAskAutoContinueChange: (v: boolean) => void;
   autoArchive: boolean;
@@ -72,6 +84,7 @@ interface SettingsModalProps {
   archiveRetention: number;
   onArchiveRetentionChange: (d: number) => void;
   onArchiveNow: () => void;
+  onExportChats: () => void;
   closeToTray: boolean;
   onCloseToTrayChange: (v: boolean) => void;
   streamCaret: boolean;
@@ -86,6 +99,8 @@ interface SettingsModalProps {
   onNotifyPrefsChange: (p: NotifyPrefs) => void;
   /** Все чаты: статистика считается по ним, а не по текущему запуску */
   sessions: Session[];
+  /** Журнал отправок для «Обзора» (Reflect) */
+  usageLog: UsageEvent[];
   /** Конфиг субагентов: роли, параллельность, тумблер */
   subConfig: SubagentsConfig;
   onSubConfigChange: (c: SubagentsConfig) => void;
@@ -152,6 +167,7 @@ const NAV: {
     group: "nav.basics",
     items: [
       { id: "main", key: "settings.main", icon: "gear" },
+      { id: "profile", key: "settings.profile", icon: "users" },
       { id: "theme", key: "settings.themes", icon: "palette" },
       { id: "api", key: "settings.api", icon: "box" },
       { id: "browser", key: "settings.browser", icon: "globe" },
@@ -167,6 +183,7 @@ const NAV: {
       { id: "plugins", key: "settings.plugins", icon: "grid" },
       { id: "mcp", key: "settings.mcp", icon: "plug" },
       { id: "imagegen", key: "settings.imagegen", icon: "image" },
+      { id: "websearch", key: "settings.websearch", icon: "globe" },
       { id: "prompts", key: "settings.prompts", icon: "skill" },
       { id: "skills", key: "settings.skills", icon: "spark" },
       { id: "agent", key: "settings.agent", icon: "terminal" },
@@ -178,8 +195,12 @@ const NAV: {
     group: "nav.data",
     items: [
       { id: "network", key: "settings.network", icon: "globe" },
-      { id: "usage", key: "settings.usage", icon: "chart" },
+      { id: "reflect", key: "settings.reflect", icon: "chart" },
     ],
+  },
+  {
+    group: "nav.rest",
+    items: [{ id: "rest", key: "settings.rest", icon: "gamepad" }],
   },
   {
     group: "nav.help",
@@ -209,16 +230,21 @@ export default function SettingsModal({
   scrollFollow,
   onScrollFollowChange,
   streamSmooth,
+  printSpeed,
   showReasoning,
+  transcriptView,
   askAutoContinue,
   autoArchive,
   archiveRetention,
   onStreamSmoothChange,
+  onPrintSpeedChange,
   onShowReasoningChange,
+  onTranscriptViewChange,
   onAskAutoContinueChange,
   onAutoArchiveChange,
   onArchiveRetentionChange,
   onArchiveNow,
+  onExportChats,
   closeToTray,
   onCloseToTrayChange,
   streamCaret,
@@ -234,6 +260,7 @@ export default function SettingsModal({
   plugins,
   onPluginsChange,
   sessions,
+  usageLog,
   settingsLarge,
   onSettingsLargeChange,
   browserPanel,
@@ -295,12 +322,111 @@ export default function SettingsModal({
   };
   // Развёрнутое окно (на весь экран) — для широких разделов вроде статистики
   const [expanded, setExpanded] = useState(false);
+  // Поиск по настройкам: запрос + область (везде / только кастомизация).
+  // Непустой запрос заменяет навигацию списком результатов (клик — открыть
+  // секцию). Матч по локализованным подписям — работает во всех языках
+  // Активная мини-игра во вкладке «Отдых»: Esc закрывает игру, потом модалку
+  const [restGame, setRestGame] = useState<GameId | null>(null);
+  const [searchQ, setSearchQ] = useState("");
+  const [searchScope, setSearchScope] = useState<"all" | "custom">("all");
+  // Пункт, к которому надо проскроллиться после перехода в секцию (label)
+  const [pendingItem, setPendingItem] = useState<string | null>(null);
+  const contentPaneRef = useRef<HTMLDivElement>(null);
+  const searchResults = useMemo(() => {
+    const query = searchQ.trim().toLowerCase();
+    if (query === "") return null;
+    const out: { section: Section; label: string; sectionTitle: string }[] = [];
+    const seen = new Set<string>();
+    // Сами разделы — тоже результаты (по названию)
+    for (const g of NAV) {
+      for (const item of g.items) {
+        if (item.id === null) continue;
+        if (searchScope === "custom" && item.id !== "theme") continue;
+        const title = t(item.key);
+        if (title.toLowerCase().includes(query)) {
+          const id = `s:${item.id}`;
+          if (!seen.has(id)) {
+            seen.add(id);
+            out.push({ section: item.id, label: title, sectionTitle: t("settings.title") });
+          }
+        }
+      }
+    }
+    // Строки настроек внутри секций
+    for (const group of SETTINGS_SEARCH_INDEX) {
+      if (searchScope === "custom" && group.section !== "theme") continue;
+      const navItem = NAV.flatMap((x) => x.items).find((i) => i.id === group.section);
+      if (!navItem) continue;
+      const sectionTitle = t(navItem.key);
+      for (const key of group.keys) {
+        // Протухший ключ индекса не должен ронять поиск (t вернёт undefined)
+        const label = (t(key as never) ?? "") as string;
+        if (typeof label === "string" && label.toLowerCase().includes(query) && !seen.has(`${key}`)) {
+          seen.add(`${key}`);
+          out.push({ section: group.section, label, sectionTitle });
+        }
+      }
+    }
+    return out.slice(0, 40);
+  }, [searchQ, searchScope, t]);
+  // Плавный морф размера через View Transitions API: снапшоты старого/нового
+  // состояния анимируются на композиторе — анимировать width/height напрямую
+  // нельзя (reflow всего контента каждый кадр = дёрганье). Без VT (старый
+  // WebKitGTK) и при reduce-motion — мгновенная смена размера
+  const setExpandedSmooth = (next: boolean) => {
+    const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+    const doc = document as Document & {
+      startViewTransition?: (cb: () => void) => unknown;
+    };
+    if (!doc.startViewTransition || reduce) {
+      setExpanded(next);
+      return;
+    }
+    doc.startViewTransition(() => {
+      flushSync(() => setExpanded(next));
+    });
+  };
+
+  // Плавное закрытие: при open=false модалка доигрывает anim-pop-out и
+  // только потом размонтируется (общий хук движения — src/motion.ts)
+  const renderOpen = useDelayedUnmount(open, 170);
+  const closing = !open && renderOpen;
 
   // Сброс на первый раздел при открытии — но программное открытие
   // (initialSection, например «Плагины» из сайдбара) имеет приоритет
   useEffect(() => {
     if (open) setSection(initialSection ?? "main");
   }, [open, initialSection]);
+
+  // Скролл к найденному пункту: после рендера секции ищем в контенте
+  // элемент с этим текстом (самый короткий совпавший), прокручиваем к нему
+  // и подсвечиваем. Работает для обеих областей и внутри текущей секции
+  useEffect(() => {
+    if (!pendingItem) return;
+    const pane = contentPaneRef.current;
+    const label = pendingItem.trim().toLowerCase();
+    const timer = window.setTimeout(() => {
+      if (!pane) return;
+      let best: HTMLElement | null = null;
+      let bestLen = Number.MAX_SAFE_INTEGER;
+      const els = pane.querySelectorAll("*");
+      for (const el of Array.from(els) as HTMLElement[]) {
+        if (el.children.length > 3) continue;
+        const txt = el.textContent?.trim().toLowerCase() ?? "";
+        if (txt.includes(label) && txt.length < bestLen) {
+          best = el;
+          bestLen = txt.length;
+        }
+      }
+      if (best) {
+        best.scrollIntoView({ block: "center", behavior: "smooth" });
+        best.classList.add("search-hit");
+        window.setTimeout(() => best.classList.remove("search-hit"), 1800);
+      }
+      setPendingItem(null);
+    }, 60);
+    return () => window.clearTimeout(timer);
+  }, [pendingItem]);
 
   // Закрытие по Escape
   useEffect(() => {
@@ -311,22 +437,33 @@ export default function SettingsModal({
         // текста (промт роли, заметка, форма автоматизации) терялся без спроса
         const tgt = e.target as HTMLElement | null;
         if (tgt && (tgt.tagName === "INPUT" || tgt.tagName === "TEXTAREA" || tgt.isContentEditable)) return;
-        onClose();
+        // Сначала — мини-игра «Отдыха», потом сама модалка
+        setRestGame((g) => {
+          if (g !== null) return null;
+          onClose();
+          return g;
+        });
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose]);
 
-  if (!open) return null;
+  if (!open && !renderOpen) return null;
 
   return (
     <div
-      className="anim-fade fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm"
+      // S3: backdrop-blur на оверлее поверх glass-pane-контента давал вложенный
+      // фильтр — на WKWebView известный источник фризов; затемнения достаточно
+      className={`fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 ${
+        closing ? "anim-fade-out" : "anim-fade"
+      }`}
       onClick={onClose}
     >
       <div
-        className={`glass-pane anim-pop flex overflow-hidden rounded-2xl border border-halo-line bg-halo-deep shadow-2xl ${
+        className={`glass-pane settings-vt flex overflow-hidden rounded-2xl border border-halo-line bg-halo-deep shadow-2xl ${
+          closing ? "anim-pop-out" : "anim-pop"
+        } ${
           expanded
             ? "h-[88vh] w-[92vw] max-w-none"
             : settingsLarge
@@ -341,7 +478,7 @@ export default function SettingsModal({
             <h2 className="text-sm font-semibold text-halo-text">{t("settings.title")}</h2>
             <div className="flex items-center gap-0.5">
               <button
-                onClick={() => setExpanded((v) => !v)}
+                onClick={() => setExpandedSmooth(!expanded)}
                 title={expanded ? t("settings.collapseWin") : t("settings.expandWin")}
                 className="rounded-md p-1 text-halo-muted transition-colors hover:bg-halo-hover hover:text-halo-text"
               >
@@ -356,6 +493,57 @@ export default function SettingsModal({
               </button>
             </div>
           </div>
+          {/* Поиск по настройкам: область «везде» / «только кастомизация» */}
+          <div className="px-1 pb-2">
+            <input
+              type="text"
+              value={searchQ}
+              onChange={(e) => setSearchQ(e.target.value)}
+              placeholder={t("settings.searchPh")}
+              className="w-full rounded-lg border border-halo-line bg-halo-surface px-2.5 py-1.5 text-xs text-halo-text outline-none transition-colors placeholder:text-halo-muted/60 focus:border-halo-accent/60"
+            />
+            <div className="mt-1.5 flex gap-1">
+              {(
+                [
+                  ["all", "settings.searchAll"],
+                  ["custom", "settings.searchCustom"],
+                ] as const
+              ).map(([id, key]) => (
+                <button
+                  key={id}
+                  onClick={() => setSearchScope(id)}
+                  className={`rounded-md border px-2 py-0.5 text-[10px] transition-colors ${
+                    searchScope === id
+                      ? "border-halo-accent/50 bg-halo-accent/10 text-halo-accent"
+                      : "border-halo-line text-halo-muted hover:text-halo-text"
+                  }`}
+                >
+                  {t(key)}
+                </button>
+              ))}
+            </div>
+          </div>
+          {searchResults !== null ? (
+            <div className="scroll-slim min-h-0 flex-1 overflow-y-auto pr-0.5">
+              {searchResults.length === 0 && (
+                <p className="px-2.5 py-3 text-xs text-halo-muted">{t("settings.searchEmpty")}</p>
+              )}
+              {searchResults.map((r, i) => (
+                <button
+                  key={`${r.section}-${i}`}
+                  onClick={() => {
+                    withViewTransition(() => goto(r.section));
+                    setPendingItem(r.label);
+                    setSearchQ("");
+                  }}
+                  className="mb-0.5 flex w-full flex-col rounded-md px-2.5 py-1.5 text-left transition-colors hover:bg-halo-hover"
+                >
+                  <span className="truncate text-xs text-halo-text">{r.label}</span>
+                  <span className="truncate text-[10px] text-halo-muted/60">{r.sectionTitle}</span>
+                </button>
+              ))}
+            </div>
+          ) : (
           <nav className="scroll-slim min-h-0 flex-1 space-y-3 overflow-y-auto pr-0.5">
             {NAV.map((g) => (
               <div key={g.group}>
@@ -397,10 +585,11 @@ export default function SettingsModal({
               </div>
             ))}
           </nav>
+          )}
         </div>
 
         {/* Содержимое раздела */}
-        <div className="scroll-slim flex-1 overflow-y-auto p-5">
+        <div ref={contentPaneRef} className="scroll-slim flex-1 overflow-y-auto p-5">
           {/* Крошки навигации: назад — на шаг, откуда пользователь пришёл */}
           {section !== "main" && (
             <div className="mb-4 flex items-center gap-1.5 text-xs">
@@ -418,6 +607,7 @@ export default function SettingsModal({
               <span className="font-medium text-halo-text">{sectionTitle(section)}</span>
             </div>
           )}
+          {section === "profile" && <ProfileSection />}
           {section === "main" && (
             <MainSection
               sidebarSide={sidebarSide}
@@ -428,8 +618,12 @@ export default function SettingsModal({
               onScrollFollowChange={onScrollFollowChange}
               streamSmooth={streamSmooth}
               onStreamSmoothChange={onStreamSmoothChange}
+              printSpeed={printSpeed}
+              onPrintSpeedChange={onPrintSpeedChange}
               showReasoning={showReasoning}
               onShowReasoningChange={onShowReasoningChange}
+              transcriptView={transcriptView}
+              onTranscriptViewChange={onTranscriptViewChange}
               askAutoContinue={askAutoContinue}
               onAskAutoContinueChange={onAskAutoContinueChange}
               autoArchive={autoArchive}
@@ -437,6 +631,7 @@ export default function SettingsModal({
               archiveRetention={archiveRetention}
               onArchiveRetentionChange={onArchiveRetentionChange}
               onArchiveNow={onArchiveNow}
+              onExportChats={onExportChats}
               closeToTray={closeToTray}
               onCloseToTrayChange={onCloseToTrayChange}
               streamCaret={streamCaret}
@@ -513,11 +708,17 @@ export default function SettingsModal({
               onChange={onMemoryChange}
             />
           )}
-          {section === "usage" && <UsageSection sessions={sessions} />}
+          {section === "reflect" && (
+            <ReflectSection sessions={sessions} usage={usageLog} apiSettings={apiSettings} />
+          )}
           {section === "network" && <NetworkSection />}
+          {section === "rest" && (
+            <RestSection game={restGame} onGameChange={setRestGame} />
+          )}
           {section === "docs" && <DocsSection />}
           {section === "mcp" && <McpSection />}
           {section === "imagegen" && <ImageGenSection />}
+          {section === "websearch" && <WebSearchSection />}
           {section === "hooks" && <HooksSection />}
           {section === "shortcuts" && (
             <ShortcutsSection

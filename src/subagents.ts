@@ -13,6 +13,7 @@ import {
   type ChatMsgParam,
   type ToolCallInfo,
 } from "./api";
+import { filterToolSchemas } from "./agent/toolFilter";
 
 export interface SubagentRole {
   id: string;
@@ -135,6 +136,9 @@ export interface SubagentRunOpts {
    *  вызывает chat_abort по его sub-* id), и его исполняющиеся инструменты
    *  (runTool регистрируется на abort-флаг прогона) */
   runRequestId?: string;
+  /** Инструменты, отключённые пользователем в главной задаче: субагент
+   *  наследует их и не может расширить набор (схемы + серверный гардал) */
+  disabledTools?: string[];
 }
 
 /** Вложенный агентный цикл: model → tools → … → финальный отчёт */
@@ -154,7 +158,10 @@ export async function runSubagent(opts: SubagentRunOpts): Promise<string> {
   const all = (await getToolSchemas()) as Array<{
     function: { name: string };
   }>;
-  const pool = Array.isArray(all) ? all : [];
+  // Родительский чёрный список: скрытые инструменты не попадают к субагенту
+  const pool = filterToolSchemas(Array.isArray(all) ? all : [], {
+    disabled: opts.disabledTools,
+  }) as Array<{ function: { name: string } }>;
   const READ_ONLY = new Set([
     "fs_list",
     "fs_read",
@@ -238,9 +245,12 @@ export async function runSubagent(opts: SubagentRunOpts): Promise<string> {
       opts.onStep?.({ type: "tool", text: `${call.name} ${call.arguments.slice(0, 80)}` });
       // requestId главного прогона: бэкенд поднимает/заводит abort-флаг
       // по нему — Stop прерывает и инструмент субагента
-      const res = await runTool(call.name, call.arguments, opts.runRequestId).catch(
-        (e) => `tool error: ${e}`,
-      );
+      const res = await runTool(
+        call.name,
+        call.arguments,
+        opts.runRequestId,
+        opts.disabledTools,
+      ).catch((e) => `tool error: ${e}`);
       messages.push({
         role: "tool",
         tool_call_id: call.id,

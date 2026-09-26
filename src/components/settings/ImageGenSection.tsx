@@ -37,8 +37,11 @@ export function ImageGenSection() {
       <h3 className="mb-1 text-sm font-semibold text-halo-text">
         {t("settings.imagegen")}
       </h3>
-      <p className="mb-4 text-xs leading-relaxed text-halo-muted">
+      <p className="mb-2 text-xs leading-relaxed text-halo-muted">
         {t("ig.desc")}
+      </p>
+      <p className="mb-4 rounded-lg border border-halo-line/60 bg-halo-surface/40 px-2.5 py-2 text-xs leading-relaxed text-halo-muted">
+        {t("ig.fallbackHint")}
       </p>
 
       <div className="space-y-1">

@@ -17,6 +17,10 @@ pub struct ApiSettings {
     /// Шифрование API-ключей (AES-256-GCM, мастер-ключ в Credential Manager)
     #[serde(default)]
     pub encrypt_keys: bool,
+    /// Fallback-модель: второй прогон при исчерпании ретраев на 429/5xx.
+    /// None/пусто — автопереключение выключено
+    #[serde(default)]
+    pub fallback_model: Option<String>,
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
@@ -27,6 +31,14 @@ pub struct ApiProfile {
     pub base_url: String,
     pub model: String,
     pub provider: String,
+    /// Fallback-модель профиля (подставляется вместе с остальной связкой)
+    #[serde(default)]
+    pub fallback_model: Option<String>,
+    /// Оформление, сохранённое вместе с профилем (кастомизация «тема из
+    /// профиля»): pass-through serde::Value — структура владеет только
+    /// фронтом, Rust не знает её полей
+    #[serde(default)]
+    pub appearance: Option<serde_json::Value>,
 }
 
 /// Хранилище профилей — отдельный файл profiles.json (не settings.json),
@@ -192,7 +204,7 @@ pub async fn crypto_setup(app: tauri::AppHandle, password: String) -> Result<(),
     let password = Zeroizing::new(password);
     let (salt, key, check) = tauri::async_runtime::spawn_blocking(move || {
         let salt = crypto::new_salt();
-        let key = crypto::derive_key_argon2(&password, &salt);
+        let key = crypto::derive_key_argon2(&password, &salt)?;
         let check = crypto::make_check(&key)?;
         Ok::<_, String>((salt, key, check))
     })
@@ -218,18 +230,18 @@ pub async fn crypto_unlock(app: tauri::AppHandle, password: String) -> Result<()
     // Argon2id/PBKDF2 в spawn_blocking: сотни миллисекций CPU не фризят UI
     let verified = tauri::async_runtime::spawn_blocking(move || {
         let key = if is_argon2 {
-            crypto::derive_key_argon2(&password, &salt)
+            crypto::derive_key_argon2(&password, &salt)?
         } else {
             crypto::derive_key(&password, &salt)
         };
-        if crypto::verify_check(&key, &check) {
+        Ok::<_, String>(if crypto::verify_check(&key, &check) {
             Some(key)
         } else {
             None
-        }
+        })
     })
     .await
-    .map_err(|e| e.to_string())?;
+    .map_err(|e| e.to_string())??;
     let Some(key) = verified else {
         return Err("wrong password".into());
     };
@@ -240,7 +252,7 @@ pub async fn crypto_unlock(app: tauri::AppHandle, password: String) -> Result<()
     // --- Легаси-миграция PBKDF2 → Argon2id ---
     let migrated = tauri::async_runtime::spawn_blocking(move || {
         let new_salt = crypto::new_salt();
-        let new_key = crypto::derive_key_argon2(&password2, &new_salt);
+        let new_key = crypto::derive_key_argon2(&password2, &new_salt)?;
         rekey_all(&app2, &key, &new_key)?;
         let new_check = crypto::make_check(&new_key)?;
         Ok::<_, String>((new_salt, new_key, new_check))
@@ -429,6 +441,12 @@ pub fn settings_read_all(
     let include_secrets = include_secrets.unwrap_or(false);
     let mut files = serde_json::Map::new();
     for name in EXPORT_FILES {
+        // crypto.json (соль KDF + check-маркер) — материал для офлайн-перебора
+        // мастер-пароля: в «поделенный» экспорт без секретов не попадает,
+        // машино-перенос — только осознанный include_secrets=true
+        if *name == "crypto.json" && !include_secrets {
+            continue;
+        }
         let path = dir.join(name);
         if !path.exists() {
             continue;
@@ -463,6 +481,13 @@ fn mask_secrets(file: &str, v: &mut serde_json::Value) {
                         *k = blank();
                     }
                 }
+            }
+        }
+        // Ключ генерации картинок живёт в imagegen.json (зашифрованным
+        // enc:v1:…) — без ветки он уходил в «поделенный» экспорт как есть
+        "imagegen.json" => {
+            if let Some(k) = v.get_mut("api_key") {
+                *k = blank();
             }
         }
         _ => {}
@@ -522,13 +547,43 @@ pub(crate) fn rejects_sensitive_path(path: &str) -> Result<(), String> {
     #[cfg(windows)]
     {
         let norm = trimmed.to_lowercase().replace('/', "\\");
-        let comps: Vec<&str> = norm.split('\\').filter(|c| !c.is_empty()).collect();
+        let is_unc = norm.starts_with("\\\\");
+        // Вербатим-префиксы (`\\?\`, `\\?\UNC\`) Win32 пишет БЕЗ нормализации,
+        // а после split «c:» уезжал в comps[1] мимо блок-листа — срезаем
+        let stripped = strip_verbatim(&norm);
+        // Компонент «.» исчезает при нормализации Win32 — иначе C:\.\Windows\x
+        // прятал «windows» за мимо-компонентом
+        let comps: Vec<&str> = stripped
+            .split('\\')
+            .filter(|c| !c.is_empty() && *c != ".")
+            .collect();
         // `..` запрещаем целиком: легитимному экспорту подъём не нужен,
         // а он уводит проверку топ-уровня мимо целевого каталога
         if comps.contains(&"..") {
             return Err("path must not contain '..'".into());
         }
-        // comps[0] — диск ("c:") или UNC-хост, comps[1] — топ-каталог
+        // comps[0] обязан быть диском («c:») или, для UNC, хостом; «?», «??»,
+        // NT-префиксы, относительные пути и голый диск («C:» — резолвится
+        // в cwd диска) — fail closed: гардал не обязан разбирать экзотику,
+        // он обязан её не пропускать
+        let drive_shape = comps.first().is_some_and(|c| {
+            let b = c.as_bytes();
+            b.len() == 2 && b[1] == b':' && b[0].is_ascii_alphabetic()
+        });
+        if !is_unc && (!drive_shape || comps.len() < 2) {
+            return Err("path must be an absolute drive-letter path".into());
+        }
+        // UNC-экзотика, оставляющая диск в позиции шары (`\\.\C:\...`,
+        // `\\\?\C:\...`), — тоже отказ
+        if is_unc
+            && (comps.len() < 2 || {
+                let s = comps[1].as_bytes();
+                s.len() == 2 && s[1] == b':'
+            })
+        {
+            return Err("path points to an unsupported location".into());
+        }
+        // comps[1] — топ-каталог (для UNC — шара)
         let top = short83(comps.get(1).copied().unwrap_or(""));
         // "progra" ловит 8.3-алиасы Program Files (PROGRA~1/PROGRA~2):
         // короткое имя генерируется на томе, длинное по нему не восстановить
@@ -575,50 +630,108 @@ fn short83(comp: &str) -> &str {
     }
 }
 
-/// Сохранить экспорт-файл (содержимое собрано на фронте).
-/// Запись в каталог конфигов приложения запрещена: hooks.json/mcp.json
-/// исполняемы по своей природе — произвольная перезапись через эту команду
-/// обходила гейт settings_write_all и давала RCE из скомпрометированного
-/// вебвью. Экспорт живёт только вне конфиг-каталога.
+/// Срез вербатим-префиксов: `\\?\C:\...` → `C:\...`, `\\?\UNC\srv\share` →
+/// `srv\share`. fs::canonicalize на Windows возвращает пути С префиксом,
+/// а сырые пути с префиксом Win32 пишет без нормализации — валидировать и
+/// сравнивать их можно только после среза.
+#[cfg(windows)]
+fn strip_verbatim(p: &str) -> &str {
+    if let Some(rest) = p.strip_prefix(r"\\?\UNC\") {
+        return rest;
+    }
+    p.strip_prefix(r"\\?\").unwrap_or(p)
+}
+
+/// Нормализация для сравнения путей: нижний регистр и срез вербатим-префикса
+/// (см. strip_verbatim) — только Windows-семантика, на Unix ФС регистро- и
+/// слэш-чувствительна
+#[cfg(windows)]
+fn norm_path(p: &std::path::Path) -> String {
+    strip_verbatim(&p.to_string_lossy()).to_lowercase()
+}
+#[cfg(not(windows))]
+fn norm_path(p: &std::path::Path) -> String {
+    p.to_string_lossy().to_string()
+}
+
+/// starts_with с границей каталога: голый префикс «com.haloui.app» матчит
+/// сиблинга «com.haloui.app-backup» — сравниваем только целые компоненты
+fn starts_dir(path_n: &str, dir_n: &str) -> bool {
+    path_n == dir_n || path_n.starts_with(&format!("{dir_n}{}", std::path::MAIN_SEPARATOR))
+}
+
+/// Общий гейт записи экспорт-файлов: путь не в защищённых местах и вне
+/// каталога конфигов приложения (hooks.json/mcp.json исполняемы по своей
+/// природе — произвольная перезапись через экспорт-команду обошла бы гейт
+/// settings_write_all и дала RCE из скомпрометированного вебвью).
+/// Возвращает проверенный целевой путь.
+fn ensure_export_target(
+    app: &tauri::AppHandle,
+    path: &str,
+) -> Result<std::path::PathBuf, String> {
+    use tauri::Manager;
+    rejects_sensitive_path(path)?;
+    let cfg = app.path().app_config_dir().map_err(|e| e.to_string())?;
+    let target = std::path::Path::new(path);
+    // Лексическое сравнение + канонизация существующего родителя (перекрывает
+    // 8.3-имена и синонимы каталога); несуществующий таргет сравнивается как
+    // есть. norm_path срезает \\?\-префикс canonicalize: без среза сравнение
+    // не совпадало никогда и канонизация была мёртвым кодом (обход гардала
+    // путём `\\?\C:\...\com.haloui.app\hooks.json`)
+    let canon_dir = |p: Option<&std::path::Path>| -> Option<String> {
+        let p = p?;
+        if p.exists() {
+            Some(norm_path(&std::fs::canonicalize(p).ok()?))
+        } else {
+            Some(norm_path(p))
+        }
+    };
+    let cfg_n = norm_path(&cfg);
+    let target_n = norm_path(target);
+    let parent_inside = canon_dir(target.parent()).is_some_and(|d| starts_dir(&d, &cfg_n));
+    if starts_dir(&target_n, &cfg_n) || parent_inside {
+        return Err("export target must be outside the application config directory".into());
+    }
+    Ok(target.to_path_buf())
+}
+
+/// Сохранить экспорт-файл настроек (содержимое собрано на фронте).
+/// Экспорт живёт только вне конфиг-каталога, формат — строго .json.
 #[tauri::command(async)]
 pub fn settings_export_write(
     app: tauri::AppHandle,
     path: String,
     content: String,
 ) -> Result<(), String> {
-    use tauri::Manager;
+    let target = ensure_export_target(&app, &path)?;
     if !path.ends_with(".json") {
         return Err("export file must be .json".into());
-    }
-    rejects_sensitive_path(&path)?;
-    let cfg = app.path().app_config_dir().map_err(|e| e.to_string())?;
-    let target = std::path::Path::new(&path);
-    // Лексическое сравнение + канонизация существующего родителя (перекрывает
-    // 8.3-имена и синонимы каталога); несуществующий таргет сравнивается как есть
-    let canon_dir = |p: Option<&std::path::Path>| -> Option<std::path::PathBuf> {
-        let p = p?;
-        if p.exists() {
-            std::fs::canonicalize(p).ok()
-        } else {
-            Some(p.to_path_buf())
-        }
-    };
-    #[cfg(windows)]
-    let norm = |p: std::path::PathBuf| p.to_string_lossy().to_lowercase();
-    #[cfg(not(windows))]
-    let norm = |p: std::path::PathBuf| p.to_string_lossy().to_string();
-    let cfg_n = norm(cfg.clone());
-    let target_inside = norm(target.to_path_buf()).starts_with(&cfg_n)
-        || canon_dir(target.parent())
-            .map(|d| norm(d).starts_with(&cfg_n))
-            .unwrap_or(false);
-    if target_inside {
-        return Err("export target must be outside the application config directory".into());
     }
     // Проверка, что это валидный JSON — защита от мусора
     serde_json::from_str::<serde_json::Value>(&content)
         .map_err(|e| format!("export content is not valid JSON: {e}"))?;
-    crate::fsutil::atomic_write(target, content.as_bytes())
+    crate::fsutil::atomic_write(&target, content.as_bytes())
+}
+
+/// Сохранить файл экспорта чата (.md или .json). Путь приходит из диалога
+/// «Сохранить как», но команда вызывается из вебвью — гарды те же, что у
+/// настроек. JSON дополнительно валидируется, чтобы «JSON» не оказался мусором.
+#[tauri::command(async)]
+pub fn chat_export_write(
+    app: tauri::AppHandle,
+    path: String,
+    content: String,
+) -> Result<(), String> {
+    let lower = path.to_lowercase();
+    if !lower.ends_with(".md") && !lower.ends_with(".json") {
+        return Err("chat export file must be .md or .json".into());
+    }
+    let target = ensure_export_target(&app, &path)?;
+    if lower.ends_with(".json") {
+        serde_json::from_str::<serde_json::Value>(&content)
+            .map_err(|e| format!("export content is not valid JSON: {e}"))?;
+    }
+    crate::fsutil::atomic_write(&target, content.as_bytes())
 }
 
 /// Прочитать импорт-файл (путь контролируется фронтом: потолок 32 МБ —
@@ -707,6 +820,9 @@ pub struct ProjectRec {
     pub name: String,
     #[serde(default)]
     pub profile_id: String,
+    /// Акцент проекта (кастомизация «акцент проекта»)
+    #[serde(default)]
+    pub accent: Option<String>,
 }
 
 /// Хранилище проектов — отдельный файл projects.json
@@ -796,6 +912,96 @@ pub(crate) fn save_json_config<T: serde::Serialize>(
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let json = serde_json::to_string_pretty(value).map_err(|e| e.to_string())?;
     crate::fsutil::atomic_write(&dir.join(file), json.as_bytes())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Гардал записи с фронтенда — центральный security-путь, поэтому
+    // регресс-тест на каждый известный класс обхода (аудит: вербатим-префиксы,
+    // `\.\`, 8.3-алиасы, сиблинги конфиг-каталога)
+
+    #[cfg(windows)]
+    #[test]
+    fn sensitive_windows_locations_are_rejected() {
+        for p in [
+            r"C:\Windows\evil.json",
+            // вербатим-префикс: Win32 пишет без нормализации
+            r"\\?\C:\Windows\evil.json",
+            // `\.\` исчезает при нормализации Win32
+            r"C:\.\Windows\evil.json",
+            r"C:\Program Files\x.json",
+            r"C:\PROGRA~1\App\x.json",
+            r"C:\ProgramData\Microsoft\Crypto\x.json",
+            // NT-префикс и вербатим-мусор — fail closed
+            r"\??\C:\Windows\evil.json",
+            r"\\\?\C:\Windows\evil.json",
+            r"\\.\C:\Windows\evil.json",
+            r"\\?\UNC\srv\share\..\..\x",
+            r"C:\Users\me\..\..\Windows\evil.json",
+        ] {
+            assert!(
+                rejects_sensitive_path(p).is_err(),
+                "must reject: {p}"
+            );
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn ordinary_windows_paths_are_allowed() {
+        for p in [
+            r"C:\Users\me\Documents\settings-export.json",
+            r"D:\repo\out\export.json",
+            r"\\NAS\share\backups\nocturn.json",
+            // сиблинг конфиг-каталога — не сам конфиг-каталог
+            r"C:\Users\me\AppData\Roaming\com.haloui.app-backup\export.json",
+        ] {
+            assert!(
+                rejects_sensitive_path(p).is_ok(),
+                "must allow: {p}"
+            );
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn relative_and_odd_paths_fail_closed() {
+        for p in ["export\\file.json", "file.json", "", "C:"] {
+            assert!(rejects_sensitive_path(p).is_err(), "must reject: {p:?}");
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn strip_verbatim_cuts_both_prefixes() {
+        assert_eq!(strip_verbatim(r"\\?\C:\x"), r"C:\x");
+        assert_eq!(strip_verbatim(r"\\?\UNC\srv\share"), r"srv\share");
+        assert_eq!(strip_verbatim(r"C:\plain"), r"C:\plain");
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn sensitive_unix_locations_are_rejected() {
+        for p in ["/etc/passwd", "/proc/self/x", "/sys/x", "/boot/x", "/root/x"] {
+            assert!(rejects_sensitive_path(p).is_err(), "must reject: {p}");
+        }
+        // .ssh блокируется на любой глубине
+        assert!(rejects_sensitive_path("/home/me/.ssh/id_rsa").is_err());
+        assert!(rejects_sensitive_path("/home/me/.config/x.json").is_ok());
+    }
+
+    #[test]
+    fn starts_dir_matches_whole_components_only() {
+        let sep = std::path::MAIN_SEPARATOR;
+        let dir = format!("c:{sep}cfg");
+        // сам каталог и вложенные — внутри
+        assert!(starts_dir(&dir, &dir));
+        assert!(starts_dir(&format!("{dir}{sep}sub{sep}f.json"), &dir));
+        // сиблинг с общим префиксом — НЕ внутри (раньше ложно отклонялся)
+        assert!(!starts_dir(&format!("c:{sep}cfg-backup{sep}f.json"), &dir));
+    }
 }
 
 // ---------- Серверный слой прав (perm.rs) ----------

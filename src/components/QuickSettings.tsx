@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { ACCENT_PRESETS } from "../appearance";
+import { loadCustomStyles } from "../themeStyles";
 import type { ModelInfo } from "../api";
 import { PROVIDERS } from "../api";
 import type { PromptPreset } from "../presets";
@@ -30,10 +31,6 @@ interface QuickSettingsProps {
   glass: boolean;
   onGlassChange: (v: boolean) => void;
   onClose: () => void;
-  /** Куда открывать поповер: композер — вверх (по умолчанию), сайдбар — тоже вверх */
-  align?: "right" | "left";
-  /** Начальная вкладка (из сайдбара — сразу «Вид») */
-  initialTab?: "model" | "role" | "look";
 }
 
 export default function QuickSettings({
@@ -52,11 +49,9 @@ export default function QuickSettings({
   glass,
   onGlassChange,
   onClose,
-  align = "right",
-  initialTab = "model",
 }: QuickSettingsProps) {
   const { t } = useLang();
-  const [tab, setTab] = useState<"model" | "role" | "look">(initialTab);
+  const [tab, setTab] = useState<"model" | "role" | "look">("model");
 
   const tabs: { id: typeof tab; label: string }[] = [
     { id: "model", label: t("qs.model") },
@@ -71,6 +66,8 @@ export default function QuickSettings({
     { id: "abyss", label: t("themes.styleAbyss") },
     { id: "storm", label: t("themes.styleStorm") },
     { id: "dusk", label: t("themes.styleDusk") },
+    // Конструктор (идея №3): свои стили всегда под рукой во вкладке «Вид»
+    ...loadCustomStyles().map((s) => ({ id: s.id as Appearance["style"], label: s.name })),
   ];
 
   // Reasoning effort: уровни усилия размышлений (off — не отправлять)
@@ -86,9 +83,7 @@ export default function QuickSettings({
       {/* Клик вне — закрыть */}
       <div className="fixed inset-0 z-30" onClick={onClose} />
       <div
-        className={`glass-pane anim-pop absolute bottom-full z-40 mb-2 w-80 overflow-hidden rounded-xl border border-halo-line bg-halo-deep/95 shadow-2xl backdrop-blur ${
-          align === "left" ? "left-0" : "right-0"
-        }`}
+        className="glass-pane anim-pop absolute bottom-full right-0 z-40 mb-2 w-80 overflow-hidden rounded-xl border border-halo-line bg-halo-deep/95 shadow-2xl"
       >
         {/* Вкладки */}
         <div className="flex border-b border-halo-line/60 p-1.5">

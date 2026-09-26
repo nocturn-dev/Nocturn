@@ -1,9 +1,23 @@
 import { diffLines, diffStats, parseWriteResult, summarizeArguments } from "../../diff";
 import { useLang } from "../../locales";
 import { type ToolCallInfo } from "../../types";
+import { convertFileSrc } from "@tauri-apps/api/core";
 import { DiffView } from "./DiffView";
 import { ChevronDownIcon, ToolIcon } from "./icons";
 import { memo, useMemo, useState } from "react";
+
+/** Результат image_generate → {path}; мусор/ошибки — null */
+function parseImageResult(content: string): { path: string } | null {
+  try {
+    const v = JSON.parse(content) as { ok?: unknown; path?: unknown };
+    if (v.ok === true && typeof v.path === "string" && v.path.length > 0) {
+      return { path: v.path };
+    }
+  } catch {
+    // не JSON (старые результаты/ошибки) — обычный текстовый вывод
+  }
+  return null;
+}
 
 function ToolStepCardBase({
   mid,
@@ -50,12 +64,26 @@ function ToolStepCardBase({
   );
   const stats = useMemo(() => (diff ? diffStats(diff) : null), [diff]);
 
+  // image_generate: результат {ok, path} рендерится картинкой прямо в чате
+  // (файл лежит в appdata/images, каталог разрешён в asset-скоупе на старте)
+  const imageResult = useMemo(
+    () =>
+      name === "image_generate" && !denied && !toolError
+        ? parseImageResult(content)
+        : null,
+    [name, denied, toolError, content],
+  );
+  const imageSrc =
+    imageResult && "__TAURI_INTERNALS__" in window
+      ? convertFileSrc(imageResult.path)
+      : null;
+
   const summary = call ? summarizeArguments(name, call.arguments) : "";
 
-  // Цвет статуса: красный — неудача, зелёный — запись файла, серый — прочее
+  // Цвет статуса: красный — неудача, зелёный — запись файла или картинка, серый — прочее
   const statusColor = failed
     ? "text-red-400"
-    : write
+    : write || imageResult
       ? "text-emerald-400"
       : "text-halo-muted";
 
@@ -100,6 +128,14 @@ function ToolStepCardBase({
         <span className={`shrink-0 text-[10px] ${statusColor}`}>{statusLabel}</span>
         <ChevronDownIcon className={open ? "" : "-rotate-90"} />
       </button>
+
+      {imageSrc && (
+        <img
+          src={imageSrc}
+          alt=""
+          className="mt-2 max-h-72 w-auto max-w-full rounded-lg border border-halo-line/60"
+        />
+      )}
 
       {open && (
         <div className="anim-fade-up mt-2">

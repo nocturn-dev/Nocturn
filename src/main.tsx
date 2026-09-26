@@ -1,9 +1,24 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
+import { QuickEntry } from "./QuickEntry";
 import "./index.css";
 import { LangProvider } from "./locales";
-import "highlight.js/styles/github-dark.min.css";
+import { applyCodeTheme } from "./codeThemes";
+import { applyAppearance, loadAppearance } from "./appearance";
+
+// S10: статический github-dark удалён — это дословный дубль темы «midnight»,
+// собиравший одни и те же правила дважды. Подсветка инжектится до первого
+// рендера, чтобы код-блоки первого экрана не мигали неоформленными
+try {
+  const raw = localStorage.getItem("haloui-appearance");
+  const codeTheme = raw
+    ? (JSON.parse(raw) as { codeTheme?: string }).codeTheme
+    : undefined;
+  applyCodeTheme(codeTheme ?? "midnight");
+} catch {
+  applyCodeTheme("midnight");
+}
 
 // Приложение должно ощущаться нативным: системное меню браузера не нужно,
 // оставляем его только для полей ввода (копирование/вставка)
@@ -20,10 +35,28 @@ window.addEventListener("unhandledrejection", (e) => {
   console.error("[nocturn] unhandled promise rejection:", e.reason);
 });
 
+// Quick Entry — второе окно (index.html?window=quickentry): тот же бандл,
+// вместо полного App рендерится поле быстрого ввода
+const isQuickEntry =
+  new URLSearchParams(window.location.search).get("window") === "quickentry";
+
+// Кастомизацию главного окна применяет App, у второго окна его нет —
+// подтягиваем сохранённую тему/акцент/шрифты до первого рендера
+if (isQuickEntry) {
+  try {
+    const a = loadAppearance();
+    applyAppearance(a);
+    document.documentElement.classList.toggle(
+      "light",
+      localStorage.getItem("haloui-theme") === "light" && !a.official,
+    );
+  } catch {
+    // нет сохранённой кастомизации — дефолтная палитра из index.css
+  }
+}
+
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
-    <LangProvider>
-      <App />
-    </LangProvider>
+    <LangProvider>{isQuickEntry ? <QuickEntry /> : <App />}</LangProvider>
   </React.StrictMode>,
 );

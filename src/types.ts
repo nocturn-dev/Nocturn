@@ -1,8 +1,14 @@
 export type Role = "user" | "assistant" | "tool";
 
 export interface Attachment {
+  /** Стабильный key для превью-списка: индексные key на удаляемом списке
+   *  переиспользовали DOM-узлы чужих картинок */
+  id?: string;
   name: string;
-  dataUrl: string;
+  /** Картинка (data URL); для текстовых документов не задан */
+  dataUrl?: string;
+  /** Текстовый документ (RAG-lite): содержимое уходит в контекст модели */
+  text?: string;
 }
 
 export interface ToolCallInfo {
@@ -61,6 +67,8 @@ export interface Message {
   error?: { title: string; raw: string };
   /** Модель, сгенерировавшая ответ (иначе в шапке показывается текущая выбранная) */
   model?: string;
+  /** Прогон переключён на fallback-модель (429/5xx после ретраев) — бейдж на карточке */
+  switchedTo?: string;
   /** Цитата из другого сообщения: вопрос задаётся по выделенному фрагменту */
   quote?: string;
   /** Поправка пользователя: отправлена агенту во время его работы, не прерывая её */
@@ -90,6 +98,9 @@ export interface Session {
   allowedCommands?: string[];
   /** Режим разрешений агента; отсутствие = "ask" */
   permissionMode?: PermissionMode;
+  /** Инструменты, скрытые пользователем из этой задачи: не отдаются модели
+   *  в схемах и отклоняются сервером при вызове (run_tool) */
+  disabledTools?: string[];
   /** Привязанный профиль API: при открытии чата подставляется его связка ключ+URL+модель */
   profileId?: string;
   /** Чат убран в архив (скрыт из списка, доступен через тумблер архива) */
@@ -105,6 +116,8 @@ export interface Project {
   name: string;
   /** Привязанный профиль API: новые чаты проекта наследуют его */
   profileId?: string;
+  /** Акцент проекта (кастомизация «акцент проекта», opt-in) */
+  accent?: string;
 }
 
 export type Theme = "dark" | "light";

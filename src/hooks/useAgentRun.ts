@@ -10,15 +10,22 @@ import {
   checkpointSave,
   getToolSchemas,
   hooksRunEvent,
+  memoryList,
   permSet,
+  projectRulesRead,
   runTool,
   type ApiSettings,
   type ChatMsgParam,
   type ChatUsage,
+  type MemoryFact,
 } from "../api";
 // FIX: trimContextWindow заменяет голый .slice(-30), который разрывал
 // пары «assistant tool_calls ↔ tool-результаты» на границе окна (→ 400 от провайдера)
-import { trimContextWindow } from "../agent/history";
+// Чистые фазы prepare (история/память) — в agent/history; лимиты — в limits.ts
+import { buildHistory, buildMemoryBlock } from "../agent/history";
+import { buildProfileBlock } from "../userProfile";
+import { evalHardLimit } from "../limits";
+import { filterToolSchemas } from "../agent/toolFilter";
 import { StreamDeltaBuffer, applyMainDeltas } from "./streamBuffer";
 import { notifyTaskDone, type NotifyPrefs } from "../notify";
 import { useLang } from "../locales";
@@ -139,9 +146,16 @@ export function useAgentRun(deps: AgentRunDeps) {
   const [activity, setActivity] = useState<string | null>(null);
 
   // Стрим с авто-ретраем: мгновенные 429/5xx/сетевые сбои до первого токена
-  // повторяем дважды с растущей паузой; частичный ответ не трогаем
+  // повторяем дважды с растущей паузой; частичный ответ не трогаем.
+  // Волна 5: ретраи кончились, сервер всё ещё отвечает 429/5xx — второй
+  // прогон на fallback-модели (если задана и отличается от основной)
   const chatWithRetry = useCallback(
-    async (opts: Parameters<typeof chatStream>[0]) => {
+    async (
+      opts: Parameters<typeof chatStream>[0] & {
+        fallbackModel?: string;
+        onFallback?: (model: string) => void;
+      },
+    ) => {
       let received = false;
       const wrapped = {
         ...opts,
@@ -181,6 +195,26 @@ export function useAgentRun(deps: AgentRunDeps) {
             await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));
             continue;
           }
+          // Fallback-модель: только на 429/5xx (сетевые сбои моделью не лечатся),
+          // до первого токена и пока прогон не отменён
+          const fb = opts.fallbackModel?.trim();
+          const code = parseHttpCode(msg);
+          if (
+            !received &&
+            fb &&
+            fb !== opts.model &&
+            (code === 429 || (code !== null && code >= 500)) &&
+            !abortedRef.current.has(opts.requestId)
+          ) {
+            setActivity(t("activity.fallback", { model: fb }));
+            try {
+              await chatStream({ ...wrapped, model: fb });
+              opts.onFallback?.(fb);
+              return;
+            } catch {
+              // Ошибка фолбэка не информативнее исходной — показываем исходную
+            }
+          }
           throw e;
         }
       }
@@ -190,12 +224,14 @@ export function useAgentRun(deps: AgentRunDeps) {
 
   // Откат записи агента: изменённый файл восстанавливаем из before,
 
-  // Ошибка запроса → человекочитаемый заголовок на карточке, сырое тело — по клику
+  // Ошибка запроса → человекочитаемый заголовок на карточке, сырое тело — по клику.
+  // titleOverride — для особых случаев (пустой ответ провайдера)
   const setMsgError = useCallback(
-    (assistantId: string, raw: string) => {
+    (assistantId: string, raw: string, titleOverride?: string) => {
       const code = parseHttpCode(raw);
       const title =
-        code === 401 || code === 403
+        titleOverride ??
+        (code === 401 || code === 403
           ? t("err.auth", { code })
           : code === 404
             ? t("err.notFound", { code })
@@ -203,7 +239,7 @@ export function useAgentRun(deps: AgentRunDeps) {
               ? t("err.rate", { code })
               : code !== null && code >= 500
                 ? t("err.server", { code })
-                : t("err.generic");
+                : t("err.generic"));
       setSessions((prev) => {
         // FIX: ищем сессию-владельца один раз и клонируем только её,
         // вместо глубокой копии ВСЕХ сессий и всех их сообщений
@@ -289,9 +325,14 @@ export function useAgentRun(deps: AgentRunDeps) {
   const chainAbortRef = useRef(false);
   // Hard Limit: одноразовый триггер на задачу — сбрасывается в начале handleSend
   const limitHitRef = useRef(false);
+  // Активный таймер ask-автопродолжения: отменяется в finalize — раньше
+  // копился по одному на каждый вопрос и доживал 5 минут впустую
+  const askTimerRef = useRef<number | null>(null);
 
   // Чекпоинт за прогон агента: снимок делаем один раз перед первой правкой
   const runCheckpointRef = useRef(false);
+  // Метаданные последнего снимка: root + id — источник диффа для Review
+  const lastCheckpointRef = useRef<{ root: string; id: string } | null>(null);
 
   // Живые прогоны субагентов (M2): ключ — tool call id
   const [subRuns, setSubRuns] = useState<Record<string, SubRunState>>({});
@@ -316,57 +357,8 @@ export function useAgentRun(deps: AgentRunDeps) {
     handleSendRef.current = handleSend;
   });
 
-  // Сообщение в OpenAI-формат: текст + картинки (vision) + tool_calls (агент)
-  const toApiContent = (m: Message): unknown => {
-    // Цитата (follow-up по выделенному фрагменту) идёт в контекст модели
-    const text = m.quote
-      ? `[Quote from earlier in this conversation]: «${m.quote}»\n\n${m.content}`
-      : m.content;
-    if (m.attachments?.length) {
-      return [
-        { type: "text", text },
-        ...m.attachments.map((a) => ({
-          type: "image_url",
-          image_url: { url: a.dataUrl },
-        })),
-      ];
-    }
-    return text;
-  };
-
-  const toApiMessage = (m: Message): ChatMsgParam => {
-    if (m.role === "assistant" && m.toolCalls?.length) {
-      // Thinking-блок Anthropic возвращается в историю первым: Messages API
-      // при extended thinking отвергает ход с tool_use без thinking
-      // («Expected thinking or redacted_thinking, but found tool_use»)
-      const hasThinking = m.thoughtSignature || m.thoughtRedacted?.length;
-      const thinking = hasThinking
-        ? {
-            thinking: m.thought ?? "",
-            signature: m.thoughtSignature ?? "",
-            redacted: m.thoughtRedacted ?? [],
-          }
-        : undefined;
-      return {
-        role: "assistant",
-        content: m.content || null,
-        tool_calls: m.toolCalls.map((tc) => ({
-          id: tc.id,
-          type: "function",
-          function: { name: tc.name, arguments: tc.arguments },
-        })),
-        ...(thinking ? { thinking } : {}),
-      };
-    }
-    if (m.role === "tool") {
-      return {
-        role: "tool",
-        tool_call_id: m.toolCallId,
-        content: m.content,
-      };
-    }
-    return { role: m.role, content: toApiContent(m) };
-  };
+  // Сообщение в OpenAI-формат (toApiContent/toApiMessage) и сборка истории —
+  // чистые функции в agent/history.ts, покрыты тестами
 
   const handleSend = async (
     raw: string,
@@ -559,24 +551,18 @@ export function useAgentRun(deps: AgentRunDeps) {
     const usageAcc = { prompt: 0, completion: 0 };
     // Hard Limit: на новую задачу — с чистого листа
     limitHitRef.current = false;
-    // Hard Limit: проверка после каждого usage-события; при превышении — abort задачи
+    // Hard Limit: проверка после каждого usage-события; при превышении — abort задачи.
+    // Чистая оценка лимита — evalHardLimit (limits.ts), здесь только побочные эффекты
     const checkHardLimit = () => {
       if (limitHitRef.current) return;
-      const lim = limitsRef.current;
-      const total = usageAcc.prompt + usageAcc.completion;
-      let hitKey: string | null = null;
-      if (lim.maxTokens != null && lim.maxTokens > 0 && total > lim.maxTokens) hitKey = "limits.hitTokens";
-      else if (lim.maxUsd != null && lim.maxUsd > 0 && lim.usdPer1M != null && lim.usdPer1M > 0) {
-        const usd = (total / 1_000_000) * lim.usdPer1M;
-        if (usd > lim.maxUsd) hitKey = "limits.hitUsd";
-      }
+      const hitKey = evalHardLimit(limitsRef.current, usageAcc);
       if (hitKey) {
         limitHitRef.current = true;
         // Полноценный abort: помечаем задачу прерванной (цикл и субагенты
         // проверяют abortedRef на каждом шаге) + рвём текущий стрим
         abortedRef.current.add(requestId);
         void abortChat(requestId).catch(() => {});
-        addToast(t(hitKey as never));
+        addToast(t(hitKey));
       }
     };
 
@@ -629,6 +615,11 @@ export function useAgentRun(deps: AgentRunDeps) {
     };
 
     const finalize = () => {
+      // Отменить ask-таймер: вопрос разрешён (или прогон умер) — таймер не нужен
+      if (askTimerRef.current !== null) {
+        window.clearTimeout(askTimerRef.current);
+        askTimerRef.current = null;
+      }
       // Независимо от пути завершения — дельты обязаны попасть в стор
       flushDeltas();
       // Маркер «остановлено пользователем» — ПОСЛЕ дренажа буфера дельт:
@@ -728,8 +719,8 @@ export function useAgentRun(deps: AgentRunDeps) {
       }
     };
 
-    const markWorked = (assistantId: string) => {
-      const worked = Date.now() - startedAt;
+    const markWorked = (assistantId: string, fromMs: number = startedAt) => {
+      const worked = Date.now() - fromMs;
       // FIX: сужаем обновление по целевой сессии — остальные сессии
       // переиспользуются по ссылке, а не клонируются целиком
       setSessions((prev) =>
@@ -781,35 +772,31 @@ export function useAgentRun(deps: AgentRunDeps) {
       prev.map((s) => (s.id === targetId ? { ...s, updatedAt: Date.now() } : s)),
     );
 
-    // Контекст: системный промт + последние 30 сообщений + новое.
-    // FIX: обрезка через trimContextWindow — голый .slice(-30) мог отрезать
-    // assistant с tool_calls от его tool-ответов → постоянные 400 у провайдера
+    // Контекст: системный промт + окно истории (30) + новое сообщение.
+    // Чистая сборка (фильтры, пары tool_calls↔tool, обрезка) — agent/history
     const current =
       currentOverride ?? sessionsRef.current.find((s) => s.id === targetId);
-    const history: ChatMsgParam[] = [
-      ...(current?.systemPrompt
-        ? [{ role: "system", content: current.systemPrompt }]
-        : []),
-      ...trimContextWindow(
-        (current?.messages ?? [])
-          .filter((m) => {
-            // Служебные уведомления (смена модели) в запрос не попадают
-            if (m.content.startsWith("[i]")) return false;
-            // Tool-результат не выбрасываем никогда: пустой content
-            // (runTool вернул "") рвал пару assistant.tool_calls ↔ tool
-            // ещё до trimContextWindow → постоянные 400 у провайдера
-            if (m.role === "tool") return true;
-            return m.content !== "" || m.thought || m.attachments?.length || m.toolCalls;
-          })
-          .map((m) =>
-            m.role === "tool" && m.content === ""
-              ? { ...toApiMessage(m), content: "(empty result)" }
-              : toApiMessage(m),
-          ),
-        30,
-      ),
-      { role: "user", content: toApiContent(userMsg) },
-    ];
+    // Сборка истории читает данные сессии с диска: повреждённая запись
+    // раньше кидала TypeError ВНЕ какого-либо try — releaseRun не вызывался,
+    // activeRunRef клинился навечно и все последующие отправки молча
+    // отсекались guard'ом. Гасим в карточку ошибки и освобождаем движок
+    let history: ChatMsgParam[];
+    try {
+      history = buildHistory(current, userMsg);
+    } catch {
+      const msg: Message = {
+        id: uid(),
+        role: "assistant",
+        content: t("error.corruptSession"),
+      };
+      setSessions((prev) =>
+        prev.map((s) =>
+          s.id === targetId ? { ...s, messages: [...s.messages, msg] } : s,
+        ),
+      );
+      releaseRun();
+      return;
+    }
 
     const isAgent = current?.agentMode ?? false;
 
@@ -831,14 +818,16 @@ export function useAgentRun(deps: AgentRunDeps) {
     runCheckpointRef.current = false;
     const tools = isAgent
       ? await getToolSchemas()
-          .then((t) => {
-            // Субагенты выключены — схема subagent_run не отдаётся модели
-            if (subConfigRef.current.enabled) return t;
-            const arr = t as Array<{ function?: { name?: string } }>;
-            return Array.isArray(arr)
-              ? arr.filter((x) => x.function?.name !== "subagent_run")
-              : t;
-          })
+          .then((t) =>
+            filterToolSchemas(t, {
+              // Субагенты выключены — схема subagent_run не отдаётся модели
+              removeSubagent: !subConfigRef.current.enabled,
+              // Память выключена — memory_* не отдаются
+              removeMemory: !memoryEnabled,
+              // Инструменты, скрытые пользователем из этой задачи
+              disabled: current?.disabledTools,
+            }),
+          )
           .catch(() => undefined)
       : undefined;
 
@@ -847,28 +836,58 @@ export function useAgentRun(deps: AgentRunDeps) {
       history.push({ role: "system", content: t("agent.planNotice") });
     }
 
-    // Память проектов: краткий контекст предыдущих задач этого проекта
-    // (название + первый запрос) — долгосрочное знание без лишних запросов
-    if (memoryEnabled && current?.projectId) {
-      const mem = sessionsRef.current
-        .filter(
-          (s) =>
-            s.id !== targetId &&
-            s.projectId === current.projectId &&
-            s.messages.length > 0,
-        )
-        .slice(-10)
-        .map((s) => {
-          const first = s.messages.find((m) => m.role === "user");
-          const ask = (first?.content ?? "").replace(/\s+/g, " ").slice(0, 120);
-          return `- ${s.title}${ask ? `: ${ask}` : ""}`;
-        })
-        .join("\n");
-      if (mem) {
+    // Правила проекта (паттерн CLAUDE.md/.cursor/rules): AGENTS.md или
+    // CLAUDE.md из корня проекта — в контекст каждой отправки
+    const rulesRoot = projectRootRef.current;
+    if (rulesRoot) {
+      const rules = await projectRulesRead(rulesRoot).catch(() => null);
+      if (rules && rules.trim() !== "") {
         history.push({
           role: "system",
-          content: `${t("memory.systemBlock")}\n${mem}`,
+          content: `${t("agent.rulesBlock")}\n\n${rules}`,
         });
+      }
+    }
+
+    // Профиль пользователя: только поля с включённым share-тумблером
+    // (по умолчанию выключены — принцип анонимности), см. src/userProfile.ts
+    const profileBlock = buildProfileBlock();
+    if (profileBlock) {
+      history.push({ role: "system", content: profileBlock });
+    }
+
+    // Память проектов: краткий контекст предыдущих задач этого проекта
+    // (название + первый запрос) — долгосрочное знание без лишних запросов.
+    // Факты долговременной памяти — глобальны, вне зависимости от проекта
+    if (memoryEnabled) {
+      if (current?.projectId) {
+        const mem = buildMemoryBlock(sessionsRef.current, targetId, current.projectId);
+        if (mem) {
+          history.push({
+            role: "system",
+            content: `${t("memory.systemBlock")}\n${mem}`,
+          });
+        }
+      }
+      // Бюджет инъекции (40 фактов / ~4 КБ): память не должна раздувать
+      // каждый запрос; остальное модель найдёт через memory_recall
+      const facts = await memoryList().catch(() => [] as MemoryFact[]);
+      const lines: string[] = [];
+      let budget = 4096;
+      for (const f of facts) {
+        const line = `- ${f.text}`;
+        if (lines.length >= 40 || line.length > budget) break;
+        budget -= line.length;
+        lines.push(line);
+      }
+      if (lines.length > 0) {
+        history.push({
+          role: "system",
+          content: `${t("memory.factsBlock")}\n${lines.join("\n")}`,
+        });
+      }
+      if (isAgent) {
+        history.push({ role: "system", content: t("memory.hintAgent") });
       }
     }
 
@@ -894,17 +913,46 @@ export function useAgentRun(deps: AgentRunDeps) {
       const assistantId = uid();
       streamingRef.current.set(requestId, assistantId);
       pushMessage({ id: assistantId, role: "assistant", content: "", thought: "", model: apiSettings.model });
+      // Флаг «провайдер отдал хоть что-то»: пустой 200-ответ (image-модель
+      // в текстовом чате и т.п.) больше не исчезает молча — на карточке
+      // появляется внятная ошибка с диагностированной моделью
+      let gotAny = false;
       try {
         await chatWithRetry({
           requestId,
           baseUrl: apiSettings.base_url,
           apiKey: apiSettings.api_key,
           model: apiSettings.model,
+          fallbackModel: apiSettings.fallback_model || undefined,
+          onFallback: (fb) => {
+            // Бейдж «переключено на X»: на карточке — фактическая модель
+            setSessions((prev) =>
+              prev.map((s) =>
+                s.id === targetId
+                  ? {
+                      ...s,
+                      messages: s.messages.map((m) =>
+                        m.id === assistantId
+                          ? { ...m, model: fb, switchedTo: fb }
+                          : m,
+                      ),
+                    }
+                  : s,
+              ),
+            );
+          },
           reasoningEffort: effortRef.current,
           messages: history,
-          onDelta: (delta) => appendTo(assistantId, delta, ""),
-          onThought: (thought) => appendTo(assistantId, "", thought),
+          onDelta: (delta) => {
+            gotAny = true;
+            appendTo(assistantId, delta, "");
+          },
+          onThought: (thought) => {
+            gotAny = true;
+            appendTo(assistantId, "", thought);
+          },
           onUsage: (usage) => {
+            gotAny = true;
             usageAcc.prompt += usage.prompt;
             usageAcc.completion += usage.completion;
             checkHardLimit();
@@ -925,6 +973,13 @@ export function useAgentRun(deps: AgentRunDeps) {
         });
       } catch (e) {
         setMsgError(assistantId, String(e));
+      }
+      if (!gotAny && !abortedRef.current.has(requestId)) {
+        setMsgError(
+          assistantId,
+          `model: ${apiSettings.model} · base: ${apiSettings.base_url}`,
+          t("err.emptyResponse"),
+        );
       }
       markWorked(assistantId);
       finalize();
@@ -973,6 +1028,9 @@ export function useAgentRun(deps: AgentRunDeps) {
       injectCorrections();
 
       const assistantId = uid();
+      // Своя точка отсчёта на шаг: workedMs от старта ПРОГОНА суммировался
+      // в groupTurns-карточке квадратично (11 шагов ~84с показывали 646с)
+      const stepStartedAt = Date.now();
       streamingRef.current.set(requestId, assistantId);
       pushMessage({ id: assistantId, role: "assistant", content: "", thought: "", model: apiSettings.model });
       setTyping(true);
@@ -982,6 +1040,9 @@ export function useAgentRun(deps: AgentRunDeps) {
       // Текст, отстрименный до вызова инструментов, — попадёт в историю
       // вместе с tool_calls, иначе модель «забывает» то, что уже написала
       let streamedText = "";
+      // Флаг «провайдер отдал хоть что-то»: пустой 200-ответ не исчезает
+      // молча — на карточке появляется ошибка с диагностированной моделью
+      let gotAny = false;
       // Thinking-блок Anthropic (текст+подпись+redacted): нужен и в истории
       // цикла, и на карточке сообщения. Holder-объект: TS не видит
       // присваивание в колбэке и сужает let до never (как calls выше)
@@ -995,15 +1056,37 @@ export function useAgentRun(deps: AgentRunDeps) {
           baseUrl: apiSettings.base_url,
           apiKey: apiSettings.api_key,
           model: apiSettings.model,
+          fallbackModel: apiSettings.fallback_model || undefined,
+          onFallback: (fb) => {
+            // Бейдж «переключено на X»: на карточке — фактическая модель
+            setSessions((prev) =>
+              prev.map((s) =>
+                s.id === targetId
+                  ? {
+                      ...s,
+                      messages: s.messages.map((m) =>
+                        m.id === assistantId
+                          ? { ...m, model: fb, switchedTo: fb }
+                          : m,
+                      ),
+                    }
+                  : s,
+              ),
+            );
+          },
           reasoningEffort: effortRef.current,
           provider: apiSettings.provider,
           messages: history,
           tools,
           onDelta: (delta) => {
+            gotAny = true;
             streamedText += delta;
             appendTo(assistantId, delta, "");
           },
-          onThought: (thought) => appendTo(assistantId, "", thought),
+          onThought: (thought) => {
+            gotAny = true;
+            appendTo(assistantId, "", thought);
+          },
           onThinkingBlock: (block) => {
             thinkingHolder.block = block;
             // Подпись/redacted thinking-блока Anthropic: без них блок
@@ -1081,7 +1164,22 @@ export function useAgentRun(deps: AgentRunDeps) {
         setMsgError(assistantId, String(e));
       }
       setTyping(false);
-      markWorked(assistantId);
+      markWorked(assistantId, stepStartedAt);
+
+      // Пустой 200-ответ (image-модель в текстовом чате и т.п.) — внятная
+      // ошибка вместо молча исчезнувшей карточки
+      if (
+        !failed &&
+        !gotAny &&
+        !abortedRef.current.has(requestId) &&
+        !limitHitRef.current
+      ) {
+        setMsgError(
+          assistantId,
+          `model: ${apiSettings.model} · base: ${apiSettings.base_url}`,
+          t("err.emptyResponse"),
+        );
+      }
 
       // Нет вызовов инструментов — обычный ответ, цикл завершён
       const toolCalls = toolCallsHolder.calls;
@@ -1127,8 +1225,13 @@ export function useAgentRun(deps: AgentRunDeps) {
         ) {
           setBrowserPanelOpen(true);
         }
-        // requestId связывает вызов с прогоном: Stop убьёт процесс немедленно
-        return runTool(name, args, requestId);
+        // requestId связывает вызов с прогоном: Stop убьёт процесс немедленно;
+        // чёрный список задачи — сервер отклонит скрытый инструмент (субагенты
+        // наследуют список, не расширяя набор)
+        const disabledTools = sessionsRef.current.find(
+          (s) => s.id === targetId,
+        )?.disabledTools;
+        return runTool(name, args, requestId, disabledTools);
       };
 
       // Чекпоинт проекта перед первой правкой прогона: снимок файлов,
@@ -1145,6 +1248,9 @@ export function useAgentRun(deps: AgentRunDeps) {
         const label = (lastUser?.content ?? "").replace(/\s+/g, " ").trim();
         const cp = await checkpointSave(root, label);
         if (cp) {
+          // Запоминаем снимок прогона: источник живого диффа для Review
+          // (покрывает и правки мимо fs_write — shell и т.п.)
+          lastCheckpointRef.current = { root, id: cp.id };
           // Плавающее уведомление вместо строки в чате
           addToast(t("cp.created"));
         }
@@ -1313,9 +1419,12 @@ export function useAgentRun(deps: AgentRunDeps) {
                     : null,
               ),
           );
-          // Автопродолжение: вопрос без ответа N минут — продолжаем сами
+          // Автопродолжение: вопрос без ответа N минут — продолжаем сами.
+          // Таймер отменяется в finalize: ответили раньше — он больше не нужен
           if (askAutoContinue) {
-            window.setTimeout(() => {
+            if (askTimerRef.current !== null) window.clearTimeout(askTimerRef.current);
+            askTimerRef.current = window.setTimeout(() => {
+              askTimerRef.current = null;
               if (interactionsRef.current.has(interactionId)) {
                 resolveInteraction(interactionId, { kind: "ask-timeout" });
               }
@@ -1487,6 +1596,9 @@ export function useAgentRun(deps: AgentRunDeps) {
               // C11: requestId прогона — Stop прерывает и стрим субагента
               // (chat_abort по его sub-* id), и его исполняющиеся инструменты
               runRequestId: requestId,
+              // Чёрный список задачи наследуется субагентом
+              disabledTools: sessionsRef.current.find((s) => s.id === targetId)
+                ?.disabledTools,
             });
             subContent = `[${role.name}]
 ${report}`;
@@ -1550,6 +1662,7 @@ ${report}`;
           call.name === "fs_write" ||
           call.name === "fs_delete" ||
           call.name === "vault_write" ||
+          call.name === "memory_save" ||
           call.name === "image_generate" ||
           call.name.startsWith("mcp__") ||
           (call.name.startsWith("browser_") &&
@@ -1762,5 +1875,6 @@ ${report}`;
     handleConfirmDecision,
     handleAskAnswer,
     chainAbortRef,
+    lastCheckpointRef, // наружу: Review читает снимок прогона для живого диффа
   };
 }

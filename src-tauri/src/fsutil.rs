@@ -4,7 +4,9 @@
 
 use std::fs;
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+
+use serde::Serialize;
 
 /// Записать данные атомарно: temp-файл рядом + rename (rename в пределах
 /// одной ФС атомарен). На Unix файл получает права 600 — конфиги содержат
@@ -63,6 +65,100 @@ pub fn read_capped_string(path: &Path, limit: usize) -> Result<String, String> {
     fs::read_to_string(path).map_err(|e| format!("cannot read {}: {e}", path.display()))
 }
 
+/// 8 hex-символов из случайных байтов — короткое уникальное имя файла/профиля.
+/// Раньше дублировалась в browser.rs и imagegen.rs
+pub(crate) fn uuid_v4_short() -> String {
+    let b: [u8; 4] = rand::random();
+    b.iter().map(|x| format!("{x:02x}")).collect()
+}
+
+/// Размеры каталогов хранилища — менеджер в «Основном» (секция «Хранилище»).
+#[derive(Debug, Serialize)]
+pub struct StorageStats {
+    pub config: u64,
+    pub checkpoints: u64,
+    pub images: u64,
+    pub sounds: u64,
+    pub fonts: u64,
+}
+
+/// Итеративный обход каталога стеком, а не рекурсией (глубина вложенности
+/// не ограничена стеком потока). file_type() у DirEntry не следует по
+/// symlink/junction — петля ссылок не зациклит обход.
+fn dir_size(dir: &Path) -> u64 {
+    let mut total = 0u64;
+    let mut stack: Vec<PathBuf> = vec![dir.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        let Ok(rd) = fs::read_dir(&d) else { continue };
+        for e in rd.flatten() {
+            let Ok(ft) = e.file_type() else { continue };
+            if ft.is_dir() {
+                stack.push(e.path());
+            } else if let Ok(md) = e.metadata() {
+                total += md.len();
+            }
+        }
+    }
+    total
+}
+
+/// Очистить содержимое каталога, сам каталог оставить: fs-scope изображений
+/// в setup привязан к пути, и пересоздавать каталог не требуется.
+/// Возвращает число удалённых записей.
+fn clear_dir_contents(dir: &Path) -> Result<usize, String> {
+    if !dir.exists() {
+        return Ok(0);
+    }
+    let rd = fs::read_dir(dir).map_err(|e| format!("cannot read {}: {e}", dir.display()))?;
+    let mut removed = 0usize;
+    for e in rd {
+        let e = e.map_err(|err| err.to_string())?;
+        let p = e.path();
+        let res = if e.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+            fs::remove_dir_all(&p)
+        } else {
+            fs::remove_file(&p)
+        };
+        res.map_err(|err| format!("cannot remove {}: {err}", p.display()))?;
+        removed += 1;
+    }
+    Ok(removed)
+}
+
+#[tauri::command(async)]
+pub async fn storage_stats(app: tauri::AppHandle) -> Result<StorageStats, String> {
+    use tauri::Manager;
+    tauri::async_runtime::spawn_blocking(move || {
+        let data = app.path().app_data_dir().map_err(|e| e.to_string())?;
+        let config = app.path().app_config_dir().map_err(|e| e.to_string())?;
+        Ok(StorageStats {
+            config: dir_size(&config),
+            checkpoints: dir_size(&data.join("checkpoints")),
+            images: dir_size(&data.join("images")),
+            sounds: dir_size(&data.join("sounds")),
+            fonts: dir_size(&data.join("fonts")),
+        })
+    })
+    .await
+    .map_err(|e| format!("join error: {e}"))?
+}
+
+#[tauri::command(async)]
+pub async fn storage_cleanup(app: tauri::AppHandle, kind: String) -> Result<usize, String> {
+    use tauri::Manager;
+    tauri::async_runtime::spawn_blocking(move || {
+        let data = app.path().app_data_dir().map_err(|e| e.to_string())?;
+        let dir = match kind.as_str() {
+            "checkpoints" => data.join("checkpoints"),
+            "images" => data.join("images"),
+            _ => return Err(format!("unknown storage kind: {kind}")),
+        };
+        clear_dir_contents(&dir)
+    })
+    .await
+    .map_err(|e| format!("join error: {e}"))?
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -87,6 +183,35 @@ mod tests {
             .filter(|e| e.file_name().to_string_lossy().contains(".tmp-"))
             .collect();
         assert!(leftovers.is_empty());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn dir_size_sums_nested_files() {
+        let dir = std::env::temp_dir().join(format!("haloui-dirsize-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(dir.join("sub/deeper")).unwrap();
+        fs::write(dir.join("a.bin"), [0u8; 100]).unwrap();
+        fs::write(dir.join("sub/b.bin"), [0u8; 25]).unwrap();
+        fs::write(dir.join("sub/deeper/c.txt"), "hello").unwrap();
+        assert_eq!(dir_size(&dir), 130);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn clear_dir_contents_keeps_root() {
+        let dir = std::env::temp_dir().join(format!("haloui-cleardir-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(dir.join("nested")).unwrap();
+        fs::write(dir.join("nested/f.bin"), [0u8; 8]).unwrap();
+        fs::write(dir.join("top.json"), b"{}").unwrap();
+        let removed = clear_dir_contents(&dir).unwrap();
+        assert_eq!(removed, 2);
+        // Корень жив, содержимое пусто
+        assert!(dir.is_dir());
+        assert_eq!(fs::read_dir(&dir).unwrap().count(), 0);
+        // Повторная очистка пустого каталога — не ошибка
+        assert_eq!(clear_dir_contents(&dir).unwrap(), 0);
         let _ = fs::remove_dir_all(&dir);
     }
 }

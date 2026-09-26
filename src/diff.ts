@@ -3,6 +3,8 @@
  * LCS-подсветка: удалённые строки красным, добавленные зелёным, контекст серым.
  */
 
+import { fsIsCaseInsensitive } from "./platform";
+
 export type DiffLineType = "ctx" | "del" | "add";
 
 export interface DiffLine {
@@ -201,12 +203,11 @@ export function summarizeArguments(
 
 /**
  * Канонизация пути для сравнения (M4.3, подсветка изменённых файлов):
- * слэши в один вид, без хвостовых разделителей, нижний регистр —
- * Windows-пути регистронезависимы, а модель может писать «/» вместо «\».
+ * слэши в один вид, без хвостовых разделителей. Регистр: Windows-пути
+ * регистронезависимы, а на Linux (ext4) два разных файла не должны
+ * склеиваться в подсветке — то же разделение делает бекенд (perm.rs).
  */
 export function normalizePath(p: string): string {
-  return p
-    .replace(/\//g, "\\")
-    .replace(/\\+$/, "")
-    .toLowerCase();
+  const norm = p.replace(/\//g, "\\").replace(/\\+$/, "");
+  return fsIsCaseInsensitive() ? norm.toLowerCase() : norm;
 }

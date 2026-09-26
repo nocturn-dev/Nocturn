@@ -6,6 +6,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
+import { useDelayedUnmount } from "../motion";
 import {
   browserViewStart,
   browserViewStop,
@@ -73,7 +74,8 @@ export default function BrowserPanel({ open, onClose }: BrowserPanelProps) {
     if (open) setFrame(null);
   }, [open]);
 
-  if (!open) return null;
+  const show = useDelayedUnmount(open, 200);
+  if (!show) return null;
 
   const applySize = (idx: number) => {
     setSize(idx);
@@ -83,7 +85,7 @@ export default function BrowserPanel({ open, onClose }: BrowserPanelProps) {
   };
 
   return (
-    <div className="anim-slide-left fixed inset-y-0 right-0 z-40 flex w-[440px] flex-col border-l border-halo-line bg-halo-deep shadow-2xl">
+    <div className={`fixed inset-y-0 right-0 z-40 flex w-[440px] flex-col border-l border-halo-line bg-halo-deep shadow-2xl ${open ? "anim-slide-left" : "anim-slide-left-out"}`}>
       {/* Шапка: адрес + размер + закрыть */}
       <div className="flex shrink-0 items-center gap-2 border-b border-halo-line px-3 py-2">
         <input

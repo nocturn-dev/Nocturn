@@ -9,10 +9,10 @@
  * Сцены тёмные по природе — в светлой теме слой скрывается на уровне CSS.
  */
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 
-export type AmbientScene = "fog" | "snow" | "city" | "stars" | "video";
+export type AmbientScene = "fog" | "snow" | "city" | "stars" | "video" | "gradient";
 
 interface Blob {
   x: number;
@@ -59,20 +59,25 @@ function rng(seed: number) {
 export function AmbientLayer({
   scene,
   videoPath,
-  brightness,
   density,
   paused,
+  gradFrom,
+  gradTo,
+  gradAngle,
 }: {
   scene: AmbientScene;
   videoPath: string;
-  /** Яркость слоя — дублирует CSS var --ambient-alpha (для <video> тоже) */
-  brightness: number;
+  /** Конструктор градиента (сцена gradient) */
+  gradFrom?: string;
+  gradTo?: string;
+  gradAngle?: number;
   /** Плотность сцены: множитель числа частиц/пятен/окон, 0.3–1.5 */
   density: number;
   paused: boolean;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const [videoError, setVideoError] = useState(false);
   const pausedRef = useRef(paused);
   // Синхронизация через эффект: запись ref во время рендера — антипаттерн
   useEffect(() => {
@@ -85,6 +90,8 @@ export function AmbientLayer({
   // Видео: пауза на стриме и в скрытом окне
   useEffect(() => {
     if (!isVideo) return;
+    // Новый источник — сброс ошибки кодека (mkv/ogv на Chromium-движке)
+    setVideoError(false);
     const v = videoRef.current;
     if (!v) return;
     const sync = () => {
@@ -104,7 +111,7 @@ export function AmbientLayer({
   }, [isVideo, paused, src]);
 
   useEffect(() => {
-    if (isVideo) return;
+    if (isVideo || scene === "gradient") return;
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
@@ -118,6 +125,12 @@ export function AmbientLayer({
 
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     const rand = rng(scene === "fog" ? 42 : scene === "snow" ? 7 : scene === "city" ? 2026 : 1998);
+    // prefers-reduced-motion: рисуем один статичный кадр без цикла — CSS-глоу
+    // глушится media-запросом в index.css, canvas-сцены подчиняются той же
+    // системной настройке
+    const reduceMotion =
+      typeof window.matchMedia === "function" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
     let blobs: Blob[] = [];
     let flakes: Flake[] = [];
@@ -141,22 +154,22 @@ export function AmbientLayer({
         const fogColor = (i: number): string =>
           colors[i % colors.length] ?? colors[0] ?? colors[1]!;
         blobs = Array.from({ length: Math.max(3, Math.round(6 * density)) }, (_, i) => ({
-          x: Math.random() * w,
-          y: Math.random() * h,
-          r: (0.28 + Math.random() * 0.22) * Math.max(w, h),
-          dx: (Math.random() - 0.5) * 0.12,
-          dy: (Math.random() - 0.5) * 0.08,
+          x: rand() * w,
+          y: rand() * h,
+          r: (0.28 + rand() * 0.22) * Math.max(w, h),
+          dx: (rand() - 0.5) * 0.12,
+          dy: (rand() - 0.5) * 0.08,
           color: fogColor(i),
         }));
       }
       if (scene === "snow") {
         flakes = Array.from({ length: Math.max(30, Math.round(150 * density)) }, () => ({
-          x: Math.random() * w,
-          y: Math.random() * h,
-          r: 0.8 + Math.random() * 2.2,
-          vy: 22 + Math.random() * 46,
-          phase: Math.random() * Math.PI * 2,
-          alpha: 0.35 + Math.random() * 0.5,
+          x: rand() * w,
+          y: rand() * h,
+          r: 0.8 + rand() * 2.2,
+          vy: 22 + rand() * 46,
+          phase: rand() * Math.PI * 2,
+          alpha: 0.35 + rand() * 0.5,
         }));
       }
       if (scene === "city") {
@@ -181,16 +194,20 @@ export function AmbientLayer({
       }
       if (scene === "stars") {
         stars = Array.from({ length: Math.max(30, Math.round(130 * density)) }, () => ({
-          x: Math.random() * w,
-          y: Math.random() * h * 0.85,
-          r: 0.5 + Math.random() * 1.4,
-          phase: Math.random() * Math.PI * 2,
-          speed: 0.4 + Math.random() * 1.2,
+          x: rand() * w,
+          y: rand() * h * 0.85,
+          r: 0.5 + rand() * 1.4,
+          phase: rand() * Math.PI * 2,
+          speed: 0.4 + rand() * 1.2,
         }));
       }
     };
     resize();
-    window.addEventListener("resize", resize);
+    window.addEventListener("resize", () => {
+      resize();
+      // reduce-motion: цикла нет — статичный кадр пересобирается на ресайзе
+      if (reduceMotion) render(performance.now());
+    });
 
     const drawFog = () => {
       const g = ctx.createLinearGradient(0, 0, 0, h);
@@ -345,7 +362,11 @@ export function AmbientLayer({
       last = now;
       render(now);
     };
-    raf = requestAnimationFrame(loop);
+    if (reduceMotion) {
+      render(performance.now());
+    } else {
+      raf = requestAnimationFrame(loop);
+    }
 
     return () => {
       alive = false;
@@ -356,15 +377,41 @@ export function AmbientLayer({
 
   if (isVideo) {
     if (!src) return null;
+    // Кодек может не поддерживаться движком (mkv/ogv с старыми записями в
+    // настройках): раньше — тихо пустой слой, теперь слой убирается
+    if (videoError) return null;
     return (
-      <div className="ambient-layer" style={{ opacity: brightness }} aria-hidden>
-        <video ref={videoRef} className="ambient-video" src={src} autoPlay muted loop playsInline />
+      <div className="ambient-layer" aria-hidden>
+        <video
+          ref={videoRef}
+          className="ambient-video"
+          src={src}
+          autoPlay
+          muted
+          loop
+          playsInline
+          onError={() => setVideoError(true)}
+        />
+      </div>
+    );
+  }
+
+  // Сцена gradient: чистый CSS, canvas не нужен
+  if (scene === "gradient") {
+    return (
+      <div className="ambient-layer" aria-hidden>
+        <div
+          className="ambient-canvas"
+          style={{
+            background: `linear-gradient(${gradAngle ?? 135}deg, ${gradFrom ?? "#16213e"}, ${gradTo ?? "#0f3460"})`,
+          }}
+        />
       </div>
     );
   }
 
   return (
-    <div className="ambient-layer" style={{ opacity: brightness }} aria-hidden>
+    <div className="ambient-layer" aria-hidden>
       <canvas ref={canvasRef} className="ambient-canvas" />
     </div>
   );

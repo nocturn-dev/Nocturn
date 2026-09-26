@@ -77,6 +77,40 @@ export function StylePattern({ id }: { id: Appearance["style"] }) {
           <path d="M17 22c3 1 5 4 5 8-4 0-7-2-8-5z" opacity="0.8" />
         </P>
       );
+    case "ocean":
+      // Океан: волна + парус
+      return (
+        <P>
+          <path d="M0 24c3-2.6 6-2.6 9 0s6 2.6 9 0 6-2.6 9 0 5 2 5 2V32H0z" opacity="0.8" />
+          <path d="M18 4v14l9-4z" opacity="0.9" />
+          <path d="M16 4v14l-7-4z" opacity="0.6" />
+        </P>
+      );
+    case "amethyst":
+      // Кристалл + грани
+      return (
+        <P>
+          <path d="M16 2l10 8-10 20L6 10z" opacity="0.9" />
+          <path d="M6 10h20M16 2l-4 8 4 20 4-20-4-8" fill="none" stroke="var(--halo-bg)" strokeWidth="1.4" />
+        </P>
+      );
+    case "espresso":
+      // Чашка с паром
+      return (
+        <P>
+          <path d="M6 14h16v7a6 6 0 0 1-6 6h-4a6 6 0 0 1-6-6z" />
+          <path d="M22 15h3a3 3 0 0 1 0 6h-3" fill="none" stroke="currentColor" strokeWidth="2" />
+          <path d="M11 4c0 2 2 2 2 4M16 4c0 2 2 2 2 4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" opacity="0.8" />
+        </P>
+      );
+    case "carbon":
+      // Графит: гексагональная решётка
+      return (
+        <P>
+          <path d="M16 3l9 5v10l-9 5-9-5V8z" fill="none" stroke="currentColor" strokeWidth="2" />
+          <path d="M16 3v10m0 0l-9 5m9-5l9 5m-9-5v16" fill="none" stroke="currentColor" strokeWidth="1.4" opacity="0.7" />
+        </P>
+      );
     default:
       // Claude — солнце с лучами
       return (
@@ -122,6 +156,7 @@ export function SectionIcon({ name }: { name: string }) {
     chart: "M3 21h18 M7 21V9 M12 21V3 M17 21v-8",
     image: "M3 5h18v14H3z M8.5 11a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3z M21 15l-5-5L5 21",
     book: "M4 19.5A2.5 2.5 0 0 1 6.5 17H20 M4 19.5A2.5 2.5 0 0 0 6.5 22H20V2H6.5A2.5 2.5 0 0 0 4 4.5v15z",
+    gamepad: "M6 12h4m-2-2v4 M14.5 13h.01 M17.5 11h.01 M17.32 5H6.68a4 4 0 0 0-3.98 3.6c-.25 2.03-.4 4.05-.2 6.1.14 1.4 1.24 2.4 2.6 2.4 1 0 1.9-.53 2.4-1.4L8.7 14h6.6l1.2 1.5c.5.87 1.4 1.4 2.4 1.4 1.36 0 2.46-1 2.6-2.4.2-2.05.05-4.07-.2-6.1A4 4 0 0 0 17.32 5z",
   };
   return <svg {...common}><path d={paths[name] ?? paths.gear} /></svg>;
 }
@@ -134,7 +169,8 @@ export function Dropdown({
   className = "",
 }: {
   value: string;
-  options: { value: string; label: string }[];
+  // ReactNode: в строках опций могут жить мини-превью (подсветка кода)
+  options: { value: string; label: React.ReactNode }[];
   onSelect: (v: string) => void;
   className?: string;
 }) {
@@ -253,7 +289,7 @@ export function LangSwitch() {
         <button
           key={id}
           onClick={() => setLang(id)}
-          className={`rounded-md px-2 py-1 text-xs transition-all duration-150 ${
+          className={`rounded-md px-2 py-1 text-xs transition duration-150 ${
             lang === id
               ? "bg-halo-accent/15 font-medium text-halo-accent"
               : "text-halo-muted hover:text-halo-text"
@@ -336,7 +372,7 @@ export function ToggleRow({
         } ${disabled ? "cursor-not-allowed opacity-50" : ""}`}
       >
         <span
-          className={`absolute top-0.5 size-4 rounded-full bg-halo-on-accent transition-all ${
+          className={`absolute top-0.5 size-4 rounded-full bg-halo-on-accent transition ${
             value ? "left-4.5" : "left-0.5"
           }`}
         />
