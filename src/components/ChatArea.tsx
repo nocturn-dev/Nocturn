@@ -5,6 +5,7 @@ import { normalizePath, parseWriteResult } from "../diff";
 import type { SlashCommand } from "../commands";
 import QuickSettings from "./QuickSettings";
 import NocturnMark from "./NocturnMark";
+import { ArtifactsPanel, type ArtifactView } from "./ArtifactsPanel";
 import type { Appearance } from "../appearance";
 import { getToolSchemas, contextLimitFor, type ModelInfo } from "../api";
 import type { Theme } from "../types";
@@ -422,6 +423,24 @@ export default function ChatArea({
   const slashActive = draft.startsWith("/");
   /** «&» — палитра скилов (src/skills.ts) */
   const skillActive = draft.startsWith("&");
+  // Artifacts: предпросмотр ```html-блоков ответа (панель справа, sandbox-
+  // iframe без allow-same-origin — скрипты артефакта изолированы от приложения)
+  const [artifactView, setArtifactView] = useState<ArtifactView | null>(null);
+  const [artifactOpen, setArtifactOpen] = useState(false);
+  const openArtifact = useCallback(
+    (html: string) => {
+      const m =
+        /<title[^>]*>([\s\S]{1,120}?)<\/title>/i.exec(html) ??
+        /<h1[^>]*>([\s\S]{1,120}?)<\/h1>/i.exec(html);
+      const captured = m?.[1];
+      const title = captured
+        ? captured.replace(/<[^>]*>/g, "").trim()
+        : t("artifacts.fallback");
+      setArtifactView({ html, title });
+      setArtifactOpen(true);
+    },
+    [t],
+  );
   const [skillIndex, setSkillIndex] = useState(0);
   const allSkills = useMemo<Skill[]>(
     () => [...BUILTIN_SKILLS, ...(extraSkills ?? [])],
@@ -1193,6 +1212,7 @@ export default function ChatArea({
                           printSpeed={printSpeed}
                           showReasoning={showReasoning}
                           caret={streamCaret}
+                          onPreviewArtifact={openArtifact}
                         />,
                       );
                       // Субагентные tool-сообщения хода — живыми карточками
@@ -1268,6 +1288,7 @@ export default function ChatArea({
                             printSpeed={printSpeed}
                             showReasoning={showReasoning}
                             caret={streamCaret}
+                            onPreviewArtifact={openArtifact}
                           />
                         )
                       ) : null,
@@ -2120,6 +2141,11 @@ export default function ChatArea({
           </div>
         </div>
       </div>
+      <ArtifactsPanel
+        open={artifactOpen}
+        artifact={artifactView}
+        onClose={() => setArtifactOpen(false)}
+      />
     </section>
   );
 }
