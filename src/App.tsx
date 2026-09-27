@@ -919,7 +919,14 @@ export default function App() {
         });
       }
       const ok = await quickentryStatus().catch(() => true);
-      if (!ok && !cancelled) addToast(t("main.quickentryUnavailable"));
+      if (!ok && !cancelled) {
+        // На Wayland портал показывает диалог подтверждения — хоткей может
+        // появиться через несколько секунд после старта: перепроверяем,
+        // прежде чем объявлять его недоступным
+        await new Promise((r) => setTimeout(r, 6000));
+        const rechecked = await quickentryStatus().catch(() => false);
+        if (!rechecked && !cancelled) addToast(t("main.quickentryUnavailable"));
+      }
     })();
     return () => {
       cancelled = true;

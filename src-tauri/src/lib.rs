@@ -26,6 +26,8 @@ mod settings;
 mod tooling;
 pub mod mcp;
 mod perm;
+#[cfg(target_os = "linux")]
+mod portal;
 mod proc;
 mod pty;
 mod tools;
@@ -157,6 +159,9 @@ pub fn run() {
                     Err(e) => {
                         QUICKENTRY_REGISTERED.store(false, Ordering::Relaxed);
                         eprintln!("quickentry shortcut unavailable: {e}");
+                        // Wayland: XGrabKey недоступен в принципе — пробуем
+                        // портал (композитор покажет диалог подтверждения)
+                        quickentry_portal_fallback(app.handle(), "ctrl+alt+space");
                     }
                 }
             }
@@ -631,6 +636,11 @@ fn quickentry_set_bind(app: tauri::AppHandle, combo: String) -> Result<(), Strin
             // иначе хоткей умирал до рестарта (а фронт был уверен в обратном)
             let restored = gs.register("ctrl+alt+space").is_ok();
             QUICKENTRY_REGISTERED.store(restored, Ordering::Relaxed);
+            // Wayland: плагин не смог — пробуем портал для нового комбо
+            // (одобренный раньше триггер композитор переспрашивать не будет)
+            if !restored {
+                quickentry_portal_fallback(&app, &combo);
+            }
             Err(format!("combo busy: {e}"))
         }
     }
@@ -643,6 +653,18 @@ fn quickentry_set_bind(app: tauri::AppHandle, combo: String) -> Result<(), Strin
 fn quickentry_status() -> bool {
     QUICKENTRY_REGISTERED.load(Ordering::Relaxed)
 }
+
+/// Портальная попытка для Wayland: только там, где она вообще имеет смысл.
+/// На остальных ОС — no-op (плагин global-shortcut покрывает все случаи).
+#[cfg(target_os = "linux")]
+fn quickentry_portal_fallback(app: &tauri::AppHandle, combo: &str) {
+    if portal::wayland_session() {
+        portal::start(app.clone(), combo.to_string());
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn quickentry_portal_fallback(_app: &tauri::AppHandle, _combo: &str) {}
 
 /// Enter в Quick Entry: спрятать окно, сфокусировать главное и отдать ему
 /// текст новой задачи (через событие — паттерн clear-data-request)
