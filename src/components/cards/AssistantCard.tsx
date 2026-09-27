@@ -27,6 +27,9 @@ import remarkGfm from "remark-gfm";
 // рендер ломали внутренние сравнения ReactMarkdown
 const MD_PLUGINS = [remarkGfm];
 const REHYPE_PLUGINS = [rehypeHighlight];
+/** Вариант без highlight для стрима (тумблер «Подсветка при стриме»):
+ *  стабильная пустая ссылка, чтобы react-markdown не пересоздавал пайплайн */
+const REHYPE_PLUGINS_NO_HL: typeof REHYPE_PLUGINS = [];
 
 function MarkdownLink({
   node: _node,
@@ -111,6 +114,7 @@ function AssistantCardBase({
   isStreaming,
   smooth,
   printSpeed,
+  highlightLive,
   showReasoning,
   caret,
 }: {
@@ -131,6 +135,9 @@ function AssistantCardBase({
   smooth: boolean;
   /** Множитель скорости печати (0.5 медленно / 1 обычно / 2 быстро) */
   printSpeed: number;
+  /** Подсветка кода во время стрима: выкл — hljs только после завершения
+   *  (тик плавной печати без highlight в разы дешевле на длинных ответах) */
+  highlightLive: boolean;
   showReasoning: boolean;
   caret: boolean;
 }) {
@@ -346,7 +353,7 @@ function AssistantCardBase({
       <div className="markdown text-sm leading-relaxed text-halo-text">
         <ReactMarkdown
           remarkPlugins={MD_PLUGINS}
-          rehypePlugins={REHYPE_PLUGINS}
+          rehypePlugins={highlightLive || !isStreaming ? REHYPE_PLUGINS : REHYPE_PLUGINS_NO_HL}
           components={MD_COMPONENTS}
         >
           {displayContent}

@@ -759,6 +759,8 @@ export const zh = {
     "main.hideStarterDesc": "隐藏空白聊天页的建议卡片",
     "main.scrollFollowDesc": "除非向上滚动，否则始终跟随最新消息",
     "main.streamSmoothDesc": "回复平滑打字出现，而不是整块跳出",
+    "main.highlightLive": "流式输出时高亮代码",
+    "main.highlightLiveDesc": "如果长回答输出卡顿请关闭：流式时代码为单色，完成后显示颜色",
     "main.g1": "界面与启动",
     "main.g1Desc": "首次启动、窗口显示与语言相关的所有设置。",
     "main.g2": "回答显示",

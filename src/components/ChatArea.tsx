@@ -123,6 +123,9 @@ interface ChatAreaProps {
   /** Поведение генерации: принудительный автоскролл, плавная печать, каретка */
   scrollFollow: boolean;
   streamSmooth: boolean;
+  /** Подсветка кода во время стрима (тумблер в «Основном»); выкл — hljs
+   *  только после завершения сообщения */
+  highlightLive: boolean;
   /** Множитель скорости плавной печати (0.5 / 1 / 2) */
   printSpeed: number;
   /** Раскрывать блок рассуждений автоматически */
@@ -334,6 +337,7 @@ export default function ChatArea({
   onTerminalResizeStart,
   scrollFollow,
   streamSmooth,
+  highlightLive,
   printSpeed,
   showReasoning,
   streamCaret,
@@ -1185,6 +1189,7 @@ export default function ChatArea({
                           showMsgTime={showMsgTime}
                           isStreaming={merged.id === streamingMsgId}
                           smooth={streamSmooth}
+                          highlightLive={highlightLive}
                           printSpeed={printSpeed}
                           showReasoning={showReasoning}
                           caret={streamCaret}
@@ -1259,6 +1264,7 @@ export default function ChatArea({
                             showMsgTime={showMsgTime}
                             isStreaming={m.id === streamingMsgId}
                             smooth={streamSmooth}
+                            highlightLive={highlightLive}
                             printSpeed={printSpeed}
                             showReasoning={showReasoning}
                             caret={streamCaret}

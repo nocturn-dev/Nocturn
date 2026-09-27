@@ -709,6 +709,8 @@ export const en = {
     "main.hideStarterDesc": "Hide the suggestion chips on the empty chat screen",
     "main.scrollFollowDesc": "Keep the feed pinned to new messages unless you scroll up",
     "main.streamSmoothDesc": "The reply types out smoothly instead of arriving in chunky jumps",
+    "main.highlightLive": "Syntax highlighting while streaming",
+    "main.highlightLiveDesc": "Turn off if long answers type out jerkily: code is monochrome while streaming, colors appear once done",
     "main.g1": "Interface & launch",
     "main.g1Desc": "Everything about first launch, window display and language.",
     "main.g2": "Answer display",

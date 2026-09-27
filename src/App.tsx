@@ -239,6 +239,9 @@ export default function App() {
   // Поведение генерации: скролл и печать
   const [scrollFollow, setScrollFollow] = useBoolPref("haloui-scroll-follow", false);
   const [streamSmooth, setStreamSmooth] = useBoolPref("haloui-stream-smooth", true);
+  // Подсветка кода во время стрима: выкл — hljs только после завершения
+  // (тик плавной печати без highlight в разы дешевле на длинных ответах)
+  const [highlightLive, setHighlightLive] = useBoolPref("haloui-highlight-live", true);
   // Скорость плавной печати: множитель догоняющего темпаAssistantCard
   // Hard-Mode: терминальный скин (моношрифт, без стекла/скруглений/ambient)
   // Тумблер в «Основном» только РАЗРЕШАЕТ режим; вход/выход — хоткей
@@ -2026,6 +2029,7 @@ export default function App() {
         scrollFollow={scrollFollow}
         printSpeed={printSpeed}
         streamSmooth={streamSmooth}
+        highlightLive={highlightLive}
         showReasoning={showReasoning}
         streamCaret={streamCaret}
         showUserMsgs={showUserMsgs}
@@ -2100,6 +2104,8 @@ export default function App() {
         onScrollFollowChange={setScrollFollow}
         streamSmooth={streamSmooth}
         onStreamSmoothChange={setStreamSmooth}
+        highlightLive={highlightLive}
+        onHighlightLiveChange={setHighlightLive}
         printSpeed={printSpeed}
         onPrintSpeedChange={setPrintSpeed}
         hardMode={hardMode}

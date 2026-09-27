@@ -759,6 +759,8 @@ export const ja = {
     "main.hideStarterDesc": "空のチャット画面の候補チップを非表示にします",
     "main.scrollFollowDesc": "スクロールしない限り、最新メッセージに追従します",
     "main.streamSmoothDesc": "返信が塊ではなく滑らかにタイプされます",
+    "main.highlightLive": "ストリーミング中のコードハイライト",
+    "main.highlightLiveDesc": "長い回答の表示がカクつく場合はオフに:ストリーミング中はコードが単色、完了時に色が付きます",
     "main.g1": "インターフェースと起動",
     "main.g1Desc": "初回起動、ウィンドウ表示、言語に関する設定。",
     "main.g2": "回答の表示",
