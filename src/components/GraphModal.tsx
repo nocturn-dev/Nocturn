@@ -259,6 +259,23 @@ export default function GraphModal({ notes, onOpenNote, onClose }: GraphModalPro
 
   // ---------- Pan / zoom / drag ----------
   const svgRef = useRef<SVGSVGElement>(null);
+
+  // Колесо — нативный listener с passive:false: React вешает onWheel как
+  // passive на корень, и e.preventDefault() внутри него — no-op
+  useEffect(() => {
+    const svg = svgRef.current;
+    if (!svg) return;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
+      setView((v) => ({
+        ...v,
+        scale: Math.min(3, Math.max(0.3, v.scale * factor)),
+      }));
+    };
+    svg.addEventListener("wheel", onWheel, { passive: false });
+    return () => svg.removeEventListener("wheel", onWheel);
+  }, []);
   const [size, setSize] = useState({ w: 800, h: 500 });
   useEffect(() => {
     const el = svgRef.current;
@@ -422,14 +439,6 @@ export default function GraphModal({ notes, onOpenNote, onClose }: GraphModalPro
                 tx: view.tx,
                 ty: view.ty,
               };
-            }}
-            onWheel={(e) => {
-              e.preventDefault();
-              const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
-              setView((v) => ({
-                ...v,
-                scale: Math.min(3, Math.max(0.3, v.scale * factor)),
-              }));
             }}
           >
             <g
