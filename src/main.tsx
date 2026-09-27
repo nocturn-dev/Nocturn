@@ -69,3 +69,19 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     <LangProvider>{isQuickEntry ? <QuickEntry /> : <App />}</LangProvider>
   </React.StrictMode>,
 );
+
+// Прогрев аудиотракта (только главное окно): ПЕРВЫЙ getUserMedia в сессии
+// WebView2 синхронно инициализирует аудиостек ОС и морозил UI на несколько
+// секунд — проявлялось как разовое зависание на первом нажатии диктовки
+// (выбор микрофона в настройках лечил, потому что грел тем же запросом).
+// Тихо открываем и сразу освобождаем устройство при старте: к реальной
+// записи тракт уже горячий. Если разрешение ещё не выдано — промис тихо
+// отклонится, ничего не всплывёт
+if (!isQuickEntry) {
+  window.setTimeout(() => {
+    void navigator.mediaDevices
+      ?.getUserMedia({ audio: true })
+      .then((s) => s.getTracks().forEach((t) => t.stop()))
+      .catch(() => {});
+  }, 2500);
+}
