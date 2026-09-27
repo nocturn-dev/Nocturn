@@ -395,15 +395,17 @@ fn window_toggle_maximize(app: tauri::AppHandle) -> Result<(), String> {
     w.maximize().map_err(|e| e.to_string())
 }
 
-/// «Затмение» (F11): окно накрывает ВЕСЬ монитор, включая область панели
-/// задач — shell сам прячет таскбар для сфокуссированного окна в границах
-/// монитора (как у borderless-игр). НИКАКОГО native fullscreen: set_fullscreen
-/// на безрамочных окнах Windows бит апстримом (tauri#7473/#7328/#8383 —
-/// таскбар не прячется, размеры теряются, циклы ломаются)
+/// «Затмение» (F11) на Windows: окно накрывает ВЕСЬ монитор, включая область
+/// панели задач — shell сам прячет таскбар для сфокуссированного окна в
+/// границах монитора (как у borderless-игр). НИКАКОЙ native fullscreen:
+/// set_fullscreen на безрамочных окнах Windows бит апстримом (tauri#7473/
+/// #7328/#8383 — таскбар не прячется, размеры теряются, циклы ломаются).
+/// Вне Windows используется штатный set_fullscreen (см. вторую ветку ниже)
 /// Прежние границы окна (x, y, ширина, высота) + был ли нативно развёрнут
 type SavedBounds = ((i32, i32, i32, i32), bool);
 static FS_SAVE: Mutex<Option<SavedBounds>> = Mutex::new(None);
 
+#[cfg(windows)]
 #[repr(C)]
 #[derive(Default, Clone, Copy)]
 struct WinRect {
@@ -413,7 +415,10 @@ struct WinRect {
     bottom: i32,
 }
 
-/// Полная и рабочая области монитора, где находится окно
+/// Полная и рабочая области монитора, где находится окно.
+/// #[cfg(windows)] обязателен: #[link] уходит линкеру безусловно, и без
+/// гейта сборка на macOS/Linux падала на «library not found for -luser32»
+#[cfg(windows)]
 fn monitor_rects(hwnd: isize) -> Result<(WinRect, WinRect), String> {
     #[link(name = "user32")]
     extern "system" {
@@ -443,6 +448,7 @@ fn monitor_rects(hwnd: isize) -> Result<(WinRect, WinRect), String> {
 
 /// Атомарный move+size одним SetWindowPos: раздельные set_position/set_size
 /// дают два разрыва кадра
+#[cfg(windows)]
 fn set_window_bounds(hwnd: isize, x: i32, y: i32, cx: i32, cy: i32) {
     #[link(name = "user32")]
     extern "system" {
@@ -455,12 +461,14 @@ fn set_window_bounds(hwnd: isize, x: i32, y: i32, cx: i32, cy: i32) {
     }
 }
 
+#[cfg(windows)]
 fn window_rect(w: &tauri::WebviewWindow) -> Result<(i32, i32, i32, i32), String> {
     let pos = w.outer_position().map_err(|e| e.to_string())?;
     let size = w.outer_size().map_err(|e| e.to_string())?;
     Ok((pos.x, pos.y, size.width as i32, size.height as i32))
 }
 
+#[cfg(windows)]
 #[tauri::command(async)]
 fn window_toggle_fullscreen(app: tauri::AppHandle) -> Result<(), String> {
     use tauri::Manager;
@@ -507,8 +515,31 @@ fn window_toggle_fullscreen(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// F11 вне Windows: native borderless fullscreen. Win32-«затмение» — чисто
+/// Windows-паттерн (таскбар-поведение tauri#7473 не применимо), а штатный
+/// set_fullscreen на macOS/Linux корректно прячет док/панели и не требует
+/// ручной геометрии. FS_SAVE остаётся пустым: Focused-хук и toggle_maximize
+/// на его is_some() просто работают в штатном режиме
+#[cfg(not(windows))]
+#[tauri::command(async)]
+fn window_toggle_fullscreen(app: tauri::AppHandle) -> Result<(), String> {
+    use tauri::Manager;
+    let w = app.get_webview_window("main").ok_or("main window not found")?;
+    if w.is_minimized().unwrap_or(false) {
+        let _ = w.unminimize();
+    }
+    let active = w.fullscreen().map_err(|e| e.to_string())?;
+    w.set_fullscreen(if active {
+        None
+    } else {
+        Some(tauri::window::Fullscreen::Borderless(true))
+    })
+    .map_err(|e| e.to_string())
+}
+
 /// Невидимые DWM-границы безрамочного окна (outer - inner), чтобы видимый
 /// контент накрыл монитор вплотную
+#[cfg(windows)]
 fn expand_by_borders(
     w: &tauri::WebviewWindow,
     full: WinRect,
