@@ -774,7 +774,7 @@ pub fn keep_awake_worker(rx: mpsc::Receiver<bool>) {
 /// Фронт синхронизирует режим разрешений и корни проекта перед первым
 /// инструментом прогона (fire-and-forget из handleSend, App.tsx)
 #[tauri::command(async)]
-pub fn perm_set(mode: String, roots: Vec<String>) -> Result<(), String> {
+pub async fn perm_set(mode: String, roots: Vec<String>) -> Result<(), String> {
     let mode = match mode.as_str() {
         "plan" => perm::PermMode::Plan,
         "ask" => perm::PermMode::Ask,
@@ -782,7 +782,15 @@ pub fn perm_set(mode: String, roots: Vec<String>) -> Result<(), String> {
         "full" => perm::PermMode::Full,
         other => return Err(format!("unknown permission mode: {other}")),
     };
-    perm::set(perm::PermState { mode, roots, synced: true });
+    // Канонизация корней — один раз здесь (FS-работа в blocking-пул; на
+    // сетевом корне висела бы до таймаута), а не на каждый fs_* вызов
+    let roots_for_canon = roots.clone();
+    let roots_canon = tauri::async_runtime::spawn_blocking(move || {
+        perm::canonicalize_roots(&roots_for_canon)
+    })
+    .await
+    .map_err(|e| format!("perm task failed: {e}"))?;
+    perm::set(perm::PermState { mode, roots, roots_canon, synced: true });
     Ok(())
 }
 
