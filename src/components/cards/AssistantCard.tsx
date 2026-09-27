@@ -12,6 +12,7 @@ import { ChevronDownIcon, PlusIcon, SubagentIcon, ToolIcon } from "./icons";
 import {
   memo,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ComponentPropsWithoutRef,
@@ -40,21 +41,40 @@ function MarkdownLink({
   return <a {...props} target="_blank" rel="noopener noreferrer" />;
 }
 
+/** Язык fenced-блока из hast-дерева react-markdown (className="language-x") */
+function codeLanguage(node: unknown): string {
+  const n = node as
+    | { children?: { properties?: { className?: unknown } }[] }
+    | undefined;
+  const cls = n?.children?.[0]?.properties?.className;
+  if (!Array.isArray(cls)) return "";
+  for (const c of cls) {
+    if (typeof c === "string" && c.startsWith("language-")) return c.slice(9);
+  }
+  return "";
+}
+
 /** Блок кода из ответа модели: hover-кнопки «копировать» и «сохранить
     как файл» (fs_write в выбранный пользователем путь — ручное действие
-    и есть согласие; пермишены агента здесь не участвуют) */
+    и есть согласие; пермишены агента здесь не участвуют). Для ```html —
+    кнопка «Предпросмотр»: HTML уезжает в панель Artifacts (sandbox-iframe) */
 function CodeBlock({
   node: _node,
   children,
+  onPreview,
 }: {
   node?: unknown;
   children?: ReactNode;
+  /** Приходит из ChatArea через AssistantCard; нет — кнопки не будет */
+  onPreview?: (html: string) => void;
 }) {
   const { t } = useLang();
   const preRef = useRef<HTMLPreElement>(null);
   const [copied, setCopied] = useState(false);
   const [applied, setApplied] = useState(false);
   const text = () => preRef.current?.textContent ?? "";
+  // Артефакт = ```html-блок (язык берём из hast — доктайп-эвристика не нужна)
+  const previewable = onPreview !== undefined && codeLanguage(_node) === "html";
 
   const copy = async () => {
     try {
@@ -81,6 +101,15 @@ function CodeBlock({
   return (
     <div className="group/code relative">
       <div className="absolute right-2 top-2 z-10 flex gap-1 opacity-0 transition-opacity group-hover/code:opacity-100">
+        {previewable && (
+          <button
+            onClick={() => onPreview?.(text())}
+            title={t("cp.preview")}
+            className="rounded-md border border-halo-line bg-halo-deep/80 px-1.5 py-0.5 text-[10px] text-halo-muted transition-colors hover:text-halo-text"
+          >
+            ▶
+          </button>
+        )}
         <button
           onClick={copy}
           title={t("cp.copy")}
@@ -100,7 +129,9 @@ function CodeBlock({
     </div>
   );
 }
-const MD_COMPONENTS = { a: MarkdownLink, pre: CodeBlock };
+/** Компоненты markdown собираются per-card: pre получает колбэк предпросмотра
+    артефактов (стабильный из ChatArea — useMemo не пересоздаёт пайплайн лишний
+    раз); без колбэка (снапшот-тесты) кнопка предпросмотра не рисуется */
 
 function AssistantCardBase({
   mid,
@@ -117,6 +148,7 @@ function AssistantCardBase({
   highlightLive,
   showReasoning,
   caret,
+  onPreviewArtifact,
 }: {
   mid: string;
   message: Message;
@@ -140,6 +172,8 @@ function AssistantCardBase({
   highlightLive: boolean;
   showReasoning: boolean;
   caret: boolean;
+  /** Открывает панель Artifacts с ```html-блоком (стабилен от ChatArea) */
+  onPreviewArtifact?: (html: string) => void;
 }) {
   // Плавная печать: показанный текст отстаёт от реального и догоняет
   // его rAF-циклом с ускорением (чем больше отставание, тем быстрее),
@@ -195,6 +229,16 @@ function AssistantCardBase({
       ? message.content.slice(0, shownLen)
       : message.content;
   const { lang, t } = useLang();
+  // Компоненты markdown: pre получает колбэк предпросмотра артефактов
+  const mdComponents = useMemo(
+    () => ({
+      a: MarkdownLink,
+      pre: (p: { node?: unknown; children?: ReactNode }) => (
+        <CodeBlock {...p} onPreview={onPreviewArtifact} />
+      ),
+    }),
+    [onPreviewArtifact],
+  );
   const [openThought, setOpenThought] = useState(false);
   // Настройка «показывать рассуждения»: первый блок в сообщении раскрывается
   // сам; защёлка — чтобы ручное закрытие не перебивалось каждым чанком
@@ -354,7 +398,7 @@ function AssistantCardBase({
         <ReactMarkdown
           remarkPlugins={MD_PLUGINS}
           rehypePlugins={highlightLive || !isStreaming ? REHYPE_PLUGINS : REHYPE_PLUGINS_NO_HL}
-          components={MD_COMPONENTS}
+          components={mdComponents}
         >
           {displayContent}
         </ReactMarkdown>
