@@ -452,8 +452,15 @@ export default function ChatArea({
     node: ScriptProcessorNode;
     chunks: Float32Array[];
   } | null>(null);
+  /** Идёт инициализация записи (getUserMedia): гасит повторные клики */
+  const recStartingRef = useRef(false);
 
   const startRecording = async () => {
+    if (recStartingRef.current || recRef.current) return;
+    recStartingRef.current = true;
+    // Оптимистичный индикатор: прогрев/инициализация устройства могут
+    // занимать секунды — кнопка не должна выглядеть мёртвой
+    setRecording(true);
     try {
       // Микрофон, выбранный в «Основном» (ключ дублирует MainSection);
       // пусто — системный по умолчанию. Фолбэк: выбранное устройство могло
@@ -488,9 +495,11 @@ export default function ChatArea({
       node.connect(mute);
       mute.connect(ctx.destination);
       recRef.current = { ctx, stream, node, chunks };
-      setRecording(true);
     } catch {
+      setRecording(false);
       window.alert(t("dictation.micDenied"));
+    } finally {
+      recStartingRef.current = false;
     }
   };
 
@@ -1874,7 +1883,13 @@ export default function ChatArea({
                 <PaperclipIcon />
               </button>
               <button
-                onClick={() => (recording ? void stopRecording() : void startRecording())}
+                onClick={() => {
+                  // Пока getUserMedia инициализируется — клики игнорируем,
+                  // иначе повторный клик сбил бы оптимистичный флаг
+                  if (recStartingRef.current) return;
+                  if (recording) void stopRecording();
+                  else void startRecording();
+                }}
                 disabled={dictBusy}
                 title={t("dictation.button")}
                 className={`mb-1 flex size-9 shrink-0 items-center justify-center rounded-xl transition duration-150 hover:bg-halo-hover ${
@@ -1897,7 +1912,7 @@ export default function ChatArea({
                 }}
                 onKeyDown={handleKeyDown}
                 placeholder={t("composer.placeholder")}
-                className="max-h-44 flex-1 resize-none bg-transparent px-2 py-1.5 text-sm leading-relaxed text-halo-text outline-none placeholder:text-halo-muted"
+                className="composer-field max-h-44 flex-1 resize-none bg-transparent px-2 py-1.5 text-sm leading-relaxed text-halo-text outline-none placeholder:text-halo-muted"
               />
               {streamingMsgId ? (
                 <>
