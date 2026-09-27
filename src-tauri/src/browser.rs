@@ -150,6 +150,15 @@ fn find_browser_executable() -> Option<String> {
             return Some(c.to_string());
         }
     }
+    // Chrome «только для меня» живёт не в Program Files, а в профиле
+    // пользователя — без него Browser Use отвечал «not found» при
+    // установленном Chrome
+    if let Ok(lad) = std::env::var("LOCALAPPDATA") {
+        let per_user = format!(r"{}\Google\Chrome\Application\chrome.exe", lad);
+        if std::path::Path::new(&per_user).exists() {
+            return Some(per_user);
+        }
+    }
     // macOS: бинарники Chrome/Edge не лежат в PATH — проверяем /Applications
     // явно, иначе Browser Use всегда отвечал «Browser not found»
     #[cfg(target_os = "macos")]
@@ -232,6 +241,10 @@ fn http_get_json(port: u16, path: &str) -> Result<String, String> {
         })
         .ok_or("no Content-Length in CDP response")?;
     let mut body = buf[header_end..].to_vec();
+    // Потолок: локальный процесс, перехвативший CDP-порт в окне TOCTOU
+    // (ретрай-логика launch прямо допускает такой сценарий), может объявить
+    // гигантский Content-Length — не буферизуем без границ
+    const CDP_BODY_MAX_BYTES: usize = 8 * 1024 * 1024;
     while body.len() < content_length {
         let n = stream
             .read(&mut chunk)
@@ -240,6 +253,9 @@ fn http_get_json(port: u16, path: &str) -> Result<String, String> {
             break;
         }
         body.extend_from_slice(&chunk[..n]);
+        if body.len() > CDP_BODY_MAX_BYTES {
+            return Err("CDP response too large".into());
+        }
     }
     Ok(String::from_utf8_lossy(&body).to_string())
 }
@@ -603,8 +619,7 @@ impl BrowserConnection {
 
 impl Drop for BrowserConnection {
     fn drop(&mut self) {
-        let _ = self.child.lock().unwrap_or_else(|p| p.into_inner()).kill();
-        let _ = self.child.lock().unwrap_or_else(|p| p.into_inner()).wait();
+        self.kill();
         // Профиль (cookie/история сессии) не копится в temp: удаляем сразу
         // после смерти процесса. Best-effort: AV/залипшие хендлы могут
         // помешать — остатки подчистит cleanup_browser_profiles при выходе
@@ -614,8 +629,14 @@ impl Drop for BrowserConnection {
 
 impl BrowserConnection {
     fn kill(&self) {
-        let _ = self.child.lock().unwrap_or_else(|p| p.into_inner()).kill();
-        let _ = self.child.lock().unwrap_or_else(|p| p.into_inner()).wait();
+        // Деревом, а не одиночным kill(): Chromium плодит поддерево — сироты
+        // держат CDP-порт и temp-профиль (AGENTS.md: гасить деревом)
+        let mut child = self.child.lock().unwrap_or_else(|p| p.into_inner());
+        crate::proc::kill_tree(child.id());
+        // Страховка: kill_tree может промахнуться — прямой kill гарантирует,
+        // что wait() ниже не зависнет
+        let _ = child.kill();
+        let _ = child.wait();
     }
 }
 

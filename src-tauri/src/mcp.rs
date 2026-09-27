@@ -120,15 +120,17 @@ fn spawn_server(cfg: &McpServerConfig) -> std::io::Result<Child> {
 }
 
 /// Windows-fallback: npx/uvx и компания — это .cmd-файлы, CreateProcess их
-/// не исполняет («program not found»). Запуск через cmd /C: std сам
-/// корректно экранирует аргументы для cmd.exe (фикс BatBadBut).
+/// не исполняет («program not found»). Запуск через cmd /C; command идёт
+/// raw_arg'ом — .arg() закавычил бы команду с пробелами («python -u
+/// server.py») в единый токен, и cmd не нашёл файл (как в hooks.rs).
+/// args экранирует std — фикс BatBadBut гарантирован MSRV 1.88
 #[cfg(windows)]
 fn spawn_via_cmd(cfg: &McpServerConfig) -> std::io::Result<Child> {
     use std::os::windows::process::CommandExt;
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
     Command::new("cmd")
-        .arg("/C")
-        .arg(&cfg.command)
+        .raw_arg("/C")
+        .raw_arg(&cfg.command)
         .args(&cfg.args)
         .envs(&cfg.env)
         .creation_flags(CREATE_NO_WINDOW)

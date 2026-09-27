@@ -112,7 +112,7 @@ async fn http_get(url: &str, headers: Vec<(String, String)>) -> Result<String, S
     for (k, v) in headers {
         req = req.header(k, v);
     }
-    let resp = req
+    let mut resp = req
         .send()
         .await
         .map_err(|e| format!("search request failed: {e}"))?;
@@ -122,18 +122,25 @@ async fn http_get(url: &str, headers: Vec<(String, String)>) -> Result<String, S
             return Err("search response too large".to_string());
         }
     }
-    let body = resp
-        .text()
+    // Потолок — по ходу чтения, а не после: chunked-ответ без Content-Length
+    // от мусорного/злонамеренного инстанса не должен буферизоваться целиком
+    // (тот же контракт, что у read_body_capped в imagegen)
+    let mut body: Vec<u8> = Vec::new();
+    while let Some(chunk) = resp
+        .chunk()
         .await
-        .map_err(|e| format!("failed to read response body: {e}"))?;
+        .map_err(|e| format!("failed to read response body: {e}"))?
+    {
+        if body.len() + chunk.len() > JSON_MAX_BYTES {
+            return Err("search response too large".to_string());
+        }
+        body.extend_from_slice(&chunk);
+    }
     if !status.is_success() {
-        let snippet: String = body.chars().take(200).collect();
+        let snippet: String = String::from_utf8_lossy(&body).chars().take(200).collect();
         return Err(format!("HTTP {}: {}", status.as_u16(), snippet));
     }
-    if body.len() > JSON_MAX_BYTES {
-        return Err("search response too large".to_string());
-    }
-    Ok(body)
+    Ok(String::from_utf8_lossy(&body).to_string())
 }
 
 /// query в query-string: std не имеет urlencode, crate ради одного параметра
