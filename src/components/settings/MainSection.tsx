@@ -102,10 +102,13 @@ function StorageRow({
 function Group({
   title,
   desc,
+  gap = "space-y-1",
   children,
 }: {
   title: string;
   desc: string;
+  /** Шаг между блоками: рядам хватает 4px, крупным карточкам — 12px */
+  gap?: string;
   children: React.ReactNode;
 }) {
   return (
@@ -114,7 +117,7 @@ function Group({
         {title}
       </p>
       <p className="mb-1 mt-0.5 px-2.5 text-xs leading-relaxed text-halo-muted">{desc}</p>
-      {children}
+      <div className={gap}>{children}</div>
     </div>
   );
 }
@@ -652,7 +655,7 @@ export function MainSection({
         </div>
       )}
       </Group>
-      <Group title={t("main.g4")} desc={t("main.g4Desc")}>
+      <Group title={t("main.g4")} desc={t("main.g4Desc")} gap="space-y-3">
       <ToggleRow
         label={t("main.hardMode")}
         desc={t("main.hardModeDesc")}
