@@ -249,6 +249,18 @@ html.motion-reduced .snake-preview-seg {
   animation: none;
 }
 
+/* Фокус-кольцо композера: акцент с альфой. Переменная (а не color-mix
+   прямо в утилите) — чтобы у WebKitGTK < 2.40 без color-mix остался
+   фолбэк с чистым акцентом вместо отброшенной декларации */
+:root {
+  --halo-accent-focus: var(--halo-accent);
+}
+@supports (background: color-mix(in srgb, red, blue)) {
+  :root {
+    --halo-accent-focus: color-mix(in srgb, var(--halo-accent) 12%, transparent);
+  }
+}
+
 /* Найденный через поиск пункт: короткая вспышка акцентом */
 .search-hit {
   animation: search-hit 1.6s ease both;
@@ -324,12 +336,17 @@ html.motion-reduced .snake-preview-seg {
 @media (prefers-reduced-motion: reduce) {
   .anim-fade-up,
   .anim-pop,
+  .anim-pop-out,
   .anim-fade,
+  .anim-fade-out,
   .anim-slide-left,
   .anim-slide-left-out,
   .typing-dot,
   .nav-tick-in,
-  .splash-pulse {
+  .splash-pulse,
+  /* змейка и search-hit раньше глушились только тумблером html.motion-reduced */
+  .snake-preview-seg,
+  .search-hit {
     animation: none;
   }
 }
@@ -760,7 +777,11 @@ input[type="range"]::-webkit-slider-thumb:active {
   .usage-draw, .usage-cell { animation: none; stroke-dashoffset: 0; }
 }
 
-/* Дуги доната «разворачиваются» из нуля, сегмент за сегментом */
+/* Дуги доната «разворачиваются» из нуля, сегмент за сегментом.
+   Правило animation раньше отсутствовало вовсе — keyframes были мёртвыми */
+.usage-arc {
+  animation: usage-arc 0.9s var(--ease-enter) both;
+}
 @keyframes usage-arc {
   from { stroke-dasharray: 0 999; }
 }
