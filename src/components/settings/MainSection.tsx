@@ -332,12 +332,6 @@ export function MainSection({
         extra={<LangSwitch />}
       />
       <ToggleRow
-        label={t("main.autostart")}
-        desc={t("main.autostartDesc")}
-        on={autostartOn}
-        onChange={() => void toggleAutostart()}
-      />
-      <ToggleRow
         label={t("main.closeToTray")}
         desc={t("main.closeToTrayDesc")}
         on={closeToTray}
@@ -574,86 +568,6 @@ export function MainSection({
           {t("main.archiveNow")}
         </button>
       </div>
-      <ToggleRow
-        label={t("main.settingsLarge")}
-        desc={t("main.settingsLargeDesc")}
-        on={settingsLarge}
-        onChange={onSettingsLargeChange}
-      />
-      <ToggleRow
-        label={t("main.browserPanel")}
-        desc={t("main.browserPanelDesc")}
-        on={browserPanel}
-        onChange={onBrowserPanelChange}
-      />
-
-      {/* Уведомления, когда пользователь не в приложении */}
-      <ToggleRow
-        label={t("main.notifyDone")}
-        desc={t("main.notifyDoneDesc")}
-        on={notifyPrefs.enabled}
-        onChange={(v) => onNotifyPrefsChange({ ...notifyPrefs, enabled: v })}
-      />
-      {notifyPrefs.enabled && (
-        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-halo-line bg-halo-surface/40 px-3 py-2.5">
-          <span className="text-xs text-halo-muted">{t("main.notifySound")}:</span>
-          {NOTIFY_SOUNDS.map((snd) => (
-            <button
-              key={snd.id}
-              onClick={() => {
-                onNotifyPrefsChange({ ...notifyPrefs, sound: snd.id });
-                playSound(snd.id); // прослушка при выборе
-              }}
-              className={`rounded-md border px-2.5 py-1 text-xs transition-colors ${
-                notifyPrefs.sound === snd.id
-                  ? "border-halo-accent/60 bg-halo-accent/10 text-halo-accent"
-                  : "border-halo-line text-halo-muted hover:text-halo-text"
-              }`}
-            >
-              {t(snd.labelKey as never)}
-            </button>
-          ))}
-          {/* Своя мелодия: импорт файла, прослушка, удаление */}
-          <button
-            onClick={async () => {
-              try {
-                const src = await pickAudioFile();
-                if (!src) return;
-                const res = await soundImport(src); // "имя|расширение"
-                const [name] = res.split("|");
-                onNotifyPrefsChange({ ...notifyPrefs, sound: "custom", customName: name });
-                void refreshCustomSound().then(() => playSound("custom"));
-              } catch {
-                // отмена/ошибка выбора — просто ничего не меняем
-              }
-            }}
-            title={t("main.notifyCustomImport")}
-            className={`rounded-md border px-2.5 py-1 text-xs transition-colors ${
-              notifyPrefs.sound === "custom"
-                ? "border-halo-accent/60 bg-halo-accent/10 text-halo-accent"
-                : "border-halo-line text-halo-muted hover:text-halo-text"
-            }`}
-          >
-            + {notifyPrefs.customName || t("main.notifyCustomImport")}
-          </button>
-          {notifyPrefs.customName && (
-            <button
-              onClick={async () => {
-                await soundDelete();
-                onNotifyPrefsChange({
-                  ...notifyPrefs,
-                  sound: "chime",
-                  customName: undefined,
-                });
-              }}
-              title={t("main.notifyCustomClear")}
-              className="rounded-md px-1.5 py-1 text-xs text-halo-muted transition-colors hover:text-red-400"
-            >
-              ✕
-            </button>
-          )}
-        </div>
-      )}
       </Group>
       <Group title={t("main.g4")} desc={t("main.g4Desc")} gap="space-y-3">
       <ToggleRow
