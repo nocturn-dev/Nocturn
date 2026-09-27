@@ -178,9 +178,7 @@ pub async fn generate(
         api_key_raw
     };
     let url = format!("{base}/images/generations");
-    let client = crate::network::apply(reqwest::Client::builder().timeout(HTTP_TIMEOUT))
-        .map_err(|e| format!("http client: {e}"))?
-        .build()
+    let client = crate::network::shared_client(std::time::Duration::from_secs(15))
         .map_err(|e| format!("http client: {e}"))?;
     let req_size = size
         .map(str::trim)
@@ -294,8 +292,11 @@ async fn post_images_endpoint(
     if let Some(s) = size.map(str::trim).filter(|s| !s.is_empty()) {
         body["size"] = json!(s);
     }
+    // Общий таймаут переехал с клиента на запрос: shared_client без overall-
+    // timeout разделяется с чатом/MCP, у которых свои бюджеты
     let resp = client
         .post(url)
+        .timeout(HTTP_TIMEOUT)
         .header("Authorization", format!("Bearer {api_key}"))
         .json(&body)
         .send()
@@ -355,6 +356,7 @@ async fn chat_image_bytes(
     });
     let resp = client
         .post(&url)
+        .timeout(HTTP_TIMEOUT)
         .header("Authorization", format!("Bearer {api_key}"))
         .json(&body)
         .send()
@@ -468,12 +470,11 @@ async fn download_image(img_url: &str) -> Result<Vec<u8>, String> {
     if !crate::browser::url_is_public_http(img_url) {
         return Err("image URL rejected: private network addresses are not allowed".into());
     }
-    let dl = crate::network::apply(reqwest::Client::builder().timeout(DOWNLOAD_TIMEOUT))
-        .map_err(|e| format!("http client: {e}"))?
-        .build()
+    let dl = crate::network::shared_client(std::time::Duration::from_secs(15))
         .map_err(|e| format!("http client: {e}"))?;
     let r = dl
         .get(img_url)
+        .timeout(DOWNLOAD_TIMEOUT)
         .send()
         .await
         .map_err(|e| format!("image download failed: {e}"))?;
@@ -522,16 +523,14 @@ fn looks_like_image_model(id: &str) -> bool {
 /// Best-effort: любая ошибка = пустой список.
 async fn fetch_image_model_ids(base: &str, api_key: &str) -> Vec<String> {
     // Best-effort без `?`: функция возвращает Vec, а не Option
-    let client = match crate::network::apply(reqwest::Client::builder().timeout(HTTP_TIMEOUT))
-        .ok()
-        .and_then(|b| b.build().ok())
-    {
+    let client = match crate::network::shared_client(std::time::Duration::from_secs(15)).ok() {
         Some(c) => c,
         None => return Vec::new(),
     };
     let url = format!("{base}/models");
     let resp = match client
         .get(&url)
+        .timeout(HTTP_TIMEOUT)
         .header("Authorization", format!("Bearer {api_key}"))
         .send()
         .await

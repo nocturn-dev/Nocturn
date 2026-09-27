@@ -116,6 +116,15 @@ fn spawn_server(cfg: &McpServerConfig) -> std::io::Result<Child> {
         use std::os::windows::process::CommandExt;
         cmd.creation_flags(0x0800_0000);
     }
+    #[cfg(not(windows))]
+    {
+        // Своя процесс-группа: kill_tree по -pgid гасит и внуков. Типичные
+        // MCP-команды — npx/uvx (node-скрипты, порождающие node-потомка):
+        // без группы kill ребёнка оставлял сироту с пайпами (читатель
+        // stdout не получал EOF) и портом сервера
+        use std::os::unix::process::CommandExt;
+        cmd.process_group(0);
+    }
     cmd.spawn()
 }
 
@@ -424,23 +433,15 @@ impl McpConnection {
     }
 
     pub fn kill(&self) {
-        #[cfg(windows)]
-        {
-            // Дерево процессов: fallback cmd /C npx … оставляет внука (node)
-            // живым — Child::kill терминирует только cmd.exe, сирота держит
-            // порты и унаследованные пайпы (читатель stdout не получает EOF)
-            use std::os::windows::process::CommandExt;
-            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-            let pid = self
-                .child
+        // Дерево, а не только ребёнок: и Windows-fallback cmd /C npx (внук
+        // node), и Unix npx/uvx порождают потомков. taskkill /T /F (Windows)
+        // и kill -pgid (Unix; spawn ставит process_group(0)) гасят их вместе
+        crate::proc::kill_tree(
+            self.child
                 .lock()
                 .unwrap_or_else(|p| p.into_inner())
-                .id();
-            let _ = Command::new("taskkill")
-                .args(["/PID", &pid.to_string(), "/T", "/F"])
-                .creation_flags(CREATE_NO_WINDOW)
-                .output();
-        }
+                .id(),
+        );
         let mut child = self.child.lock().unwrap_or_else(|p| p.into_inner());
         let _ = child.kill();
         // wait(): на Unix без reap'а дочерний процесс остаётся зомби
@@ -451,9 +452,10 @@ impl McpConnection {
 
 impl Drop for McpConnection {
     fn drop(&mut self) {
-        // Явный kill в Drop — на случай удаления соединения из реестра
-        let _ = self.child.lock().unwrap_or_else(|p| p.into_inner()).kill();
-        let _ = self.child.lock().unwrap_or_else(|p| p.into_inner()).wait();
+        // Явный kill в Drop — на случай удаления соединения из реестра.
+        // Дерево, а не голый kill: прямой drop мимо kill() на Windows
+        // оставлял внука cmd /C (kill_all идёт через kill(), drop — нет)
+        self.kill();
     }
 }
 
@@ -602,11 +604,7 @@ impl RemoteConnection {
     }
 
     async fn post_rpc(&self, body: &Value, timeout: Duration) -> Result<String, String> {
-        let client = crate::network::apply(
-            reqwest::Client::builder().connect_timeout(std::time::Duration::from_secs(15)),
-        )?
-        .build()
-        .map_err(|e| format!("failed to build http client: {e}"))?;
+        let client = crate::network::shared_client(std::time::Duration::from_secs(15))?;
         let mut req = client
             .post(&self.url)
             .header("Content-Type", "application/json")
@@ -931,12 +929,23 @@ fn mcp_connect_impl(
 
 /// Отключить сервер и завершить его процесс
 #[tauri::command(async)]
-pub fn mcp_disconnect(
+pub async fn mcp_disconnect(
     registry: tauri::State<'_, McpRegistry>,
     name: String,
 ) -> Result<(), String> {
-    if let Some(conn) = registry.0.lock().unwrap_or_else(|p| p.into_inner()).remove(&name) {
-        conn.kill();
+    // remove в отдельный statement: временный MutexGuard не должен жить
+    // через .await (future обязан быть Send)
+    let conn = registry
+        .0
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .remove(&name);
+    if let Some(conn) = conn {
+        // kill_tree (taskkill/wait) — блокирующие вызовы: уводим в
+        // blocking-пул, чтобы не занимать tokio-воркер со стримами
+        tauri::async_runtime::spawn_blocking(move || conn.kill())
+            .await
+            .map_err(|e| format!("join error: {e}"))?;
     }
     Ok(())
 }

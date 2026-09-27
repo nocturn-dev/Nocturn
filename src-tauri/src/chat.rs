@@ -11,16 +11,26 @@ pub struct AbortRegistry(pub Mutex<HashMap<String, Arc<AtomicBool>>>);
 
 /// RAII-guard: удаляет запись из AbortRegistry при выходе из любого пути
 /// (ранний return по abort-флагу, "[DONE]", все "?"-выходы). Ручной remove
-/// в конце функции больше не нужен — Drop чистит автоматически.
+/// в конце функции больше не нужен — Drop чистит автоматически. Чистит
+/// только СВОЙ флаг (Arc::ptr_eq): при переиспользовании request_id
+/// безусловный remove по ключу вычищал запись НОВОГО стрима, и chat_abort
+/// для нового становился no-op
 struct AbortGuard<'a> {
     registry: &'a AbortRegistry,
     request_id: String,
+    flag: Arc<AtomicBool>,
 }
 
 impl Drop for AbortGuard<'_> {
     fn drop(&mut self) {
         if let Ok(mut map) = self.registry.0.lock() {
-            map.remove(&self.request_id);
+            // Слот трогаем, только если там до сих пор наш флаг
+            if map
+                .get(&self.request_id)
+                .is_some_and(|cur| Arc::ptr_eq(cur, &self.flag))
+            {
+                map.remove(&self.request_id);
+            }
         }
     }
 }
@@ -48,7 +58,7 @@ pub async fn test_connection(base_url: String, api_key: String) -> Result<Vec<Mo
         format!("{}/models", base_url.trim_end_matches('/'))
     };
 
-    let client = crate::network::apply(reqwest::Client::builder())?.build().map_err(|e| e.to_string())?;
+    let client = crate::network::shared_client(std::time::Duration::from_secs(30))?;
     let mut req = client.get(&url);
     if is_anthropic_base(&base_url) {
         // Anthropic: /v1/models существует, но авторизация — x-api-key + версия
@@ -154,11 +164,7 @@ pub async fn chat_once(
         None => is_anthropic_base(&base_url),
     };
     let base = base_url.trim_end_matches('/');
-    let client = crate::network::apply(
-        reqwest::Client::builder().connect_timeout(std::time::Duration::from_secs(30)),
-    )?
-    .build()
-    .map_err(|e| format!("failed to build http client: {e}"))?;
+    let client = crate::network::shared_client(std::time::Duration::from_secs(30))?;
 
     // Ответ нужен целиком, спешить некуда; потолок — от «задумавшейся» reasoning-модели
     let total_timeout = std::time::Duration::from_secs(180);
@@ -309,13 +315,7 @@ pub async fn chat_stream(
     };
     let base = base_url.trim_end_matches('/');
 
-    let client = crate::network::apply(
-        // Только connect-таймаут: общий таймаут запроса обрывал долгие стримы
-        reqwest::Client::builder().connect_timeout(std::time::Duration::from_secs(30)),
-    )
-    .map_err(|e| format!("failed to build http client: {e}"))?
-    .build()
-    .map_err(|e| format!("failed to build http client: {e}"))?;
+    let client = crate::network::shared_client(std::time::Duration::from_secs(30))?;
 
     // Регистрируем флаг отмены ДО отправки запроса: иначе chat_abort,
     // пришедший между send() и регистрацией, был бы no-op. Повторный
@@ -333,6 +333,7 @@ pub async fn chat_stream(
     let _abort_guard = AbortGuard {
         registry: &registry,
         request_id: request_id.clone(),
+        flag: flag.clone(),
     };
 
     let mut body_json: Option<serde_json::Value> = None;
@@ -1696,7 +1697,7 @@ pub fn chat_abort(registry: tauri::State<'_, AbortRegistry>, request_id: String)
 /// Ok(None) — Ollama не отвечает, Ok(Some(ids)) — список локальных моделей.
 #[tauri::command]
 pub async fn detect_ollama() -> Result<Option<Vec<String>>, String> {
-    let client = crate::network::apply(reqwest::Client::builder())?.build().map_err(|e| e.to_string())?;
+    let client = crate::network::shared_client(std::time::Duration::from_secs(30))?;
     let resp = client
         .get("http://localhost:11434/v1/models")
         .timeout(std::time::Duration::from_secs(3))
@@ -1738,6 +1739,50 @@ mod tests {
 
     fn joined(events: &[FeedEvent], f: impl Fn(&FeedEvent) -> Option<String>) -> String {
         events.iter().filter_map(f).collect()
+    }
+
+    /// Регресс: при переиспользовании request_id guard старого стрима
+    /// обязан вычищать только свой флаг, иначе chat_abort нового стрима
+    /// становился no-op (реестр терял запись нового)
+    #[test]
+    fn abort_guard_removes_only_own_flag() {
+        let registry = AbortRegistry(Mutex::new(HashMap::new()));
+        let old = Arc::new(AtomicBool::new(false));
+        registry.0.lock().unwrap().insert("r".into(), old.clone());
+        let new = Arc::new(AtomicBool::new(false));
+        // Стрим B стартовал на том же request_id: слот перезаписан флагом B,
+        // флаг A поднят (эмуляция insert из chat_stream)
+        old.store(true, Ordering::Relaxed);
+        registry
+            .0
+            .lock()
+            .unwrap()
+            .insert("r".into(), new.clone());
+        {
+            // Guard старого стрима A умирает первым — слот B не трогаем
+            let guard_a = AbortGuard {
+                registry: &registry,
+                request_id: "r".into(),
+                flag: old.clone(),
+            };
+            drop(guard_a);
+        }
+        assert!(
+            registry.0.lock().unwrap().contains_key("r"),
+            "guard A не должен вычищать флаг B из реестра"
+        );
+        {
+            let guard_b = AbortGuard {
+                registry: &registry,
+                request_id: "r".into(),
+                flag: new.clone(),
+            };
+            drop(guard_b);
+        }
+        assert!(
+            !registry.0.lock().unwrap().contains_key("r"),
+            "guard B чистит собственный слот"
+        );
     }
 
     #[test]

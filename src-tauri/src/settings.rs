@@ -514,6 +514,26 @@ fn mask_secrets(file: &str, v: &mut serde_json::Value) {
                 *k = blank();
             }
         }
+        // mcp.json — массив серверов: headers (Authorization: Bearer …) и env
+        // (API-ключи серверов) — те же токены, что api_key выше; без ветки
+        // они уходили в «поделенный» экспорт как есть. Гасим значения целиком:
+        // в env/headers нет полей, гарантированно не несущих секрет
+        "mcp.json" => {
+            if let Some(arr) = v.as_array_mut() {
+                for s in arr {
+                    if let Some(headers) = s.get_mut("headers").and_then(|x| x.as_object_mut()) {
+                        for val in headers.values_mut() {
+                            *val = blank();
+                        }
+                    }
+                    if let Some(env) = s.get_mut("env").and_then(|x| x.as_object_mut()) {
+                        for val in env.values_mut() {
+                            *val = blank();
+                        }
+                    }
+                }
+            }
+        }
         _ => {}
     }
 }
@@ -579,13 +599,22 @@ pub(crate) fn rejects_sensitive_path(path: &str) -> Result<(), String> {
         let stripped = strip_verbatim(&norm);
         // Компонент «.» исчезает при нормализации Win32 — иначе C:\.\Windows\x
         // прятал «windows» за мимо-компонентом
-        let comps: Vec<&str> = stripped
+        let comps: Vec<String> = stripped
             .split('\\')
             .filter(|c| !c.is_empty() && *c != ".")
+            .map(|c| c.trim_end_matches(['.', ' ']).to_string())
             .collect();
+        // Win32 срезает хвостовые точки/пробелы у КАЖДОГО компонента, а не
+        // только у последнего: `C:\Windows.\evil.json` — это
+        // `C:\Windows\evil.json`, и точный матч топ-каталога ниже обходился.
+        // Компонент из одних точек/пробелов («...») после нормализации пуст —
+        // fail closed
+        if comps.iter().any(|c| c.is_empty()) {
+            return Err("path contains an invalid component".into());
+        }
         // `..` запрещаем целиком: легитимному экспорту подъём не нужен,
         // а он уводит проверку топ-уровня мимо целевого каталога
-        if comps.contains(&"..") {
+        if comps.iter().any(|c| c == "..") {
             return Err("path must not contain '..'".into());
         }
         // comps[0] обязан быть диском («c:») или, для UNC, хостом; «?», «??»,
@@ -610,7 +639,7 @@ pub(crate) fn rejects_sensitive_path(path: &str) -> Result<(), String> {
             return Err("path points to an unsupported location".into());
         }
         // comps[1] — топ-каталог (для UNC — шара)
-        let top = short83(comps.get(1).copied().unwrap_or(""));
+        let top = short83(comps.get(1).map(|s| s.as_str()).unwrap_or(""));
         // UNC: скрытые (админские) шары все кончаются на «$» — `c$`, `admin$`,
         // `ipc$` — и открывают системные тома мимо блок-листа топ-каталогов.
         // Легитимному экспорту скрытая шара не нужна: fail closed
@@ -639,7 +668,16 @@ pub(crate) fn rejects_sensitive_path(path: &str) -> Result<(), String> {
     #[cfg(not(windows))]
     {
         let norm = trimmed.replace('\\', "/");
+        // Относительные пути — fail closed: резолвились бы в cwd процесса
+        if !norm.starts_with('/') {
+            return Err("path must be absolute".into());
+        }
         let comps: Vec<&str> = norm.split('/').filter(|c| !c.is_empty()).collect();
+        // `..` под запретом так же, как на Windows-ветке: подъём уводит
+        // проверку топ-уровня мимо целевого каталога (/home/u/../../etc/…)
+        if comps.iter().any(|c| *c == "..") {
+            return Err("path must not contain '..'".into());
+        }
         if comps
             .first()
             .is_some_and(|c| matches!(*c, "etc" | "proc" | "sys" | "dev" | "boot" | "root"))
@@ -1039,6 +1077,15 @@ mod tests {
             r"\\localhost\c$\Windows\evil.json",
             r"\\host\admin$\x.json",
             r"\\host\ipc$\x.json",
+            // хвостовая точка/пробел ПРОМЕЖУТОЧНОГО компонента: Win32
+            // нормализует их у каждого элемента пути (аудит: обход блок-листа)
+            r"C:\Windows.\evil.json",
+            r"C:\Windows \evil.json",
+            r"C:\ProgramData.\evil.json",
+            r"C:\Program Files.\x.json",
+            r"\\?\C:\Windows.\evil.json",
+            // компонент из одних точек/пробелов — после нормализации пуст
+            r"C:\...\evil.json",
         ] {
             assert!(
                 rejects_sensitive_path(p).is_err(),
@@ -1089,6 +1136,47 @@ mod tests {
         // .ssh блокируется на любой глубине
         assert!(rejects_sensitive_path("/home/me/.ssh/id_rsa").is_err());
         assert!(rejects_sensitive_path("/home/me/.config/x.json").is_ok());
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn unix_dotdot_and_relative_fail_closed() {
+        // Подъём уводил проверку топ-уровня мимо целевого каталога, а
+        // относительный путь резолвился в cwd (аудит: Windows-ветка
+        // отвергала и то, и другое, Unix — нет)
+        assert!(rejects_sensitive_path("/home/me/proj/../../etc/cron.d/x.json").is_err());
+        assert!(rejects_sensitive_path("../settings-export.json").is_err());
+        assert!(rejects_sensitive_path("export/file.json").is_err());
+        assert!(rejects_sensitive_path("/home/me/export/file.json").is_ok());
+    }
+
+    #[test]
+    fn mask_secrets_blanks_mcp_headers_and_env() {
+        // «Поделенный» экспорт не должен уносить токены MCP-серверов:
+        // headers (Authorization: Bearer …) и env (API-ключи серверов)
+        let mut v: serde_json::Value = serde_json::json!([
+            {
+                "name": "github",
+                "command": "npx",
+                "args": ["-y", "@modelcontextprotocol/server-github"],
+                "env": { "GITHUB_TOKEN": "ghp_topsecret" },
+                "headers": { "Authorization": "Bearer sk-topsecret" }
+            },
+            {
+                "name": "remote",
+                "transport": "http",
+                "url": "https://mcp.example/sse",
+                "headers": { "X-Api-Key": "k" }
+            }
+        ]);
+        mask_secrets("mcp.json", &mut v);
+        assert_eq!(v[0]["env"]["GITHUB_TOKEN"], "");
+        assert_eq!(v[0]["headers"]["Authorization"], "");
+        assert_eq!(v[1]["headers"]["X-Api-Key"], "");
+        // не-секретные поля не тронуты
+        assert_eq!(v[0]["command"], "npx");
+        assert_eq!(v[0]["args"][0], "-y");
+        assert_eq!(v[1]["url"], "https://mcp.example/sse");
     }
 
     #[test]

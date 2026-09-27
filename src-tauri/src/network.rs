@@ -102,6 +102,43 @@ pub fn apply(builder: reqwest::ClientBuilder) -> Result<reqwest::ClientBuilder, 
     Ok(b)
 }
 
+/// Разделяемые HTTP-клиенты: reqwest::Client спроектирован переиспользуемым
+/// (keep-alive, пул соединений, TLS-сессии), а строился на каждый запрос —
+/// каждый ход чата и каждый tools/call remote-MCP платил TCP+TLS-handshake
+/// заново. Ключ кэша — фингерпринт сетевого конфига (прокси/no_proxy/CA +
+/// connect-таймаут): смена настроек через set_config автоматически даёт
+/// новый клиент на следующем запросе, явной инвалидации не нужно.
+static CLIENT_CACHE: Mutex<Option<(String, reqwest::Client)>> = Mutex::new(None);
+
+pub fn shared_client(connect_timeout: std::time::Duration) -> Result<reqwest::Client, String> {
+    let cfg = config();
+    // Содержимое CA входит в фингерпринт длиной: перечитанный файл с другим
+    // сертификатом обязан дать пересборку, даже если is_some не изменился
+    let ca_fp = CA_PEM
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .as_ref()
+        .map(|r| r.as_ref().map(|pem| pem.len()).unwrap_or(0));
+    let fp = format!(
+        "{connect_timeout:?}|{}|{}|{ca_fp:?}",
+        cfg.proxy, cfg.no_proxy
+    );
+    if let Some((cached_fp, client)) = CLIENT_CACHE
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .as_ref()
+    {
+        if *cached_fp == fp {
+            return Ok(client.clone());
+        }
+    }
+    let client = apply(reqwest::Client::builder().connect_timeout(connect_timeout))?
+        .build()
+        .map_err(|e| format!("failed to build http client: {e}"))?;
+    *CLIENT_CACHE.lock().unwrap_or_else(|p| p.into_inner()) = Some((fp, client.clone()));
+    Ok(client)
+}
+
 #[tauri::command(async)]
 pub fn network_get_config() -> NetworkConfig {
     config()

@@ -266,13 +266,31 @@ pub fn execute_vault_tool(
 
 /// Файл заметки: только простое имя *.md (без путей и "..").
 /// Единая проверка для vault-инструментов и lib.rs::notes_* (sanitize_note_file).
+/// Плюс резервные имена устройств Win32 и символы, недопустимые в именах
+/// Windows: `fs::rename` в `CON.md` падал с невнятной ошибкой, а заметки
+/// с `:`/`?` не переносились vault-экспортом на NTFS
 pub(crate) fn sanitize_note_name(file: &str) -> Result<String, String> {
-    if file.is_empty()
+    const RESERVED_WIN32: &[&str] = &[
+        "con", "prn", "aux", "nul", "com1", "com2", "com3", "com4", "com5", "com6", "com7",
+        "com8", "com9", "lpt1", "lpt2", "lpt3", "lpt4", "lpt5", "lpt6", "lpt7", "lpt8", "lpt9",
+    ];
+    // Срез ".md" безопасен по байтам: суффикс ASCII и проверен ends_with ниже
+    let stem = if file.len() >= 3 { &file[..file.len() - 3] } else { "" };
+    let bad = file.is_empty()
         || file.contains('/')
         || file.contains('\\')
         || file.contains("..")
         || !file.ends_with(".md")
-    {
+        || file.chars().any(|c| {
+            matches!(
+                c,
+                '<' | '>' | ':' | '"' | '|' | '?' | '*' | '\0' | '\u{1}'..='\u{1f}'
+            )
+        })
+        || stem.is_empty()
+        || stem.ends_with(['.', ' '])
+        || RESERVED_WIN32.contains(&stem.to_ascii_lowercase().as_str());
+    if bad {
         return Err(format!("invalid note file name: {file}"));
     }
     Ok(file.to_string())
@@ -383,7 +401,15 @@ fn vault_read(notes_dir: &Path, file: &str) -> Result<String, String> {
     let title = vault_title(file, &content);
     let links = vault_outgoing_links(&content);
 
-    // Обратные ссылки: какие заметки ссылаются на эту (по имени и заголовку)
+    // Обратные ссылки: какие заметки ссылаются на эту. Иглы строим ОДИН раз
+    // (раньше format! аллоцировался на каждую заметку × каждую ссылку),
+    // а чужие заметки читаем с потолком: случайный крупный .md в notes/
+    // не должен целиком уходить в память при каждом vault_read
+    let stem = file.strip_suffix(".md").unwrap_or(file);
+    let mut needles: Vec<String> = links.iter().map(|l| format!("[[{l}")).collect();
+    needles.push(format!("[[{title}"));
+    needles.push(format!("[[{stem}"));
+    const BACKLINK_READ_CAP: usize = 512 * 1024;
     let mut backlinks: Vec<String> = Vec::new();
     if let Ok(entries) = fs::read_dir(notes_dir) {
         for entry in entries.flatten() {
@@ -391,12 +417,11 @@ fn vault_read(notes_dir: &Path, file: &str) -> Result<String, String> {
             if other == file || !other.ends_with(".md") {
                 continue;
             }
-            let Ok(b) = fs::read(entry.path()) else { continue };
-            let b = String::from_utf8_lossy(&b).to_string();
-            let hits = links.iter().any(|l| b.contains(&format!("[[{l}")))
-                || b.contains(&format!("[[{title}"))
-                || b.contains(&format!("[[{}", file.trim_end_matches(".md")));
-            if hits {
+            let Ok(b) = crate::fsutil::read_capped_string(&entry.path(), BACKLINK_READ_CAP)
+            else {
+                continue;
+            };
+            if needles.iter().any(|n| b.contains(n.as_str())) {
                 backlinks.push(other);
             }
         }

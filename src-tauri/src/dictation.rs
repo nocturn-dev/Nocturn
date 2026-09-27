@@ -40,7 +40,12 @@ fn config(app: &tauri::AppHandle) -> DictationConfig {
 }
 
 /// whisper-cli: заданный в конфиге путь (если существует) либо поиск в PATH.
-/// None — CLI нет: фронт покажет подсказку по установке
+/// None — CLI нет: фронт покажет подсказку по установке. Автодетект кэшируется
+/// по значению конфига: status дергается из UI при каждом открытии настроек,
+/// а where/which — запуск процесса на каждый опрос
+static CLI_PROBE: std::sync::Mutex<Option<(Option<String>, Option<String>)>> =
+    std::sync::Mutex::new(None);
+
 fn detect_cli(configured: Option<&str>) -> Option<String> {
     if let Some(p) = configured {
         // Задан явно: не существует — не подменяем другим (паттерн browser.rs)
@@ -48,14 +53,26 @@ fn detect_cli(configured: Option<&str>) -> Option<String> {
             .exists()
             .then(|| p.to_string());
     }
+    let key = configured.map(str::to_string);
+    let mut probe_cache = CLI_PROBE.lock().unwrap_or_else(|p| p.into_inner());
+    if let Some((cached_key, hit)) = probe_cache.as_ref() {
+        if *cached_key == key {
+            return hit.clone();
+        }
+    }
     let mut probe = std::process::Command::new(if cfg!(windows) { "where" } else { "which" });
     probe.arg("whisper-cli");
-    let out = crate::proc::run_command_opts(&mut probe, Duration::from_secs(5), None, None).ok()?;
-    out.stdout
-        .lines()
-        .map(str::trim)
-        .find(|l| !l.is_empty())
-        .map(str::to_string)
+    let found = crate::proc::run_command_opts(&mut probe, Duration::from_secs(5), None, None)
+        .ok()
+        .and_then(|out| {
+            out.stdout
+                .lines()
+                .map(str::trim)
+                .find(|l| !l.is_empty())
+                .map(str::to_string)
+        });
+    *probe_cache = Some((key, found.clone()));
+    found
 }
 
 fn model_file(app: &tauri::AppHandle, configured: Option<&str>) -> PathBuf {
@@ -97,17 +114,20 @@ pub fn dictation_status(app: tauri::AppHandle) -> DictationStatus {
 }
 
 /// Сохранить конфиг (путь к CLI). Отдельная команда вместо settings_write_all:
-/// dictation.json меняется из своей строки настроек, без общего импорта
+/// dictation.json меняется из своей строки настроек, без общего импорта.
+/// Мержим в текущий конфиг, а не перезаписываем: `json!({"cli_path"})` стирал
+/// model_path импортированного конфига при первом же сохранении из UI
 #[tauri::command(async)]
 pub fn dictation_set_config(
     app: tauri::AppHandle,
     cli_path: Option<String>,
 ) -> Result<(), String> {
-    crate::settings::save_json_config(
-        &app,
-        "dictation.json",
-        &json!({ "cli_path": cli_path }),
-    )
+    let mut cur = crate::settings::read_json_config(&app, "dictation.json")
+        .ok()
+        .and_then(|v| v.as_object().cloned())
+        .unwrap_or_default();
+    cur.insert("cli_path".into(), json!(cli_path));
+    crate::settings::save_json_config(&app, "dictation.json", &serde_json::Value::Object(cur))
 }
 
 /// Скачать модель (~57 МБ) с Hugging Face: стрим в temp + rename, прогресс —
@@ -135,11 +155,7 @@ async fn do_download(app: &tauri::AppHandle) -> Result<(), String> {
         return Ok(()); // уже скачана — повторный клик безвреден
     }
     let tmp = dir.join(format!("{MODEL_FILE}.tmp"));
-    let client = crate::network::apply(
-        reqwest::Client::builder().connect_timeout(std::time::Duration::from_secs(30)),
-    )?
-    .build()
-    .map_err(|e| format!("failed to build http client: {e}"))?;
+    let client = crate::network::shared_client(std::time::Duration::from_secs(30))?;
     let resp = client
         .get(MODEL_URL)
         .send()
