@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useLang, MsgKey } from "../../locales";
 import type { Theme } from "../../types";
 import { ACCENT_PRESETS, appearanceTitleStyle, Appearance } from "../../appearance";
+import { STYLE_PALETTES } from "../../themeStyles";
 import type { ThemeProfile } from "../../themeProfiles";
 import { dayPeriod } from "../../time";
 import {
@@ -503,21 +504,23 @@ export function ThemeSection({
         <>
       {/* Светлая/тёмная: компактные карточки в один ряд */}
       <div className="grid grid-cols-2 gap-3">
+        {/* Превью базовой темы — из эталонных данных палитры (themeStyles),
+            а не литералов: копии расползались с реальной темой */}
         <ThemeCard
           name={t("themes.dark")}
           selected={theme === "dark"}
           onSelect={() => onThemeChange("dark")}
-          bg="#262624"
-          panel="#1f1e1d"
-          text="#e8e6dc"
+          bg={STYLE_PALETTES.claude.dark.bg}
+          panel={STYLE_PALETTES.claude.dark.deep}
+          text={STYLE_PALETTES.claude.dark.text}
         />
         <ThemeCard
           name={t("themes.light")}
           selected={theme === "light"}
           onSelect={() => onThemeChange("light")}
-          bg="#faf9f5"
-          panel="#f2efe9"
-          text="#262524"
+          bg={STYLE_PALETTES.claude.light.bg}
+          panel={STYLE_PALETTES.claude.light.deep}
+          text={STYLE_PALETTES.claude.light.text}
         />
       </div>
 
