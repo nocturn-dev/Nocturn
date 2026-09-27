@@ -71,7 +71,18 @@ pub fn load_profiles(app: tauri::AppHandle) -> Result<ProfilesStore, String> {
                         .to_string(),
                 };
                 if !store.profiles.is_empty() {
-                    let _ = save_profiles(app.clone(), store.profiles.clone(), store.active.clone(), false);
+                    // Миграция идемпотентна — провал повторится на следующем
+                    // старте, но молча терять фиксацию профилей на диске нельзя
+                    if let Err(e) = save_profiles(
+                        app.clone(),
+                        store.profiles.clone(),
+                        store.active.clone(),
+                        false,
+                    ) {
+                        eprintln!(
+                            "load_profiles: migration write failed (retries on next start): {e}"
+                        );
+                    }
                     return Ok(store);
                 }
             }
@@ -585,6 +596,12 @@ pub(crate) fn rejects_sensitive_path(path: &str) -> Result<(), String> {
         }
         // comps[1] — топ-каталог (для UNC — шара)
         let top = short83(comps.get(1).copied().unwrap_or(""));
+        // UNC: скрытые (админские) шары все кончаются на «$» — `c$`, `admin$`,
+        // `ipc$` — и открывают системные тома мимо блок-листа топ-каталогов.
+        // Легитимному экспорту скрытая шара не нужна: fail closed
+        if is_unc && top.ends_with('$') {
+            return Err("path points to a protected system location".into());
+        }
         // "progra" ловит 8.3-алиасы Program Files (PROGRA~1/PROGRA~2):
         // короткое имя генерируется на томе, длинное по нему не восстановить
         if matches!(
@@ -940,6 +957,10 @@ mod tests {
             r"\\.\C:\Windows\evil.json",
             r"\\?\UNC\srv\share\..\..\x",
             r"C:\Users\me\..\..\Windows\evil.json",
+            // админ-шары: топ-компонент — не каталог, а скрытая шара тома
+            r"\\localhost\c$\Windows\evil.json",
+            r"\\host\admin$\x.json",
+            r"\\host\ipc$\x.json",
         ] {
             assert!(
                 rejects_sensitive_path(p).is_err(),
