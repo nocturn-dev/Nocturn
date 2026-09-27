@@ -213,7 +213,6 @@ pub fn run() {
             tooling::run_tool,
             tooling::get_tool_schemas,
             tooling::perm_set,
-            tooling::perm_get,
             tooling::browser_get_config,
             tooling::browser_set_config,
             tooling::computer_get_config,
@@ -565,10 +564,22 @@ fn nudge_window(w: &tauri::WebviewWindow) {
     let _ = w.set_position(pos);
 }
 
-/// Quick Entry у верхнего центра активного монитора. Окно без декораций,
-/// позиция из конфига не годится — геометрию экрана знаем только в рантайме
-fn position_quickentry(w: &tauri::WebviewWindow) {
-    let Ok(Some(m)) = w.current_monitor() else { return };
+/// Quick Entry у верхнего центра монитора под курсором. Окно без декораций,
+/// позиция из конфига не годится — геометрию экрана знаем только в рантайме.
+/// current_monitor() самого (скрытого) окна не годится: в мультимониторной
+/// конфигурации окно всегда всплывало на одном и том же экране
+fn position_quickentry(app: &tauri::AppHandle, w: &tauri::WebviewWindow) {
+    let monitor = app.cursor_position().ok().and_then(|pos| {
+        app.available_monitors().ok().and_then(|ms| {
+            ms.into_iter().find(|m| {
+                let p = m.position();
+                let s = m.size();
+                let (cx, cy) = (pos.x.round() as i32, pos.y.round() as i32);
+                cx >= p.x && cx < p.x + s.width as i32 && cy >= p.y && cy < p.y + s.height as i32
+            })
+        })
+    });
+    let Some(m) = monitor.or_else(|| w.current_monitor().ok().flatten()) else { return };
     let scale = m.scale_factor();
     let screen_w = m.size().width as f64 / scale;
     let (ww, _wh) = w.inner_size().map(|s| (s.width as f64 / scale, s.height as f64 / scale)).unwrap_or((540.0, 96.0));
@@ -582,7 +593,7 @@ fn toggle_quickentry(app: &tauri::AppHandle) {
         if w.is_visible().unwrap_or(false) {
             let _ = w.hide();
         } else {
-            position_quickentry(&w);
+            position_quickentry(app, &w);
             let _ = w.show();
             let _ = w.set_focus();
         }
