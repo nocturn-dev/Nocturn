@@ -1,3 +1,6 @@
+import type { MsgKey } from "../locales";
+
+/** English UI strings for Nocturn */
 export const en = {
     "sidebar.newTask": "New task",
     "sidebar.search": "Search",
@@ -1118,4 +1121,4 @@ export const en = {
   "network.caPh": "e.g. C:/certs/root-ca.pem",
   "network.save": "Save",
   "network.saved": "Saved",
-} as const;
+} satisfies Record<MsgKey, string>; // D20: полный Record — пропущенный ключ = ошибка компиляции, а не молчаливый фолбэк
