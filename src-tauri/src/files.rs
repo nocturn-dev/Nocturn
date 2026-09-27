@@ -251,6 +251,16 @@ pub fn cp_id_ok(id: &str) -> bool {
             .all(|c| c.is_ascii_digit() || c.is_ascii_lowercase() || c == '-')
 }
 
+/// Мета-сайдкар чекпоинта ({id}.meta.json): список чекпоинтов читает только
+/// его — раньше ради ts/label/количества парсился весь снимок (base64 всех
+/// файлов, до 25 МБ) на каждый файл
+#[derive(Serialize, Deserialize)]
+struct CheckpointMetaCar {
+    ts: u64,
+    label: String,
+    files: usize,
+}
+
 #[tauri::command(async)]
 pub async fn checkpoint_save(
     app: tauri::AppHandle,
@@ -294,13 +304,28 @@ fn checkpoint_save_impl(
         files,
     };
     let json = serde_json::to_vec(&store).map_err(|e| e.to_string())?;
-    fs::write(dir.join(format!("{id}.json")), json).map_err(|e| e.to_string())?;
-    // Чистим старые сверх CP_KEEP (по метке времени в начале имени)
+    // atomic_write, а не fs::write: на Unix снимок проекта (там бывают и
+    // .env) не должен быть читаем всеми, а краш не должен рвать файл
+    crate::fsutil::atomic_write(&dir.join(format!("{id}.json")), &json)
+        .map_err(|e| e.to_string())?;
+    // Сайдкар — Best-effort: провал не критичен, список упадёт на фолбэк
+    // полного парсинга снимка
+    let meta = CheckpointMetaCar {
+        ts,
+        label: label.clone(),
+        files: count,
+    };
+    let _ = crate::fsutil::atomic_write(
+        &dir.join(format!("{id}.meta.json")),
+        &serde_json::to_vec(&meta).unwrap_or_default(),
+    );
+    // Чистим старые сверх CP_KEEP (по метке времени в начале имени);
+    // .meta.json — не самостоятельный чекпоинт, а сайдкар своего снимка
     let mut olds: Vec<(u64, PathBuf)> = Vec::new();
     if let Ok(rd) = fs::read_dir(&dir) {
         for e in rd.flatten() {
             let name = e.file_name().to_string_lossy().to_string();
-            if !name.ends_with(".json") {
+            if !name.ends_with(".json") || name.ends_with(".meta.json") {
                 continue;
             }
             let ts = name
@@ -314,7 +339,11 @@ fn checkpoint_save_impl(
     olds.sort();
     while olds.len() > CP_KEEP {
         let (_, p) = olds.remove(0);
-        let _ = fs::remove_file(p);
+        let _ = fs::remove_file(&p);
+        // Сайдкар умирает вместе со снимком
+        let stem = p.file_name().unwrap_or_default().to_string_lossy();
+        let meta_name = format!("{}.meta.json", stem.trim_end_matches(".json"));
+        let _ = fs::remove_file(p.with_file_name(meta_name));
     }
     Ok(CheckpointMeta {
         id,
@@ -341,16 +370,32 @@ fn checkpoint_list_impl(app: tauri::AppHandle, path: String) -> Result<Vec<Check
     let rd = fs::read_dir(&dir).map_err(|e| e.to_string())?;
     for e in rd.flatten() {
         let name = e.file_name().to_string_lossy().to_string();
-        if !name.ends_with(".json") {
+        // .meta.json — сайдкар, не самостоятельный чекпоинт
+        if !name.ends_with(".json") || name.ends_with(".meta.json") {
             continue;
         }
-        let Ok(bytes) = fs::read(e.path()) else { continue };
-        let Ok(store) = serde_json::from_slice::<CheckpointStore>(&bytes) else { continue };
+        let id = name.trim_end_matches(".json").to_string();
+        // Сайдкар крошечный; полный парс снимка (base64 всех файлов) —
+        // только фолбэк для чекпоинтов, сохранённых до его появления
+        let meta_path = e.path().with_file_name(format!("{id}.meta.json"));
+        let (ts, label, files) = match fs::read(&meta_path)
+            .ok()
+            .and_then(|b| serde_json::from_slice::<CheckpointMetaCar>(&b).ok())
+        {
+            Some(m) => (m.ts, m.label, m.files),
+            None => {
+                let Ok(bytes) = fs::read(e.path()) else { continue };
+                let Ok(store) = serde_json::from_slice::<CheckpointStore>(&bytes) else {
+                    continue;
+                };
+                (store.ts, store.label, store.files.len())
+            }
+        };
         out.push(CheckpointMeta {
-            id: name.trim_end_matches(".json").to_string(),
-            ts: store.ts,
-            label: store.label,
-            files: store.files.len(),
+            id,
+            ts,
+            label,
+            files,
             bytes: 0,
         });
     }
@@ -527,6 +572,8 @@ pub fn checkpoint_delete(app: tauri::AppHandle, path: String, id: String) -> Res
     }
     let dir = checkpoints_dir(&app, &path)?;
     fs::remove_file(dir.join(format!("{id}.json"))).map_err(|e| e.to_string())?;
+    // Сайдкар — Best-effort: осиротевшая мета отфильтровалась бы и так
+    let _ = fs::remove_file(dir.join(format!("{id}.meta.json")));
     Ok(())
 }
 
