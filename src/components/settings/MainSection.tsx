@@ -130,6 +130,7 @@ export function MainSection({
   scrollFollow,
   onScrollFollowChange,
   streamSmooth,
+  highlightLive,
   printSpeed,
   hardMode,
   onHardModeChange,
@@ -139,6 +140,7 @@ export function MainSection({
   autoArchive,
   archiveRetention,
   onStreamSmoothChange,
+  onHighlightLiveChange,
   onPrintSpeedChange,
   onShowReasoningChange,
   onTranscriptViewChange,
@@ -173,6 +175,9 @@ export function MainSection({
   onScrollFollowChange: (v: boolean) => void;
   streamSmooth: boolean;
   onStreamSmoothChange: (v: boolean) => void;
+  /** Подсветка кода во время стрима (тумблер рядом с «Плавной печатью») */
+  highlightLive: boolean;
+  onHighlightLiveChange: (v: boolean) => void;
   /** Множитель скорости плавной печати (0.5 / 1 / 2) */
   printSpeed: number;
   onPrintSpeedChange: (v: number) => void;
@@ -410,6 +415,12 @@ export function MainSection({
         desc={t("main.streamSmoothDesc")}
         on={streamSmooth}
         onChange={onStreamSmoothChange}
+      />
+      <ToggleRow
+        label={t("main.highlightLive")}
+        desc={t("main.highlightLiveDesc")}
+        on={highlightLive}
+        onChange={onHighlightLiveChange}
       />
       {/* Скорость плавной печати: множитель догоняющего темпа карточки */}
       {streamSmooth && (

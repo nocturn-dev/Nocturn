@@ -69,6 +69,9 @@ interface SettingsModalProps {
   onScrollFollowChange: (v: boolean) => void;
   streamSmooth: boolean;
   onStreamSmoothChange: (v: boolean) => void;
+  /** Подсветка кода во время стрима (тумблер рядом с «Плавной печатью») */
+  highlightLive: boolean;
+  onHighlightLiveChange: (v: boolean) => void;
   /** Множитель скорости плавной печати (0.5 / 1 / 2) */
   printSpeed: number;
   onPrintSpeedChange: (v: number) => void;
@@ -233,6 +236,7 @@ export default function SettingsModal({
   scrollFollow,
   onScrollFollowChange,
   streamSmooth,
+  highlightLive,
   hardMode,
   onHardModeChange,
   printSpeed,
@@ -242,6 +246,7 @@ export default function SettingsModal({
   autoArchive,
   archiveRetention,
   onStreamSmoothChange,
+  onHighlightLiveChange,
   onPrintSpeedChange,
   onShowReasoningChange,
   onTranscriptViewChange,
@@ -623,6 +628,8 @@ export default function SettingsModal({
               onScrollFollowChange={onScrollFollowChange}
               streamSmooth={streamSmooth}
               onStreamSmoothChange={onStreamSmoothChange}
+              highlightLive={highlightLive}
+              onHighlightLiveChange={onHighlightLiveChange}
               printSpeed={printSpeed}
               hardMode={hardMode}
               onHardModeChange={onHardModeChange}
