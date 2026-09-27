@@ -7,7 +7,7 @@ import QuickSettings from "./QuickSettings";
 import NocturnMark from "./NocturnMark";
 import { ArtifactsPanel, type ArtifactView } from "./ArtifactsPanel";
 import type { Appearance } from "../appearance";
-import { getToolSchemas, contextLimitFor, type ModelInfo } from "../api";
+import { getToolSchemas, contextLimitFor, dictationTranscribe, type ModelInfo } from "../api";
 import type { Theme } from "../types";
 import SystemPromptModal from "./SystemPromptModal";
 import TerminalPanel from "./TerminalPanel";
@@ -34,7 +34,7 @@ import { ToolStepCard } from "./cards/ToolStepCard";
 import { TypingBubble } from "./cards/TypingBubble";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { UserCard } from "./cards/UserCard";
-import { ArrowUpIcon, ChevronDownIcon, CorrectIcon, PaperclipIcon, PermModeIcon, QueueIcon, QuoteIcon, RobotIcon, ShieldIcon, SlidersIcon, SparkIcon, StopIcon, SystemPromptIcon, TerminalIcon, TrashIcon, WrenchIcon, XSmallIcon } from "./cards/icons";
+import { ArrowUpIcon, ChevronDownIcon, CorrectIcon, MicIcon, PaperclipIcon, PermModeIcon, QueueIcon, QuoteIcon, RobotIcon, ShieldIcon, SlidersIcon, SparkIcon, StopIcon, SystemPromptIcon, TerminalIcon, TrashIcon, WrenchIcon, XSmallIcon } from "./cards/icons";
 import { fmtInt, fmtK } from "./cards/util";
 
 interface ChatAreaProps {
@@ -441,6 +441,87 @@ export default function ChatArea({
     },
     [t],
   );
+  // Диктовка: запись микрофона через вебвью (PCM 16 кГц моно) → whisper-cli
+  // в отдельном процессе бекенда. Аудио живёт только в буфере записи и во
+  // временном wav на время транскрипции — локально by design
+  const [recording, setRecording] = useState(false);
+  const [dictBusy, setDictBusy] = useState(false);
+  const recRef = useRef<{
+    ctx: AudioContext;
+    stream: MediaStream;
+    node: ScriptProcessorNode;
+    chunks: Float32Array[];
+  } | null>(null);
+
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
+      });
+      const ctx = new AudioContext({ sampleRate: 16000 });
+      const src = ctx.createMediaStreamSource(stream);
+      const node = ctx.createScriptProcessor(4096, 1, 1);
+      const chunks: Float32Array[] = [];
+      node.onaudioprocess = (e) => {
+        chunks.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+      };
+      src.connect(node);
+      // ScriptProcessor требует выхода в граф: через нулевой gain — без эха
+      const mute = ctx.createGain();
+      mute.gain.value = 0;
+      node.connect(mute);
+      mute.connect(ctx.destination);
+      recRef.current = { ctx, stream, node, chunks };
+      setRecording(true);
+    } catch {
+      window.alert(t("dictation.micDenied"));
+    }
+  };
+
+  const stopRecording = async () => {
+    const rec = recRef.current;
+    if (!rec) return;
+    recRef.current = null;
+    setRecording(false);
+    rec.node.disconnect();
+    rec.stream.getTracks().forEach((tr) => tr.stop());
+    void rec.ctx.close();
+    const total = rec.chunks.reduce((a, c) => a + c.length, 0);
+    if (total === 0) return;
+    // Float32 [-1..1] → Int16 LE → base64 (2 байта на сэмпл: 30 с ≈ 1 МБ)
+    const pcm = new Int16Array(total);
+    let off = 0;
+    for (const c of rec.chunks) {
+      for (let i = 0; i < c.length; i++) {
+        const s = Math.max(-1, Math.min(1, c[i] ?? 0));
+        pcm[off++] = s < 0 ? s * 0x8000 : s * 0x7fff;
+      }
+    }
+    const bytes = new Uint8Array(pcm.buffer);
+    let bin = "";
+    const CH = 0x8000;
+    for (let i = 0; i < bytes.length; i += CH) {
+      bin += String.fromCharCode(...bytes.subarray(i, i + CH));
+    }
+    setDictBusy(true);
+    try {
+      const text = (await dictationTranscribe(btoa(bin))).trim();
+      if (text) {
+        setDraft((d) => (d.trim() ? `${d.trimEnd()} ${text}` : text));
+        const ta = textareaRef.current;
+        if (ta) {
+          autoGrow(ta);
+          ta.focus();
+        }
+      } else {
+        window.alert(t("dictation.empty"));
+      }
+    } catch (e) {
+      window.alert(String(e));
+    } finally {
+      setDictBusy(false);
+    }
+  };
   const [skillIndex, setSkillIndex] = useState(0);
   const allSkills = useMemo<Skill[]>(
     () => [...BUILTIN_SKILLS, ...(extraSkills ?? [])],
@@ -1762,6 +1843,20 @@ export default function ChatArea({
                 className="mb-1 flex size-9 shrink-0 items-center justify-center rounded-xl text-halo-muted transition duration-150 hover:bg-halo-hover hover:text-halo-text"
               >
                 <PaperclipIcon />
+              </button>
+              <button
+                onClick={() => (recording ? void stopRecording() : void startRecording())}
+                disabled={dictBusy}
+                title={t("dictation.button")}
+                className={`mb-1 flex size-9 shrink-0 items-center justify-center rounded-xl transition duration-150 hover:bg-halo-hover ${
+                  recording
+                    ? "bg-red-400/15 text-red-400"
+                    : dictBusy
+                      ? "animate-pulse text-halo-accent"
+                      : "text-halo-muted hover:text-halo-text"
+                }`}
+              >
+                <MicIcon />
               </button>
               <textarea
                 ref={textareaRef}

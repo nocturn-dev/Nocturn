@@ -439,6 +439,7 @@ const EXPORT_FILES: &[&str] = &[
     "browser.json",
     "computer.json",
     "websearch.json",
+    "dictation.json",
     "crypto.json",
 ];
 
@@ -978,6 +979,21 @@ pub fn save_settings(app: tauri::AppHandle, settings: ApiSettings) -> Result<(),
     invalidate_settings_cache();
     Ok(())
 }
+/// Прочитать конфиг-файл как Value (модули со своей статикой: dictation и пр.)
+pub(crate) fn read_json_config(
+    app: &tauri::AppHandle,
+    file: &str,
+) -> Result<serde_json::Value, String> {
+    use tauri::Manager;
+    let path = app
+        .path()
+        .app_config_dir()
+        .map_err(|e| e.to_string())?
+        .join(file);
+    let data = fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    serde_json::from_str(&data).map_err(|e| e.to_string())
+}
+
 pub(crate) fn save_json_config<T: serde::Serialize>(
     app: &tauri::AppHandle,
     file: &str,

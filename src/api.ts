@@ -1484,3 +1484,53 @@ export async function pickJsonFile(): Promise<string | null> {
   });
   return typeof picked === "string" ? picked : null;
 }
+
+// ---------- Диктовка (Whisper): mic → PCM → whisper-cli ----------
+
+export interface DictationStatus {
+  cliFound: boolean;
+  cliPath: string | null;
+  modelExists: boolean;
+  modelBytes: number;
+  downloading: boolean;
+}
+
+/** Статус диктовки: найден ли CLI и скачана ли модель */
+export async function dictationStatus(): Promise<DictationStatus> {
+  if (!inTauri) {
+    return { cliFound: false, cliPath: null, modelExists: false, modelBytes: 0, downloading: false };
+  }
+  return invoke<DictationStatus>("dictation_status");
+}
+
+/** Скачать модель whisper (~57 МБ, Hugging Face → appdata) */
+export async function dictationDownloadModel(): Promise<void> {
+  if (!inTauri) return;
+  await invoke("dictation_download_model");
+}
+
+/** Сохранить путь к whisper-cli (null — искать в PATH) */
+export async function dictationSetConfig(cliPath: string | null): Promise<void> {
+  if (!inTauri) return;
+  await invoke("dictation_set_config", { cliPath });
+}
+
+/** Транскрибировать запись: base64(int16 LE PCM, 16 кГц моно) → текст */
+export async function dictationTranscribe(audioBase64: string): Promise<string> {
+  if (!inTauri) throw new Error("Диктовка работает в нативном приложении (npm run tauri dev)");
+  return invoke<string>("dictation_transcribe", { audioBase64 });
+}
+
+/** Выбрать бинарник whisper-cli вручную (когда его нет в PATH) */
+export async function pickCliFile(): Promise<string | null> {
+  if (!inTauri) return null;
+  const { open } = await import("@tauri-apps/plugin-dialog");
+  const picked = await open({
+    multiple: false,
+    filters: [
+      { name: "Executable", extensions: ["exe"] },
+      { name: "All files", extensions: ["*"] },
+    ],
+  });
+  return typeof picked === "string" ? picked : null;
+}

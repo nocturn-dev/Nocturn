@@ -22,6 +22,7 @@ mod websearch;
 mod network;
 mod notes;
 mod plugins;
+mod dictation;
 mod settings;
 mod tooling;
 pub mod mcp;
@@ -274,6 +275,10 @@ pub fn run() {
             memory::memory_add,
             memory::memory_delete,
             memory::memory_clear,
+            dictation::dictation_status,
+            dictation::dictation_set_config,
+            dictation::dictation_download_model,
+            dictation::dictation_transcribe,
             pty::pty_create,
             pty::pty_write,
             pty::pty_resize,
