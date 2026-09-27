@@ -592,7 +592,12 @@ pub fn list_dir(path: String) -> Result<Vec<FileEntry>, String> {
     let mut files: Vec<FileEntry> = Vec::new();
     for entry in fs::read_dir(dir).map_err(|e| format!("cannot list {path}: {e}"))?.flatten() {
         let name = entry.file_name().to_string_lossy().to_string();
-        let is_dir = entry.path().is_dir();
+        // file_type() из readdir — без отдельного stat: entry.path().is_dir()
+        // ходил в ФС за каждой записью (большие каталоги — двойной syscall)
+        let is_dir = entry
+            .file_type()
+            .map(|t| t.is_dir())
+            .unwrap_or_else(|_| entry.path().is_dir());
         let size = entry.metadata().map(|m| m.len()).unwrap_or(0);
         (if is_dir { &mut dirs } else { &mut files }).push(FileEntry { name, is_dir, size });
         if dirs.len() + files.len() >= LIST_DIR_HARD_CAP {

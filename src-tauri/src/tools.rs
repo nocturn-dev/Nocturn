@@ -6,13 +6,21 @@ use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::OnceLock;
 use std::time::Duration;
 
 const FS_READ_LIMIT: u64 = 256 * 1024; // 256 КБ на чтение файла
 const SHELL_DEFAULT_TIMEOUT: u64 = 60; // сек
 
-/// OpenAI-совместимые определения инструментов (для body["tools"])
+/// OpenAI-совместимые определения инструментов (для body["tools"]).
+/// Дерево статично — строится один раз (OnceLock) и клонируется: json!-литерал
+/// на каждый вызов (старт сессии, субагент) — лишняя работа компилятора JSON
 pub fn tool_schemas() -> Value {
+    static CACHE: OnceLock<Value> = OnceLock::new();
+    CACHE.get_or_init(build_tool_schemas).clone()
+}
+
+fn build_tool_schemas() -> Value {
     json!([
         {
             "type": "function",
@@ -578,7 +586,10 @@ fn fs_grep(dir: &Path, query: &str, max_results: usize) -> Result<String, String
                 if out.len() >= max_results {
                     break;
                 }
-                if line.to_lowercase().contains(&q) {
+                // Exact-case префильтр: попадания в том же регистре (частый
+                // случай в коде) обходят аллокацию to_lowercase на строку.
+                // Семантика та же: to_lowercase сохраняет exact-case совпадение
+                if line.contains(&q) || line.to_lowercase().contains(&q) {
                     let mut s = line.trim().to_string();
                     crate::truncate_at_char_boundary(&mut s, LINE_SNIPPET);
                     out.push(format!("{}:{}: {}", p.display(), i + 1, s));
