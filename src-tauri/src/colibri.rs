@@ -120,6 +120,14 @@ pub fn colibri_start(
         // срок работы сервера висит видимое консольное окно
         cmd.creation_flags(0x0800_0000);
     }
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        // Своя процесс-группа: proc::kill_tree на Unix бьёт kill(-pgid).
+        // Без этого coli сидел в группе приложения, kill_tree промахивался
+        // (ESRCH) — colibri_stop и выход приложения висели на wait() навсегда
+        cmd.process_group(0);
+    }
     cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
 
     let mut child = cmd
@@ -154,6 +162,10 @@ pub fn colibri_stop(registry: tauri::State<'_, ColibriRegistry>) -> Result<Colib
     if let Some(c) = guard.take() {
         kill_tree(c.id());
         let mut c = c;
+        // Страховка: kill_tree бьёт по группе и может промахнуться (гонка
+        // старта, унаследованная группа) — прямой kill гарантирует, что
+        // wait() ниже не зависнет навсегда
+        let _ = c.kill();
         let _ = c.wait();
     }
     Ok(ColibriStatus {
@@ -176,6 +188,8 @@ pub fn kill_on_exit(registry: &ColibriRegistry) {
         if let Some(c) = guard.take() {
             kill_tree(c.id());
             let mut c = c;
+            // Страховка от вечного wait(): см. colibri_stop
+            let _ = c.kill();
             let _ = c.wait();
         }
     }
