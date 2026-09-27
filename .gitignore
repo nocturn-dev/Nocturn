@@ -22,3 +22,6 @@ jobs_tmp.json
 
 # Рабочие файлы агента (планы, временные скрипты)
 .zcode/
+
+# Pyodide runtime (копируется из node_modules скриптом copy-pyodide)
+public/pyodide/
