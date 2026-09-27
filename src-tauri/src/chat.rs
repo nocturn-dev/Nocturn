@@ -71,7 +71,7 @@ pub async fn test_connection(base_url: String, api_key: String) -> Result<Vec<Mo
         .map_err(|e| format!("failed to read response body: {e}"))?;
     if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
         return Err(format!(
-            "ключ не принят ({}): проверьте, что ключ выдан именно этим провайдером —              у каждого сервиса свой ключ, ключ от OpenRouter не подходит к другим",
+            "ключ не принят ({}): проверьте, что ключ выдан именно этим провайдером — у каждого сервиса свой ключ, ключ от OpenRouter не подходит к другим",
             status.as_u16()
         ));
     }

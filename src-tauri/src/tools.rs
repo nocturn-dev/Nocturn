@@ -571,19 +571,19 @@ fn fs_grep(dir: &Path, query: &str, max_results: usize) -> Result<String, String
                 continue;
             }
             let text = String::from_utf8_lossy(&bytes);
-            let mut hits = 0usize;
+            // to_lowercase на строку — аллокация в горячем цикле, но альтернативы
+            // (char-fold) сложнее и рискованнее; потолки FILE_CAP держат время
+            // конечным. Мёртвый счётчик hits снят: считал и выбрасывался
             for (i, line) in text.lines().enumerate() {
                 if out.len() >= max_results {
                     break;
                 }
                 if line.to_lowercase().contains(&q) {
-                    hits += 1;
                     let mut s = line.trim().to_string();
                     crate::truncate_at_char_boundary(&mut s, LINE_SNIPPET);
                     out.push(format!("{}:{}: {}", p.display(), i + 1, s));
                 }
             }
-            let _ = hits;
         }
         if out.len() >= max_results || truncated {
             break;

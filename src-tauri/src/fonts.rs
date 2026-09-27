@@ -107,10 +107,9 @@ pub fn font_import(app: tauri::AppHandle, src: String) -> Result<CustomFont, Str
     }
     let bytes = fs::read(&src_path).map_err(|e| e.to_string())?;
     let dir = fonts_dir(&app)?;
-    let id: String = {
-        let b: [u8; 4] = rand::random();
-        b.iter().map(|x| format!("{x:02x}")).collect()
-    };
+    // fsutil::uuid_v4_short — единственный источник коротких id: дубль здесь
+    // жил своей жизнью и расползался независимо от канонического
+    let id = crate::fsutil::uuid_v4_short();
     let family = format!("NocturnFont-{id}");
     let file_name = format!("font-{id}.{ext}");
     fs::write(dir.join(&file_name), &bytes).map_err(|e| e.to_string())?;
