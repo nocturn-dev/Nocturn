@@ -23,6 +23,13 @@
 
 ---
 
+## 2026-09-27 · [new-feature · update-backend] Quick Entry на Wayland: портал GlobalShortcuts
+- Причина → XGrabKey недоступен в нативной Wayland-сессии: плагин регистрировался впустую, тост (9f269ad) был лишь честной деградацией.
+- Модуль `portal.rs` (linux-only, ashpd 0.13): CreateSession → BindShortcuts (композитор показывает диалог подтверждения) → стрим Activated → `toggle_quickentry`; статус — в общий `QUICKENTRY_REGISTERED`. При ремапе прежняя портал-сессия закрывается (иначе старое комбо жило бы параллельно); при провале плагина портал пробуется и на старте, и в ремапе.
+- Верификация: ashpd unix-only → linux-гейт зависимости; типы проверены стендом `cargo check --target x86_64-unknown-linux-gnu` (поймал: фича `global_shortcuts`, приватный `session::`, не-Send MutexGuard через await). Рантайм-проверка — только на реальной Wayland-машине (GNOME 45+/KDE 6+); первый пуш соберёт ubuntu-CI.
+- Фронт: тост «хоткей недоступен» перепроверяет статус через 6 с — даёт портальному диалогу время.
+- Коммит с portal.rs (см. git log).
+
 ## 2026-09-27 · [update-frontend] Типизация локаль-ключей: `as never` = 0
 - 14 сайтов `t(...)` переведены на компиляторную проверку: константам дан `MsgKey` (NOTIFY_SOUNDS, ROLE_KEYS, WEEKDAY_KEYS, шаблоны автоматизаций, индекс поиска настроек ~40 ключей, ContextRing/HeaderLabel), шаблонные union (`usage.${m}`, `profile.tone_${tone}`) выводятся сами, `greetingKey` — готовый литеральный union.
 - Бонус: `includes(x as never)` в appearance/themeProfiles заменены типогардом `isAmbientScene` (заодно сняты касты результата); searchIndex потерял рантайм-костыль `?? ""` — его инвариант «ключ обязан существовать» теперь принудителен.
