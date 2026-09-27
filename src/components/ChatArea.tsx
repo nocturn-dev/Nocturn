@@ -80,6 +80,8 @@ interface ChatAreaProps {
   onCorrect?: (text: string) => void;
   onStop: () => void;
   onOpenSettings: () => void;
+  /** Открыть «Сравнение моделей» (общий промпт → параллельные стримы) */
+  onOpenCompare?: () => void;
   onSetSystemPrompt: (prompt: string | null) => void;
   onApplyPreset: (prompt: string) => void;
   onToggleAgent: () => void;
@@ -313,6 +315,7 @@ export default function ChatArea({
   onCorrect,
   onStop,
   onOpenSettings,
+  onOpenCompare,
   onSetSystemPrompt,
   onApplyPreset,
   onToggleAgent,
@@ -2161,6 +2164,16 @@ export default function ChatArea({
                   </>
                 )}
               </div>
+              {onOpenCompare && (
+                <button
+                  onClick={onOpenCompare}
+                  title={t("cmp.open")}
+                  className="flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-xs text-halo-muted transition duration-150 hover:bg-halo-hover hover:text-halo-text"
+                >
+                  <span aria-hidden>⚖</span>
+                  <span>{t("cmp.open")}</span>
+                </button>
+              )}
               <button
                 onClick={onOpenSettings}
                 title={model ? model : t("chat.modelHint")}
