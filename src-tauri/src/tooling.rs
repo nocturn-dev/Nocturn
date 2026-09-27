@@ -786,14 +786,6 @@ pub fn perm_set(mode: String, roots: Vec<String>) -> Result<(), String> {
     Ok(())
 }
 
-/// Текущее состояние прав: { mode: "ask"…, roots: [...] } — для отладки
-/// и восстановления состояния на фронте
-#[tauri::command(async)]
-pub fn perm_get() -> serde_json::Value {
-    let state = perm::current();
-    serde_json::json!({ "mode": state.mode, "roots": state.roots })
-}
-
 #[tauri::command(async)]
 pub fn get_tool_schemas(
     mcp_registry: tauri::State<'_, mcp::McpRegistry>,
