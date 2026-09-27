@@ -11,6 +11,7 @@ import {
   gitAutocommit,
   getToolSchemas,
   hooksRunEvent,
+  kbQuery,
   memoryList,
   permSet,
   projectRulesRead,
@@ -922,6 +923,22 @@ export function useAgentRun(deps: AgentRunDeps) {
       }
       if (isAgent) {
         history.push({ role: "system", content: t("memory.hintAgent") });
+      }
+    }
+
+    // База знаний (RAG): база привязана к задаче — локальный FTS-поиск по
+    // документам (kb.rs, SQLite в appdata) подмешивает релевантные фрагменты
+    // в контекст. Файлы никуда не уходят — модели едет только выжимка
+    if (current?.kbId && text.trim() !== "") {
+      const hits = await kbQuery(current.kbId, text, 6).catch(() => []);
+      if (hits.length > 0) {
+        const block = hits
+          .map((h, i) => `[${i + 1}] ${h.docTitle}\n${h.text}`)
+          .join("\n\n");
+        history.push({
+          role: "system",
+          content: `${t("kb.contextBlock")}\n\n${block}`,
+        });
       }
     }
 

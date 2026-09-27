@@ -1546,6 +1546,92 @@ export async function ttsStop(): Promise<void> {
   await invoke("tts_stop");
 }
 
+// ---------- Базы знаний (RAG): локальный SQLite FTS5, см. kb.rs ----------
+
+export interface KbMeta {
+  id: string;
+  name: string;
+  created: number;
+  docs: number;
+  chunks: number;
+}
+
+export interface KbDoc {
+  id: number;
+  title: string;
+  path: string;
+  chunks: number;
+}
+
+export interface KbHit {
+  docTitle: string;
+  text: string;
+  score: number;
+}
+
+/** Создать базу (каталог + meta + пустой FTS-индекс в appdata) */
+export async function kbCreate(name: string): Promise<string> {
+  if (!inTauri) throw new Error("Базы знаний работают в нативном приложении (npm run tauri dev)");
+  return invoke<string>("kb_create", { name });
+}
+
+/** Список баз со статистикой */
+export async function kbList(): Promise<KbMeta[]> {
+  if (!inTauri) return [];
+  return invoke<KbMeta[]>("kb_list");
+}
+
+/** Удалить базу целиком */
+export async function kbDelete(id: string): Promise<void> {
+  if (!inTauri) return;
+  await invoke("kb_delete", { id });
+}
+
+/** Проиндексировать документ (текстовые форматы; путь из диалога) */
+export async function kbAddDocument(id: string, path: string): Promise<number> {
+  if (!inTauri) throw new Error("Базы знаний работают в нативном приложении (npm run tauri dev)");
+  return invoke<number>("kb_add_document", { id, path });
+}
+
+/** Убрать документ из базы */
+export async function kbRemoveDocument(id: string, docId: number): Promise<void> {
+  if (!inTauri) return;
+  await invoke("kb_remove_document", { id, docId });
+}
+
+/** Документы базы */
+export async function kbDocuments(id: string): Promise<KbDoc[]> {
+  if (!inTauri) return [];
+  return invoke<KbDoc[]>("kb_documents", { id });
+}
+
+/** Поиск по базе: топ-k фрагментов (локальный bm25 + префиксная морфология) */
+export async function kbQuery(id: string, query: string, topK = 6): Promise<KbHit[]> {
+  if (!inTauri) return [];
+  return invoke<KbHit[]>("kb_query", { id, query, topK });
+}
+
+/** Диалог выбора документов для индексации (мультивыбор, текстовые форматы) */
+export async function pickDocFiles(): Promise<string[]> {
+  if (!inTauri) return [];
+  const { open } = await import("@tauri-apps/plugin-dialog");
+  const picked = await open({
+    multiple: true,
+    filters: [
+      {
+        name: "Documents",
+        extensions: [
+          "md", "markdown", "txt", "csv", "json", "log", "xml", "yaml", "yml",
+          "ini", "toml", "html", "ts", "tsx", "js", "jsx", "py", "rs", "go",
+          "java", "sql", "sh",
+        ],
+      },
+    ],
+  });
+  if (!picked) return [];
+  return Array.isArray(picked) ? picked : [picked];
+}
+
 /** Выбрать бинарник whisper-cli вручную (когда его нет в PATH) */
 export async function pickCliFile(): Promise<string | null> {
   if (!inTauri) return null;

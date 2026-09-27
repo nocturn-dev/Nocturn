@@ -82,6 +82,8 @@ interface ChatAreaProps {
   onOpenSettings: () => void;
   /** Открыть «Сравнение моделей» (общий промпт → параллельные стримы) */
   onOpenCompare?: () => void;
+  /** Открыть «Базы знаний» (RAG-индексы + привязка к чату) */
+  onOpenKnowledge?: () => void;
   onSetSystemPrompt: (prompt: string | null) => void;
   onApplyPreset: (prompt: string) => void;
   onToggleAgent: () => void;
@@ -316,6 +318,7 @@ export default function ChatArea({
   onStop,
   onOpenSettings,
   onOpenCompare,
+  onOpenKnowledge,
   onSetSystemPrompt,
   onApplyPreset,
   onToggleAgent,
@@ -2164,6 +2167,16 @@ export default function ChatArea({
                   </>
                 )}
               </div>
+              {onOpenKnowledge && (
+                <button
+                  onClick={onOpenKnowledge}
+                  title={t("kb.open")}
+                  className="flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-xs text-halo-muted transition duration-150 hover:bg-halo-hover hover:text-halo-text"
+                >
+                  <span aria-hidden>📚</span>
+                  <span>{t("kb.open")}</span>
+                </button>
+              )}
               {onOpenCompare && (
                 <button
                   onClick={onOpenCompare}

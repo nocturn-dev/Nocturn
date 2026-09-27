@@ -26,6 +26,7 @@ mod dictation;
 mod settings;
 mod tooling;
 mod tts;
+mod kb;
 pub mod mcp;
 mod perm;
 #[cfg(target_os = "linux")]
@@ -283,6 +284,13 @@ pub fn run() {
             dictation::dictation_transcribe,
             tts::tts_speak,
             tts::tts_stop,
+            kb::kb_create,
+            kb::kb_list,
+            kb::kb_delete,
+            kb::kb_add_document,
+            kb::kb_remove_document,
+            kb::kb_documents,
+            kb::kb_query,
             pty::pty_create,
             pty::pty_write,
             pty::pty_resize,
