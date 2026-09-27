@@ -239,6 +239,8 @@ export default function App() {
   // Поведение генерации: скролл и печать
   const [scrollFollow, setScrollFollow] = useBoolPref("haloui-scroll-follow", false);
   const [streamSmooth, setStreamSmooth] = useBoolPref("haloui-stream-smooth", true);
+  // Git-автокоммит перед правками агента (Aider-паттерн, opt-in)
+  const [gitAutocommit, setGitAutocommit] = useBoolPref("haloui-git-autocommit", false);
   // Подсветка кода во время стрима: выкл — hljs только после завершения
   // (тик плавной печати без highlight в разы дешевле на длинных ответах)
   const [highlightLive, setHighlightLive] = useBoolPref("haloui-highlight-live", true);
@@ -2113,6 +2115,8 @@ export default function App() {
         printSpeed={printSpeed}
         onPrintSpeedChange={setPrintSpeed}
         hardMode={hardMode}
+        gitAutocommit={gitAutocommit}
+        onGitAutocommitChange={setGitAutocommit}
         onHardModeChange={setHardMode}
         showReasoning={showReasoning}
         onShowReasoningChange={setShowReasoning}

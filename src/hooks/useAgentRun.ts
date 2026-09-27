@@ -8,6 +8,7 @@ import {
   abortChat,
   chatStream,
   checkpointSave,
+  gitAutocommit,
   getToolSchemas,
   hooksRunEvent,
   memoryList,
@@ -1296,6 +1297,15 @@ export function useAgentRun(deps: AgentRunDeps) {
           lastCheckpointRef.current = { root, id: cp.id };
           // Плавающее уведомление вместо строки в чате
           addToast(t("cp.created"));
+        }
+        // Git-автокоммит (Aider-паттерн, opt-in): состояние репо откатываемо
+        // через git независимо от файловых чекпоинтов; best-effort — не репо,
+        // нет git или identity — бекенд тихо пропускает
+        if (localStorage.getItem("haloui-git-autocommit") === "1") {
+          void gitAutocommit(
+            root,
+            `nocturn: auto-checkpoint — ${label || "agent run"}`,
+          ).catch(() => {});
         }
       };
 

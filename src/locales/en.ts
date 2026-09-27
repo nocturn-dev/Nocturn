@@ -731,6 +731,8 @@ export const en = {
     "import.externalBtn": "Pick export file",
     "import.externalNone": "No conversations found in the file: expected conversations.json (ChatGPT) or a Gemini Takeout JSON",
     "import.externalDone": "Conversations imported: {n}",
+    "git.autocommitTitle": "Git auto-commit before edits",
+    "git.autocommitDesc": "Before the agent edits files, a commit is made in the project repo — state is revertible via git. Requires git and a configured user.name/email; skipped silently outside a repo",
     "branch.created": "Branch created — the original is kept",
     "branch.badge": "Branch of this conversation",
     "main.g1": "Interface & launch",

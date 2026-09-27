@@ -767,6 +767,8 @@ export const ru = {
     "import.externalBtn": "Выбрать файл экспорта",
     "import.externalNone": "В файле не найдено диалогов: жду conversations.json (ChatGPT) или JSON из Gemini Takeout",
     "import.externalDone": "Импортировано диалогов: {n}",
+    "git.autocommitTitle": "Git-автокоммит перед правками",
+    "git.autocommitDesc": "Перед правками агента в репо проекта делается commit — состояние откатываемо через git. Нужны git и настроенные user.name/email; не репо — тихо пропускается",
     "branch.created": "Ветка создана — оригинал сохранён",
     "branch.badge": "Ветка этого диалога",
     "main.g1": "Интерфейс и запуск",

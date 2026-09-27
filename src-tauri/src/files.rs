@@ -272,6 +272,52 @@ pub async fn checkpoint_save(
         .map_err(|e| format!("join error: {e}"))?
 }
 
+/// Git-автокоммит перед правками прогона (Aider-паттерн): в git-репо
+/// `git add -A` + commit с заданным сообщением. Best-effort: не репо,
+/// нет git, нет user identity или нечего коммитить — тихо Ok(false),
+/// автокоммит не должен ронять прогон
+#[tauri::command(async)]
+pub async fn git_autocommit(root: String, message: String) -> Result<bool, String> {
+    tauri::async_runtime::spawn_blocking(move || git_autocommit_impl(root, message))
+        .await
+        .map_err(|e| format!("join error: {e}"))?
+}
+
+fn git_autocommit_impl(root: String, message: String) -> Result<bool, String> {
+    if !std::path::Path::new(&root).is_dir() {
+        return Ok(false);
+    }
+    let dur = std::time::Duration::from_secs(60);
+    // Мы вообще в репо?
+    let mut rev = std::process::Command::new("git");
+    rev.args(["rev-parse", "--is-inside-work-tree"])
+        .current_dir(&root);
+    let probe = crate::proc::run_command_opts(&mut rev, dur, None, None)?;
+    if probe.timed_out || probe.status != Some(0) || probe.stdout.trim() != "true" {
+        return Ok(false);
+    }
+    // Есть ли изменения — пустое porcelain-состояние не коммитим
+    let mut st = std::process::Command::new("git");
+    st.args(["status", "--porcelain"]).current_dir(&root);
+    let st_out = crate::proc::run_command_opts(&mut st, dur, None, None)?;
+    if st_out.timed_out || st_out.status != Some(0) || st_out.stdout.trim().is_empty() {
+        return Ok(false);
+    }
+    let mut add = std::process::Command::new("git");
+    add.args(["add", "-A"]).current_dir(&root);
+    let add_out = crate::proc::run_command_opts(&mut add, dur, None, None)?;
+    if add_out.status != Some(0) {
+        return Ok(false);
+    }
+    let mut commit = std::process::Command::new("git");
+    commit.args(["commit", "-m", &message]).current_dir(&root);
+    let commit_out =
+        crate::proc::run_command_opts(&mut commit, dur, None, None)?;
+    // Не-ноль (нет user identity и пр.) — не ошибка фичи: у пользователя
+    // остаётся файловый чекпоинт
+    Ok(commit_out.status == Some(0))
+}
+
 /// Обход дерева + base64 до 25 МБ — секунды работы, только вне tokio-воркера
 fn checkpoint_save_impl(
     app: tauri::AppHandle,

@@ -781,6 +781,8 @@ export const zh = {
     "import.externalBtn": "选择导出文件",
     "import.externalNone": "文件中未找到对话：需要 conversations.json（ChatGPT）或 Gemini Takeout 的 JSON",
     "import.externalDone": "已导入对话：{n}",
+    "git.autocommitTitle": "编辑前 Git 自动提交",
+    "git.autocommitDesc": "Agent 修改文件前在项目仓库中创建 commit——可通过 git 回滚。需要 git 和已配置的 user.name/email；非仓库则静默跳过",
     "branch.created": "已创建分支——原始对话保留",
     "branch.badge": "此对话的分支",
     "main.g1": "界面与启动",

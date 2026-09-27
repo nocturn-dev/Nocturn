@@ -781,6 +781,8 @@ export const ja = {
     "import.externalBtn": "エクスポートファイルを選択",
     "import.externalNone": "ファイルに会話が見つかりません:conversations.json(ChatGPT)か Gemini Takeout の JSON を指定してください",
     "import.externalDone": "インポートした会話:{n}",
+    "git.autocommitTitle": "編集前の Git 自動コミット",
+    "git.autocommitDesc": "エージェントがファイルを編集する前にプロジェクトのリポジトリで commit を作成——git でロールバック可能。git と設定済みの user.name/email が必要で、リポジトリ外では静かにスキップされます",
     "branch.created": "ブランチを作成しました——元の会話は保持されます",
     "branch.badge": "この会話のブランチ",
     "main.g1": "インターフェースと起動",
