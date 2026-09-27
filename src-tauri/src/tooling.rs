@@ -1,5 +1,5 @@
 //! Исполнение инструментов агента (run_tool), схемы инструментов,
-//! серверный слой прав (perm_set/perm_get), конфиги browser/computer/imagegen,
+//! серверный слой прав (perm_set), конфиги browser/computer/imagegen,
 //! звуки уведомлений, keep-awake, история сессий.
 
 use crate::crypto;
