@@ -4,6 +4,7 @@
 use crate::crypto;
 use serde::{Deserialize, Serialize};
 use std::fs;
+use std::sync::Mutex;
 use zeroize::Zeroizing;
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct ApiSettings {
@@ -351,6 +352,8 @@ pub(crate) fn rekey_all(
             }
         }
     }
+    // Переключение шифрования меняет содержимое settings.json
+    invalidate_settings_cache();
     Ok(())
 }
 
@@ -549,6 +552,8 @@ pub fn settings_write_all(
         )?;
         written += 1;
     }
+    // Импорт мог перезаписать settings.json — кэш под него не годится
+    invalidate_settings_cache();
     Ok(written)
 }
 /// Отсечение чувствительных системных локаций для команд, получающих
@@ -805,6 +810,7 @@ pub fn set_key_encryption(app: tauri::AppHandle, enable: bool) -> Result<(), Str
                 .map_err(|e| e.to_string())?
                 .as_bytes(),
         )?;
+        invalidate_settings_cache();
     }
 
     // profiles.json: ключи всех профилей
@@ -896,15 +902,60 @@ pub fn decrypt_stored_key(stored: &str) -> Result<String, String> {
     }
 }
 
+/// Кэш разобранного settings.json по (mtime, len). run_tool зовёт
+/// load_settings на каждый инструмент — без кэша это диск+парс на каждом
+/// шаге агента. В кэше лежит сырой Value КАК В ФАЙЛЕ (ключ остаётся
+/// enc:v1:…): расшифровка — по-прежнему на каждом вызове, чтобы
+/// расшифрованный ключ не жил в памяти дольше vault-политики.
+static SETTINGS_CACHE: Mutex<Option<(std::time::SystemTime, u64, serde_json::Value)>> =
+    Mutex::new(None);
+
+/// Сброс кэша настроек. mtime-проверка в load_settings — основной механизм,
+/// явная инвалидация в писателях — страховка от грубой гранулярности mtime
+/// на экзотических ФС.
+pub(crate) fn invalidate_settings_cache() {
+    if let Ok(mut guard) = SETTINGS_CACHE.lock() {
+        *guard = None;
+    }
+}
+
 #[tauri::command(async)]
 pub fn load_settings(app: tauri::AppHandle) -> Result<ApiSettings, String> {
     let path = config_file(&app, "settings.json")?;
-    if !path.exists() {
-        return Ok(ApiSettings::default());
-    }
-    let data = fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    // Кэш валиден, пока размер и mtime файла совпадают с записанными
+    let cached = {
+        let guard = SETTINGS_CACHE.lock().map_err(|e| e.to_string())?;
+        match guard.as_ref() {
+            Some((mtime, len, value)) => match fs::metadata(&path) {
+                Ok(md) if md.len() == *len && md.modified().ok().as_ref() == Some(mtime) => {
+                    Some(value.clone())
+                }
+                _ => None,
+            },
+            None => None,
+        }
+    };
+    let value = match cached {
+        Some(value) => value,
+        None => {
+            if !path.exists() {
+                return Ok(ApiSettings::default());
+            }
+            let data = fs::read_to_string(&path).map_err(|e| e.to_string())?;
+            let value: serde_json::Value =
+                serde_json::from_str(&data).map_err(|e| format!("settings file corrupted: {e}"))?;
+            // Заполняем кэш Best-effort: не снялись метаданные — просто
+            // не кэшируем, диск прочитается в следующий раз
+            if let (Ok(md), Ok(mtime)) = (fs::metadata(&path), fs::metadata(&path).and_then(|m| m.modified())) {
+                if let Ok(mut guard) = SETTINGS_CACHE.lock() {
+                    *guard = Some((mtime, md.len(), value.clone()));
+                }
+            }
+            value
+        }
+    };
     let mut s: ApiSettings =
-        serde_json::from_str(&data).map_err(|e| format!("settings file corrupted: {e}"))?;
+        serde_json::from_value(value).map_err(|e| format!("settings file corrupted: {e}"))?;
     // Прозрачно расшифровываем ключ, если он зашифрован
     if crypto::is_encrypted(&s.api_key) {
         s.api_key = decrypt_stored_key(&s.api_key)?;
@@ -923,7 +974,9 @@ pub fn save_settings(app: tauri::AppHandle, settings: ApiSettings) -> Result<(),
         s.api_key = crypto::encrypt(&s.api_key)?;
     }
     let json = serde_json::to_string_pretty(&s).map_err(|e| e.to_string())?;
-    crate::fsutil::atomic_write(&path, json.as_bytes())
+    crate::fsutil::atomic_write(&path, json.as_bytes())?;
+    invalidate_settings_cache();
+    Ok(())
 }
 pub(crate) fn save_json_config<T: serde::Serialize>(
     app: &tauri::AppHandle,
