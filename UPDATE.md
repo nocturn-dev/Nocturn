@@ -23,6 +23,13 @@
 
 ---
 
+## 2026-09-27 · [new-feature · update-backend] Диктовка (Whisper) — push-to-talk в композере
+- Архитектура: микрофон — вебвью (getUserMedia → PCM 16 кГц моно, ScriptProcessor через нулевой gain), транскрипция — внешний whisper-cli через proc::run_command_opts (процессная изоляция, C++ не входит в сборку, CI-матрица не требует новых нативных зависимостей). Рантайм модели живёт в памяти только на время транскрипции.
+- Бек `dictation.rs`: status/set_config/download_model/transcribe; модель ggml-base-q5_1 (~57 МБ, мультиязычная) качается с HF стримом в appdata/whisper (прогресс — событие, temp+rename); wav собирается руками (RIFF-заголовок, без зависимостей) в temp и удаляется сразу после запуска CLI; CLI — из PATH (where/which) или путь в dictation.json; dictation.json добавлен в EXPORT_FILES.
+- Фронт: кнопка микрофона в композере (запись/стоп/бизи-пульс), текст вставляется в черновик; «Основное» → строка «Диктовка» с кнопками скачивания модели и указания CLI; локали ×4.
+- Настройка для пользователя: поставить whisper.cpp (whisper-cli в PATH) → скачать модель кнопкой → говорить. macOS-сборке потребуется NSMicrophoneUsageDescription (на этапе релиза).
+- Коммит с dictation.rs (см. git log).
+
 ## 2026-09-27 · [new-feature] Code Interpreter + Artifacts (фидбек конкурентного среза 27.09)
 - **Artifacts**: ```html-блоки ответа получили hover-кнопку ▶ «Предпросмотр» → панель справа с живым рендером в sandbox-iframe (без allow-same-origin: скрипты работают, IPC/storage/сеть наружу изолированы). Компоненты markdown собираются per-card, колбэк — стабилен.
 - **code_run**: агентный инструмент — Python 3 в Pyodide (WASM) внутри Worker без доступа к Tauri-IPC и диску. Stdlib, stdout/stderr/last-expression → модели; watchdog 60 с (terminate+restart), вывод ≤64 КБ. Схема инжектится в общий список ДО disabled-фильтра; мимо perm-слоя сознательно — не мутирующий, ФС/процессы недоступны by design.
