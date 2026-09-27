@@ -124,7 +124,8 @@ export default function SearchModal({
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter") submit();
+              // isComposing: энтер подтверждения IME не должен искать
+              if (e.key === "Enter" && !e.nativeEvent.isComposing) submit();
             }}
             placeholder={t("search.placeholder")}
             className="flex-1 bg-transparent text-sm text-halo-text outline-none placeholder:text-halo-muted"

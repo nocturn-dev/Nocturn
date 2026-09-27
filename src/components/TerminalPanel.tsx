@@ -610,7 +610,8 @@ export default function TerminalPanel({
       return null;
     }
     switch (e.key) {
-      case "Enter": return "\r";
+      // isComposing: энтер подтверждения IME не должен уходить в PTY как \r
+      case "Enter": return e.nativeEvent.isComposing ? null : "\r";
       case "Backspace": return "\x7f";
       case "Tab": return e.shiftKey ? "\x1b[Z" : "\t";
       case "Escape": return "\x1b";

@@ -93,7 +93,8 @@ function UserCardBase({
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
+              // isComposing: энтер подтверждения IME не должен отправлять
+              if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
                 e.preventDefault();
                 const text = draft.trim();
                 if (!text) return;

@@ -97,7 +97,7 @@ export function QuickEntry() {
 
   const hide = () => {
     // onBlur после hide() — повторный вызов безвреден
-    void getCurrentWindow().hide();
+    getCurrentWindow().hide().catch(() => {});
   };
 
   const submit = () => {
@@ -126,7 +126,8 @@ export function QuickEntry() {
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter") submit();
+              // isComposing: энтер подтверждения IME не должен отправлять
+              if (e.key === "Enter" && !e.nativeEvent.isComposing) submit();
               else if (e.key === "Escape") hide();
             }}
             onBlur={hide}
