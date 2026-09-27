@@ -81,4 +81,47 @@ describe("Vt", () => {
     expect(vt.row).toBe(4);
     expect(rowText(vt, 4)).toContain("ail");
   });
+
+  it("BMP CJK characters take two columns (East Asian Wide)", () => {
+    // Регресс: wide считались только астральные символы, иероглифы/кана
+    // (BMP) клались в одну колонку — сетка разъезжалась на выводе с CJK
+    const vt = new Vt(20, 5);
+    vt.feed("日本語");
+    // 3 wide-символа = 6 колонок; следующая позиция курсора — 7-я колонка
+    expect(vt.col).toBe(6);
+    const row = vt.rows[0]!;
+    expect(row[0]!.ch).toBe("日");
+    // Занятая спейсом вторая половина wide-ячейки
+    expect(row[1]!.ch).toBe("");
+    expect(row[2]!.ch).toBe("本");
+    expect(row[4]!.ch).toBe("語");
+  });
+
+  it("alternative screen (?1049) swaps buffers and restores on exit", () => {
+    const vt = new Vt(40, 5);
+    vt.feed("main screen");
+    vt.feed("\x1b[?1049h");
+    // В альте экран чист, TUI рисуется с нуля
+    expect(rowText(vt, 0)).toBe("");
+    vt.feed("\x1b[2;1Htui output");
+    expect(rowText(vt, 1)).toBe("tui output");
+    vt.feed("\x1b[?1049l");
+    // Основной экран и курсор восстановлены
+    expect(rowText(vt, 0)).toBe("main screen");
+    expect(rowText(vt, 1)).toBe("");
+    expect(vt.col).toBe("main screen".length);
+  });
+
+  it("alt screen also honors legacy ?47/?1047 and nested h is idempotent", () => {
+    const vt = new Vt(40, 5);
+    vt.feed("base");
+    vt.feed("\x1b[?47h");
+    expect(rowText(vt, 0)).toBe("");
+    // Повторный вход в альт не затирает сохранённый основной экран
+    vt.feed("\x1b[?1049h");
+    vt.feed("junk");
+    vt.feed("\x1b[?1049l");
+    vt.feed("\x1b[?47l");
+    expect(rowText(vt, 0)).toBe("base");
+  });
 });

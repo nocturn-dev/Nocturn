@@ -886,6 +886,16 @@ export default function App() {
   });
   const stableHandleStop = useCallback(() => handleStopRef.current(), []);
 
+  // Стабильная правка сообщения: инлайн-стрелка в JSX пересоздавалась
+  // каждый рендер и сидела в deps useMemo feedNodes (ChatArea) — лента
+  // перестраивалась на каждый тик стрима. deps: сессия/движок
+  const handleEditMessage = useCallback(
+    (msgId: string, text: string) => {
+      void stableHandleSend(text, undefined, activeId ?? undefined, undefined, msgId);
+    },
+    [stableHandleSend, activeId],
+  );
+
   // Quick Entry: Enter во втором окне → новая задача с текстом. Движок
   // однопоточный: при живом прогоне показываем тост, иначе handleSend
   // молча отбросил бы текст (guard внутри)
@@ -1077,8 +1087,26 @@ export default function App() {
       .then((stored) => {
         const rec = stored as Record<string, unknown>;
         if (rec && Array.isArray(rec.custom)) {
-          setBinds({ ...SHORTCUT_DEFAULTS, ...(rec.binds as ShortcutBinds) });
-          setCustomShortcuts(rec.custom as CustomShortcut[]);
+          // Элементам с диска не верим на слово (конвенция «диск не доверяем»):
+          // бинды — только строки известных действий, кастомные — валидная форма
+          const rawBinds = (rec.binds ?? {}) as Record<string, unknown>;
+          const cleanBinds = Object.fromEntries(
+            SHORTCUT_ACTIONS.map((a) => [
+              a,
+              typeof rawBinds[a] === "string" ? (rawBinds[a] as string) : SHORTCUT_DEFAULTS[a],
+            ]),
+          ) as ShortcutBinds;
+          setBinds(cleanBinds);
+          setCustomShortcuts(
+            (rec.custom as unknown[]).filter(
+              (c): c is CustomShortcut =>
+                !!c &&
+                typeof c === "object" &&
+                typeof (c as CustomShortcut).id === "string" &&
+                typeof (c as CustomShortcut).combo === "string" &&
+                typeof (c as CustomShortcut).command === "string",
+            ),
+          );
         } else {
           setBinds({ ...SHORTCUT_DEFAULTS, ...(stored as ShortcutBinds) });
         }
@@ -1862,8 +1890,10 @@ export default function App() {
             />
           </div>
         )}
-        {/* Ambient-слой: сцены/видео позади контента, z и паузы — в CSS */}
-        {appearance.ambient && appearance.ambientScene !== "glow" && (
+        {/* Ambient-слой: сцены/видео позади контента, z и паузы — в CSS.
+            В светлой теме слой скрыт CSS-ом (display:none) — не монтируем
+            совсем: rAF-цикл и видео продолжали бы работать в невидимом слое */}
+        {appearance.ambient && theme !== "light" && appearance.ambientScene !== "glow" && (
           <AmbientLayer
             scene={appearance.ambientScene}
             videoPath={appearance.ambientVideo}
@@ -1947,9 +1977,7 @@ export default function App() {
         plan={activeSession?.plan}
         userCommands={mergedUserCommands}
         extraSkills={pluginSkills}
-        onEditMessage={(msgId, text) =>
-          void handleSend(text, undefined, activeId ?? undefined, undefined, msgId)
-        }
+        onEditMessage={handleEditMessage}
         model={apiSettings.model}
         streamingMsgId={streamingAssistantId}
         visionCapable={
@@ -2085,7 +2113,8 @@ export default function App() {
         />
       )}
       <ErrorBoundary title={t("err.boundary")} action={t("err.boundaryRetry")}>
-      {settingsOpen && (
+      {/* Без условного монтажа: компоненты сами гасятся через
+          useDelayedUnmount — иначе exit-анимация недостижима */}
       <SettingsModal
         open={settingsOpen}
         usageLog={usageLog}
@@ -2201,20 +2230,16 @@ export default function App() {
         onUseLocalModel={handleUseLocalModel}
         onClose={() => closeSettings()}
       />
-      )}
       </ErrorBoundary>
-      {automationsOpen && (
-        <AutomationsModal
-          open={automationsOpen}
-          onClose={() => setAutomationsOpen(false)}
-        />
-      )}
-      {browserPanelOpen && (
-        <BrowserPanel
-          open={browserPanelOpen}
-          onClose={() => setBrowserPanelOpen(false)}
-        />
-      )}
+      {/* Без условного монтажа — см. комментарий у SettingsModal */}
+      <AutomationsModal
+        open={automationsOpen}
+        onClose={() => setAutomationsOpen(false)}
+      />
+      <BrowserPanel
+        open={browserPanelOpen}
+        onClose={() => setBrowserPanelOpen(false)}
+      />
       <DiffPanel
         open={diffReview.open}
         files={diffReview.files}
@@ -2232,11 +2257,13 @@ export default function App() {
         onCopied={() => addToast(t("plan.copied"))}
         onClose={() => setPlanPanelOpen(false)}
       />
-      {/* Hard-Mode: полноэкранный живой терминал поверх «спящего» UI */}
+      {/* Hard-Mode: полноэкранный живой терминал поверх «спящего» UI.
+          Значения из state, а не ref.current в JSX: реф обновляется в
+          эффекте ПОСЛЕ коммита, и смена корня/бинда доезжала бы устаревшей */}
       {hardMode && hardSkin && (
         <HardTerminal
-          cwd={projectRootRef.current ?? undefined}
-          combo={bindsRef.current.hard_mode ?? "Ctrl+Shift+H"}
+          cwd={projectRoot ?? undefined}
+          combo={binds.hard_mode ?? "Ctrl+Shift+H"}
         />
       )}
       <Toasts items={toasts} />

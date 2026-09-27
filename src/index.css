@@ -8,8 +8,7 @@
 
 /* ---------- Перетаскивание панелей: без анимации размеров ----------
     Иначе width-переход 200 мс заставляет панель «плыть» за курсором */
-body[data-resizing] aside,
-body[data-resizing] .resize-panel {
+body[data-resizing] aside {
   transition: none !important;
 }
 
@@ -231,12 +230,14 @@ html.accent-gradient .bg-halo-accent:hover {
 }
 ::view-transition-old(settings-panel),
 ::view-transition-new(settings-panel) {
-  animation-duration: 240ms;
+  /* Токены, а не литералы: пресет скорости анимаций обязан действовать
+     и на морф модалки (см. комментарий к body-переходу выше) */
+  animation-duration: var(--motion-base);
   animation-timing-function: cubic-bezier(0.2, 0.8, 0.3, 1);
 }
 ::view-transition-old(root),
 ::view-transition-new(root) {
-  animation-duration: 150ms;
+  animation-duration: var(--motion-fast);
 }
 
 /* Превью змейки на карточке «Отдыха»: сегменты ползут при наведении */
@@ -594,7 +595,7 @@ html.motion-reduced body::before {
   }
 }
 .nav-tick-in {
-  animation: halo-nav-in 0.35s cubic-bezier(0.2, 0.8, 0.3, 1) both;
+  animation: halo-nav-in var(--motion-slow) cubic-bezier(0.2, 0.8, 0.3, 1) both;
 }
 
 /* Таймлайн сообщений: прокрутка без видимого скроллбара */
@@ -714,9 +715,33 @@ html.ambient-paused .glass-pane {
   }
   html.sidebar-glass aside {
     background-color: var(--halo-surface);
+    /* сплошная граница вместо color-mix в box-shadow */
+    box-shadow: inset -1px 0 0 var(--halo-line, #3d3c38);
   }
   ::selection {
     background: var(--halo-accent);
+  }
+  /* «Сцена за интерфейсом» и обои: без фолбэка панели оставались
+     непрозрачными и режим молча не работал вовсе */
+  html[data-ambient-render="behind"].ambient:not(.glass) .bg-halo-bg {
+    background: var(--halo-bg);
+  }
+  html[data-ambient-render="behind"].ambient:not(.glass) aside.bg-halo-deep {
+    background: var(--halo-deep);
+  }
+  html.has-wallpaper .bg-halo-bg {
+    background: var(--halo-bg);
+  }
+  html.has-wallpaper aside.bg-halo-deep {
+    background: var(--halo-deep);
+  }
+  /* «Стекло в ответах ИИ»: плотная карточка вместо пропавшего фона */
+  html:not(.glass) .msg-glass {
+    background: var(--halo-deep);
+  }
+  /* Зебра markdown-таблиц: сплошная подложка */
+  .markdown tr:nth-child(2n) td {
+    background: var(--halo-surface);
   }
 }
 

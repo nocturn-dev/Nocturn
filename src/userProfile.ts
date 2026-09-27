@@ -61,16 +61,24 @@ export const DEFAULT_PROFILE: UserProfile = {
 
 const KEY = "haloui-user-profile";
 
-/** Кэш аватара: UserCard читает его на каждый рендер сообщения —
+/** Кэш АВЕТАРА: UserCard читает его на каждый рендер сообщения —
  *  localStorage дёргать на этом нельзя */
 let avatarCache: string | null | undefined;
+/** Кэш всего профиля: ChatArea читает имя на каждый рендер ленты (~60 раз/с
+ *  во время стрима), а в localStorage лежит data-URL аватара — полный
+ *  JSON.parse на каждый рендер грел главный поток. Инвалидируется только
+ *  saveProfile (единственный писатель); смена профиля в другом окне
+ *  подхватится при следующем saveProfile этого окна */
+let profileCache: UserProfile | null = null;
 
 export function loadProfile(): UserProfile {
+  if (profileCache) return profileCache;
   try {
     const raw = localStorage.getItem(KEY);
     if (!raw) return { ...DEFAULT_PROFILE };
     const p = { ...DEFAULT_PROFILE, ...(JSON.parse(raw) as Partial<UserProfile>) };
-    if (avatarCache === undefined) avatarCache = p.avatar || "";
+    avatarCache = p.avatar || "";
+    profileCache = p;
     return p;
   } catch {
     return { ...DEFAULT_PROFILE };
@@ -80,10 +88,11 @@ export function loadProfile(): UserProfile {
 export function saveProfile(p: UserProfile): void {
   try {
     localStorage.setItem(KEY, JSON.stringify(p));
-    avatarCache = p.avatar || "";
   } catch {
     // квота localStorage — аватар мог не влезть; поля профиля важнее
   }
+  avatarCache = p.avatar || "";
+  profileCache = { ...p };
 }
 
 /** Аватар для ленты (кэш, без чтения localStorage на каждый рендер) */

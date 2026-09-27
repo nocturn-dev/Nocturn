@@ -63,6 +63,35 @@ export const TERMINAL_PALETTES: Record<string, string[]> = {
   ],
 };
 
+/**
+ * Ширина символа в колонках терминала. Wide — не только астральные символы:
+ * CJK-иероглифы, кана, хангыль и полноширинные формы живут в BMP и занимают
+ * 2 колонки — раньше сетка разъезжалась на любом выводе с CJK (git/ls с
+ * иероглифами, локализованные CLI). Упрощённая таблица East Asian
+ * Wide/Fullwidth без висящих комбинаций.
+ */
+function charWidth(cp: number): number {
+  if (cp > 0xffff) return 2; // астральные (эмодзи и пр.)
+  if (
+    (cp >= 0x1100 && cp <= 0x115f) || // Hangul Jamo
+    (cp >= 0x2e80 && cp <= 0x303e) || // CJK Radicals … CJK Symbols
+    (cp >= 0x3041 && cp <= 0x33ff) || // Hiragana … CJK Compatibility
+    (cp >= 0x3400 && cp <= 0x4dbf) || // CJK Extension A
+    (cp >= 0x4e00 && cp <= 0x9fff) || // CJK Unified Ideographs
+    (cp >= 0xa000 && cp <= 0xa4cf) || // Yi
+    (cp >= 0xa960 && cp <= 0xa97f) || // Hangul Jamo Ext-A
+    (cp >= 0xac00 && cp <= 0xd7a3) || // Hangul Syllables
+    (cp >= 0xf900 && cp <= 0xfaff) || // CJK Compatibility Ideographs
+    (cp >= 0xfe10 && cp <= 0xfe19) || // Vertical Forms
+    (cp >= 0xfe30 && cp <= 0xfe6f) || // CJK Compatibility Forms
+    (cp >= 0xff00 && cp <= 0xff60) || // Fullwidth Forms
+    (cp >= 0xffe0 && cp <= 0xffe6) // Fullwidth signs
+  ) {
+    return 2;
+  }
+  return 1;
+}
+
 export class Vt {
   readonly cols: number;
   readonly rowsCount: number;
@@ -73,6 +102,8 @@ export class Vt {
   exited = false;
   private style: Style = { ...DEFAULT_STYLE };
   private response = "";
+  /** Сохранённый основной экран на время альтернативного (?1049/?1047/?47) */
+  private altSaved: { rows: Cell[][]; row: number; col: number } | null = null;
 
   /** 16 базовых ANSI-цветов (кастомизация); дефолт — фирменная палитра */
   private colors: string[];
@@ -154,9 +185,9 @@ export class Vt {
       // Печатаемый символ (с учётом суррогатных пар)
       const cp = data.codePointAt(i) ?? 32;
       const text = String.fromCodePoint(cp);
-      const width = cp > 0xffff ? 2 : 1;
-      this.putChar(text, width);
-      i += width;
+      this.putChar(text, charWidth(cp));
+      // Индекс — в UTF-16-единицах: суррогатная пара занимает 2 позиции
+      i += cp > 0xffff ? 2 : 1;
     }
   }
 
@@ -243,9 +274,17 @@ export class Vt {
     };
 
     if (private_) {
-      // Режимы ?25 (курсор), ?1049/?1047/?47 (альт. экран) — игнорируем
       if (final === "h" && n(0, 0) === 25) this.cursorVisible = true;
       if (final === "l" && n(0, 0) === 25) this.cursorVisible = false;
+      // Альтернативный экран (?1049/?1047/?47): TUI (vim/less/htop на Unix)
+      // рисуют в нём — без свапа их остатки перемешивались с основным
+      // экраном и не восстанавливались после выхода
+      const mode = n(0, 0);
+      if (final === "h" && (mode === 1049 || mode === 1047 || mode === 47)) {
+        this.enterAltScreen();
+      } else if (final === "l" && (mode === 1049 || mode === 1047 || mode === 47)) {
+        this.exitAltScreen();
+      }
       return;
     }
 
@@ -339,8 +378,27 @@ export class Vt {
     }
   }
 
-  private insertLines(n: number) {
-    // Кламп к размеру экрана: splice+pop в цикле с n от malformed-входа
+  /** Вход в альтернативный экран: основной буфер и курсор сохраняются,
+   *  экран очищается (упрощение ?1049: позиция курсора тоже в свапе) */
+  private enterAltScreen() {
+    if (this.altSaved) return; // уже в альте — повторный h игнорируем
+    this.altSaved = { rows: this.rows, row: this.row, col: this.col };
+    this.rows = Array.from({ length: this.rowsCount }, () => this.blankRow());
+    this.row = 0;
+    this.col = 0;
+  }
+
+  /** Выход из альтернативного экрана: восстановить основной буфер */
+  private exitAltScreen() {
+    const saved = this.altSaved;
+    if (!saved) return;
+    this.altSaved = null;
+    this.rows = saved.rows;
+    this.row = saved.row;
+    this.col = saved.col;
+  }
+
+  private insertLines(n: number) {    // Кламп к размеру экрана: splice+pop в цикле с n от malformed-входа
     // (`\x1b[999999999L`) вешал UI-поток навсегда — реальных вставок
     // больше, чем строк на экране, не бывает
     const count = Math.min(n, this.rowsCount);

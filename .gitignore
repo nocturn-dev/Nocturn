@@ -25,3 +25,6 @@ jobs_tmp.json
 
 # Pyodide runtime (копируется из node_modules скриптом copy-pyodide)
 public/pyodide/
+
+# Отладочные артефакты аудита (не для репозитория)
+.audit-tmp/

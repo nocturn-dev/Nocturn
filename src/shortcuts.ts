@@ -6,6 +6,8 @@
  * действие без бинда. Матчинг — по e.code и флагам модификаторов.
  */
 
+import { getPlatform } from "./platform";
+
 export const SHORTCUT_ACTIONS = [
   "new_task",
   "search",
@@ -132,7 +134,12 @@ export function comboFromEvent(e: KeyboardEvent): string | null {
   else if (e.code.startsWith("F") && /^F\d+$/.test(e.code)) key = e.code;
   if (!key) return null;
   const parts: string[] = [];
-  if (e.ctrlKey || e.metaKey) parts.push("Ctrl");
+  // На macOS Cmd-бинд хранится как "Cmd" (parseCombo читает и его): запись
+  // "Ctrl" при зажатом Cmd показывала «Ctrl+N» в биндах, которые пользователь
+  // записывал через Cmd
+  if (e.ctrlKey || e.metaKey) {
+    parts.push(getPlatform() === "macos" && e.metaKey ? "Cmd" : "Ctrl");
+  }
   if (e.shiftKey) parts.push("Shift");
   if (e.altKey) parts.push("Alt");
   parts.push(key);
@@ -158,7 +165,12 @@ export function quickentryComboFromEvent(e: KeyboardEvent): string | null {
   else if (e.code === "Space") key = "space";
   if (!key) return null;
   const parts: string[] = [];
-  if (e.ctrlKey || e.metaKey) parts.push("ctrl");
+  if (e.ctrlKey || e.metaKey) {
+    // На macOS meta = Cmd и парсер плагина регистрирует его как "super":
+    // записанное "ctrl" глобально регистрировало Control, и нажатый
+    // Cmd+Alt+Space молча не срабатывал
+    parts.push(getPlatform() === "macos" && e.metaKey ? "super" : "ctrl");
+  }
   if (e.shiftKey) parts.push("shift");
   if (e.altKey) parts.push("alt");
   if (parts.length === 0) return null;
@@ -168,9 +180,23 @@ export function quickentryComboFromEvent(e: KeyboardEvent): string | null {
 
 /** "ctrl+alt+space" → "Ctrl+Alt+Space" (первая буква каждого токена) */
 export function prettyQuickentryCombo(combo: string): string {
+  const isMac = getPlatform() === "macos";
   return combo
     .split("+")
-    .map((tok) => tok.charAt(0).toUpperCase() + tok.slice(1))
+    .map((tok) => {
+      // "super" — формат плагина; человеку на macOS это Cmd
+      if (isMac && tok.toLowerCase() === "super") return "Cmd";
+      return tok.charAt(0).toUpperCase() + tok.slice(1);
+    })
+    .join("+");
+}
+
+/** "Ctrl+N" → "Cmd+N" на macOS — только для отображения, хранение не меняем */
+export function prettyCombo(combo: string): string {
+  if (getPlatform() !== "macos") return combo;
+  return combo
+    .split("+")
+    .map((tok) => (tok.toLowerCase() === "ctrl" ? "Cmd" : tok))
     .join("+");
 }
 

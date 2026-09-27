@@ -17,9 +17,10 @@ export default defineConfig({
   },
   envPrefix: ["VITE_", "TAURI_ENV_"],
   build: {
-    // safari16 — пол для WKWebView (macOS): esbuild не полифиллит, но
-    // трансляция синтаксиса не будет опираться на более новый движок
-    target: ["chrome120", "safari16"],
+    // safari15 — пол для WKWebView (macOS) с запасом на WebKitGTK: esbuild
+    // не полифиллит, но трансляция синтаксиса не будет опираться на более
+    // новый движок, чем WebKitGTK 2.36-2.38 (Debian 11/старые LTS)
+    target: ["chrome120", "safari15"],
     minify: "esbuild",
     sourcemap: false,
   },

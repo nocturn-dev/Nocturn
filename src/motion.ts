@@ -24,15 +24,6 @@ export function useDelayedUnmount(open: boolean, ms: number): boolean {
   return mounted;
 }
 
-/** Длительность exit-анимации элемента (для useDelayedUnmount):
- *  читаем фактическую duration с учётом --motion-scale */
-export function exitDuration(el: HTMLElement | null, fallback = 160): number {
-  if (!el) return fallback;
-  const d = getComputedStyle(el).animationDuration;
-  const ms = parseFloat(d);
-  return Number.isFinite(ms) && ms > 0 ? ms : fallback;
-}
-
 /** Обёртка обновления состояния в View Transition (кроссфейд на композиторе).
  *  Фолбэки: нет VT-поддержки или reduceMotion — обычный апдейт */
 export function withViewTransition(update: () => void): void {

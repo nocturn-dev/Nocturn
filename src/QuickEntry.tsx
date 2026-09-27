@@ -3,6 +3,7 @@ import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
 import { useLang } from "./locales";
 import { loadSettings, quickentrySubmit } from "./api";
 import { applyAppearance, loadAppearance } from "./appearance";
+import { getPlatform } from "./platform";
 import { ArrowUpIcon, PaperclipIcon } from "./components/cards/icons";
 import ProviderIcon, { shortModelName } from "./components/ProviderIcon";
 
@@ -45,8 +46,13 @@ export function QuickEntry() {
 
   useEffect(() => {
     applyTheme();
-    // Прозрачное окно: фон body из index.css окрасил бы весь прямоугольник
-    document.body.style.background = "transparent";
+    // Прозрачное окно: фон body из index.css окрасил бы весь прямоугольник.
+    // На Linux frameless-окно без композитора (X11) вместо прозрачности даёт
+    // чёрный прямоугольник — там body красим цветом темы: окно выглядит
+    // обычной панелью, а не битым экраном (на Wayland/с композитором
+    // прозрачность работает как раньше)
+    document.body.style.background =
+      getPlatform() === "linux" ? "var(--halo-bg, #1f1e1d)" : "transparent";
     ref.current?.focus();
 
     const win = getCurrentWindow();

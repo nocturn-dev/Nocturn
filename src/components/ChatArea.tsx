@@ -522,6 +522,19 @@ export default function ChatArea({
       setDictBusy(false);
     }
   };
+
+  // Ресурсы записи — незамкнутые при unmount: HMR/StrictMode-ремаунт или
+  // краш ErrorBoundary-поддерева оставляли бы вебвью с живым микрофоном
+  useEffect(() => {
+    return () => {
+      const rec = recRef.current;
+      if (!rec) return;
+      recRef.current = null;
+      rec.node.disconnect();
+      rec.stream.getTracks().forEach((tr) => tr.stop());
+      void rec.ctx.close();
+    };
+  }, []);
   const [skillIndex, setSkillIndex] = useState(0);
   const allSkills = useMemo<Skill[]>(
     () => [...BUILTIN_SKILLS, ...(extraSkills ?? [])],

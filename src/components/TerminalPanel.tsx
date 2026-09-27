@@ -49,6 +49,23 @@ const MAX_PANEL_LINES = 2000;
 const PTY_COLS = 120;
 const PTY_ROWS = 33;
 
+/** Общий оффскрин-canvas для измерения моно-метрики (создаётся лениво) */
+let charMeasureCanvas: HTMLCanvasElement | null = null;
+
+/** Фактическая ширина моно-глифа в px по стилю элемента. null — измерить
+ *  нечем (вызывающий берёт эвристический фолбэк 0.6em) */
+function measureCharWidth(style: CSSStyleDeclaration): number | null {
+  try {
+    charMeasureCanvas ??= document.createElement("canvas");
+    const ctx = charMeasureCanvas.getContext("2d");
+    if (!ctx) return null;
+    ctx.font = `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+    return ctx.measureText("0".repeat(50)).width / 50 || null;
+  } catch {
+    return null;
+  }
+}
+
 /** ANSI SGR-коды в палитре HaloUI (акцент #D97757) */
 const C = {
   reset: "\x1b[0m",
@@ -566,11 +583,12 @@ export default function TerminalPanel({
     const el = consoleRef.current;
     if (!el || typeof ResizeObserver === "undefined") return;
     const ro = new ResizeObserver(() => {
-      const fontSize = parseFloat(
-        window.getComputedStyle(el).fontSize || "11.5",
-      );
-      // Моноширинная метрика: ширина глифа ≈ 0.6em, межстрочный 1.5em
-      const charW = fontSize * 0.6;
+      const style = window.getComputedStyle(el);
+      const fontSize = parseFloat(style.fontSize || "11.5");
+      // Ширина глифа — фактическая (canvas measureText): константа 0.6em
+      // была неточной (Consolas ≈ 0.55em, DejaVu Sans Mono ≈ 0.602em),
+      // число колонок PTY расходилось с краем панели. lineH остаётся 1.5em
+      const charW = measureCharWidth(style) ?? fontSize * 0.6;
       const lineH = fontSize * 1.5;
       const cols = Math.max(
         20,
@@ -631,9 +649,9 @@ export default function TerminalPanel({
   };
 
   const handleConsoleKey = (e: React.KeyboardEvent) => {
-    // Перезапуск шелла после выхода — Enter
+    // Перезапуск шелла после выхода — Enter (isComposing: не по IME-энтеру)
     if (exitedRef.current) {
-      if (e.key === "Enter") {
+      if (e.key === "Enter" && !e.nativeEvent.isComposing) {
         e.preventDefault();
         exitedRef.current = false;
         vtRef.current = new Vt(PTY_COLS, PTY_ROWS, termPalette);
