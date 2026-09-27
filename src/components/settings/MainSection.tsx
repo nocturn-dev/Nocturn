@@ -98,6 +98,27 @@ function StorageRow({
   );
 }
 
+/** Подгруппа настроек: заголовок + описание (структура «Основного») */
+function Group({
+  title,
+  desc,
+  children,
+}: {
+  title: string;
+  desc: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="mt-5">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-halo-muted/60">
+        {title}
+      </p>
+      <p className="mb-1 mt-0.5 text-xs leading-relaxed text-halo-muted">{desc}</p>
+      {children}
+    </div>
+  );
+}
+
 export function MainSection({
   sidebarSide,
   onSidebarSideChange,
@@ -292,7 +313,8 @@ export function MainSection({
 
   return (
     <div className="space-y-1">
-      <h3 className="mb-3 text-sm font-semibold text-halo-text">{t("settings.main")}</h3>
+      <h3 className="mb-1 text-sm font-semibold text-halo-text">{t("settings.main")}</h3>
+      <Group title={t("main.g1")} desc={t("main.g1Desc")}>
       <Row label={t("main.version")} value={versionValue} />
       <ToggleRow
         label={t("main.autostart")}
@@ -301,27 +323,28 @@ export function MainSection({
         onChange={() => void toggleAutostart()}
       />
       <Row
-        label={t("main.quickEntry")}
-        desc={t("main.quickEntryDesc")}
-        value=""
-        extra={
-          <button
-            onClick={() => setQeRecording(true)}
-            className={`min-w-36 rounded-lg border px-3 py-2 text-xs outline-none transition-colors ${
-              qeRecording
-                ? "border-halo-accent/60 bg-halo-accent/10 text-halo-accent"
-                : "border-halo-line bg-halo-surface text-halo-text hover:border-halo-muted/50"
-            }`}
-          >
-            {qeRecording ? t("main.quickEntryRecording") : prettyQuickentryCombo(qeBind)}
-          </button>
-        }
-      />
-      <Row
         label={t("main.language")}
         desc={t("main.languageDesc")}
         value=""
         extra={<LangSwitch />}
+      />
+      <ToggleRow
+        label={t("main.autostart")}
+        desc={t("main.autostartDesc")}
+        on={autostartOn}
+        onChange={() => void toggleAutostart()}
+      />
+      <ToggleRow
+        label={t("main.closeToTray")}
+        desc={t("main.closeToTrayDesc")}
+        on={closeToTray}
+        onChange={onCloseToTrayChange}
+      />
+      <ToggleRow
+        label={t("main.settingsLarge")}
+        desc={t("main.settingsLargeDesc")}
+        on={settingsLarge}
+        onChange={onSettingsLargeChange}
       />
       <ToggleRow
         label={t("main.sidebarSide")}
@@ -335,11 +358,55 @@ export function MainSection({
         on={hideStarter}
         onChange={onHideStarterChange}
       />
+      </Group>
+      <Group title={t("main.g2")} desc={t("main.g2Desc")}>
+      {/* Вид ленты по умолчанию: normal — только ответы, thinking —
+          раскрывать размышления, verbose — плюс сообщения пользователя */}
+      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-halo-line bg-halo-surface/40 px-3 py-2.5">
+        <span className="text-xs text-halo-muted">{t("main.view")}:</span>
+        {(
+          [
+            ["normal", "main.viewNormal"],
+            ["thinking", "main.viewThinking"],
+            ["verbose", "main.viewVerbose"],
+          ] as const
+        ).map(([v, key]) => (
+          <button
+            key={v}
+            onClick={() => changeTranscriptView(v)}
+            className={`rounded-md border px-2.5 py-1 text-xs transition-colors ${
+              transcriptView === v
+                ? "border-halo-accent/60 bg-halo-accent/10 text-halo-accent"
+                : "border-halo-line text-halo-muted hover:text-halo-text"
+            }`}
+          >
+            {t(key)}
+          </button>
+        ))}
+      </div>
+      <ToggleRow
+        label={t("main.showReasoning")}
+        desc={t("main.showReasoningDesc")}
+        on={showReasoning}
+        onChange={onShowReasoningChange}
+      />
+      <ToggleRow
+        label={t("main.showUserMsgs")}
+        desc={t("main.showUserMsgsDesc")}
+        on={showUserMsgs}
+        onChange={onShowUserMsgsChange}
+      />
       <ToggleRow
         label={t("main.scrollFollow")}
         desc={t("main.scrollFollowDesc")}
         on={scrollFollow}
         onChange={onScrollFollowChange}
+      />
+      <ToggleRow
+        label={t("main.groupTurns")}
+        desc={t("main.groupTurnsDesc")}
+        on={groupTurns}
+        onChange={onGroupTurnsChange}
       />
       <ToggleRow
         label={t("main.streamSmooth")}
@@ -378,48 +445,92 @@ export function MainSection({
         on={streamCaret}
         onChange={onStreamCaretChange}
       />
-      <ToggleRow
-        label={t("main.showUserMsgs")}
-        desc={t("main.showUserMsgsDesc")}
-        on={showUserMsgs}
-        onChange={onShowUserMsgsChange}
-      />
-      <ToggleRow
-        label={t("main.groupTurns")}
-        desc={t("main.groupTurnsDesc")}
-        on={groupTurns}
-        onChange={onGroupTurnsChange}
-      />
-      <ToggleRow
-        label={t("main.showReasoning")}
-        desc={t("main.showReasoningDesc")}
-        on={showReasoning}
-        onChange={onShowReasoningChange}
-      />
-      {/* Вид ленты по умолчанию: normal — только ответы, thinking —
-          раскрывать размышления, verbose — плюс сообщения пользователя */}
-      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-halo-line bg-halo-surface/40 px-3 py-2.5">
-        <span className="text-xs text-halo-muted">{t("main.view")}:</span>
-        {(
-          [
-            ["normal", "main.viewNormal"],
-            ["thinking", "main.viewThinking"],
-            ["verbose", "main.viewVerbose"],
-          ] as const
-        ).map(([v, key]) => (
+      </Group>
+      <Group title={t("main.g3")} desc={t("main.g3Desc")}>
+      <Row
+        label={t("main.quickEntry")}
+        desc={t("main.quickEntryDesc")}
+        value=""
+        extra={
           <button
-            key={v}
-            onClick={() => changeTranscriptView(v)}
+            onClick={() => setQeRecording(true)}
+            className={`min-w-36 rounded-lg border px-3 py-2 text-xs outline-none transition-colors ${
+              qeRecording
+                ? "border-halo-accent/60 bg-halo-accent/10 text-halo-accent"
+                : "border-halo-line bg-halo-surface text-halo-text hover:border-halo-muted/50"
+            }`}
+          >
+            {qeRecording ? t("main.quickEntryRecording") : prettyQuickentryCombo(qeBind)}
+          </button>
+        }
+      />
+      {/* Уведомления, когда пользователь не в приложении */}
+      <ToggleRow
+        label={t("main.notifyDone")}
+        desc={t("main.notifyDoneDesc")}
+        on={notifyPrefs.enabled}
+        onChange={(v) => onNotifyPrefsChange({ ...notifyPrefs, enabled: v })}
+      />
+      {notifyPrefs.enabled && (
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-halo-line bg-halo-surface/40 px-3 py-2.5">
+          <span className="text-xs text-halo-muted">{t("main.notifySound")}:</span>
+          {NOTIFY_SOUNDS.map((snd) => (
+            <button
+              key={snd.id}
+              onClick={() => {
+                onNotifyPrefsChange({ ...notifyPrefs, sound: snd.id });
+                playSound(snd.id); // прослушка при выборе
+              }}
+              className={`rounded-md border px-2.5 py-1 text-xs transition-colors ${
+                notifyPrefs.sound === snd.id
+                  ? "border-halo-accent/60 bg-halo-accent/10 text-halo-accent"
+                  : "border-halo-line text-halo-muted hover:text-halo-text"
+              }`}
+            >
+              {t(snd.labelKey as never)}
+            </button>
+          ))}
+          {/* Своя мелодия: импорт файла, прослушка, удаление */}
+          <button
+            onClick={async () => {
+              try {
+                const src = await pickAudioFile();
+                if (!src) return;
+                const res = await soundImport(src); // "имя|расширение"
+                const [name] = res.split("|");
+                onNotifyPrefsChange({ ...notifyPrefs, sound: "custom", customName: name });
+                void refreshCustomSound().then(() => playSound("custom"));
+              } catch {
+                // отмена/ошибка выбора — просто ничего не меняем
+              }
+            }}
+            title={t("main.notifyCustomImport")}
             className={`rounded-md border px-2.5 py-1 text-xs transition-colors ${
-              transcriptView === v
+              notifyPrefs.sound === "custom"
                 ? "border-halo-accent/60 bg-halo-accent/10 text-halo-accent"
                 : "border-halo-line text-halo-muted hover:text-halo-text"
             }`}
           >
-            {t(key)}
+            + {notifyPrefs.customName || t("main.notifyCustomImport")}
           </button>
-        ))}
-      </div>
+          {notifyPrefs.customName && (
+            <button
+              onClick={async () => {
+                await soundDelete();
+                onNotifyPrefsChange({
+                  ...notifyPrefs,
+                  sound: "chime",
+                  customName: undefined,
+                });
+              }}
+              title={t("main.notifyCustomClear")}
+              className="rounded-md px-1.5 py-1 text-xs text-halo-muted transition-colors hover:text-red-400"
+            >
+              ✕
+            </button>
+          )}
+        </div>
+      )}
       <ToggleRow
         label={t("main.askAutoContinue")}
         desc={t("main.askAutoContinueDesc")}
@@ -427,23 +538,16 @@ export function MainSection({
         onChange={onAskAutoContinueChange}
       />
       <ToggleRow
+        label={t("main.browserPanel")}
+        desc={t("main.browserPanelDesc")}
+        on={browserPanel}
+        onChange={onBrowserPanelChange}
+      />
+      <ToggleRow
         label={t("main.autoArchive")}
         desc={t("main.autoArchiveDesc")}
         on={autoArchive}
         onChange={onAutoArchiveChange}
-      />
-      <ToggleRow
-        label={t("main.closeToTray")}
-        desc={t("main.closeToTrayDesc")}
-        on={closeToTray}
-        onChange={onCloseToTrayChange}
-      />
-
-      <ToggleRow
-        label={t("main.hardMode")}
-        desc={t("main.hardModeDesc")}
-        on={hardMode}
-        onChange={onHardModeChange}
       />
       <div className="flex flex-wrap items-center gap-2 rounded-lg border border-halo-line bg-halo-surface/40 px-3 py-2.5">
         <span className="text-xs text-halo-muted">{t("main.archiveAfter")}:</span>
@@ -547,10 +651,16 @@ export function MainSection({
           )}
         </div>
       )}
-
+      </Group>
+      <Group title={t("main.g4")} desc={t("main.g4Desc")}>
+      <ToggleRow
+        label={t("main.hardMode")}
+        desc={t("main.hardModeDesc")}
+        on={hardMode}
+        onChange={onHardModeChange}
+      />
       {/* Hard Limit: прерывание задачи при превышении лимитов расхода */}
       <HardLimitSection limits={limits} onChange={onLimitsChange} />
-
       {/* Экспорт/импорт всех настроек одним файлом */}
       <div className="rounded-xl border border-halo-line px-3.5 py-3">
         <p className="text-sm text-halo-text">{t("main.exportTitle")}</p>
@@ -632,7 +742,6 @@ export function MainSection({
           </button>
         </div>
       </div>
-
       {/* Хранилище: размеры каталогов appdata. Звуки/шрифты чистятся
           по-штучно в своих секциях — кнопок очистки у них нет */}
       {stats && (
@@ -663,6 +772,7 @@ export function MainSection({
           </div>
         </div>
       )}
+      </Group>
     </div>
   );
 }
