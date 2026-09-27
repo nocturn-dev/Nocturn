@@ -68,11 +68,20 @@ pub async fn run_tool(
     // shell_run — без path-контроля (cwd опционален); для fs_* берём путь из args.
     {
         let perm_path = if name.starts_with("fs_") {
-            args.get("path").and_then(|v| v.as_str())
+            args.get("path").and_then(|v| v.as_str()).map(str::to_string)
         } else {
             None
         };
-        perm::decide(&perm::current(), &name, perm_path)?;
+        let state = perm::current();
+        let tool = name.clone();
+        // Канонизация пути в perm ходит по ФС (вплоть до сетевых корней): в
+        // blocking-пул, иначе на tokio-воркере это вставало поперёк всех
+        // SSE-стримов (класс бага, уже починенный для load_settings/CA_PEM)
+        tauri::async_runtime::spawn_blocking(move || {
+            perm::decide(&state, &tool, perm_path.as_deref())
+        })
+        .await
+        .map_err(|e| format!("perm task failed: {e}"))??;
     }
 
     // Флаг отмены прогона: chat_abort/Stop поднимают его в реестре.
@@ -187,7 +196,14 @@ pub async fn run_tool(
     // уже починенный в network.rs для CA_PEM)
     let app_for_settings = app.clone();
     let chat_api = tauri::async_runtime::spawn_blocking(move || {
-        crate::settings::load_settings(app_for_settings).ok()
+        // Фолбэк None сознателен (битый конфиг не должен ронять инструмент),
+        // но отказ чтения неотличим от «не настроено» — снимаем тупик
+        // диагностики логом
+        crate::settings::load_settings(app_for_settings)
+            .inspect_err(|e| {
+                eprintln!("run_tool: settings load failed, fallbacks degraded: {e}");
+            })
+            .ok()
     })
     .await
     .unwrap_or(None);
