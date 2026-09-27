@@ -110,10 +110,10 @@ function Group({
 }) {
   return (
     <div className="mt-5">
-      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-halo-muted/60">
+      <p className="px-2.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-halo-muted/60">
         {title}
       </p>
-      <p className="mb-1 mt-0.5 text-xs leading-relaxed text-halo-muted">{desc}</p>
+      <p className="mb-1 mt-0.5 px-2.5 text-xs leading-relaxed text-halo-muted">{desc}</p>
       {children}
     </div>
   );
@@ -747,7 +747,7 @@ export function MainSection({
       {stats && (
         <div className="rounded-xl border border-halo-line px-3.5 py-3">
           <p className="text-sm text-halo-text">{t("main.storage")}</p>
-          <div className="mt-1.5">
+          <div className="mt-1.5 px-1.5">
             <StorageRow label={t("main.storageConfig")} bytes={stats.config} lang={lang} />
             <StorageRow
               label={t("main.storageCheckpoints")}
