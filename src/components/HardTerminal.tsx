@@ -66,11 +66,13 @@ export default function HardTerminal({ cwd, combo }: { cwd?: string; combo: stri
           fontSize: 12,
           cursorBlink: true,
           theme: {
+            // фолбэк — дефолтный акцент проекта (#d97757): #7c5cff в палитрах
+            // не существовал и при достижимости делал курсор чужим цветом
             background: pick("--halo-deep", "#1f1f1e"),
             foreground: pick("--halo-text", "#e8e6e3"),
-            cursor: pick("--halo-accent", "#7c5cff"),
+            cursor: pick("--halo-accent", "#d97757"),
             cursorAccent: pick("--halo-deep", "#1f1f1e"),
-            selectionBackground: pick("--halo-accent", "#7c5cff") + "55",
+            selectionBackground: pick("--halo-accent", "#d97757") + "55",
             black: pick("--halo-line", "#3a3936"),
           },
         });

@@ -35,9 +35,9 @@ export default function GameSnake() {
   const overRef = useRef(false);
   const scoreRef = useRef(0);
 
-  const accent = useRef("#7c5cff");
+  const accent = useRef("#d97757");
   useEffect(() => {
-    accent.current = getComputedStyle(document.documentElement).getPropertyValue("--halo-accent").trim() || "#7c5cff";
+    accent.current = getComputedStyle(document.documentElement).getPropertyValue("--halo-accent").trim() || "#d97757";
   }, []);
 
   const placeFood = () => {

@@ -336,7 +336,6 @@ export function applyAppearance(a: Appearance) {
   // Палитра подсветки кода + терминал: прозрачность/блюр (дефолты = как было)
   applyCodeTheme(a.codeTheme ?? "midnight");
   root.style.setProperty("--halo-term-opacity", String(a.termOpacity ?? 1));
-  root.style.setProperty("--halo-term-blur", `${a.termBlur ?? 0}px`);
   root.style.setProperty("--halo-density", String(a.density ?? 1));
   root.style.setProperty("--halo-content-width", `${a.contentWidth ?? 768}px`);
   // Фон код-блоков независимо от темы: инлайном только при переопределении,
@@ -391,6 +390,17 @@ export function applyAppearance(a: Appearance) {
       root.style.removeProperty(k);
     }
     root.style.removeProperty("color-scheme");
+  }
+
+  // Цвет рамки окна/мета theme-color: в index.html статично зашита тёмная —
+  // светлые темы всегда получали тёмную рамку независимо от темы
+  try {
+    const bg = getComputedStyle(root).getPropertyValue("--halo-bg").trim();
+    document
+      .querySelector('meta[name="theme-color"]')
+      ?.setAttribute("content", bg || "#1f1e1d");
+  } catch {
+    // meta может отсутствовать — не критично
   }
 }
 
