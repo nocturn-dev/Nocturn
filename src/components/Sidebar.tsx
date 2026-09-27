@@ -1197,7 +1197,8 @@ function RenameInput({
       onChange={(e) => setValue(e.target.value)}
       onBlur={finish}
       onKeyDown={(e) => {
-        if (e.key === "Enter") finish();
+        // isComposing: энтер подтверждения IME не должен коммитить
+        if (e.key === "Enter" && !e.nativeEvent.isComposing) finish();
         if (e.key === "Escape") {
           finished.current = true;
           onCancel();

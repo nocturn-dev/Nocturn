@@ -148,7 +148,7 @@ export function AskPanel({
                   setCustom(e.target.value);
                   if (!multi) setSelected(new Set());
                 }}
-                onKeyDown={(e) => e.key === "Enter" && submit()}
+                onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && submit()}
                 placeholder={t("ask.otherPh")}
                 className="min-w-0 flex-1 bg-transparent text-xs text-halo-text outline-none placeholder:text-halo-muted/50"
               />
