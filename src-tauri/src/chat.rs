@@ -434,6 +434,10 @@ pub async fn chat_stream(
     // (накопленные tool_calls/usage) не дочитываем, результат отмены не нужен.
     // [DONE] и EOF — естественное завершение: после цикла flush отдаёт
     // накопленное usage и страховочные tool_calls во фронт
+    // Батчер дельт: подряд идущие Content/Thought одного сетевого чанка
+    // уезжают одним emit'ом (см. DeltaBatcher)
+    let mut sink = |event| emit_feed_event(&app, &request_id, event);
+    let mut batch = DeltaBatcher::new(&mut sink);
     'outer: loop {
         let chunk = match tokio::time::timeout(STREAM_IDLE_TIMEOUT, stream.next()).await {
             Ok(item) => item,
@@ -468,9 +472,13 @@ pub async fn chat_stream(
                 break 'outer;
             }
             for event in acc.feed(data) {
-                emit_feed_event(&app, &request_id, event)?;
+                batch.push(event)?;
             }
         }
+        // Конец сетевого чанка — накопленное уезжает одним emit'ом: между
+        // чанками батчер пуст (иначе дельта молчала бы до следующего чанка;
+        // прерывание посреди чанка теряет только его — результаты отмены не нужны)
+        batch.flush()?;
     }
 
     // Хвост аккумулятора (usage/tool_calls/подозрительный на частичный тег):
@@ -478,8 +486,9 @@ pub async fn chat_stream(
     // пользователем вышло ранним return. AnthropicAccumulator::flush может
     // отдать накопленное на своём пути
     for event in acc.flush() {
-        emit_feed_event(&app, &request_id, event)?;
+        batch.push(event)?;
     }
+    batch.flush()?;
 
     Ok(())
 }
@@ -489,6 +498,130 @@ pub async fn chat_stream(
 /// и на всех OpenAI-совместимых стримах токены не доезжали до фронта, Hard
 /// Limit и статистика затрат молчали. Исчерпывающий match: новый вариант
 /// FeedEvent не соберётся, пока у него не появится канал доставки
+/// Слияние подряд идущих Content/Thought дельт в один emit. Один сетевой чанк
+/// несёт несколько SSE-строк — раньше каждая дельта ехала отдельным
+/// IPC-событием, и токен-плотные ответы превращались в сотни мелких сообщений.
+/// Порядок и границы Content↔Thought сохраняются; Usage/ToolCallsFinished/
+/// ThinkingBlock — самостоятельные события: накопленное перед ними
+/// сбрасывается. Эмит под типом-функцией — логика слияния юнит-тестируется
+/// без AppHandle.
+struct DeltaBatcher<'a, F>
+where
+    F: FnMut(FeedEvent) -> Result<(), String>,
+{
+    emit: &'a mut F,
+    content: Option<String>,
+    thought: Option<String>,
+}
+
+impl<'a, F> DeltaBatcher<'a, F>
+where
+    F: FnMut(FeedEvent) -> Result<(), String>,
+{
+    fn new(emit: &'a mut F) -> Self {
+        Self { emit, content: None, thought: None }
+    }
+
+    fn push(&mut self, event: FeedEvent) -> Result<(), String> {
+        match event {
+            FeedEvent::Content { delta } => match self.content.as_mut() {
+                Some(c) => {
+                    c.push_str(&delta);
+                    Ok(())
+                }
+                None => {
+                    self.flush()?;
+                    self.content = Some(delta);
+                    Ok(())
+                }
+            },
+            FeedEvent::Thought { delta } => match self.thought.as_mut() {
+                Some(t) => {
+                    t.push_str(&delta);
+                    Ok(())
+                }
+                None => {
+                    self.flush()?;
+                    self.thought = Some(delta);
+                    Ok(())
+                }
+            },
+            other => {
+                self.flush()?;
+                (self.emit)(other)
+            }
+        }
+    }
+
+    fn flush(&mut self) -> Result<(), String> {
+        if let Some(c) = self.content.take() {
+            (self.emit)(FeedEvent::Content { delta: c })?;
+        }
+        if let Some(t) = self.thought.take() {
+            (self.emit)(FeedEvent::Thought { delta: t })?;
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod batcher_tests {
+    use super::*;
+
+    /// Собирает события, прошедшие через батчер, — как их увидел бы фронт
+    fn merged(steps: Vec<FeedEvent>) -> Vec<FeedEvent> {
+        let mut out: Vec<FeedEvent> = Vec::new();
+        {
+            let mut sink = |e: FeedEvent| {
+                out.push(e);
+                Ok(())
+            };
+            let mut batch = DeltaBatcher::new(&mut sink);
+            for e in steps {
+                batch.push(e).unwrap();
+            }
+            batch.flush().unwrap();
+        }
+        out
+    }
+
+    #[test]
+    fn consecutive_deltas_merge_per_kind() {
+        let out = merged(vec![
+            FeedEvent::Content { delta: "При".into() },
+            FeedEvent::Content { delta: "вет".into() },
+            FeedEvent::Thought { delta: "ду".into() },
+            FeedEvent::Thought { delta: "маю".into() },
+            FeedEvent::Content { delta: "!".into() },
+        ]);
+        // Граница Content↔Thought не склеивается: два прогона контента
+        assert_eq!(
+            out,
+            vec![
+                FeedEvent::Content { delta: "Привет".into() },
+                FeedEvent::Thought { delta: "думаю".into() },
+                FeedEvent::Content { delta: "!".into() },
+            ]
+        );
+    }
+
+    #[test]
+    fn standalone_events_flush_pending_in_order() {
+        let out = merged(vec![
+            FeedEvent::Content { delta: "a".into() },
+            FeedEvent::Usage { prompt: 1, completion: 2, total: 3 },
+            FeedEvent::Content { delta: "b".into() },
+            FeedEvent::ToolCallsFinished { calls: vec![] },
+        ]);
+        // Usage/ToolCalls между дельтами не переместились — порядок как на входе
+        assert_eq!(out.len(), 4);
+        assert!(matches!(out[0], FeedEvent::Content { ref delta } if delta == "a"));
+        assert!(matches!(out[1], FeedEvent::Usage { prompt: 1, completion: 2, total: 3 }));
+        assert!(matches!(out[2], FeedEvent::Content { ref delta } if delta == "b"));
+        assert!(matches!(out[3], FeedEvent::ToolCallsFinished { .. }));
+    }
+}
+
 fn emit_feed_event(
     app: &tauri::AppHandle,
     request_id: &str,
@@ -578,7 +711,7 @@ pub struct StreamToolCall {
 }
 
 /// События, которые аккумулятор отдаёт наружу после каждой data-строки
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum FeedEvent {
     Content { delta: String },
