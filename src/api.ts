@@ -1533,6 +1533,19 @@ export async function dictationTranscribe(audioBase64: string): Promise<string> 
   return invoke<string>("dictation_transcribe", { audioBase64 });
 }
 
+/** Озвучить текст: локальный SAPI-синтез (Windows), ноль сети. Промис
+ *  разрешается по завершении речи — индикатор карточки гаснет сам */
+export async function ttsSpeak(text: string): Promise<void> {
+  if (!inTauri) throw new Error("Озвучка работает в нативном приложении (npm run tauri dev)");
+  await invoke("tts_speak", { text });
+}
+
+/** Остановить текущую озвучку (idempotent) */
+export async function ttsStop(): Promise<void> {
+  if (!inTauri) return;
+  await invoke("tts_stop");
+}
+
 /** Выбрать бинарник whisper-cli вручную (когда его нет в PATH) */
 export async function pickCliFile(): Promise<string | null> {
   if (!inTauri) return null;
