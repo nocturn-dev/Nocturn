@@ -1,3 +1,4 @@
+import type { MsgKey } from "../../locales";
 import { useLang } from "../../locales";
 import { fmtInt } from "./util";
 import { useState } from "react";
@@ -10,7 +11,7 @@ export function ContextRing({
 }: {
   used: number;
   limit: number;
-  rows: { label: string; tokens: number; color: string }[];
+  rows: { label: MsgKey; tokens: number; color: string }[];
   isEstimate: boolean;
 }) {
   const { lang, t } = useLang();
@@ -81,7 +82,7 @@ export function ContextRing({
                       opacity: rowPct > 0 ? 1 : 0.4,
                     }}
                   />
-                  <span className="flex-1 text-halo-muted">{t(r.label as never)}</span>
+                  <span className="flex-1 text-halo-muted">{t(r.label)}</span>
                   <span className="text-halo-text/80">
                     {rowPct > 0 ? `${rowPct.toFixed(1)}%` : "0%"}
                   </span>

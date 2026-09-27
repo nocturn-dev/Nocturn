@@ -484,7 +484,7 @@ export function MainSection({
                   : "border-halo-line text-halo-muted hover:text-halo-text"
               }`}
             >
-              {t(snd.labelKey as never)}
+              {t(snd.labelKey)}
             </button>
           ))}
           {/* Своя мелодия: импорт файла, прослушка, удаление */}

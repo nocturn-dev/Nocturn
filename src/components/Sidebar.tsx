@@ -4,7 +4,7 @@ import WindowControls from "./WindowControls";
 import { pickFolder, listDir, gitStatus, checkpointList, checkpointRestore, checkpointDelete, type CheckpointMeta, type FileEntry, type NoteInfo } from "../api";
 import { normalizePath } from "../diff";
 import { ACCENT_PRESETS } from "../appearance";
-import { useLang } from "../locales";
+import { useLang, type MsgKey } from "../locales";
 import NocturnMark from "./NocturnMark";
 
 interface SidebarProps {
@@ -802,7 +802,7 @@ function HeaderLabel({
   color,
   onPick,
 }: {
-  textKey: string;
+  textKey: MsgKey;
   color: string;
   onPick: (hex: string) => void;
 }) {
@@ -818,7 +818,7 @@ function HeaderLabel({
           color ? "hover:opacity-80" : "text-halo-muted/50 hover:text-halo-text"
         }`}
       >
-        {t(textKey as never)}
+        {t(textKey)}
       </button>
       {open && (
         <ColorPalette

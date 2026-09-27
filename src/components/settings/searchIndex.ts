@@ -1,3 +1,4 @@
+import type { MsgKey } from "../../locales";
 import type { Section } from "./types";
 
 /**
@@ -5,9 +6,10 @@ import type { Section } from "./types";
  * Поиск матчится по локализованным подписям в рантайме (t(key)) — работает
  * во всех четырёх языках. Пополняется при добавлении новых настроек.
  * ВАЖНО: ключи обязаны существовать во всех словарях — отсутствующий ключ
- * ломает t() (undefined.toLowerCase()) в поиске.
+ * ломает t() (undefined.toLowerCase()) в поиске. Тип MsgKey переносит эту
+ * проверку в компиляцию: протухший ключ в индексе больше не собирается.
  */
-export const SETTINGS_SEARCH_INDEX: { section: Section; keys: string[] }[] = [
+export const SETTINGS_SEARCH_INDEX: { section: Section; keys: MsgKey[] }[] = [
   {
     section: "main",
     keys: [

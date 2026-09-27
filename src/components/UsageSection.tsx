@@ -260,7 +260,7 @@ export default function UsageSection({
                   mode === m ? "bg-halo-hover-strong text-halo-text" : "text-halo-muted hover:text-halo-text"
                 }`}
               >
-                {t(`usage.${m}` as never)}
+                {t(`usage.${m}`)}
               </button>
             ))}
           </div>

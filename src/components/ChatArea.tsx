@@ -13,7 +13,7 @@ import TerminalPanel from "./TerminalPanel";
 import { uid } from "../hooks/useAgentRun";
 import WindowControls from "./WindowControls";
 import ProviderIcon, { brandName } from "./ProviderIcon";
-import { useLang } from "../locales";
+import { useLang, type MsgKey } from "../locales";
 import { dayPeriod } from "../time";
 import { getUserDisplayName } from "../userProfile";
 import { BUILTIN_SKILLS, type Skill } from "../skills";
@@ -706,7 +706,7 @@ export default function ChatArea({
   }, [agentMode, model]);
   const contextRows = useMemo(() => {
     const msgs = contextUsed || contextEstimate.msgs;
-    const rows: { label: string; tokens: number; color: string }[] = [
+    const rows: { label: MsgKey; tokens: number; color: string }[] = [
       {
         label: "ctx.messages",
         tokens: Math.max(msgs - contextEstimate.prompt - (toolsTokens?.sys ?? 0) - (toolsTokens?.mcp ?? 0), 0),
@@ -767,7 +767,7 @@ export default function ChatArea({
   }, [now]);
   // Своё приветствие (Настройки → Кастомизация): непустое перекрывает
   // стандартное приветствие по времени суток
-  const timeGreeting = t(greetingKey as never);
+  const timeGreeting = t(greetingKey);
   // Имя из локального профиля — только к приветствию по времени (UI,
   // в модель имя уходит лишь при включённом share-тумблере профиля)
   const displayName = getUserDisplayName();

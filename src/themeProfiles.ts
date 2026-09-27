@@ -6,7 +6,7 @@
  * отбрасываются, частичные добираются дефолтами Appearance.
  */
 
-import { AMBIENT_SCENES, type Appearance } from "./appearance";
+import { isAmbientScene, type Appearance } from "./appearance";
 import { isCustomStyleId } from "./themeStyles";
 import { STYLE_PALETTES } from "./themeStyles";
 import type { Theme } from "./types";
@@ -46,8 +46,8 @@ export function parseProfile(raw: unknown): ThemeProfile | null {
       // custom-* пропускается: на чужой машине (шеринг темы) палитры нет —
       // честная деградация в claude на уровне CSS, definition не возим
       style:
-        DARK_STYLES.includes(a.style as never) ||
-        (typeof a.style === "string" && isCustomStyleId(a.style))
+        typeof a.style === "string" &&
+        (DARK_STYLES.includes(a.style) || isCustomStyleId(a.style))
           ? (a.style as Appearance["style"])
           : "claude",
       scale: num(a.scale, 100, 90, 115),
@@ -64,9 +64,7 @@ export function parseProfile(raw: unknown): ThemeProfile | null {
       reduceMotion: a.reduceMotion === true,
       motionScale: typeof a.motionScale === 'number' ? a.motionScale : 1,
       ambient: a.ambient === true,
-      ambientScene: AMBIENT_SCENES.includes(a.ambientScene as never)
-        ? (a.ambientScene as Appearance["ambientScene"])
-        : "glow",
+      ambientScene: isAmbientScene(a.ambientScene) ? a.ambientScene : "glow",
       ambientVideo: typeof a.ambientVideo === "string" ? a.ambientVideo : "",
       ambientBrightness: num(a.ambientBrightness, 0.7, 0.3, 1),
       ambientDensity: num(a.ambientDensity, 0.7, 0.3, 1.5),

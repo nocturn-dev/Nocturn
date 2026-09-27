@@ -17,7 +17,7 @@ import {
   type Schedule,
 } from "../automations";
 import { keepAwake } from "../api";
-import { useLang } from "../locales";
+import { useLang, type MsgKey } from "../locales";
 import { isWindows } from "../platform";
 
 interface AutomationsModalProps {
@@ -26,6 +26,7 @@ interface AutomationsModalProps {
 }
 
 const LS_KEEP_AWAKE = "haloui-keep-awake";
+// satisfies: протухший ключ дня недели = ошибка компиляции, а не пустой пункт
 const WEEKDAY_KEYS = [
   "auto.dowSun",
   "auto.dowMon",
@@ -34,7 +35,7 @@ const WEEKDAY_KEYS = [
   "auto.dowThu",
   "auto.dowFri",
   "auto.dowSat",
-];
+] as const satisfies readonly MsgKey[];
 
 export default function AutomationsModal({
   open,
@@ -101,7 +102,7 @@ export default function AutomationsModal({
     if (s.kind === "daily") return t("auto.dailyAt", { time: s.time });
     if (s.kind === "weekdays") return t("auto.weekdaysAt", { time: s.time });
     return t("auto.weeklyAt", {
-      day: t(WEEKDAY_KEYS[s.weekday] as never),
+      day: t(WEEKDAY_KEYS[s.weekday] ?? "auto.dowSun"),
       time: s.time,
     });
   };
@@ -325,7 +326,7 @@ export default function AutomationsModal({
                   >
                     {WEEKDAY_KEYS.map((k, i) => (
                       <option key={k} value={i}>
-                        {t(k as never)}
+                        {t(k)}
                       </option>
                     ))}
                   </select>
@@ -424,16 +425,16 @@ export default function AutomationsModal({
             <button
               key={tpl.nameKey}
               onClick={() =>
-                create(t(tpl.nameKey as never), tpl.prompt, tpl.schedule, true)
+                create(t(tpl.nameKey), tpl.prompt, tpl.schedule, true)
               }
               className="rounded-xl border border-halo-line bg-halo-surface/30 p-4 text-left transition-colors hover:border-halo-accent/40 hover:bg-halo-hover/50"
             >
               <p className="mb-1.5 flex items-center gap-2 text-sm font-semibold text-halo-text">
                 <span className="text-halo-muted">{tpl.icon === "sun" ? <SunIcon /> : tpl.icon === "zap" ? <ZapIcon /> : tpl.icon === "doc" ? <DocIcon /> : <ListIcon />}</span>
-                {t(tpl.nameKey as never)}
+                {t(tpl.nameKey)}
               </p>
               <p className="mb-2 line-clamp-2 text-xs leading-relaxed text-halo-muted">
-                {t(tpl.descKey as never)}
+                {t(tpl.descKey)}
               </p>
               <p className="text-xs text-halo-muted/70">
                 {scheduleText({
