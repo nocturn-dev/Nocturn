@@ -28,8 +28,12 @@ jobs:
       - run: npm run build
 
   rust:
-    name: Rust (clippy + tests)
-    runs-on: windows-latest
+    name: Rust (clippy + tests, ${{ matrix.platform }})
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [windows-latest, ubuntu-22.04, macos-latest]
+    runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -38,9 +42,17 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
+          key: ${{ matrix.platform }}
+      - name: Install Linux dependencies (Tauri v2)
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
       - name: cargo clippy
         working-directory: src-tauri
         run: cargo clippy --lib -- -D warnings
+      # cargo test линкует тестовый бинарник: platform-specific #[link]
+      # (например, незагейченный user32) ловится здесь, а не при релизе
       - name: cargo test
         working-directory: src-tauri
         run: cargo test --lib
