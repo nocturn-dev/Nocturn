@@ -206,8 +206,10 @@ export function Dropdown({
         onClick={() => setOpen((v) => !v)}
         onKeyDown={(e) => {
           // D12: клавиатурная навигация — раньше выбрать опцию можно было
-          // только мышью (дропдауны живут в темах, хуках и хоткеях)
-          if (!open) {
+          // только мышью (дропдауны живут в темах, хуках и хоткеях).
+          // isComposing: стрелки/Enter посреди IME-композиции — кандидаты
+          // ввода, а не навигация по списку
+          if (!e.nativeEvent.isComposing && !open) {
             if (e.key === "ArrowDown" || e.key === "Enter" || e.key === " ") {
               e.preventDefault();
               setOpen(true);
@@ -221,7 +223,7 @@ export function Dropdown({
           } else if (e.key === "ArrowUp") {
             e.preventDefault();
             setHoverIdx((i) => Math.max(0, i - 1));
-          } else if (e.key === "Enter" && hoverIdx >= 0) {
+          } else if (e.key === "Enter" && !e.nativeEvent.isComposing && hoverIdx >= 0) {
             e.preventDefault();
             const o = options[hoverIdx];
             if (o) {

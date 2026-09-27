@@ -137,6 +137,122 @@ export function AmbientLayer({
     let buildings: Building[] = [];
     let stars: Star[] = [];
 
+    // Статичный фон сцены (небо, дымки, фонари, дома) кэшируется в
+    // оффскрин-canvas и пересобирается только на resize: раньше градиенты
+    // и полнозкранные заливки пересоздавались каждый кадр (fog — до 11
+    // fullscreen-fillRect × 30 fps) ради пикселей, которые не меняются
+    let bgLayer: HTMLCanvasElement | null = null;
+    const rebuildBg = () => {
+      const off = document.createElement("canvas");
+      off.width = Math.round(w * dpr);
+      off.height = Math.round(h * dpr);
+      const octx = off.getContext("2d");
+      if (!octx) return;
+      octx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      if (scene === "fog") {
+        const g = octx.createLinearGradient(0, 0, 0, h);
+        g.addColorStop(0, "#0a1230");
+        g.addColorStop(0.55, "#0c1436");
+        g.addColorStop(1, "#070a1c");
+        octx.fillStyle = g;
+        octx.fillRect(0, 0, w, h);
+        // лёгкая дымка у горизонта
+        const haze = octx.createLinearGradient(0, h * 0.7, 0, h);
+        haze.addColorStop(0, "rgba(120, 150, 220, 0)");
+        haze.addColorStop(1, "rgba(120, 150, 220, 0.07)");
+        octx.fillStyle = haze;
+        octx.fillRect(0, h * 0.7, w, h * 0.3);
+      } else if (scene === "snow") {
+        const g = octx.createLinearGradient(0, 0, 0, h);
+        g.addColorStop(0, "#0b0e2c");
+        g.addColorStop(1, "#181c44");
+        octx.fillStyle = g;
+        octx.fillRect(0, 0, w, h);
+        // фонари: два тёплых пятна
+        for (const fx of [w * 0.3, w * 0.72]) {
+          const grad = octx.createRadialGradient(fx, h * 0.24, 0, fx, h * 0.24, h * 0.4);
+          grad.addColorStop(0, "rgba(150, 125, 255, 0.14)");
+          grad.addColorStop(1, "rgba(150, 125, 255, 0)");
+          octx.fillStyle = grad;
+          octx.fillRect(0, 0, w, h);
+        }
+      } else if (scene === "city") {
+        const g = octx.createLinearGradient(0, 0, 0, h);
+        g.addColorStop(0, "#04060d");
+        g.addColorStop(1, "#0a1420");
+        octx.fillStyle = g;
+        octx.fillRect(0, 0, w, h);
+        // дымка над городом
+        const haze = octx.createLinearGradient(0, h * 0.35, 0, h);
+        haze.addColorStop(0, "rgba(60, 140, 150, 0)");
+        haze.addColorStop(1, "rgba(60, 140, 150, 0.10)");
+        octx.fillStyle = haze;
+        octx.fillRect(0, 0, w, h);
+        for (const b of buildings) {
+          octx.fillStyle = "#070a10";
+          octx.fillRect(b.x, h - b.h, b.w, b.h);
+        }
+        // неоновое свечение самого высокого здания (позиция статична)
+        const tallest = buildings.reduce<Building | undefined>(
+          (a, b) => (b.h > (a?.h ?? -1) ? b : a),
+          undefined,
+        );
+        if (tallest) {
+          const grad = octx.createRadialGradient(
+            tallest.x + tallest.w / 2,
+            h - tallest.h,
+            0,
+            tallest.x + tallest.w / 2,
+            h - tallest.h,
+            tallest.h * 0.9,
+          );
+          grad.addColorStop(0, "rgba(80, 220, 210, 0.10)");
+          grad.addColorStop(1, "rgba(80, 220, 210, 0)");
+          octx.fillStyle = grad;
+          octx.fillRect(0, 0, w, h);
+        }
+      } else {
+        octx.fillStyle = "#04060f";
+        octx.fillRect(0, 0, w, h);
+        for (const nebulaColor of ["rgba(70, 100, 200, 0.05)", "rgba(120, 90, 200, 0.045)"]) {
+          const grad = octx.createRadialGradient(
+            w * 0.7,
+            h * 0.25,
+            0,
+            w * 0.7,
+            h * 0.25,
+            Math.max(w, h) * 0.5,
+          );
+          grad.addColorStop(0, nebulaColor);
+          grad.addColorStop(1, "rgba(0,0,0,0)");
+          octx.fillStyle = grad;
+          octx.fillRect(0, 0, w, h);
+        }
+      }
+      bgLayer = off;
+    };
+
+    // Спрайт туманного пятна: радиальный градиент зависит только от цвета,
+    // а не от позиции — готовая текстура drawImage вместо создания градиента
+    // и полнозкранной заливки на каждое пятно каждый кадр
+    const spriteCache = new Map<string, HTMLCanvasElement>();
+    const spriteFor = (color: string): HTMLCanvasElement | null => {
+      const hit = spriteCache.get(color);
+      if (hit) return hit;
+      const s = document.createElement("canvas");
+      s.width = 256;
+      s.height = 256;
+      const sctx = s.getContext("2d");
+      if (!sctx) return null;
+      const grad = sctx.createRadialGradient(128, 128, 0, 128, 128, 128);
+      grad.addColorStop(0, `${color}0.16)`);
+      grad.addColorStop(1, `${color}0)`);
+      sctx.fillStyle = grad;
+      sctx.fillRect(0, 0, 256, 256);
+      spriteCache.set(color, s);
+      return s;
+    };
+
     const resize = () => {
       w = window.innerWidth;
       h = window.innerHeight;
@@ -201,6 +317,7 @@ export function AmbientLayer({
           speed: 0.4 + rand() * 1.2,
         }));
       }
+      rebuildBg();
     };
     resize();
     // Именованный обработчик: removeEventListener матчится по ссылке —
@@ -214,12 +331,7 @@ export function AmbientLayer({
     window.addEventListener("resize", onResize);
 
     const drawFog = () => {
-      const g = ctx.createLinearGradient(0, 0, 0, h);
-      g.addColorStop(0, "#0a1230");
-      g.addColorStop(0.55, "#0c1436");
-      g.addColorStop(1, "#070a1c");
-      ctx.fillStyle = g;
-      ctx.fillRect(0, 0, w, h);
+      if (bgLayer) ctx.drawImage(bgLayer, 0, 0, w, h);
       for (const b of blobs) {
         b.x += b.dx;
         b.y += b.dy;
@@ -227,34 +339,13 @@ export function AmbientLayer({
         if (b.x > w + b.r) b.x = -b.r;
         if (b.y < -b.r) b.y = h + b.r;
         if (b.y > h + b.r) b.y = -b.r;
-        const grad = ctx.createRadialGradient(b.x, b.y, 0, b.x, b.y, b.r);
-        grad.addColorStop(0, `${b.color}0.16)`);
-        grad.addColorStop(1, `${b.color}0)`);
-        ctx.fillStyle = grad;
-        ctx.fillRect(0, 0, w, h);
+        const sp = spriteFor(b.color);
+        if (sp) ctx.drawImage(sp, b.x - b.r, b.y - b.r, b.r * 2, b.r * 2);
       }
-      // лёгкая дымка у горизонта
-      const haze = ctx.createLinearGradient(0, h * 0.7, 0, h);
-      haze.addColorStop(0, "rgba(120, 150, 220, 0)");
-      haze.addColorStop(1, "rgba(120, 150, 220, 0.07)");
-      ctx.fillStyle = haze;
-      ctx.fillRect(0, h * 0.7, w, h * 0.3);
     };
 
     const drawSnow = (now: number) => {
-      const g = ctx.createLinearGradient(0, 0, 0, h);
-      g.addColorStop(0, "#0b0e2c");
-      g.addColorStop(1, "#181c44");
-      ctx.fillStyle = g;
-      ctx.fillRect(0, 0, w, h);
-      // фонари: два тёплых пятна
-      for (const fx of [w * 0.3, w * 0.72]) {
-        const grad = ctx.createRadialGradient(fx, h * 0.24, 0, fx, h * 0.24, h * 0.4);
-        grad.addColorStop(0, "rgba(150, 125, 255, 0.14)");
-        grad.addColorStop(1, "rgba(150, 125, 255, 0)");
-        ctx.fillStyle = grad;
-        ctx.fillRect(0, 0, w, h);
-      }
+      if (bgLayer) ctx.drawImage(bgLayer, 0, 0, w, h);
       const t = now / 1000;
       for (const f of flakes) {
         f.y += (f.vy / 30) * 1.1;
@@ -273,44 +364,14 @@ export function AmbientLayer({
     };
 
     const drawCity = (now: number) => {
-      const g = ctx.createLinearGradient(0, 0, 0, h);
-      g.addColorStop(0, "#04060d");
-      g.addColorStop(1, "#0a1420");
-      ctx.fillStyle = g;
-      ctx.fillRect(0, 0, w, h);
-      // дымка над городом
-      const haze = ctx.createLinearGradient(0, h * 0.35, 0, h);
-      haze.addColorStop(0, "rgba(60, 140, 150, 0)");
-      haze.addColorStop(1, "rgba(60, 140, 150, 0.10)");
-      ctx.fillStyle = haze;
-      ctx.fillRect(0, 0, w, h);
+      // Небо/дымка/дома/неон — в bgLayer (статичны); мигают только окна
+      if (bgLayer) ctx.drawImage(bgLayer, 0, 0, w, h);
       for (const b of buildings) {
-        ctx.fillStyle = "#070a10";
-        ctx.fillRect(b.x, h - b.h, b.w, b.h);
         for (const win of b.lit) {
           const flicker = 0.55 + 0.45 * Math.sin(now / 900 + win.phase);
           ctx.fillStyle = `rgba(140, 210, 225, ${(0.28 * flicker).toFixed(3)})`;
           ctx.fillRect(win.x, win.y, 4, 6);
         }
-      }
-      // неоновое свечение самого высокого здания
-      const tallest = buildings.reduce<Building | undefined>(
-        (a, b) => (b.h > (a?.h ?? -1) ? b : a),
-        undefined,
-      );
-      if (tallest) {
-        const grad = ctx.createRadialGradient(
-          tallest.x + tallest.w / 2,
-          h - tallest.h,
-          0,
-          tallest.x + tallest.w / 2,
-          h - tallest.h,
-          tallest.h * 0.9,
-        );
-        grad.addColorStop(0, "rgba(80, 220, 210, 0.10)");
-        grad.addColorStop(1, "rgba(80, 220, 210, 0)");
-        ctx.fillStyle = grad;
-        ctx.fillRect(0, 0, w, h);
       }
       // мигающий маячок
       const blink = Math.sin(now / 700) > 0.86 ? 0.8 : 0;
@@ -323,22 +384,7 @@ export function AmbientLayer({
     };
 
     const drawStars = (now: number) => {
-      ctx.fillStyle = "#04060f";
-      ctx.fillRect(0, 0, w, h);
-      for (const nebulaColor of ["rgba(70, 100, 200, 0.05)", "rgba(120, 90, 200, 0.045)"]) {
-        const grad = ctx.createRadialGradient(
-          w * 0.7,
-          h * 0.25,
-          0,
-          w * 0.7,
-          h * 0.25,
-          Math.max(w, h) * 0.5,
-        );
-        grad.addColorStop(0, nebulaColor);
-        grad.addColorStop(1, "rgba(0,0,0,0)");
-        ctx.fillStyle = grad;
-        ctx.fillRect(0, 0, w, h);
-      }
+      if (bgLayer) ctx.drawImage(bgLayer, 0, 0, w, h);
       const t = now / 1000;
       for (const st of stars) {
         const a = 0.35 + 0.45 * (0.5 + 0.5 * Math.sin(t * st.speed + st.phase));

@@ -22,7 +22,7 @@ export function ConfirmCard({
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <button
           onClick={() => onDecision("once")}
-          className="rounded-lg bg-halo-accent px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-halo-accent-deep"
+          className="rounded-lg bg-halo-accent px-3 py-1.5 text-xs font-medium text-halo-on-accent transition-colors hover:bg-halo-accent-deep"
         >
           {t("agent.allow")}
         </button>

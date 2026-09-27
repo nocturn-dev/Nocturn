@@ -137,7 +137,8 @@ export function MemorySection({
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter") void addFact();
+              // isComposing: энтер подтверждения IME не добавляет обрывок
+              if (e.key === "Enter" && !e.nativeEvent.isComposing) void addFact();
             }}
             placeholder={t("memory.factsAddPh")}
             className="min-w-0 flex-1 rounded-lg border border-halo-line bg-halo-surface px-3 py-1.5 text-xs text-halo-text outline-none transition-colors placeholder:text-halo-muted/60 focus:border-halo-accent/60"

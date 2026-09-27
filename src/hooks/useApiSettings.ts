@@ -99,10 +99,16 @@ export function useApiSettings(opts: {
     // Профили: отдельное хранилище, при первом запуске мигрируют из settings.json
     const profilesReady = loadProfiles()
       .then((store) => {
-        // Защита от битого/неожиданного ответа хранилища
+        // Защита от битого/неожиданного ответа хранилища: форма ЭЛЕМЕНТОВ
+        // тоже проверяется (раньше as-каст пропускал битые записи до рендера)
         setProfiles(
           Array.isArray((store as { profiles?: unknown })?.profiles)
-            ? (store.profiles as ApiProfile[])
+            ? ((store as { profiles: unknown[] }).profiles.filter(
+                (p): p is ApiProfile =>
+                  !!p &&
+                  typeof p === "object" &&
+                  typeof (p as ApiProfile).name === "string",
+              ))
             : [],
         );
         setActiveProfileId(

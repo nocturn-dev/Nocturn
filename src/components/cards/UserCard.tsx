@@ -125,7 +125,7 @@ function UserCardBase({
                   setEditing(false);
                   onEdit?.(mid, text);
                 }}
-                className="rounded-md bg-halo-accent px-2.5 py-1 text-[10px] font-medium text-white transition-colors hover:bg-halo-accent-deep"
+                className="rounded-md bg-halo-accent px-2.5 py-1 text-[10px] font-medium text-halo-on-accent transition-colors hover:bg-halo-accent-deep"
               >
                 {t("card.editSend")}
               </button>

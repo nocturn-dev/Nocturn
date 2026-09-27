@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useLang, type MsgKey } from "../../locales";
-import { SHORTCUT_ACTIONS, SHORTCUT_LABEL_KEYS, comboFromEvent, type ShortcutAction, type CustomShortcut, type ShortcutBinds } from "../../shortcuts";
+import { SHORTCUT_ACTIONS, SHORTCUT_LABEL_KEYS, comboFromEvent, prettyCombo, type ShortcutAction, type CustomShortcut, type ShortcutBinds } from "../../shortcuts";
 import { Dropdown, MiniTrashIcon } from "./parts";
 
 export function ShortcutsSection({
@@ -93,7 +93,11 @@ export function ShortcutsSection({
             : "border-dashed border-halo-line text-halo-muted/60 hover:text-halo-text"
       }`}
     >
-      {recording === target ? t("sc.press") : current || t("sc.unbound")}
+      {recording === target
+        ? t("sc.press")
+        : current
+          ? prettyCombo(current)
+          : t("sc.unbound")}
     </button>
   );
 

@@ -268,7 +268,9 @@ export function HooksSection() {
                   }
                 }}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                  // isComposing: энтер подтверждения IME не коммитит команду
+                  if (e.key === "Enter" && !e.nativeEvent.isComposing)
+                    (e.target as HTMLInputElement).blur();
                 }}
                 spellCheck={false}
                 className="mt-2 w-full rounded-md border border-transparent bg-halo-surface px-2 py-1.5 font-mono text-xs text-halo-text outline-none transition-colors focus:border-halo-accent/60"

@@ -103,7 +103,7 @@ export default function CryptoGate({
           value={pw}
           autoFocus
           onChange={(e) => setPw(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && submit()}
+          onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && submit()}
           placeholder={
             setup ? t("gate.createPh") : t("gate.unlockPh")
           }
@@ -114,7 +114,9 @@ export default function CryptoGate({
             type="password"
             value={pw2}
             onChange={(e) => setPw2(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && submit()}
+            onKeyDown={(e) =>
+              e.key === "Enter" && !e.nativeEvent.isComposing && submit()
+            }
             placeholder={t("gate.confirmPh")}
             className="mt-2.5 w-full rounded-lg border border-halo-line bg-halo-surface px-3 py-2 text-sm text-halo-text outline-none transition-colors placeholder:text-halo-muted/60 focus:border-halo-accent/60"
           />
@@ -146,7 +148,10 @@ export default function CryptoGate({
                 autoFocus
                 onChange={(e) => setResetText(e.target.value)}
                 onKeyDown={(e) =>
-                  e.key === "Enter" && resetText === "RESET" && onReset()
+                  e.key === "Enter" &&
+                  !e.nativeEvent.isComposing &&
+                  resetText === "RESET" &&
+                  onReset()
                 }
                 placeholder="RESET"
                 className="mt-2 w-full rounded-lg border border-red-400/40 bg-halo-surface px-3 py-1.5 text-center text-xs text-halo-text outline-none focus:border-red-400"

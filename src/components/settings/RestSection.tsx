@@ -122,7 +122,7 @@ export function RestSection({
         {(["2048", "mines", "snake"] as GameId[]).map((id) => (
           <div
             key={id}
-            className="group overflow-hidden rounded-xl border border-halo-line bg-halo-surface/50 transition-[transform,box-shadow,border-color] duration-200 hover:-translate-y-1 hover:border-halo-accent/40 hover:shadow-lg hover:shadow-halo-accent/10"
+            className="group overflow-hidden rounded-xl border border-halo-line bg-halo-surface/50 transition-[transform,border-color] duration-200 hover:-translate-y-1 hover:border-halo-accent/40"
           >
             {/* Превью игры */}
             <div className="border-b border-halo-line/60 bg-halo-deep/40">

@@ -427,7 +427,12 @@ export function useSessions(opts: {
     const session = sessions.find((s) => s.id === id);
     if (!session) return;
     try {
-      const path = await pickSaveFile(exportFileName(session, format));
+      // Фильтр диалога обязан совпадать с форматом: дефолтный JSON-фильтр
+      // заставлял md-экспорт сохраняться как .md.json
+      const path = await pickSaveFile(
+        exportFileName(session, format),
+        format === "md" ? "md" : "json",
+      );
       if (!path) return;
       const content = format === "md" ? sessionToMarkdown(session) : sessionToJson(session);
       await chatExportWrite(path, content);

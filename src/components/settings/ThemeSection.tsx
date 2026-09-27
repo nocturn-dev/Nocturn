@@ -342,7 +342,8 @@ export function ThemeSection({
               value={profileNameDraft}
               onChange={(e) => setProfileNameDraft(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter") saveThemeProfile();
+                // isComposing: энтер подтверждения IME не сохраняет черновик
+                if (e.key === "Enter" && !e.nativeEvent.isComposing) saveThemeProfile();
                 if (e.key === "Escape") setProfileSaveOpen(false);
               }}
               placeholder={t("themes.profileNamePh")}

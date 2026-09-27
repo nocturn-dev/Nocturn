@@ -338,6 +338,16 @@ export function useAgentRun(deps: AgentRunDeps) {
 
   // Живые прогоны субагентов (M2): ключ — tool call id
   const [subRuns, setSubRuns] = useState<Record<string, SubRunState>>({});
+  /** id таймеров очистки монитора субагентов: гасятся в cleanup хука,
+   *  иначе тикают зря после размонтирования */
+  const subRunTimersRef = useRef<Set<number>>(new Set());
+  useEffect(() => {
+    const timers = subRunTimersRef.current;
+    return () => {
+      for (const t of timers) window.clearTimeout(t);
+      timers.clear();
+    };
+  }, []);
   const patchSubRun = (id: string, fn: (r: SubRunState) => SubRunState) =>
     setSubRuns((prev) => (prev[id] ? { ...prev, [id]: fn(prev[id]) } : prev));
 
@@ -1659,16 +1669,17 @@ ${report}`;
         } catch (e) {
           subContent = `subagent error: ${e}`;
         }
-        // Завершённый прогон: убрать из монитора через 30с
-        window.setTimeout(
-          () =>
-            setSubRuns((prev) => {
-              if (!(call.id in prev)) return prev;
-              const { [call.id]: _done, ...rest } = prev;
-              return rest;
-            }),
-          30_000,
-        );
+        // Завершённый прогон: убрать из монитора через 30с. id сохраняется
+        // и гасится в cleanup хука (ниже)
+        const subTimerId = window.setTimeout(() => {
+          subRunTimersRef.current.delete(subTimerId);
+          setSubRuns((prev) => {
+            if (!(call.id in prev)) return prev;
+            const { [call.id]: _done, ...rest } = prev;
+            return rest;
+          });
+        }, 30_000);
+        subRunTimersRef.current.add(subTimerId);
         pushMessage({
           id: uid(),
           role: "tool",

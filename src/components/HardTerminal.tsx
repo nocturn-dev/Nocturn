@@ -157,7 +157,8 @@ export default function HardTerminal({ cwd, combo }: { cwd?: string; combo: stri
     const host = hostRef.current;
     if (!host) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Enter") {
+      // isComposing: энтер IME-композиции не перезапускает шелл
+      if (e.key === "Enter" && !e.isComposing) {
         e.preventDefault();
         setExited(false);
         exitedRef.current = false;
