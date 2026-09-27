@@ -103,11 +103,7 @@ fn fmt_results(results: &[(String, String, String)]) -> String {
 
 /// GET с прокси/CA из настроек сети; тело с потолком размера
 async fn http_get(url: &str, headers: Vec<(String, String)>) -> Result<String, String> {
-    let client = crate::network::apply(
-        reqwest::Client::builder().connect_timeout(std::time::Duration::from_secs(15)),
-    )?
-    .build()
-    .map_err(|e| format!("failed to build http client: {e}"))?;
+    let client = crate::network::shared_client(std::time::Duration::from_secs(15))?;
     let mut req = client.get(url).timeout(HTTP_TIMEOUT);
     for (k, v) in headers {
         req = req.header(k, v);

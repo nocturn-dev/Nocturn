@@ -10,12 +10,12 @@
 //! гарантия Plan-режима read-only держится на бэкенде, а не только на фронте.
 //! fs_* дополнительно проходит path-контроль корней проекта.
 
-use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
 
-/// Режим разрешений агента — зеркало PermissionMode на фронте (src/types.ts)
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+/// Режим разрешений агента — зеркало PermissionMode на фронте (src/types.ts).
+/// serde-деривы не нужны: PermState нигде не сериализуется, режим разбирается
+/// из строки вручную в perm_set (tooling.rs)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PermMode {
     Plan,
     Ask,

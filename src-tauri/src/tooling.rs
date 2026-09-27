@@ -291,17 +291,27 @@ pub async fn execute_tool_inner(
     chat_api: Option<crate::settings::ApiSettings>,
     abort_flag: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
 ) -> Result<String, String> {
-    let arguments = args.to_string();
     // Computer-инструменты: скриншот быстрый, мышь/клавиатура — блокирующие
     if name.starts_with("computer_") {
         if !computer::config().enabled {
             return Err("Computer Use is disabled in Settings".to_string());
         }
-        return tauri::async_runtime::spawn_blocking(move || {
+        // arguments (JSON-строка) нужен только computer/vault/memory-веткам;
+        // раньше сериализовался впустую на каждый тулл-колл (в т.ч. MCP
+        // с большими аргументами)
+        let arguments = args.to_string();
+        let work = tauri::async_runtime::spawn_blocking(move || {
             computer::execute_computer_tool(&name, &arguments)
-        })
-        .await
-        .map_err(|e| format!("tool task failed: {e}"))?;
+        });
+        // Stop обязан отвечать сразу: блокирующий вызов доигрывает в фоне,
+        // результат отбрасывается (раньше шаг стоял до таймаута)
+        let result: String = tokio::select! {
+            res = work => res.map_err(|e| format!("tool task failed: {e}"))??,
+            _ = wait_for_abort(abort_flag.as_ref()) => {
+                return Err("aborted by user".to_string());
+            }
+        };
+        return Ok(result);
     }
 
     // Browser-инструменты: соединение лениво запускается, блокирующий
@@ -312,7 +322,12 @@ pub async fn execute_tool_inner(
             return Err("Browser Use is disabled in Settings".to_string());
         }
         if name == "browser_close" {
-            browser_registry.kill_all();
+            // kill() внутри — taskkill/CDP-close, блокирующие: не занимаем
+            // tokio-воркер (класс «встало поперёк всех SSE-стримов»)
+            let reg = browser_registry.0.clone();
+            tauri::async_runtime::spawn_blocking(move || browser::BrowserRegistry(reg).kill_all())
+                .await
+                .map_err(|e| format!("tool task failed: {e}"))?;
             return Ok("Browser closed.".to_string());
         }
         // get_or_launch (запуск браузера до ~20 с) — тоже в отдельном потоке,
@@ -325,11 +340,19 @@ pub async fn execute_tool_inner(
         .map_err(|e| format!("tool task failed: {e}"))??;
         // args уже Value — раньше уходил в строку и парсился обратно
         let args = args.clone();
-        return tauri::async_runtime::spawn_blocking(move || {
+        let work = tauri::async_runtime::spawn_blocking(move || {
             browser::execute_on(&conn, &name, &args)
-        })
-        .await
-        .map_err(|e| format!("tool task failed: {e}"))?;
+        });
+        // Stop отвечает немедленно: блокирующий CDP-вызов (до WS-таймаута
+        // 120 с, например browser_navigate на молчащем сайте) доигрывает
+        // в фоне, результат отбрасывается
+        let result: String = tokio::select! {
+            res = work => res.map_err(|e| format!("tool task failed: {e}"))??,
+            _ = wait_for_abort(abort_flag.as_ref()) => {
+                return Err("aborted by user".to_string());
+            }
+        };
+        return Ok(result);
     }
 
     if let Some((server_raw, tool_raw)) = mcp::split_prefixed_name(&name) {
@@ -370,7 +393,9 @@ pub async fn execute_tool_inner(
         };
         return Ok(result);
     }
-    // Vault-инструменты (заметки): чтение, не мутируют — исполним в потоке
+    // Vault-инструменты (заметки): чтение, не мутируют — исполним в потоке.
+    // arguments (JSON-строка) общий для vault/memory — сериализуем один раз
+    let arguments = args.to_string();
     if name.starts_with("vault_") {
         let Some(notes_dir) = notes_dir else {
             return Err("notes directory unavailable".to_string());
@@ -652,6 +677,10 @@ pub fn sound_delete(app: tauri::AppHandle) -> Result<(), String> {
 
 /// Активна ли трансляция кадров (один поток на всё приложение)
 static BROWSER_VIEW_ACTIVE: AtomicBool = AtomicBool::new(false);
+/// Поколение трансляции: stop → start гонка, при которой старый поток,
+/// проснувшись после сна, видел бы ВЗВЕДЁННЫЙ новым start'ом флаг и жил
+/// параллельно с новым (двойной кадр-стрим). Не своё поколение — выход
+static BROWSER_VIEW_GEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 /// Включить трансляцию: поток раз в 400мс снимает кадр агентовского
 /// Chromium (Page.captureScreenshot) и шлёт событие browser-frame.
@@ -664,9 +693,12 @@ pub fn browser_view_start(app: tauri::AppHandle) -> Result<(), String> {
     if BROWSER_VIEW_ACTIVE.swap(true, Ordering::SeqCst) {
         return Ok(()); // трансляция уже идёт
     }
+    let gen = BROWSER_VIEW_GEN.fetch_add(1, Ordering::SeqCst) + 1;
     std::thread::spawn(move || {
         let mut last_frame = String::new();
-        while BROWSER_VIEW_ACTIVE.load(Ordering::SeqCst) {
+        while BROWSER_VIEW_ACTIVE.load(Ordering::SeqCst)
+            && BROWSER_VIEW_GEN.load(Ordering::SeqCst) == gen
+        {
             let conn = {
                 let reg = app.state::<browser::BrowserRegistry>();
                 let guard = reg.0.lock().unwrap_or_else(|p| p.into_inner());
@@ -699,6 +731,9 @@ pub fn browser_view_start(app: tauri::AppHandle) -> Result<(), String> {
 #[tauri::command(async)]
 pub fn browser_view_stop() {
     BROWSER_VIEW_ACTIVE.store(false, Ordering::SeqCst);
+    // Рост поколения гасит и поток, висящий в sleep на момент stop:
+    // проснувшись, он увидит чужое поколение и выйдет (см. static)
+    BROWSER_VIEW_GEN.fetch_add(1, Ordering::SeqCst);
 }
 
 /// Размер вьюпорта агентовского браузера (null/null — вернуть как есть).
@@ -974,6 +1009,9 @@ pub fn save_sessions(app: tauri::AppHandle, data: String) -> Result<(), String> 
 // sync-команда исполнялась на главном потоке и морозила GUI
 #[tauri::command(async)]
 pub fn wallpaper_register(app: tauri::AppHandle, path: String) -> Result<(), String> {
+    // Путь с фронта → тот же sensitive-path гардал, что у sound_import:
+    // allow_file расширяет asset-скоуп вебвью на произвольный файл
+    rejects_sensitive_path(&path)?;
     const OK: &[&str] = &["png", "jpg", "jpeg", "webp", "gif"];
     let ext = std::path::Path::new(&path)
         .extension()
@@ -998,6 +1036,8 @@ pub fn wallpaper_register(app: tauri::AppHandle, path: String) -> Result<(), Str
 // (async): см. wallpaper_register — fs-доступ вне главного потока
 #[tauri::command(async)]
 pub fn ambient_video_register(app: tauri::AppHandle, path: String) -> Result<(), String> {
+    // Путь с фронта → тот же sensitive-path гардал, что у sound_import
+    rejects_sensitive_path(&path)?;
     // ogv/mkv убраны: Chromium-движок (WebView2) не играет Matroska/Theora
     // в <video> — пользователь получал тихо пустой слой вместо ошибки
     const OK: &[&str] = &["mp4", "webm", "mov", "m4v"];

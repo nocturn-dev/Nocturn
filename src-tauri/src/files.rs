@@ -424,17 +424,25 @@ fn checkpoint_list_impl(app: tauri::AppHandle, path: String) -> Result<Vec<Check
         // Сайдкар крошечный; полный парс снимка (base64 всех файлов) —
         // только фолбэк для чекпоинтов, сохранённых до его появления
         let meta_path = e.path().with_file_name(format!("{id}.meta.json"));
-        let (ts, label, files) = match fs::read(&meta_path)
+        let (ts, label, files, bytes) = match fs::read(&meta_path)
             .ok()
             .and_then(|b| serde_json::from_slice::<CheckpointMetaCar>(&b).ok())
         {
-            Some(m) => (m.ts, m.label, m.files),
+            // Сайдкар не хранит размер — берём фактический размер снимка
+            // с диска (раньше в списке отдавался бессмысленный 0)
+            Some(m) => (
+                m.ts,
+                m.label,
+                m.files,
+                fs::metadata(e.path()).map(|d| d.len()).unwrap_or(0),
+            ),
             None => {
                 let Ok(bytes) = fs::read(e.path()) else { continue };
+                let size = bytes.len() as u64;
                 let Ok(store) = serde_json::from_slice::<CheckpointStore>(&bytes) else {
                     continue;
                 };
-                (store.ts, store.label, store.files.len())
+                (store.ts, store.label, store.files.len(), size)
             }
         };
         out.push(CheckpointMeta {
@@ -442,7 +450,7 @@ fn checkpoint_list_impl(app: tauri::AppHandle, path: String) -> Result<Vec<Check
             ts,
             label,
             files,
-            bytes: 0,
+            bytes,
         });
     }
     out.sort_by_key(|c| std::cmp::Reverse(c.ts));
