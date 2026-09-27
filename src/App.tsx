@@ -1968,6 +1968,8 @@ export default function App() {
           setSettingsOpen(true);
         }}
         onOpenAutomations={() => setAutomationsOpen(true)}
+        onOpenCompare={() => setCompareOpen(true)}
+        onOpenKnowledge={() => setKnowledgeOpen(true)}
         onOpenSearch={() => withViewTransition(() => setSearchOpen(true))}
         onSessionMenu={openMenu}
         onDeleteSession={handleDelete}
@@ -2066,8 +2068,6 @@ export default function App() {
         }}
         onClearChat={handleClearChat}
         onStop={stableHandleStop}
-        onOpenCompare={() => setCompareOpen(true)}
-        onOpenKnowledge={() => setKnowledgeOpen(true)}
         onOpenSettings={() => {
           setSettingsSection("main");
           setSettingsOpen(true);

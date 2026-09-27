@@ -144,7 +144,8 @@ export const SETTINGS_SEARCH_INDEX: { section: Section; keys: MsgKey[] }[] = [
     keys: ["ig.enabled", "ig.baseUrl", "ig.fallbackHint"],
   },
   {
-    section: "websearch",
+    // Веб-поиск переехал в раздел «Browser Use» (одна тема: сеть)
+    section: "browser",
     keys: ["ws.enabled", "ws.provider", "ws.searxngUrl", "ws.braveKeyDesc"],
   },
   {

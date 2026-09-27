@@ -55,6 +55,10 @@ interface SidebarProps {
   onOpenPlugins: () => void;
   /** Открыть экран «Автоматизации» */
   onOpenAutomations: () => void;
+  /** Сравнение моделей (общий промпт → параллельные стримы) */
+  onOpenCompare?: () => void;
+  /** Базы знаний (RAG-индексы + привязка к чату) */
+  onOpenKnowledge?: () => void;
 }
 
 const PROJECT_DOTS = ["bg-halo-accent", "bg-sky-400/80", "bg-emerald-400/80", "bg-amber-400/80"];
@@ -96,6 +100,8 @@ export default function Sidebar({
   onProjectRootChange,
   onOpenPlugins,
   onOpenAutomations,
+  onOpenCompare,
+  onOpenKnowledge,
 }: SidebarProps) {
   const { t, lang } = useLang();
   const [filesOpen, setFilesOpen] = useState(false);
@@ -358,6 +364,30 @@ export default function Sidebar({
             Ctrl+K
           </kbd>
         </button>
+        {/* Сравнение моделей: один промпт → параллельные стримы */}
+        {onOpenCompare && (
+          <button
+            onClick={onOpenCompare}
+            className="group flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-sm text-halo-text transition-colors hover:bg-halo-hover"
+          >
+            <span className="shrink-0 text-halo-muted transition-colors group-hover:text-halo-accent">
+              <ScalesIcon />
+            </span>
+            <span className="flex-1 text-left">{t("cmp.open")}</span>
+          </button>
+        )}
+        {/* Базы знаний: локальный RAG-индекс + привязка к чату */}
+        {onOpenKnowledge && (
+          <button
+            onClick={onOpenKnowledge}
+            className="group flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-sm text-halo-text transition-colors hover:bg-halo-hover"
+          >
+            <span className="shrink-0 text-halo-muted transition-colors group-hover:text-halo-accent">
+              <BookIcon />
+            </span>
+            <span className="flex-1 text-left">{t("kb.open")}</span>
+          </button>
+        )}
         {/* Автоматизации: запланированные задачи агента */}
         <button
           onClick={onOpenAutomations}
@@ -945,6 +975,27 @@ function ZapIcon() {
   return (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
       <path d="M13 2 4.5 13.5H11L9.5 22 19 10h-6.5L13 2z" />
+    </svg>
+  );
+}
+
+function ScalesIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 3v18" />
+      <path d="M8 21h8" />
+      <path d="M5 7h14" />
+      <path d="M7 7L4 13h6L7 7z" />
+      <path d="M17 7l-3 6h6l-3-6z" />
+    </svg>
+  );
+}
+
+function BookIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+      <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
     </svg>
   );
 }

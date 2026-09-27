@@ -193,7 +193,6 @@ const NAV: {
       { id: "plugins", key: "settings.plugins", icon: "grid" },
       { id: "mcp", key: "settings.mcp", icon: "plug" },
       { id: "imagegen", key: "settings.imagegen", icon: "image" },
-      { id: "websearch", key: "settings.websearch", icon: "globe" },
       { id: "prompts", key: "settings.prompts", icon: "skill" },
       { id: "skills", key: "settings.skills", icon: "spark" },
       { id: "agent", key: "settings.agent", icon: "terminal" },
@@ -742,7 +741,6 @@ export default function SettingsModal({
           {section === "docs" && <DocsSection />}
           {section === "mcp" && <McpSection />}
           {section === "imagegen" && <ImageGenSection />}
-          {section === "websearch" && <WebSearchSection />}
           {section === "hooks" && <HooksSection />}
           {section === "shortcuts" && (
             <ShortcutsSection
@@ -769,7 +767,14 @@ export default function SettingsModal({
           {section === "plugins" && (
             <PluginsSection plugins={plugins} onChange={onPluginsChange} />
           )}
-          {section === "browser" && <BrowserUseSection />}
+          {/* Веб-поиск живёт в разделе Browser Use: один theme-блок «сеть» —
+              поиск даёт сниппеты, браузер — полные страницы */}
+          {section === "browser" && (
+            <>
+              <BrowserUseSection />
+              <WebSearchSection />
+            </>
+          )}
           {section === "computer" && <ComputerUseSection />}
         </div>
       </div>
