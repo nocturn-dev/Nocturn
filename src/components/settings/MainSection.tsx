@@ -4,6 +4,8 @@ import { useLang, type Lang } from "../../locales";
 import type { HardLimits } from "../../limits";
 import { NOTIFY_SOUNDS, playSound, refreshCustomSound, NotifyPrefs } from "../../notify";
 import { pickSaveFile, pickJsonFile, pickAudioFile, pickCliFile, settingsReadAll, settingsWriteAll, settingsExportWrite, settingsImportRead, soundImport, soundDelete, collectLocal, restoreLocal, autostartIsEnabled, autostartSet, storageStats, storageCleanup, quickentrySetBind, dictationStatus, dictationDownloadModel, dictationSetConfig, type DictationStatus, type StorageStats } from "../../api";
+import { parseChatGptExport, parseGeminiExport } from "../../external/importChats";
+import type { Session } from "../../types";
 import { quickentryComboFromEvent, prettyQuickentryCombo } from "../../shortcuts";
 import { LangSwitch, Row, ToggleRow } from "./parts";
 
@@ -165,6 +167,7 @@ export function MainSection({
   onBrowserPanelChange,
   limits,
   onLimitsChange,
+  onImportSessions,
 }: {
   sidebarSide: "left" | "right";
   onSidebarSideChange: (side: "left" | "right") => void;
@@ -218,6 +221,8 @@ export function MainSection({
   /** Hard Limit: лимиты расхода на задачу (токены/$) */
   limits: HardLimits;
   onLimitsChange: (l: HardLimits) => void;
+  /** Импорт истории из внешних экспортов: готовые сессии App дописывает в список */
+  onImportSessions: (sessions: Session[]) => void;
 }) {
   const { t, lang } = useLang();
   // Версия — из самого приложения (tauri.conf.json), а не из локали: раньше
@@ -655,6 +660,39 @@ export function MainSection({
       />
       {/* Hard Limit: прерывание задачи при превышении лимитов расхода */}
       <HardLimitSection limits={limits} onChange={onLimitsChange} />
+      {/* Импорт истории из чужих экспортов (ChatGPT / Gemini Takeout) */}
+      <div className="rounded-xl border border-halo-line px-3.5 py-3">
+        <p className="text-sm text-halo-text">{t("import.externalTitle")}</p>
+        <p className="mt-0.5 text-xs leading-relaxed text-halo-muted">
+          {t("import.externalHint")}
+        </p>
+        <button
+          onClick={() => {
+            void (async () => {
+              try {
+                const path = await pickJsonFile();
+                if (!path) return;
+                const raw = await settingsImportRead(path);
+                const imported = [
+                  ...parseChatGptExport(raw),
+                  ...parseGeminiExport(raw),
+                ];
+                if (imported.length === 0) {
+                  window.alert(t("import.externalNone"));
+                  return;
+                }
+                onImportSessions(imported);
+                window.alert(t("import.externalDone", { n: imported.length }));
+              } catch (e) {
+                window.alert(String(e));
+              }
+            })();
+          }}
+          className="mt-2 rounded-lg border border-halo-line px-3 py-1.5 text-xs text-halo-text transition-colors hover:border-halo-accent/60 hover:text-halo-accent"
+        >
+          {t("import.externalBtn")}
+        </button>
+      </div>
       {/* Экспорт/импорт всех настроек одним файлом */}
       <div className="rounded-xl border border-halo-line px-3.5 py-3">
         <p className="text-sm text-halo-text">{t("main.exportTitle")}</p>
