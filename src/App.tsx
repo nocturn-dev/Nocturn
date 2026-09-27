@@ -63,6 +63,7 @@ import ResetConfirmModal from "./components/ResetConfirmModal";
 import ChatArea from "./components/ChatArea";
 import SettingsModal, { type Section } from "./components/SettingsModal";
 import AutomationsModal from "./components/AutomationsModal";
+import CompareModal from "./components/CompareModal";
 import BrowserPanel from "./components/BrowserPanel";
 import Toasts from "./components/Toast";
 import { isDue, loadAutomations, nextRunAfter, saveAutomations, VAULT_REPORT_SUFFIX } from "./automations";
@@ -137,6 +138,8 @@ export default function App() {
 
   // Экран «Автоматизации»
   const [automationsOpen, setAutomationsOpen] = useState(false);
+  // Сравнение моделей бок-о-бок (общий промпт → параллельные стримы)
+  const [compareOpen, setCompareOpen] = useState(false);
   // Плавающие уведомления (чекпоинты и пр.) — без строк в чате
   const { toasts, addToast } = useToasts();
   // Панель живого просмотра браузера агента + тумблер автооткрытия
@@ -2060,6 +2063,7 @@ export default function App() {
         }}
         onClearChat={handleClearChat}
         onStop={stableHandleStop}
+        onOpenCompare={() => setCompareOpen(true)}
         onOpenSettings={() => {
           setSettingsSection("main");
           setSettingsOpen(true);
@@ -2262,6 +2266,12 @@ export default function App() {
       <AutomationsModal
         open={automationsOpen}
         onClose={() => setAutomationsOpen(false)}
+      />
+      <CompareModal
+        open={compareOpen}
+        onClose={() => setCompareOpen(false)}
+        profiles={profiles}
+        current={apiSettings}
       />
       <BrowserPanel
         open={browserPanelOpen}
