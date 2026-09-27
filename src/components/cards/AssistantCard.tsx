@@ -7,8 +7,10 @@ import { shortModelName } from "../ProviderIcon";
 import { fmtInt } from "./util";
 import { CollapseButton } from "./CollapseButton";
 import { ErrorNote } from "./ErrorNote";
+import { MermaidBlock } from "./MermaidBlock";
 import { ToolStepCard } from "./ToolStepCard";
-import { ChevronDownIcon, PlusIcon, SubagentIcon, ToolIcon } from "./icons";
+import { ChevronDownIcon, PlusIcon, SpeakerIcon, SubagentIcon, ToolIcon } from "./icons";
+import { speak, stopSpeaking } from "../../tts";
 import {
   memo,
   useEffect,
@@ -54,6 +56,16 @@ function codeLanguage(node: unknown): string {
   return "";
 }
 
+/** Исходник fenced-блока из hast-дерева (pre → code → text): без DOM —
+ *  нужен ДО рендера, чтобы отдать код в MermaidBlock */
+function codeText(node: unknown): string {
+  const n = node as
+    | { children?: { children?: { value?: unknown }[] }[] }
+    | undefined;
+  const val = n?.children?.[0]?.children?.[0]?.value;
+  return typeof val === "string" ? val : "";
+}
+
 /** Блок кода из ответа модели: hover-кнопки «копировать» и «сохранить
     как файл» (fs_write в выбранный пользователем путь — ручное действие
     и есть согласие; пермишены агента здесь не участвуют). Для ```html —
@@ -97,6 +109,12 @@ function CodeBlock({
       window.alert(String(e));
     }
   };
+
+  // Mermaid: диаграмма вместо исходника (внутри — переключатель на код).
+  // Возврат после хуков — хуки выше зовутся безусловно
+  if (codeLanguage(_node) === "mermaid") {
+    return <MermaidBlock code={codeText(_node)} />;
+  }
 
   return (
     <div className="group/code relative">
@@ -240,6 +258,9 @@ function AssistantCardBase({
     [onPreviewArtifact],
   );
   const [openThought, setOpenThought] = useState(false);
+  // Озвучка этого ответа: индикатор на кнопке динамика (гаснет сам по
+  // завершении речи — tts_speak разрешается в конце)
+  const [speaking, setSpeaking] = useState(false);
   // Настройка «показывать рассуждения»: первый блок в сообщении раскрывается
   // сам; защёлка — чтобы ручное закрытие не перебивалось каждым чанком
   const reasoningLatched = useRef(false);
@@ -320,6 +341,23 @@ function AssistantCardBase({
             {/* Фейковые фазы («Планирование/Генерация кода») удалены:
                 живой статус хода приходит через hint из движка */}
           </span>
+        )}
+        {!isStreaming && message.content.trim() !== "" && (
+          <button
+            onClick={() =>
+              speaking ? stopSpeaking() : speak(message.content, setSpeaking)
+            }
+            title={speaking ? t("tts.stop") : t("tts.listen")}
+            className={`ml-auto flex shrink-0 items-center rounded-md p-1 transition-colors ${
+              speaking
+                ? "bg-halo-accent/15 text-halo-accent"
+                : "text-halo-muted/70 hover:bg-halo-hover hover:text-halo-text"
+            }`}
+          >
+            <span className={speaking ? "animate-pulse" : ""}>
+              <SpeakerIcon />
+            </span>
+          </button>
         )}
       </div>
 

@@ -533,6 +533,13 @@ html.motion-reduced body::before {
 .markdown tr:nth-child(2n) td {
   background: color-mix(in srgb, var(--halo-surface) 45%, transparent);
 }
+
+/* Mermaid-диаграммы (```mermaid → MermaidBlock): SVG вписывается в ширину
+   карточки, фон панели уже задан контейнером */
+.mermaid-host svg {
+  max-width: 100%;
+  height: auto;
+}
 .markdown code:not(pre code) {
   background: var(--halo-raised);
   border-radius: 0.375rem;

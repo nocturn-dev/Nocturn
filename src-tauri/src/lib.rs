@@ -25,6 +25,7 @@ mod plugins;
 mod dictation;
 mod settings;
 mod tooling;
+mod tts;
 pub mod mcp;
 mod perm;
 #[cfg(target_os = "linux")]
@@ -280,6 +281,8 @@ pub fn run() {
             dictation::dictation_set_config,
             dictation::dictation_download_model,
             dictation::dictation_transcribe,
+            tts::tts_speak,
+            tts::tts_stop,
             pty::pty_create,
             pty::pty_write,
             pty::pty_resize,
@@ -352,6 +355,7 @@ pub fn run() {
                 if let Some(registry) = app.try_state::<colibri::ColibriRegistry>() {
                     colibri::kill_on_exit(&registry);
                 }
+                tts::kill_on_exit();
                 cleanup_browser_profiles();
             }
         });
