@@ -136,6 +136,8 @@ export function MainSection({
   printSpeed,
   hardMode,
   onHardModeChange,
+  gitAutocommit,
+  onGitAutocommitChange,
   showReasoning,
   transcriptView,
   askAutoContinue,
@@ -187,6 +189,9 @@ export function MainSection({
   /** Hard-Mode: терминальный скин */
   hardMode: boolean;
   onHardModeChange: (v: boolean) => void;
+  /** Git-автокоммит перед правками агента (opt-in) */
+  gitAutocommit: boolean;
+  onGitAutocommitChange: (v: boolean) => void;
   showReasoning: boolean;
   onShowReasoningChange: (v: boolean) => void;
   /** Вид ленты по умолчанию: normal | thinking | verbose */
@@ -652,6 +657,12 @@ export function MainSection({
       </div>
       </Group>
       <Group title={t("main.g4")} desc={t("main.g4Desc")} gap="space-y-3">
+      <ToggleRow
+        label={t("git.autocommitTitle")}
+        desc={t("git.autocommitDesc")}
+        on={gitAutocommit}
+        onChange={onGitAutocommitChange}
+      />
       <ToggleRow
         label={t("main.hardMode")}
         desc={t("main.hardModeDesc")}

@@ -1534,3 +1534,9 @@ export async function pickCliFile(): Promise<string | null> {
   });
   return typeof picked === "string" ? picked : null;
 }
+
+/** Git-автокоммит перед правками прогона (Aider-паттерн); false — не репо/нечего коммитить */
+export async function gitAutocommit(root: string, message: string): Promise<boolean> {
+  if (!inTauri) return false;
+  return invoke<boolean>("git_autocommit", { root, message });
+}

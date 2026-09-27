@@ -79,6 +79,9 @@ interface SettingsModalProps {
   /** Hard-Mode: терминальный скин */
   hardMode: boolean;
   onHardModeChange: (v: boolean) => void;
+  /** Git-автокоммит перед правками агента (opt-in) */
+  gitAutocommit: boolean;
+  onGitAutocommitChange: (v: boolean) => void;
   showReasoning: boolean;
   onShowReasoningChange: (v: boolean) => void;
   /** Вид ленты по умолчанию: normal | thinking | verbose */
@@ -240,6 +243,8 @@ export default function SettingsModal({
   streamSmooth,
   highlightLive,
   hardMode,
+  gitAutocommit,
+  onGitAutocommitChange,
   onHardModeChange,
   printSpeed,
   showReasoning,
@@ -634,6 +639,8 @@ export default function SettingsModal({
               onHighlightLiveChange={onHighlightLiveChange}
               printSpeed={printSpeed}
               hardMode={hardMode}
+              gitAutocommit={gitAutocommit}
+              onGitAutocommitChange={onGitAutocommitChange}
               onHardModeChange={onHardModeChange}
               onPrintSpeedChange={onPrintSpeedChange}
               showReasoning={showReasoning}
