@@ -203,11 +203,15 @@ export function AmbientLayer({
       }
     };
     resize();
-    window.addEventListener("resize", () => {
+    // Именованный обработчик: removeEventListener матчится по ссылке —
+    // раньше снималась незарегистрированная `resize`, и каждый перезапуск
+    // эффекта (смена сцены/плотности) вешал ещё один висячий слушатель
+    const onResize = () => {
       resize();
       // reduce-motion: цикла нет — статичный кадр пересобирается на ресайзе
       if (reduceMotion) render(performance.now());
-    });
+    };
+    window.addEventListener("resize", onResize);
 
     const drawFog = () => {
       const g = ctx.createLinearGradient(0, 0, 0, h);
@@ -371,7 +375,7 @@ export function AmbientLayer({
     return () => {
       alive = false;
       cancelAnimationFrame(raf);
-      window.removeEventListener("resize", resize);
+      window.removeEventListener("resize", onResize);
     };
   }, [scene, isVideo, density]);
 
