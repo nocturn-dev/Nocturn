@@ -209,6 +209,12 @@ export default function Sidebar({
               <PinIcon />
             </span>
           )}
+          {/* Ветка edit-and-resend: оригинал в списке рядом, возврат кликом */}
+          {s.branchedFrom && (
+            <span title={t("branch.badge")} className="shrink-0 text-halo-accent/80">
+              ↳
+            </span>
+          )}
           <span className="min-w-0 flex-1 truncate">{s.title}</span>
           {/* Тег-метка чата */}
           {s.tag && (

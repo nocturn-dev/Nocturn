@@ -726,6 +726,8 @@ export const en = {
     "dictation.ready": "Ready: microphone button is in the composer",
     "dictation.micDenied": "Microphone access denied",
     "dictation.empty": "No speech recognized",
+    "branch.created": "Branch created — the original is kept",
+    "branch.badge": "Branch of this conversation",
     "main.g1": "Interface & launch",
     "main.g1Desc": "Everything about first launch, window display and language.",
     "main.g2": "Answer display",

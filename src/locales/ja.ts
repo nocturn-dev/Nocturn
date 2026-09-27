@@ -776,6 +776,8 @@ export const ja = {
     "dictation.ready": "準備完了:入力欄にマイクボタンがあります",
     "dictation.micDenied": "マイクへのアクセスが拒否されました",
     "dictation.empty": "音声を認識できませんでした",
+    "branch.created": "ブランチを作成しました——元の会話は保持されます",
+    "branch.badge": "この会話のブランチ",
     "main.g1": "インターフェースと起動",
     "main.g1Desc": "初回起動、ウィンドウ表示、言語に関する設定。",
     "main.g2": "回答の表示",

@@ -423,9 +423,12 @@ export function useAgentRun(deps: AgentRunDeps) {
       projectRootRef.current ? [projectRootRef.current] : [],
     ).catch(() => {});
 
-    // Редактирование: сообщения после правленого срезаются, сессия
-    // подменяется в currentOverride (sessionsRef ещё протухший)
+    // Редактирование с ветвлением: оригинальная сессия остаётся нетронутой,
+    // правленый диалог уезжает в новую сессию-ветку (edit-and-resend: форк
+    // от хода, оригинал восстанавливается кликом в списке). Раньше хвост
+    // после правленого сообщения срезался навсегда
     let currentOverride: Session | undefined;
+    let editAttachments: Attachment[] | undefined;
     if (editMsgId) {
       const src = sessionsRef.current.find((s) => s.id === targetId);
       const orig = src?.messages.find((m) => m.id === editMsgId);
@@ -434,29 +437,42 @@ export function useAgentRun(deps: AgentRunDeps) {
         return;
       }
       const kept = src.messages.slice(0, src.messages.indexOf(orig));
-      currentOverride = { ...src, messages: kept };
-      setSessions((prev) =>
-        prev.map((s) => (s.id === src.id ? { ...s, messages: kept } : s)),
-      );
+      const branch: Session = {
+        id: uid(),
+        title: src.title,
+        createdAt: Date.now(),
+        messages: kept,
+        projectId: src.projectId,
+        systemPrompt: src.systemPrompt,
+        agentMode: src.agentMode,
+        allowedCommands: src.allowedCommands,
+        permissionMode: src.permissionMode,
+        disabledTools: src.disabledTools,
+        profileId: src.profileId,
+        branchedFrom: { sessionId: src.id, messageId: editMsgId },
+      };
+      setSessions((prev) => [branch, ...prev]);
+      setActiveId(branch.id);
+      targetId = branch.id;
+      currentOverride = branch;
+      editAttachments = orig.attachments;
+      addToast(t("branch.created"));
     }
 
     const userMsg: Message =
-      editMsgId && currentOverride
-        ? {
-            // id сохраняем — DOM-узел и привязки остаются теми же
-            ...(sessionsRef.current
-              .find((s) => s.id === targetId)
-              ?.messages.find((m) => m.id === editMsgId) ?? { id: editMsgId }),
-            role: "user",
-            content: text,
-          }
-        : {
-            id: uid(),
-            role: "user",
-            content: text,
-            attachments: images.length > 0 ? images : undefined,
-            quote: quote?.trim() || undefined,
-          };
+      editMsgId ? {
+        id: uid(),
+        role: "user",
+        content: text,
+        attachments: images.length > 0 ? images : editAttachments,
+        quote: quote?.trim() || undefined,
+      } : {
+        id: uid(),
+        role: "user",
+        content: text,
+        attachments: images.length > 0 ? images : undefined,
+        quote: quote?.trim() || undefined,
+      };
     // targetId финализирован — фиксируем сессию активного прогона
     streamingTargetRef.current = targetId;
 

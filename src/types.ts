@@ -109,6 +109,9 @@ export interface Session {
   tag?: string;
   /** План задач агента: перезаписывается только вызовом plan_update */
   plan?: PlanTask[];
+  /** Происхождение ветки (edit-and-resend): сессия и сообщение, от которых
+   *  форкнулись. Оригинальная сессия при форке не меняется */
+  branchedFrom?: { sessionId: string; messageId: string };
 }
 
 export interface Project {
