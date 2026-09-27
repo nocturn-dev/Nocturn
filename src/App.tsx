@@ -873,6 +873,33 @@ export default function App() {
     streamingActiveRef.current = streamingId !== null;
   }, [streamingId]);
 
+  // Прогрев аудиотракта по ПЕРВОМУ жесту в окне, а не по таймеру при старте:
+  // открытие микрофона заставляет Windows приглушать чужую музыку под
+  // «связь» (тот же эффект, что у Discord) и переводит BT-гарнитуру в
+  // режим гарнитуры — на запуске это воспринималось как «Nocturn глушит
+  // музыку». Тот же первый getUserMedia в сессии WebView2 морозил UI на
+  // секунды. Гасим обе неприятности в момент первого клика/клавиши, когда
+  // пользователь уже активно пользуется окном; до жеста — ни звука
+  useEffect(() => {
+    let warmed = false;
+    const warm = () => {
+      if (warmed) return;
+      warmed = true;
+      window.removeEventListener("pointerdown", warm, true);
+      window.removeEventListener("keydown", warm, true);
+      void navigator.mediaDevices
+        ?.getUserMedia({ audio: true })
+        .then((s) => s.getTracks().forEach((t) => t.stop()))
+        .catch(() => {});
+    };
+    window.addEventListener("pointerdown", warm, true);
+    window.addEventListener("keydown", warm, true);
+    return () => {
+      window.removeEventListener("pointerdown", warm, true);
+      window.removeEventListener("keydown", warm, true);
+    };
+  }, []);
+
   // C9: стабильные обёртки для колбэков движка — handleSend/handleStop
   // пересоздаются каждый рендер (heavy-хук), а ChatArea получает их пропсами.
   // handleSendRef внутри хука уже держит свежую версию — читаем через ref
