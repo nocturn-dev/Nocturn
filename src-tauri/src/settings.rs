@@ -435,6 +435,7 @@ const EXPORT_FILES: &[&str] = &[
     "imagegen.json",
     "browser.json",
     "computer.json",
+    "websearch.json",
     "crypto.json",
 ];
 
@@ -498,6 +499,14 @@ fn mask_secrets(file: &str, v: &mut serde_json::Value) {
         // enc:v1:…) — без ветки он уходил в «поделенный» экспорт как есть
         "imagegen.json" => {
             if let Some(k) = v.get_mut("api_key") {
+                *k = blank();
+            }
+        }
+        // Brave-ключ веб-поиска — та же категория секрета (на диске тоже
+        // enc:v1:…); без ветки конфиг поиска не переносился экспортом,
+        // а с ключом — утекал в «поделенный» файл
+        "websearch.json" => {
+            if let Some(k) = v.get_mut("brave_key") {
                 *k = blank();
             }
         }
