@@ -26,6 +26,7 @@ import { buildHistory, buildMemoryBlock } from "../agent/history";
 import { buildProfileBlock } from "../userProfile";
 import { evalHardLimit } from "../limits";
 import { filterToolSchemas } from "../agent/toolFilter";
+import { runPython, CODE_RUN_SCHEMA } from "../codeRun";
 import { StreamDeltaBuffer, applyMainDeltas } from "./streamBuffer";
 import { notifyTaskDone, type NotifyPrefs } from "../notify";
 import { useLang } from "../locales";
@@ -819,14 +820,20 @@ export function useAgentRun(deps: AgentRunDeps) {
     const tools = isAgent
       ? await getToolSchemas()
           .then((t) =>
-            filterToolSchemas(t, {
-              // Субагенты выключены — схема subagent_run не отдаётся модели
-              removeSubagent: !subConfigRef.current.enabled,
-              // Память выключена — memory_* не отдаются
-              removeMemory: !memoryEnabled,
-              // Инструменты, скрытые пользователем из этой задачи
-              disabled: current?.disabledTools,
-            }),
+            filterToolSchemas(
+              // code_run исполняется в вебвью (Pyodide-песочница), мимо
+              // бекенда — схему добавляем в общий список ДО фильтра, чтобы
+              // пользовательский disabled-список работал и для него
+              [...(Array.isArray(t) ? t : []), CODE_RUN_SCHEMA],
+              {
+                // Субагенты выключены — схема subagent_run не отдаётся модели
+                removeSubagent: !subConfigRef.current.enabled,
+                // Память выключена — memory_* не отдаются
+                removeMemory: !memoryEnabled,
+                // Инструменты, скрытые пользователем из этой задачи
+                disabled: current?.disabledTools,
+              },
+            ),
           )
           .catch(() => undefined)
       : undefined;
@@ -1217,6 +1224,26 @@ export function useAgentRun(deps: AgentRunDeps) {
 
       const execTool = (name: string, args: string) => {
         setActivity(t("activity.toolRun", { name }));
+        // code_run: локальная Pyodide-песочница (Worker без доступа к IPC и
+        // диску) — мимо бекенда и perm-слоя. Не мутирующий: код не трогает
+        // ФС/процессы, disabled-гардал применён выше фильтром схем
+        if (name === "code_run") {
+          let code = "";
+          try {
+            code = (JSON.parse(args) as { code?: string }).code ?? "";
+          } catch {
+            code = args; // модель прислала не-JSON — исполняем как есть
+          }
+          return runPython(code).then((r) =>
+            JSON.stringify({
+              ok: r.ok,
+              stdout: r.stdout,
+              stderr: r.stderr,
+              ...(r.error ? { error: r.error } : {}),
+              ...(r.result ? { result: r.result } : {}),
+            }),
+          );
+        }
         // Первый browser_*-инструмент прогона — открыть панель просмотра
         if (
           name.startsWith("browser_") &&

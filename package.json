@@ -10,6 +10,7 @@
     "tauri": "tauri",
     "lint": "eslint src",
     "test": "vitest run",
+    "postinstall": "node scripts/copy-pyodide.mjs",
     "verify": "node scripts/verify.mjs all",
     "verify:fast": "node scripts/verify.mjs fast"
   },
@@ -21,6 +22,7 @@
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
     "highlight.js": "^11.12.0",
+    "pyodide": "^314.0.7",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "react-markdown": "^10.1.0",
