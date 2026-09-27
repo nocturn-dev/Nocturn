@@ -41,6 +41,7 @@ import {
   onClearDataRequest,
   onQuickEntryTask,
   quickentrySetBind,
+  quickentryStatus,
   factoryReset,
 } from "./api";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
@@ -905,14 +906,24 @@ export default function App() {
   }, [activeRunRef, addToast, t, stableHandleSend]);
 
   // Quick Entry: применить сохранённый ремап комбо (дефолт уже зарегистрирован
-  // на бекенде в setup; промах — комбо занято другим приложением, остаётся
-  // дефолт: молча это выглядело как «настройка не работает»)
+  // на бекенде в setup; промах — комбо занято другим приложением, бэк вернёт
+  // дефолт). Затем статус регистрации: на Wayland-подобных системах глобальный
+  // хоткей недоступен вовсе — сообщаем тостом вместо вечной тишины
   useEffect(() => {
-    const saved = localStorage.getItem("haloui-quickentry-bind");
-    if (saved)
-      void quickentrySetBind(saved).catch(() => {
-        addToast(t("main.quickentryBindFail"));
-      });
+    let cancelled = false;
+    void (async () => {
+      const saved = localStorage.getItem("haloui-quickentry-bind");
+      if (saved) {
+        await quickentrySetBind(saved).catch(() => {
+          if (!cancelled) addToast(t("main.quickentryBindFail"));
+        });
+      }
+      const ok = await quickentryStatus().catch(() => true);
+      if (!ok && !cancelled) addToast(t("main.quickentryUnavailable"));
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [addToast, t]);
 
   // pendingConfirm/pendingAsk раньше считались IIFE прямо в JSX: новый объект
