@@ -455,9 +455,25 @@ export default function ChatArea({
 
   const startRecording = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
-      });
+      // Микрофон, выбранный в «Основном» (ключ дублирует MainSection);
+      // пусто — системный по умолчанию. Фолбэк: выбранное устройство могло
+      // отключиться — OverconstrainedError не должен ломать запись совсем
+      const micId = localStorage.getItem("haloui-mic-device") ?? "";
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            ...(micId ? { deviceId: { exact: micId } } : {}),
+            channelCount: 1,
+            echoCancellation: true,
+            noiseSuppression: true,
+          },
+        });
+      } catch {
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
+        });
+      }
       const ctx = new AudioContext({ sampleRate: 16000 });
       const src = ctx.createMediaStreamSource(stream);
       const node = ctx.createScriptProcessor(4096, 1, 1);
@@ -1702,7 +1718,7 @@ export default function ChatArea({
         <div className="mx-auto w-full max-w-3xl">
           {/* z-30 выше ленты сообщений (z-10): glass-pane создаёт stacking
               context, и палитра slash без этого слоя оказывалась под лентой */}
-          <div className="glass-pane relative z-30 rounded-2xl border border-halo-line bg-halo-surface p-2.5 shadow-sm transition duration-200 focus-within:border-halo-accent/60 focus-within:shadow-[0_0_0_3px_var(--halo-accent-focus)]">
+          <div className="glass-pane relative z-30 rounded-2xl border border-halo-line bg-halo-surface p-2.5 shadow-sm transition duration-200">
             {/* Палитра скилов (&) */}
             {skillActive && skillMatches.length > 0 && (
               <div className="scroll-slim absolute bottom-full left-0 right-0 z-20 mb-2 max-h-64 overflow-y-auto rounded-xl border border-halo-line bg-halo-deep/95 p-1.5 shadow-xl backdrop-blur">

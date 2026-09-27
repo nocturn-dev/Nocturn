@@ -7,7 +7,7 @@ import { pickSaveFile, pickJsonFile, pickAudioFile, pickCliFile, settingsReadAll
 import { parseChatGptExport, parseGeminiExport } from "../../external/importChats";
 import type { Session } from "../../types";
 import { quickentryComboFromEvent, prettyQuickentryCombo } from "../../shortcuts";
-import { LangSwitch, Row, ToggleRow } from "./parts";
+import { Dropdown, LangSwitch, Row, ToggleRow } from "./parts";
 
 export function HardLimitSection({
   limits,
@@ -341,6 +341,39 @@ export function MainSection({
       : !dictStatus.modelExists
         ? t("dictation.needModel")
         : t("dictation.ready");
+  // Микрофон диктовки: выбор устройства ввода (ключ дублирует ChatArea —
+  // там deviceId в getUserMedia). Метки устройств пусты, пока браузер не
+  // выдал разрешение на микрофон — до того показываем безымянные опции
+  const [mics, setMics] = useState<MediaDeviceInfo[]>([]);
+  const [micId, setMicId] = useState(
+    () => localStorage.getItem("haloui-mic-device") ?? "",
+  );
+  const refreshMics = useCallback(() => {
+    void navigator.mediaDevices
+      ?.enumerateDevices()
+      .then((all) => setMics(all.filter((d) => d.kind === "audioinput")))
+      .catch(() => {});
+  }, []);
+  useEffect(() => {
+    refreshMics();
+    navigator.mediaDevices?.addEventListener?.("devicechange", refreshMics);
+    return () =>
+      navigator.mediaDevices?.removeEventListener?.("devicechange", refreshMics);
+  }, [refreshMics]);
+  const pickMic = (id: string) => {
+    setMicId(id);
+    localStorage.setItem("haloui-mic-device", id);
+    if (!id) return;
+    // Короткий запрос выбранного устройства: выдаёт разрешение, после чего
+    // в списке появляются настоящие названия вместо «Микрофон N»
+    void navigator.mediaDevices
+      ?.getUserMedia({ audio: { deviceId: { exact: id } } })
+      .then((s) => {
+        s.getTracks().forEach((tr) => tr.stop());
+        refreshMics();
+      })
+      .catch(() => {});
+  };
   useEffect(() => {
     if (!qeRecording) return;
     const onKey = (e: KeyboardEvent) => {
@@ -546,6 +579,25 @@ export function MainSection({
               {t("dictation.pickCli")}
             </button>
           </div>
+        }
+      />
+      <Row
+        label={t("dictation.micLabel")}
+        desc={t("dictation.micDesc")}
+        value=""
+        extra={
+          <Dropdown
+            value={micId}
+            options={[
+              { value: "", label: t("dictation.micDefault") },
+              ...mics.map((d, i) => ({
+                value: d.deviceId,
+                label: d.label || t("dictation.micUnnamed", { n: String(i + 1) }),
+              })),
+            ]}
+            onSelect={pickMic}
+            className="w-60"
+          />
         }
       />
       {/* Уведомления, когда пользователь не в приложении */}
