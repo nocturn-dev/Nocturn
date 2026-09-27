@@ -1338,6 +1338,18 @@ export interface Plugin {
     tools: string[] | null;
     maxSteps: number;
   }[];
+  /** Хуки пака: исполняемые по своей природе — применяются только после
+   *  явного подтверждения при установке пака */
+  hooks?: Hook[];
+  /** MCP-серверы пака: имя совпадает с установленным — пак перезаписывает */
+  mcpServers?: McpServerCfg[];
+}
+
+/** Экспортируемый набор: все установленные плагины одним файлом */
+export interface PluginPackFile {
+  kind: "nocturn-plugin-pack";
+  version: 1;
+  plugins: Plugin[];
 }
 
 export async function pluginRead(path: string): Promise<Partial<Plugin>> {

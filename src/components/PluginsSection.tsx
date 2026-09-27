@@ -1,7 +1,19 @@
 /** Раздел «Плагины»: импорт бандлов (plugin.json) с командами/скилами/ролями */
 import { useState } from "react";
 import { useLang } from "../locales";
-import { pluginRead, pluginsSave, type Plugin } from "../api";
+import {
+  hooksSave,
+  mcpSaveServers,
+  mcpListServers,
+  pluginRead,
+  pluginsSave,
+  hooksLoad,
+  chatExportWrite,
+  pickSaveFile,
+  type Hook,
+  type McpServerCfg,
+  type Plugin,
+} from "../api";
 import { MiniTrashIcon } from "./settings/parts";
 
 export default function PluginsSection({
@@ -14,10 +26,27 @@ export default function PluginsSection({
   const { t } = useLang();
   const [error, setError] = useState<string | null>(null);
   const [imported, setImported] = useState<Partial<Plugin> | null>(null);
+  // Хуки/MCP из пака — исполняемые: применяются только после подтверждения
+  const [packHooks, setPackHooks] = useState<Hook[] | null>(null);
+  const [packMcp, setPackMcp] = useState<McpServerCfg[] | null>(null);
 
   const persist = (next: Plugin[]) => {
     onChange(next);
     pluginsSave(next).catch((e) => setError(String(e)));
+  };
+
+  // Экспорт всех установленных плагинов одним файлом-паком: шаринг
+  // воркфлоу между машинами/пользователями без ручного пересборки
+  const exportPack = async () => {
+    try {
+      setError(null);
+      const path = await pickSaveFile("nocturn-plugin-pack.json", "json");
+      if (!path) return;
+      const pack = { kind: "nocturn-plugin-pack", version: 1, plugins };
+      await chatExportWrite(path, JSON.stringify(pack, null, 2));
+    } catch (e) {
+      setError(String(e));
+    }
   };
 
   const pickAndRead = async () => {
@@ -30,10 +59,32 @@ export default function PluginsSection({
       });
       if (!picked || typeof picked !== "string") return;
       const manifest = await pluginRead(picked);
+      // Набор паков (экспорт «все плагины разом») — ставим все без вопросов:
+      // плагины v1 не несут hooks/MCP, исполняемое сюда не попадает
+      if (
+        (manifest as { kind?: string }).kind === "nocturn-plugin-pack" &&
+        Array.isArray((manifest as { plugins?: unknown }).plugins)
+      ) {
+        const pack = manifest as unknown as {
+          plugins: Plugin[];
+        };
+        const merged = [...plugins];
+        for (const p of pack.plugins) {
+          const i = merged.findIndex((m) => m.name === p.name);
+          if (i >= 0) merged[i] = p;
+          else merged.push(p);
+        }
+        persist(merged);
+        return;
+      }
       if (!manifest.name) {
         setError(t("plug.noName"));
         return;
       }
+      const hooks = Array.isArray(manifest.hooks) ? manifest.hooks : null;
+      const mcpServers = Array.isArray(manifest.mcpServers) ? manifest.mcpServers : null;
+      setPackHooks(hooks);
+      setPackMcp(mcpServers);
       setImported({
         name: manifest.name,
         version: manifest.version ?? "1.0.0",
@@ -49,6 +100,12 @@ export default function PluginsSection({
 
   const confirmInstall = () => {
     if (!imported?.name) return;
+    // Хуки/MCP исполняемы (AGENTS.md: произвольная запись в конфиг = RCE-вектор):
+    // установка только явным подтверждением пользователя
+    if ((packHooks?.length ?? 0) + (packMcp?.length ?? 0) > 0) {
+      const ok = window.confirm(t("plug.execConfirm"));
+      if (!ok) return;
+    }
     const full: Plugin = {
       name: imported.name,
       version: imported.version ?? "1.0.0",
@@ -59,6 +116,35 @@ export default function PluginsSection({
       roles: imported.roles ?? [],
     };
     persist([...plugins.filter((p) => p.name !== full.name), full]);
+    // Хуки пака добавляются к пользовательским (id генерим заново — без коллизий)
+    if (packHooks && packHooks.length > 0) {
+      void hooksLoad()
+        .then((file) => {
+          const existing = file.hooks ?? [];
+          const add = packHooks.map((h, i) => ({
+            ...h,
+            id: `${h.id}-pack-${Date.now()}-${i}`,
+          }));
+          return hooksSave({ hooks: [...existing, ...add] });
+        })
+        .catch((e) => setError(String(e)));
+    }
+    // MCP-серверы: имя совпадает — пак перезаписывает (превью предупреждает)
+    if (packMcp && packMcp.length > 0) {
+      void mcpListServers()
+        .then((current) => {
+          const merged = [...current];
+          for (const srv of packMcp) {
+            const i = merged.findIndex((m) => m.name === srv.name);
+            if (i >= 0) merged[i] = srv;
+            else merged.push(srv);
+          }
+          return mcpSaveServers(merged);
+        })
+        .catch((e) => setError(String(e)));
+    }
+    setPackHooks(null);
+    setPackMcp(null);
     setImported(null);
   };
 
@@ -71,12 +157,21 @@ export default function PluginsSection({
         {t("plug.desc")}
       </p>
 
-      <button
-        onClick={() => void pickAndRead()}
-        className="rounded-lg bg-halo-accent px-3.5 py-1.5 text-sm font-medium text-white transition-colors hover:bg-halo-accent-deep"
-      >
-        {t("plug.import")}
-      </button>
+      <div className="flex flex-wrap gap-2">
+        <button
+          onClick={() => void pickAndRead()}
+          className="rounded-lg bg-halo-accent px-3.5 py-1.5 text-sm font-medium text-white transition-colors hover:bg-halo-accent-deep"
+        >
+          {t("plug.import")}
+        </button>
+        <button
+          onClick={() => void exportPack()}
+          disabled={plugins.length === 0}
+          className="rounded-lg border border-halo-line px-3.5 py-1.5 text-sm text-halo-text transition-colors hover:border-halo-accent/60 hover:text-halo-accent disabled:opacity-50"
+        >
+          {t("plug.exportPack")}
+        </button>
+      </div>
 
       {/* Предпросмотр перед установкой */}
       {imported && (
@@ -103,6 +198,16 @@ export default function PluginsSection({
               `${imported.roles?.length ?? 0} ${t("plug.roles")}`,
             ].join(" · ")}
           </p>
+          {(packHooks?.length ?? 0) > 0 && (
+            <p className="text-xs font-medium text-amber-400">
+              {t("plug.bringsHooks", { n: String(packHooks!.length) })}
+            </p>
+          )}
+          {(packMcp?.length ?? 0) > 0 && (
+            <p className="text-xs font-medium text-amber-400">
+              {t("plug.bringsMcp", { n: String(packMcp!.length) })}
+            </p>
+          )}
           <div className="flex justify-end gap-2">
             <button
               onClick={() => setImported(null)}
