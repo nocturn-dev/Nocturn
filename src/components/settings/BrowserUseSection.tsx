@@ -88,7 +88,7 @@ export function BrowserUseSection() {
         )}
       </div>
 
-      <p className="mt-3 text-xs leading-relaxed text-halo-muted/70">
+      <p className="mt-3 px-2.5 text-xs leading-relaxed text-halo-muted/70">
         {t("bu.note")}
       </p>
     </div>

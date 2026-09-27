@@ -34,7 +34,7 @@ import { ToolStepCard } from "./cards/ToolStepCard";
 import { TypingBubble } from "./cards/TypingBubble";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { UserCard } from "./cards/UserCard";
-import { ArrowUpIcon, ChevronDownIcon, CorrectIcon, MicIcon, PaperclipIcon, PermModeIcon, QueueIcon, QuoteIcon, RobotIcon, ShieldIcon, SlidersIcon, SparkIcon, StopIcon, SystemPromptIcon, TerminalIcon, TrashIcon, WrenchIcon, XSmallIcon } from "./cards/icons";
+import { ArrowUpIcon, BookIcon, ChevronDownIcon, CorrectIcon, MicIcon, PaperclipIcon, PermModeIcon, QueueIcon, QuoteIcon, RobotIcon, ScalesIcon, ShieldIcon, SlidersIcon, SparkIcon, StopIcon, SystemPromptIcon, TerminalIcon, TrashIcon, WrenchIcon, XSmallIcon } from "./cards/icons";
 import { fmtInt, fmtK } from "./cards/util";
 
 interface ChatAreaProps {
@@ -80,6 +80,9 @@ interface ChatAreaProps {
   onCorrect?: (text: string) => void;
   onStop: () => void;
   onOpenSettings: () => void;
+  /** Открыть «Сравнение моделей» / «Базы знаний» (иконки в шапке чата) */
+  onOpenCompare?: () => void;
+  onOpenKnowledge?: () => void;
   onSetSystemPrompt: (prompt: string | null) => void;
   onApplyPreset: (prompt: string) => void;
   onToggleAgent: () => void;
@@ -313,6 +316,8 @@ export default function ChatArea({
   onCorrect,
   onStop,
   onOpenSettings,
+  onOpenCompare,
+  onOpenKnowledge,
   onSetSystemPrompt,
   onApplyPreset,
   onToggleAgent,
@@ -1524,6 +1529,24 @@ export default function ChatArea({
               Σ{fmtK(totals.all, lang)}
             </span>
           </span>
+        )}
+        {onOpenCompare && (
+          <button
+            onClick={onOpenCompare}
+            title={t("cmp.open")}
+            className="mr-1 rounded-md p-1.5 text-halo-muted transition duration-150 hover:bg-halo-hover hover:text-halo-text"
+          >
+            <ScalesIcon />
+          </button>
+        )}
+        {onOpenKnowledge && (
+          <button
+            onClick={onOpenKnowledge}
+            title={t("kb.open")}
+            className="mr-1 rounded-md p-1.5 text-halo-muted transition duration-150 hover:bg-halo-hover hover:text-halo-text"
+          >
+            <BookIcon />
+          </button>
         )}
         <button
           onClick={() => setSysOpen(true)}

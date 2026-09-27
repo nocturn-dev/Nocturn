@@ -157,7 +157,8 @@ export const SETTINGS_SEARCH_INDEX: { section: Section; keys: MsgKey[] }[] = [
     keys: ["skills.desc", "skills.palette", "skills.fromPlugin"],
   },
   {
-    section: "agent",
+    // Allowlist'ы агента живут в разделе «Команды»
+    section: "commands",
     keys: ["agent.allowlistDesc", "agent.allowlistAllTitle"],
   },
   {

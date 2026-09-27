@@ -439,6 +439,12 @@ pub async fn chat_stream(
     // уезжают одним emit'ом (см. DeltaBatcher)
     let mut sink = |event| emit_feed_event(&app, &request_id, event);
     let mut batch = DeltaBatcher::new(&mut sink);
+    // Учёт для оценки: провайдеры над OpenAI-слоем часто игнорируют
+    // stream_options (include_usage) и молчат о токенах — тогда после
+    // стрима уезжает оценка (см. хвост ниже), иначе «Обзор», тренды и
+    // Hard Limit молчат на таких провайдерах вечно
+    let mut saw_usage = false;
+    let mut completion_chars = 0usize;
     'outer: loop {
         let chunk = match tokio::time::timeout(STREAM_IDLE_TIMEOUT, stream.next()).await {
             Ok(item) => item,
@@ -473,6 +479,13 @@ pub async fn chat_stream(
                 break 'outer;
             }
             for event in acc.feed(data) {
+                match &event {
+                    FeedEvent::Usage { .. } => saw_usage = true,
+                    FeedEvent::Content { delta } | FeedEvent::Thought { delta } => {
+                        completion_chars += delta.chars().count();
+                    }
+                    _ => {}
+                }
                 batch.push(event)?;
             }
         }
@@ -487,9 +500,36 @@ pub async fn chat_stream(
     // пользователем вышло ранним return. AnthropicAccumulator::flush может
     // отдать накопленное на своём пути
     for event in acc.flush() {
+        match &event {
+            FeedEvent::Usage { .. } => saw_usage = true,
+            FeedEvent::Content { delta } | FeedEvent::Thought { delta } => {
+                completion_chars += delta.chars().count();
+            }
+            _ => {}
+        }
         batch.push(event)?;
     }
     batch.flush()?;
+    drop(batch);
+
+    // Провайдер не сообщил usage — уезжает оценка: промпт из размера тела
+    // запроса, ответ — из накопленных символов стрима (~4 символа/токен,
+    // усреднение для смешанного en/ru текста; для статистики активности
+    // точность достаточная, Hard Limit тоже получает сигнал)
+    if !saw_usage && completion_chars > 0 {
+        let prompt_est = body_json
+            .as_ref()
+            .map(|b| b.to_string().chars().count() / 4)
+            .unwrap_or(0);
+        let completion_est = completion_chars / 4;
+        if prompt_est + completion_est > 0 {
+            sink(FeedEvent::Usage {
+                prompt: prompt_est as u64,
+                completion: completion_est as u64,
+                total: (prompt_est + completion_est) as u64,
+            })?;
+        }
+    }
 
     Ok(())
 }
