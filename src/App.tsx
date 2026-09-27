@@ -678,19 +678,24 @@ export default function App() {
     if (acc) setAppearance((cur) => ({ ...cur, accent: acc }));
   }, [projectAccentOn, activeProjectId, projects, setAppearance]);
 
-  // Акцент проекта: hex через prompt (по образцу тега задачи)
+  // Акцент проекта: инлайн-редактор hex вместо window.prompt — в Tauri
+  // WebView prompt всегда возвращает null (как и для тегов в Sidebar)
+  const [accentEdit, setAccentEdit] = useState<{ id: string; value: string } | null>(null);
   const handleProjectAccent = (id: string) => {
-    const cur = projects.find((p) => p.id === id)?.accent ?? "";
-    const input = window.prompt(t("menu.projectAccent"), cur);
-    if (input === null) return;
-    const hex = input.trim();
+    setAccentEdit({ id, value: projects.find((p) => p.id === id)?.accent ?? "" });
+  };
+  const commitProjectAccent = (raw: string) => {
+    if (!accentEdit) return;
+    const hex = raw.trim();
     if (hex !== "" && !/^#[0-9a-fA-F]{6}$/.test(hex)) {
+      // Невалидный ввод: тост, диалог остаётся открытым для правки
       addToast(t("menu.projectAccentBad"));
       return;
     }
     setProjects((prev) =>
-      prev.map((p) => (p.id === id ? { ...p, accent: hex || undefined } : p)),
+      prev.map((p) => (p.id === accentEdit.id ? { ...p, accent: hex || undefined } : p)),
     );
+    setAccentEdit(null);
   };
 
   const handleNewChat = useCallback(() => {
@@ -2218,6 +2223,31 @@ export default function App() {
           onConfirm={() => void handleFactoryReset()}
           onCancel={() => setResetOpen(false)}
         />
+      )}
+      {accentEdit && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+          onMouseDown={() => setAccentEdit(null)}
+        >
+          <div
+            className="glass-pane w-72 rounded-xl border border-halo-line bg-halo-surface p-3"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <p className="mb-2 text-xs font-medium text-halo-text">{t("menu.projectAccent")}</p>
+            <input
+              autoFocus
+              value={accentEdit.value}
+              placeholder={t("menu.projectAccentPh")}
+              onChange={(e) => setAccentEdit({ ...accentEdit, value: e.target.value })}
+              onKeyDown={(e) => {
+                // isComposing: энтер подтверждения IME не должен коммитить
+                if (e.key === "Enter" && !e.nativeEvent.isComposing) commitProjectAccent(accentEdit.value);
+                if (e.key === "Escape") setAccentEdit(null);
+              }}
+              className="w-full rounded-md border border-halo-accent/50 bg-halo-surface px-2 py-1.5 text-sm text-halo-text outline-none"
+            />
+          </div>
+        </div>
       )}
       {cryptoGate !== "none" && cryptoGate !== "loading" && (
         <CryptoGate

@@ -832,6 +832,7 @@ export const ja = {
     "themes.userCssReset": "リセット",
     "menu.projectAccent": "プロジェクトのアクセント (#hex)",
     "menu.projectAccentBad": "無効な色：#rrggbb 形式が必要です",
+    "menu.projectAccentPh": "#rrggbb — 空欄でリセット",
     "themes.termFontHint": "ターミナルとコンソール",
     "themes.termShell": "ターミナルのシェル",
     "themes.termShellHint": "新しいコンソールセッションに適用。Auto — PowerShell",

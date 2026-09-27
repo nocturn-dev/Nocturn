@@ -832,6 +832,7 @@ export const zh = {
     "themes.userCssReset": "重置",
     "menu.projectAccent": "项目强调色 (#hex)",
     "menu.projectAccentBad": "颜色无效：需要 #rrggbb 格式",
+    "menu.projectAccentPh": "#rrggbb — 留空以重置",
     "themes.termFontHint": "终端和控制台",
     "themes.termShell": "终端 Shell",
     "themes.termShellHint": "仅应用于新的控制台会话。Auto — PowerShell",
