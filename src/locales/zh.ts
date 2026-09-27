@@ -776,6 +776,8 @@ export const zh = {
     "dictation.ready": "已就绪：输入框中有麦克风按钮",
     "dictation.micDenied": "没有麦克风权限",
     "dictation.empty": "未识别到语音",
+    "branch.created": "已创建分支——原始对话保留",
+    "branch.badge": "此对话的分支",
     "main.g1": "界面与启动",
     "main.g1Desc": "首次启动、窗口显示与语言相关的所有设置。",
     "main.g2": "回答显示",
