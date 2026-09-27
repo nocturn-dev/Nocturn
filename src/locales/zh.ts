@@ -684,6 +684,7 @@ export const zh = {
     "main.quickEntry": "快速输入",
     "main.quickEntryDesc": "全局快捷键 — 在任何应用上方打开新任务窗口（默认 Ctrl+Alt+Space）",
     "main.quickEntryRecording": "请按下快捷键…",
+    "main.quickentryBindFail": "无法注册快捷键——可能已被其他应用占用",
     "main.storage": "存储空间",
     "main.storageConfig": "配置与会话",
     "main.storageCheckpoints": "检查点",

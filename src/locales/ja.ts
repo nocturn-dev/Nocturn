@@ -684,6 +684,7 @@ export const ja = {
     "main.quickEntry": "クイック入力",
     "main.quickEntryDesc": "グローバルショートカット — どのアプリの上でも新規タスクウィンドウを開きます（既定は Ctrl+Alt+Space）",
     "main.quickEntryRecording": "ショートカットを入力…",
+    "main.quickentryBindFail": "ショートカットを登録できませんでした——他のアプリが使用中の可能性があります",
     "main.storage": "ストレージ",
     "main.storageConfig": "設定とセッション",
     "main.storageCheckpoints": "チェックポイント",

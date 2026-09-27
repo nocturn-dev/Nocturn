@@ -92,7 +92,6 @@ import { loadLimits, saveLimits, type HardLimits } from "./limits";
 import { uid } from "./hooks/useAgentRun";
 import { useToasts } from "./hooks/useToasts";
 import { registerCustomFonts } from "./fonts";
-import { applyUserCss, readUserCss } from "./userCss";
 import { TERMINAL_PALETTES } from "./vt";
 import { useAppearanceUi } from "./hooks/useAppearanceUi";
 import { useBoolPref, useNumPref, useStringPref } from "./hooks/usePrefs";
@@ -116,9 +115,9 @@ export default function App() {
   // Раздел настроек для программного открытия (плагины из сайдбара)
   const [settingsSection, setSettingsSection] = useState<Section | null>(null);
   // Пользовательские шрифты: регистрация FontFace после старта
+  // (userCss перенесён в main.tsx до первого рендера — без FOUC)
   useEffect(() => {
     void registerCustomFonts();
-    applyUserCss(readUserCss());
   }, []);
 
   // Автообновление: разовая проверка после старта (native-only, тихо)
@@ -906,11 +905,15 @@ export default function App() {
   }, [activeRunRef, addToast, t, stableHandleSend]);
 
   // Quick Entry: применить сохранённый ремап комбо (дефолт уже зарегистрирован
-  // на бекенде в setup; промах — комбо занято, остаётся дефолт)
+  // на бекенде в setup; промах — комбо занято другим приложением, остаётся
+  // дефолт: молча это выглядело как «настройка не работает»)
   useEffect(() => {
     const saved = localStorage.getItem("haloui-quickentry-bind");
-    if (saved) void quickentrySetBind(saved).catch(() => {});
-  }, []);
+    if (saved)
+      void quickentrySetBind(saved).catch(() => {
+        addToast(t("main.quickentryBindFail"));
+      });
+  }, [addToast, t]);
 
   // pendingConfirm/pendingAsk раньше считались IIFE прямо в JSX: новый объект
   // каждый рендер убивал сравнение пропсов у карточек-подтверждений
@@ -936,10 +939,6 @@ export default function App() {
   useEffect(() => {
     document.documentElement.classList.toggle("ambient-paused", streamingId !== null);
   }, [streamingId]);
-
-  useEffect(() => {
-    document.documentElement.classList.toggle("hard-mode", hardMode && hardSkin);
-  }, [hardMode, hardSkin]);
 
   // Обои: класс на html — CSS делает сайдбар/чат чуть прозрачными,
   // чтобы фон уходил за сайдбар (раньше обои обрывались на его границе)
