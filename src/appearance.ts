@@ -156,6 +156,12 @@ export const AMBIENT_SCENES = [
   "video",
 ] as const;
 
+/** Guard для сцен с диска/профиля: вместо includes(x as never) — честное
+ *  сужение типа (unknown на входе, ambientScene на выходе) */
+export function isAmbientScene(v: unknown): v is Appearance["ambientScene"] {
+  return (AMBIENT_SCENES as readonly string[]).includes(v as string);
+}
+
 // S11: поле deep удалено — нигде не читалось (реально применяется
 // darken(accent, 0.82) в applyAppearance), значения в данных расходились
 // с рендером и вводили в заблуждение
@@ -200,9 +206,7 @@ export function loadAppearance(): Appearance {
       officialContrast: p.officialContrast ?? DEFAULT_APPEARANCE.officialContrast,
       officialMonoCode: p.officialMonoCode ?? DEFAULT_APPEARANCE.officialMonoCode,
       ambient: p.ambient ?? DEFAULT_APPEARANCE.ambient,
-      ambientScene: AMBIENT_SCENES.includes(p.ambientScene as never)
-        ? (p.ambientScene as Appearance["ambientScene"])
-        : "glow",
+      ambientScene: isAmbientScene(p.ambientScene) ? p.ambientScene : "glow",
       ambientVideo: typeof p.ambientVideo === "string" ? p.ambientVideo : "",
       ambientBrightness: clamp(
         p.ambientBrightness ?? DEFAULT_APPEARANCE.ambientBrightness,

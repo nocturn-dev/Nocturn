@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useLang } from "../../locales";
+import { useLang, type MsgKey } from "../../locales";
 import {
   loadProfile,
   saveProfile,
@@ -43,7 +43,7 @@ const ROLES: Exclude<RoleId, "">[] = [
   "other",
 ];
 
-const ROLE_KEYS: Record<Exclude<RoleId, "">, string> = {
+const ROLE_KEYS: Record<Exclude<RoleId, "">, MsgKey> = {
   software_engineer: "profile.roleSE",
   product: "profile.roleProduct",
   design: "profile.roleDesign",
@@ -196,7 +196,7 @@ export function ProfileSection() {
                     : "border-halo-line text-halo-muted hover:text-halo-text"
                 }`}
               >
-                {t(ROLE_KEYS[r] as never)}
+                {t(ROLE_KEYS[r])}
               </button>
             ))}
           </div>
@@ -259,7 +259,7 @@ export function ProfileSection() {
                     : "border-halo-line text-halo-muted hover:text-halo-text"
                 }`}
               >
-                {t(`profile.tone_${tone}` as never)}
+                {t(`profile.tone_${tone}`)}
               </button>
             ))}
           </div>

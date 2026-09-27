@@ -6,6 +6,8 @@
  * через выбранного пользователем провайдера.
  */
 
+import type { MsgKey } from "./locales";
+
 export type Schedule =
   | { kind: "daily"; time: string }
   | { kind: "weekdays"; time: string }
@@ -115,8 +117,9 @@ export function isDue(a: Automation, now: number = Date.now()): boolean {
 export interface Template {
   /** Идентификатор SVG-иконки: sun | zap | doc | list */
   icon: "sun" | "zap" | "doc" | "list";
-  nameKey: string;
-  descKey: string;
+  // Ключи словаря: компилятор проверяет, что шаблоны не ссылаются в никуда
+  nameKey: MsgKey;
+  descKey: MsgKey;
   schedule: Schedule;
   prompt: string;
 }

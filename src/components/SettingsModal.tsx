@@ -364,9 +364,9 @@ export default function SettingsModal({
       if (!navItem) continue;
       const sectionTitle = t(navItem.key);
       for (const key of group.keys) {
-        // Протухший ключ индекса не должен ронять поиск (t вернёт undefined)
-        const label = (t(key as never) ?? "") as string;
-        if (typeof label === "string" && label.toLowerCase().includes(query) && !seen.has(`${key}`)) {
+        // Ключи индекса типизированы MsgKey: протухший ключ не собирается
+        const label = t(key);
+        if (label.toLowerCase().includes(query) && !seen.has(`${key}`)) {
           seen.add(`${key}`);
           out.push({ section: group.section, label, sectionTitle });
         }

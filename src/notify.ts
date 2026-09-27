@@ -5,10 +5,13 @@
  */
 
 import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
+import type { MsgKey } from "./locales";
 
 export type NotifySound = "chime" | "ping" | "soft" | "custom";
 
-export const NOTIFY_SOUNDS: { id: NotifySound; labelKey: string }[] = [
+// labelKey типизирован словарём: протухший ключ = ошибка компиляции,
+// а не пустая кнопка в настройках
+export const NOTIFY_SOUNDS: { id: NotifySound; labelKey: MsgKey }[] = [
   { id: "chime", labelKey: "notify.soundChime" },
   { id: "ping", labelKey: "notify.soundPing" },
   { id: "soft", labelKey: "notify.soundSoft" },
