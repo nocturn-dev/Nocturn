@@ -60,6 +60,8 @@ function sanitizeSession(raw: unknown): Session | null {
   return {
     ...(s as unknown as Session),
     title: typeof s.title === "string" ? s.title : "",
+    // База знаний: строковый id или отсутствие (битое значение — не тащим)
+    kbId: typeof s.kbId === "string" && s.kbId !== "" ? s.kbId : undefined,
     messages,
   };
 }

@@ -64,6 +64,7 @@ import ChatArea from "./components/ChatArea";
 import SettingsModal, { type Section } from "./components/SettingsModal";
 import AutomationsModal from "./components/AutomationsModal";
 import CompareModal from "./components/CompareModal";
+import KnowledgeModal from "./components/KnowledgeModal";
 import BrowserPanel from "./components/BrowserPanel";
 import Toasts from "./components/Toast";
 import { isDue, loadAutomations, nextRunAfter, saveAutomations, VAULT_REPORT_SUFFIX } from "./automations";
@@ -140,6 +141,8 @@ export default function App() {
   const [automationsOpen, setAutomationsOpen] = useState(false);
   // Сравнение моделей бок-о-бок (общий промпт → параллельные стримы)
   const [compareOpen, setCompareOpen] = useState(false);
+  // Базы знаний (RAG): индексы документов + привязка к активному чату
+  const [knowledgeOpen, setKnowledgeOpen] = useState(false);
   // Плавающие уведомления (чекпоинты и пр.) — без строк в чате
   const { toasts, addToast } = useToasts();
   // Панель живого просмотра браузера агента + тумблер автооткрытия
@@ -2064,6 +2067,7 @@ export default function App() {
         onClearChat={handleClearChat}
         onStop={stableHandleStop}
         onOpenCompare={() => setCompareOpen(true)}
+        onOpenKnowledge={() => setKnowledgeOpen(true)}
         onOpenSettings={() => {
           setSettingsSection("main");
           setSettingsOpen(true);
@@ -2272,6 +2276,19 @@ export default function App() {
         onClose={() => setCompareOpen(false)}
         profiles={profiles}
         current={apiSettings}
+      />
+      <KnowledgeModal
+        open={knowledgeOpen}
+        onClose={() => setKnowledgeOpen(false)}
+        attachedKbId={activeSession?.kbId ?? null}
+        onAttach={(kbId) =>
+          setSessions((prev) =>
+            prev.map((s) =>
+              s.id === activeId ? { ...s, kbId: kbId ?? undefined } : s,
+            ),
+          )
+        }
+        hasActiveChat={activeId !== null}
       />
       <BrowserPanel
         open={browserPanelOpen}
