@@ -1581,7 +1581,7 @@ export default function ChatArea({
         <div className="mx-auto w-full max-w-3xl">
           {/* z-30 выше ленты сообщений (z-10): glass-pane создаёт stacking
               context, и палитра slash без этого слоя оказывалась под лентой */}
-          <div className="glass-pane relative z-30 rounded-2xl border border-halo-line bg-halo-surface p-2.5 shadow-sm transition duration-200 focus-within:border-halo-accent/60 focus-within:shadow-[0_0_0_3px_rgba(217,119,87,0.10)]">
+          <div className="glass-pane relative z-30 rounded-2xl border border-halo-line bg-halo-surface p-2.5 shadow-sm transition duration-200 focus-within:border-halo-accent/60 focus-within:shadow-[0_0_0_3px_var(--halo-accent-focus)]">
             {/* Палитра скилов (&) */}
             {skillActive && skillMatches.length > 0 && (
               <div className="scroll-slim absolute bottom-full left-0 right-0 z-20 mb-2 max-h-64 overflow-y-auto rounded-xl border border-halo-line bg-halo-deep/95 p-1.5 shadow-xl backdrop-blur">
