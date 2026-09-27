@@ -59,6 +59,7 @@ interface SettingsModalProps {
   /** Hard Limit: лимиты расхода на задачу (токены/$) */
   limits: HardLimits;
   onLimitsChange: (l: HardLimits) => void;
+  onImportSessions: (sessions: Session[]) => void;
   /** Эргономика: сторона сайдбара и стартовые подсказки */
   sidebarSide: "left" | "right";
   onSidebarSideChange: (side: "left" | "right") => void;
@@ -229,6 +230,7 @@ export default function SettingsModal({
   onApplyThemeProfile,
   limits,
   onLimitsChange,
+  onImportSessions,
   sidebarSide,
   onSidebarSideChange,
   hideStarter,
@@ -662,6 +664,7 @@ export default function SettingsModal({
               onNotifyPrefsChange={onNotifyPrefsChange}
               limits={limits}
               onLimitsChange={onLimitsChange}
+              onImportSessions={onImportSessions}
             />
           )}
           {section === "theme" && (

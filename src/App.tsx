@@ -2096,6 +2096,10 @@ export default function App() {
         onApplyThemeProfile={applyThemeProfile}
         limits={limits}
         onLimitsChange={setLimits}
+        onImportSessions={(imported) => {
+          // Импорт внешней истории: дописываем в список, ничего не перезаписываем
+          setSessions((prev) => [...imported, ...prev]);
+        }}
         sidebarSide={sidebarSide}
         onSidebarSideChange={setSidebarSide}
         hideStarter={hideStarter}
