@@ -87,7 +87,9 @@ pub fn notes_read(app: tauri::AppHandle, file: String) -> Result<String, String>
 pub fn notes_write(app: tauri::AppHandle, file: String, content: String) -> Result<(), String> {
     let file = sanitize_note_file(&file)?;
     let path = notes_dir(&app)?.join(file);
-    fs::write(path, content).map_err(|e| e.to_string())
+    // atomic_write, а не fs::write: «личный vault» на Unix не должен быть
+    // 0644-читаемым всеми, краш не должен рвать файл
+    crate::fsutil::atomic_write(&path, content.as_bytes())
 }
 
 #[tauri::command(async)]

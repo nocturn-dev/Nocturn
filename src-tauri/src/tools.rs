@@ -352,7 +352,9 @@ fn vault_search(notes_dir: &Path, query: &str) -> Result<String, String> {
 fn vault_write(notes_dir: &Path, file: &str, content: &str) -> Result<String, String> {
     sanitize_note_name(file)?;
     let path = notes_dir.join(file);
-    fs::write(&path, content).map_err(|e| format!("cannot write note: {e}"))?;
+    // atomic_write: как и notes_write — 0600 на Unix, без рваных файлов
+    crate::fsutil::atomic_write(&path, content.as_bytes())
+        .map_err(|e| format!("cannot write note: {e}"))?;
     Ok(json!({
         "ok": true,
         "file": file,
