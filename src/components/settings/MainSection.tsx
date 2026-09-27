@@ -1,9 +1,9 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import { useLang, type Lang } from "../../locales";
 import type { HardLimits } from "../../limits";
 import { NOTIFY_SOUNDS, playSound, refreshCustomSound, NotifyPrefs } from "../../notify";
-import { pickSaveFile, pickJsonFile, pickAudioFile, settingsReadAll, settingsWriteAll, settingsExportWrite, settingsImportRead, soundImport, soundDelete, collectLocal, restoreLocal, autostartIsEnabled, autostartSet, storageStats, storageCleanup, quickentrySetBind, type StorageStats } from "../../api";
+import { pickSaveFile, pickJsonFile, pickAudioFile, pickCliFile, settingsReadAll, settingsWriteAll, settingsExportWrite, settingsImportRead, soundImport, soundDelete, collectLocal, restoreLocal, autostartIsEnabled, autostartSet, storageStats, storageCleanup, quickentrySetBind, dictationStatus, dictationDownloadModel, dictationSetConfig, type DictationStatus, type StorageStats } from "../../api";
 import { quickentryComboFromEvent, prettyQuickentryCombo } from "../../shortcuts";
 import { LangSwitch, Row, ToggleRow } from "./parts";
 
@@ -293,6 +293,44 @@ export function MainSection({
     () => localStorage.getItem("haloui-quickentry-bind") ?? "ctrl+alt+space",
   );
   const [qeRecording, setQeRecording] = useState(false);
+  // Диктовка (Whisper): статус CLI/модели; во время скачивания — опрос
+  const [dictStatus, setDictStatus] = useState<DictationStatus | null>(null);
+  const [dictBusy, setDictBusy] = useState(false);
+  const refreshDictStatus = useCallback(() => {
+    void dictationStatus()
+      .then(setDictStatus)
+      .catch(() => {});
+  }, []);
+  useEffect(() => {
+    refreshDictStatus();
+  }, [refreshDictStatus]);
+  useEffect(() => {
+    if (!dictStatus?.downloading) return;
+    const iv = window.setInterval(refreshDictStatus, 1500);
+    return () => window.clearInterval(iv);
+  }, [dictStatus?.downloading, refreshDictStatus]);
+  const downloadDictModel = () => {
+    setDictBusy(true);
+    void dictationDownloadModel()
+      .then(refreshDictStatus)
+      .catch((e) => window.alert(String(e)))
+      .finally(() => setDictBusy(false));
+  };
+  const pickDictCli = () => {
+    void pickCliFile().then((p) => {
+      if (p === null) return;
+      void dictationSetConfig(p)
+        .catch((e) => window.alert(String(e)))
+        .then(refreshDictStatus);
+    });
+  };
+  const dictDesc = !dictStatus
+    ? ""
+    : !dictStatus.cliFound
+      ? t("dictation.needCli")
+      : !dictStatus.modelExists
+        ? t("dictation.needModel")
+        : t("dictation.ready");
   useEffect(() => {
     if (!qeRecording) return;
     const onKey = (e: KeyboardEvent) => {
@@ -470,6 +508,34 @@ export function MainSection({
           >
             {qeRecording ? t("main.quickEntryRecording") : prettyQuickentryCombo(qeBind)}
           </button>
+        }
+      />
+      <Row
+        label={t("dictation.title")}
+        desc={dictDesc}
+        value=""
+        extra={
+          <div className="flex gap-2">
+            <button
+              onClick={downloadDictModel}
+              disabled={dictBusy || dictStatus?.downloading === true}
+              title={dictStatus?.modelExists ? t("dictation.modelReady") : undefined}
+              className="rounded-md border border-halo-line px-2.5 py-1 text-xs text-halo-muted transition-colors hover:text-halo-text disabled:opacity-50"
+            >
+              {dictStatus?.downloading
+                ? t("dictation.downloading")
+                : dictStatus?.modelExists
+                  ? t("dictation.modelReady")
+                  : t("dictation.downloadModel")}
+            </button>
+            <button
+              onClick={pickDictCli}
+              title={dictStatus?.cliPath ?? undefined}
+              className="rounded-md border border-halo-line px-2.5 py-1 text-xs text-halo-muted transition-colors hover:text-halo-text"
+            >
+              {t("dictation.pickCli")}
+            </button>
+          </div>
         }
       />
       {/* Уведомления, когда пользователь не в приложении */}
