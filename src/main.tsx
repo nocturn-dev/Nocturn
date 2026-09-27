@@ -6,6 +6,7 @@ import "./index.css";
 import { LangProvider } from "./locales";
 import { applyCodeTheme } from "./codeThemes";
 import { applyAppearance, loadAppearance } from "./appearance";
+import { applyUserCss, readUserCss } from "./userCss";
 
 // S10: статический github-dark удалён — это дословный дубль темы «midnight»,
 // собиравший одни и те же правила дважды. Подсветка инжектится до первого
@@ -18,6 +19,14 @@ try {
   applyCodeTheme(codeTheme ?? "midnight");
 } catch {
   applyCodeTheme("midnight");
+}
+
+// Пользовательский CSS — до первого рендера (как и код-темы): из эффекта
+// App он приезжал после первой отрисовки, community-темы давали FOUC
+try {
+  applyUserCss(readUserCss());
+} catch {
+  // битый userCss не должен ронять старт
 }
 
 // Приложение должно ощущаться нативным: системное меню браузера не нужно,
