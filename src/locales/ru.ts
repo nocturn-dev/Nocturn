@@ -668,6 +668,7 @@ export const ru = {
     "main.quickEntryDesc": "Глобальное сочетание — окно новой задачи поверх любого приложения (по умолчанию Ctrl+Alt+Space)",
     "main.quickEntryRecording": "Нажмите сочетание…",
     "main.quickentryBindFail": "Не удалось занять сочетание — возможно, оно уже занято другим приложением",
+    "main.quickentryUnavailable": "Глобальное сочетание Quick Entry не зарегистрировано — в этой системе горячая клавиша недоступна",
     "main.storage": "Хранилище",
     "main.storageConfig": "Конфиги и задачи",
     "main.storageCheckpoints": "Чекпоинты",

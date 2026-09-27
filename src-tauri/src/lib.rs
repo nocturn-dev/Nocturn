@@ -4,6 +4,7 @@ pub use chat::AbortRegistry;
 pub use settings::{ApiProfile, ApiSettings, ProfilesStore};
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
 pub mod browser;
@@ -145,11 +146,18 @@ pub fn run() {
             }
             // Quick Entry: дефолтное комбо; сохранённый ремап фронт применит
             // на старте через quickentry_set_bind. Провал не критичен: комбо
-            // может быть занято другим приложением
+            // может быть занято другим приложением, а на Wayland-подобных
+            // системах глобальные хоткеи недоступны вовсе — статус отдаём
+            // фронту (quickentry_status), чтобы он сообщил об этом тостом,
+            // а не молчанием
             {
                 use tauri_plugin_global_shortcut::GlobalShortcutExt;
-                if let Err(e) = app.global_shortcut().register("ctrl+alt+space") {
-                    eprintln!("quickentry shortcut unavailable: {e}");
+                match app.global_shortcut().register("ctrl+alt+space") {
+                    Ok(()) => QUICKENTRY_REGISTERED.store(true, Ordering::Relaxed),
+                    Err(e) => {
+                        QUICKENTRY_REGISTERED.store(false, Ordering::Relaxed);
+                        eprintln!("quickentry shortcut unavailable: {e}");
+                    }
                 }
             }
             Ok(())
@@ -280,6 +288,7 @@ pub fn run() {
             hide_to_tray,
             set_tray_variant,
             quickentry_set_bind,
+            quickentry_status,
             quickentry_submit,
             window_toggle_maximize,
             window_toggle_fullscreen,
@@ -586,6 +595,11 @@ fn position_quickentry(app: &tauri::AppHandle, w: &tauri::WebviewWindow) {
     let _ = w.set_position(tauri::LogicalPosition::new((screen_w - ww) / 2.0, 80.0));
 }
 
+/// Зарегистрирован ли сейчас глобальный комбо Quick Entry (setup/ремап):
+/// на Wayland-подобных системах регистрация проваливается — фронт по
+/// quickentry_status сообщит пользователю вместо тишины
+static QUICKENTRY_REGISTERED: AtomicBool = AtomicBool::new(false);
+
 /// Показ/скрытие Quick Entry по глобальному комбо
 fn toggle_quickentry(app: &tauri::AppHandle) {
     use tauri::Manager;
@@ -607,7 +621,27 @@ fn quickentry_set_bind(app: tauri::AppHandle, combo: String) -> Result<(), Strin
     use tauri_plugin_global_shortcut::GlobalShortcutExt;
     let gs = app.global_shortcut();
     gs.unregister_all().map_err(|e| e.to_string())?;
-    gs.register(combo.as_str()).map_err(|e| e.to_string())
+    match gs.register(combo.as_str()) {
+        Ok(()) => {
+            QUICKENTRY_REGISTERED.store(true, Ordering::Relaxed);
+            Ok(())
+        }
+        Err(e) => {
+            // unregister_all сорвал и прежнее комбо: возвращаем дефолт,
+            // иначе хоткей умирал до рестарта (а фронт был уверен в обратном)
+            let restored = gs.register("ctrl+alt+space").is_ok();
+            QUICKENTRY_REGISTERED.store(restored, Ordering::Relaxed);
+            Err(format!("combo busy: {e}"))
+        }
+    }
+}
+
+/// Зарегистрирован ли сейчас глобальный комбо Quick Entry. На Wayland-подобных
+/// системах регистрация проваливается в setup молча — фронт на старте читает
+/// статус и сообщает пользователю тостом вместо вечной тишины
+#[tauri::command(async)]
+fn quickentry_status() -> bool {
+    QUICKENTRY_REGISTERED.load(Ordering::Relaxed)
 }
 
 /// Enter в Quick Entry: спрятать окно, сфокусировать главное и отдать ему

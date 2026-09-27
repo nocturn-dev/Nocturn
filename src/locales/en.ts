@@ -656,6 +656,7 @@ export const en = {
     "main.quickEntryDesc": "Global shortcut — new-task window on top of any app (default Ctrl+Alt+Space)",
     "main.quickEntryRecording": "Press a shortcut…",
     "main.quickentryBindFail": "Could not register the shortcut — it may already be taken by another app",
+    "main.quickentryUnavailable": "Quick Entry shortcut was not registered — the global hotkey is unavailable on this system",
     "main.storage": "Storage",
     "main.storageConfig": "Configs and sessions",
     "main.storageCheckpoints": "Checkpoints",

@@ -613,6 +613,12 @@ export async function quickentrySetBind(combo: string): Promise<void> {
   await invoke("quickentry_set_bind", { combo });
 }
 
+/** Зарегистрирован ли глобальный комбо: на Wayland-подобных системах — false */
+export async function quickentryStatus(): Promise<boolean> {
+  if (!inTauri) return true;
+  return invoke<boolean>("quickentry_status");
+}
+
 /** Enter в Quick Entry: спрятать окно, сфокусировать главное, отдать текст */
 export async function quickentrySubmit(text: string): Promise<void> {
   await invoke("quickentry_submit", { text });
