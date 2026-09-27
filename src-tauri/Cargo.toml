@@ -53,6 +53,14 @@ url = "2"
 # kill(-pgid) для kill_tree: std не умеет сигналить процесс-группе
 libc = "0.2"
 
+[target.'cfg(target_os = "linux")'.dependencies]
+# Портал GlobalShortcuts — единственный легальный путь глобальных хоткеев на
+# Wayland (XGrabKey там недоступен в принципе). ashpd unix-only (file_path
+# тянет os::unix::ffi) — потому linux-гейт, а компиляцию проверяет ubuntu-джоба
+# CI (cargo test линкует). В рантайме активируется только в Wayland-сессии
+# и только когда плагин global-shortcut не смог
+ashpd = { version = "0.13", default-features = false, features = ["tokio", "global_shortcuts"] }
+
 [profile.release]
 lto = "thin"
 codegen-units = 1
