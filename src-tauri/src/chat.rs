@@ -298,7 +298,6 @@ pub async fn chat_stream(
     provider: Option<String>,
 ) -> Result<(), String> {
     use futures_util::StreamExt;
-    use tauri::Emitter;
 
     // Адаптер протокола: явный провайдер с фронта, при отсутствии — эвристика
     // по Base URL (старое поведение для совместимости)
@@ -431,9 +430,10 @@ pub async fn chat_stream(
     // Потолок буфера неполной строки: провайдер, шлющий байты без '\n' — сломан
     const SSE_BUF_LIMIT: usize = 1024 * 1024;
 
-    // true — стрим погашен пользователем или [DONE]: хвост аккумулятора
-    // (накопленные tool_calls/usage) не дочитываем
-    let mut ended = false;
+    // Прерывание пользователем — ранний return: хвост аккумулятора
+    // (накопленные tool_calls/usage) не дочитываем, результат отмены не нужен.
+    // [DONE] и EOF — естественное завершение: после цикла flush отдаёт
+    // накопленное usage и страховочные tool_calls во фронт
     'outer: loop {
         let chunk = match tokio::time::timeout(STREAM_IDLE_TIMEOUT, stream.next()).await {
             Ok(item) => item,
@@ -446,8 +446,7 @@ pub async fn chat_stream(
         };
         // Прерывание: агент ушёл «в бесконечное размышление» — гасим поток
         if flag.load(Ordering::Relaxed) {
-            ended = true;
-            break 'outer;
+            return Ok(());
         }
         let bytes = chunk.map_err(|e| format!("stream interrupted: {e}"))?;
         buf.extend_from_slice(&bytes);
@@ -457,8 +456,7 @@ pub async fn chat_stream(
 
         for line in take_complete_lines(&mut buf) {
             if flag.load(Ordering::Relaxed) {
-                ended = true;
-                break 'outer;
+                return Ok(());
             }
             let line = line.trim();
             if !line.starts_with("data:") {
@@ -466,106 +464,79 @@ pub async fn chat_stream(
             }
             let data = line[5..].trim();
             if data == "[DONE]" {
-                ended = true;
+                // Естественное завершение: хвост ниже дочитает usage/tool_calls
                 break 'outer;
             }
             for event in acc.feed(data) {
-                match event {
-                    FeedEvent::Content { delta } => {
-                        app.emit(
-                            "chat-chunk",
-                            serde_json::json!({ "requestId": request_id, "delta": delta }),
-                        )
-                        .map_err(|e| e.to_string())?;
-                    }
-                    FeedEvent::Thought { delta } => {
-                        app.emit(
-                            "chat-thought",
-                            serde_json::json!({ "requestId": request_id, "thought": delta }),
-                        )
-                        .map_err(|e| e.to_string())?;
-                    }
-                    FeedEvent::Usage { prompt, completion, total } => {
-                        app.emit(
-                            "chat-usage",
-                            serde_json::json!({
-                                "requestId": request_id,
-                                "promptTokens": prompt,
-                                "completionTokens": completion,
-                                "totalTokens": total
-                            }),
-                        )
-                        .map_err(|e| e.to_string())?;
-                    }
-                    FeedEvent::ToolCallsFinished { calls } => {
-                        app.emit(
-                            "chat-tool-calls",
-                            serde_json::json!({ "requestId": request_id, "calls": calls }),
-                        )
-                        .map_err(|e| e.to_string())?;
-                    }
-                    FeedEvent::ThinkingBlock { thinking, signature, redacted } => {
-                        app.emit(
-                            "chat-thinking",
-                            serde_json::json!({
-                                "requestId": request_id,
-                                "thinking": thinking,
-                                "signature": signature,
-                                "redacted": redacted
-                            }),
-                        )
-                        .map_err(|e| e.to_string())?;
-                    }
-                }
+                emit_feed_event(&app, &request_id, event)?;
             }
         }
     }
 
-    // Хвост аккумулятора (usage/tool_calls/подозрительный на частичный тег) —
-    // дочитываем ТОЛЬКО при естественном завершении: при отмене результат уже
-    // не нужен, а AnthropicAccumulator::flush может ещё отдать накопленное
-    if !ended {
-        for event in acc.flush() {
-            match event {
-                FeedEvent::Content { delta } => {
-                    app.emit(
-                        "chat-chunk",
-                        serde_json::json!({ "requestId": request_id, "delta": delta }),
-                    )
-                    .map_err(|e| e.to_string())?;
-                }
-                FeedEvent::Thought { delta } => {
-                    app.emit(
-                        "chat-thought",
-                        serde_json::json!({ "requestId": request_id, "thought": delta }),
-                    )
-                    .map_err(|e| e.to_string())?;
-                }
-                FeedEvent::ToolCallsFinished { calls } => {
-                    app.emit(
-                        "chat-tool-calls",
-                        serde_json::json!({ "requestId": request_id, "calls": calls }),
-                    )
-                    .map_err(|e| e.to_string())?;
-                }
-                FeedEvent::ThinkingBlock { thinking, signature, redacted } => {
-                    app.emit(
-                        "chat-thinking",
-                        serde_json::json!({
-                            "requestId": request_id,
-                            "thinking": thinking,
-                            "signature": signature,
-                            "redacted": redacted
-                        }),
-                    )
-                    .map_err(|e| e.to_string())?;
-                }
-                _ => {}
-            }
-        }
+    // Хвост аккумулятора (usage/tool_calls/подозрительный на частичный тег):
+    // сюда попадают только естественные финалы — [DONE] и EOF; прерывание
+    // пользователем вышло ранним return. AnthropicAccumulator::flush может
+    // отдать накопленное на своём пути
+    for event in acc.flush() {
+        emit_feed_event(&app, &request_id, event)?;
     }
 
     Ok(())
+}
+
+/// Единая точка доставки событий аккумулятора на фронт. Раньше у цикла стрима
+/// и у хвостового flush были разные match'и: у хвоста не было руки для Usage —
+/// и на всех OpenAI-совместимых стримах токены не доезжали до фронта, Hard
+/// Limit и статистика затрат молчали. Исчерпывающий match: новый вариант
+/// FeedEvent не соберётся, пока у него не появится канал доставки
+fn emit_feed_event(
+    app: &tauri::AppHandle,
+    request_id: &str,
+    event: FeedEvent,
+) -> Result<(), String> {
+    use tauri::Emitter;
+    match event {
+        FeedEvent::Content { delta } => app
+            .emit(
+                "chat-chunk",
+                serde_json::json!({ "requestId": request_id, "delta": delta }),
+            )
+            .map_err(|e| e.to_string()),
+        FeedEvent::Thought { delta } => app
+            .emit(
+                "chat-thought",
+                serde_json::json!({ "requestId": request_id, "thought": delta }),
+            )
+            .map_err(|e| e.to_string()),
+        FeedEvent::Usage { prompt, completion, total } => app
+            .emit(
+                "chat-usage",
+                serde_json::json!({
+                    "requestId": request_id,
+                    "promptTokens": prompt,
+                    "completionTokens": completion,
+                    "totalTokens": total
+                }),
+            )
+            .map_err(|e| e.to_string()),
+        FeedEvent::ToolCallsFinished { calls } => app
+            .emit(
+                "chat-tool-calls",
+                serde_json::json!({ "requestId": request_id, "calls": calls }),
+            )
+            .map_err(|e| e.to_string()),
+        FeedEvent::ThinkingBlock { thinking, signature, redacted } => app
+            .emit(
+                "chat-thinking",
+                serde_json::json!({
+                    "requestId": request_id,
+                    "thinking": thinking,
+                    "signature": signature,
+                    "redacted": redacted
+                }),
+            )
+            .map_err(|e| e.to_string()),
+    }
 }
 
 /// Извлекает из буфера все строки, завершённые байтом '\n'. Каждая строка
