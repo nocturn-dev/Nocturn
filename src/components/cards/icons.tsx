@@ -391,3 +391,24 @@ export function SpeakerIcon() {
     </svg>
   );
 }
+
+export function ScalesIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 3v18" />
+      <path d="M8 21h8" />
+      <path d="M5 7h14" />
+      <path d="M7 7L4 13h6L7 7z" />
+      <path d="M17 7l-3 6h6l-3-6z" />
+    </svg>
+  );
+}
+
+export function BookIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+      <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+    </svg>
+  );
+}

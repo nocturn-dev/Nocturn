@@ -19,7 +19,6 @@ export type Section =
   | "agent"
   | "mcp"
   | "imagegen"
-  | "websearch"
   | "hooks"
   | "shortcuts"
   | "browser"
