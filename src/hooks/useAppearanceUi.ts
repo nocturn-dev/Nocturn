@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { Theme } from "../types";
 import {
   applyAppearance,
@@ -82,13 +82,25 @@ export function useAppearanceUi() {
     localStorage.setItem("haloui-glass", glass ? "1" : "0");
   }, [glass]);
 
-  // Кастомизация применяется мгновенно и запоминается
+  // Кастомизация: DOM-переменные применяются мгновенно (drag слайдера —
+  // живой превью), а побочные эффекты — хвостом с дебаунсом. Без него тик
+  // драга (~60/с) тянул бы синхронный localStorage.setItem и IPC в трей,
+  // где set_tray_variant ре-декодит PNG иконки, хотя markStyle за весь
+  // драг мог не измениться ни разу
   useEffect(() => {
     applyAppearance(appearance);
-    saveAppearance(appearance);
-    // Иконка трея следует за знаком приложения (bold/classic)
-    void setTrayVariant(appearance.markStyle).catch(() => {});
+    const timer = window.setTimeout(() => saveAppearance(appearance), 250);
+    return () => window.clearTimeout(timer);
   }, [appearance]);
+
+  // Иконка трея — только при реальной смене знака; на старте реф пустой,
+  // поэтому первая установка (как раньше — на монтировании) проходит
+  const trayMark = useRef<string | null>(null);
+  useEffect(() => {
+    if (trayMark.current === appearance.markStyle) return;
+    trayMark.current = appearance.markStyle;
+    void setTrayVariant(appearance.markStyle).catch(() => {});
+  }, [appearance.markStyle]);
 
   // Профили внешнего вида: персистентность
   useEffect(() => {
