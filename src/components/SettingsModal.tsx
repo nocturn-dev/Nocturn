@@ -195,7 +195,8 @@ const NAV: {
       { id: "imagegen", key: "settings.imagegen", icon: "image" },
       { id: "prompts", key: "settings.prompts", icon: "skill" },
       { id: "skills", key: "settings.skills", icon: "spark" },
-      { id: "agent", key: "settings.agent", icon: "terminal" },
+      // «Агент» (allowlist'ы) слит с «Командами»: страница была тонкой,
+      // а управление агентом и так живёт в чате
       { id: "commands", key: "settings.commands", icon: "command" },
       { id: "hooks", key: "settings.hooks", icon: "anchor" },
     ],
@@ -716,14 +717,19 @@ export default function SettingsModal({
               onChangeLibrary={onPromptLibraryChange}
             />
           )}
-          {section === "agent" && (
-            <AgentSection
-              commands={allowedCommands}
-              sessionTitle={allowedCommandsTitle}
-              onChange={onAllowedCommandsChange}
-              allowlists={agentAllowlists}
-              onSessionChange={onSessionAllowedChange}
-            />
+          {section === "commands" && (
+            <>
+              <CommandsSection />
+              {/* Allowlist'ы «Всегда для задачи»: диагностика разрешений,
+                  накопленных из диалогов агента */}
+              <AgentSection
+                commands={allowedCommands}
+                sessionTitle={allowedCommandsTitle}
+                onChange={onAllowedCommandsChange}
+                allowlists={agentAllowlists}
+                onSessionChange={onSessionAllowedChange}
+              />
+            </>
           )}
           {section === "memory" && (
             <MemorySection

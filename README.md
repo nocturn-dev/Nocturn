@@ -26,41 +26,62 @@ but stay at the plain-chat level. Nocturn is the missing middle ground:
   talks only to the API endpoint you configure. First run is: paste your key, go.
 - **Claude-Desktop-level features, locally** — agent mode with file, shell, PTY,
   browser and computer tools; permission modes; subagents; checkpoints; MCP;
-  hooks; scheduled automations — all running on your machine against your key.
+  hooks; scheduled automations; local RAG; voice input and output — all running
+  on your machine against your key.
 - **Provider-agnostic** — any OpenAI-compatible endpoint plus native Anthropic;
-  switch providers mid-project without losing history.
+  switch providers mid-project without losing history. Compare up to three
+  providers side-by-side on one prompt.
 - **Light and local-first** — ~4.4 MB installer, ~100 MB idle RAM, everything
-  (chats, projects, notes) stored on your disk in plain, inspectable storage.
+  (chats, projects, notes, knowledge bases) stored on your disk in plain,
+  inspectable storage.
 - **Safety rails built in** — permission modes, per-task command allowlists and
   hard token/cost budgets with automatic run abortion.
-
-## Features
 
 ## Features
 
 - **Chat & Agent** — streaming chat with any OpenAI-compatible provider or native
   Anthropic; agent mode with tools (files, shell, PTY terminal, browser, computer),
   permission modes (Plan / Ask / Edit / Full) and per-task command allowlists.
+  Long answers render markdown with **Mermaid diagrams**.
+- **Model comparison** — one prompt, up to three connections in parallel, answers
+  side-by-side with time-to-first-token, wall time and token usage per model.
+- **Knowledge bases (RAG)** — index your documents (markdown, code, logs, CSV…)
+  into a local SQLite FTS5 index and attach a base to a chat: relevant snippets
+  are injected into context automatically. Chunking, search and storage are fully
+  local — no embedding APIs, nothing leaves the machine.
+- **Voice** — **dictation** (push-to-talk via a local whisper.cpp; the model
+  downloads on first use, microphone is selectable) and **read-aloud** for
+  answers (local Windows SAPI voices, ru/en auto-selected). No cloud speech.
 - **Subagents** — parallel role-based workers (researcher / coder / critic / librarian)
   with a live monitor next to the send button.
-- **Live browser view** — watch what the agent's browser does in a side panel,
-  with viewport presets (1280×720, Fit, …).
+- **Web search** — optional `web_search` agent tool via SearXNG (self-hosted) or
+  Brave; pairs with the browser tools for reading full pages.
+- **Browser Use & Computer Use** — real browser via CDP (navigation, reading,
+  screenshots, clicks) with a live view panel, and full desktop control
+  (screen capture, mouse, keyboard).
 - **Checkpoints & rollback** — automatic project snapshots before agent edits,
-  restore any state in one click.
+  restore any state in one click; optional git auto-commit before agent edits.
 - **Automations** — scheduled tasks (daily / weekdays / weekly / interval): the
   agent starts a chat and runs the prompt on schedule. Optional keep-awake.
 - **Vault** — markdown notes with `[[wiki links]]`, a visual knowledge graph and
   vault tools the agent can read and write.
 - **MCP** — connect external Model Context Protocol servers (stdio), tools merge
   into the agent automatically.
+- **Plugins & packs** — plugin system with roles, prompts, skills and packs
+  (hooks/MCP bundles) you can import and export.
 - **Hooks** — shell commands on PreToolUse / PostToolUse / UserPromptSubmit /
   Stop / SessionStart; can block or enrich agent actions.
+- **Import** — bring history from ChatGPT and Gemini exports.
 - **Hard Limits** — per-task budgets (tokens, $/1M tokens, $ total) with automatic
   run abortion.
+- **Usage overview** — local statistics: token activity heatmap, daily trend,
+  per-model usage, a reflection summary you can save as a note.
 - **Crypto vault** — optional AES-256-GCM encryption of API keys with a master
   password.
 - **Image generation** — optional `image_generate` agent tool via your own
   image API (off by default).
+- **Quick Entry** — a global-hotkey floating input that drops a task into
+  Nocturn from anywhere.
 - **Customization** — 8 dark themes + light + **Official** monochrome, accent
   colors, glass effects, **ambient backgrounds** (procedural scenes — fog,
   snowfall, neon city, starfield — or your own looped video), UI scale, theme
@@ -72,7 +93,6 @@ but stay at the plain-chat level. Nocturn is the missing middle ground:
 > window is minimized, yet on battery-powered laptops the procedural scenes
 > are the friendlier choice. Keep custom clips short (~50 MB) and dim — the
 > app adds a dark overlay on top for text readability.
-
 
 ## Screenshots
 
@@ -98,13 +118,19 @@ instantly and is remembered.
 
 Nocturn never sends anything anywhere except the API provider **you** configured.
 Prompts, files and tool results go straight to your endpoint; there is no
-analytics, no crash reporting, no phone-home. API keys can be encrypted with a
-master password (AES-256-GCM); an encrypted vault auto-locks after 15 minutes
-of inactivity and asks for the password again on return. The agent layer is
-hardened by regular deep-audit passes (permission checks, command allowlists,
-tool-output handling).
-See [SECURITY.md](SECURITY.md) for the full
-breakdown of what is stored and what leaves the machine.
+analytics, no crash reporting, no phone-home. Concretely:
+
+- **Chats, notes, projects** live on your disk in plain, inspectable JSON/markdown.
+- **API keys** can be encrypted with a master password (AES-256-GCM + Argon2id);
+  an encrypted vault auto-locks after 15 minutes of inactivity.
+- **Knowledge bases** are indexed into a local SQLite file; search runs entirely
+  on this machine (no embedding APIs).
+- **Dictation and read-aloud** run through local processes (whisper.cpp / Windows
+  SAPI) — audio and text never leave the computer.
+- **The agent layer** is hardened by regular deep-audit passes (permission
+  checks, sensitive-path guards, command allowlists, tool-output handling) —
+  see [SECURITY.md](SECURITY.md) for the full breakdown of what is stored and
+  what leaves the machine.
 
 ## Getting started
 
@@ -132,7 +158,7 @@ platform:
 
 ```
 src/            React frontend (App, ChatArea, Sidebar, SettingsModal, …)
-src-tauri/      Rust side: tools, MCP, browser (CDP), PTY, crypto, hooks
+src-tauri/      Rust side: tools, MCP, browser (CDP), PTY, crypto, hooks, knowledge bases
 locales/        ru / en / zh / ja dictionaries
 docs/           screenshots, internal dev notes
 .github/        CI: frontend build + cargo tests
@@ -141,7 +167,7 @@ docs/           screenshots, internal dev notes
 ## Contributing
 
 Issues and PRs are welcome. `npm run lint`, `npm test`, `npm run build` and
-`cargo clippy --lib -- -D warnings` / `cargo test --lib` (in `src-tauri/`)
+`cargo clippy --all-targets -- -D warnings` / `cargo test` (in `src-tauri/`)
 must pass — CI enforces all of them. Internal development notes live in
 [docs/internal/SESSION_NOTES.md](docs/internal/SESSION_NOTES.md).
 

@@ -16,7 +16,6 @@ export type Section =
   | "subagents"
   | "commands"
   | "plugins"
-  | "agent"
   | "mcp"
   | "imagegen"
   | "hooks"

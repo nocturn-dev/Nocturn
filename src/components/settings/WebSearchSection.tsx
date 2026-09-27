@@ -38,7 +38,7 @@ export function WebSearchSection() {
   ];
 
   return (
-    <div>
+    <div className="mt-5 border-t border-halo-line pt-4">
       <h3 className="mb-1 text-sm font-semibold text-halo-text">
         {t("settings.websearch")}
       </h3>
