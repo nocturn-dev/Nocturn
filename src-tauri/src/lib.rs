@@ -269,6 +269,7 @@ pub fn run() {
             files::checkpoint_files,
             files::checkpoint_restore,
             files::checkpoint_delete,
+            files::git_autocommit,
             fsutil::storage_stats,
             fsutil::storage_cleanup,
             memory::memory_list,
