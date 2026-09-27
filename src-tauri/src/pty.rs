@@ -6,6 +6,7 @@
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use std::collections::HashMap;
 use std::io::{Read, Write};
+use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 
 /// Ручки живой PTY-сессии.
@@ -48,6 +49,15 @@ impl PtyRegistry {
 }
 
 const PTY_OUTPUT_LIMIT: usize = 1024 * 1024; // предохранитель на накопитель декодера
+
+/// Слипание вывода перед emit'ом: читатель получает по ≤4 КБ, и без слипания
+/// `cargo build` рождает тысячи крошечных IPC-событий в секунду. Первый кусок
+/// пачки ждёт окно, пока подтянутся соседи; пустой терминал сидит на
+/// блокирующем recv — ноль COST и ноль задержки. Латентность ≤ окна (10 мс) —
+/// ниже восприятия.
+const PTY_FLUSH_WINDOW: std::time::Duration = std::time::Duration::from_millis(10);
+/// Ранний флаш переполненной пачки — слишком большой не ждём окно
+const PTY_FLUSH_BYTES: usize = 32 * 1024;
 
 /// Команда шелла по выбору пользователя.
 /// Windows: None/auto — PowerShell, "cmd" — cmd.exe, "gitbash" — Git Bash.
@@ -235,6 +245,78 @@ pub async fn pty_create(
     let app_out = app.clone();
     let out_id = id.clone();
     let exit_id = id.clone();
+    // Слипание вывода: читатель шлёт куски в канал, эмиттер копит их в окне
+    // PTY_FLUSH_WINDOW и уезжает одним pty-output. EOF-маркер (None) даёт
+    // строгий порядок: pty-exit приедет строго после последнего вывода —
+    // раньше эти два события эмитились из разных точек без синхронизации.
+    let (out_tx, out_rx) = mpsc::channel::<Option<String>>();
+    std::thread::spawn(move || {
+        use tauri::{Emitter, Manager};
+        let mut acc = String::new();
+        'outer: loop {
+            // Блокирующий recv: пока вывода нет — поток спит
+            match out_rx.recv() {
+                Ok(Some(first)) => {
+                    acc.push_str(&first);
+                    // Окно слипания: докидываем всё, что придёт до дедлайна
+                    let deadline = std::time::Instant::now() + PTY_FLUSH_WINDOW;
+                    let mut eof = false;
+                    loop {
+                        match out_rx.recv_timeout(
+                            deadline.saturating_duration_since(std::time::Instant::now()),
+                        ) {
+                            Ok(Some(s)) => {
+                                acc.push_str(&s);
+                                if acc.len() >= PTY_FLUSH_BYTES {
+                                    break;
+                                }
+                            }
+                            Ok(None) => {
+                                eof = true;
+                                break;
+                            }
+                            Err(mpsc::RecvTimeoutError::Timeout) => break,
+                            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                                eof = true;
+                                break;
+                            }
+                        }
+                    }
+                    if !acc.is_empty() {
+                        let _ = app_out.emit(
+                            "pty-output",
+                            PtyEvent { id: out_id.clone(), data: acc.clone() },
+                        );
+                    }
+                    acc.clear();
+                    if eof {
+                        break 'outer;
+                    }
+                }
+                Ok(None) => break 'outer,
+                Err(_) => return, // читатель умер, не прислав EOF: сессия мертва
+            }
+        }
+        let _ = app_out.emit("pty-exit", exit_id.clone());
+        // Мёртвая сессия покидает реестр: записи раньше копились до
+        // перезапуска, а pty_create с тем же id молча возвращал «ок»
+        // для мёртвой сессии. Удаляем только если child действительно
+        // завершился и это не перезапуск под тем же id
+        if let Some(reg) = app.try_state::<PtyRegistry>() {
+            if let Ok(mut map) = reg.0.lock() {
+                let dead = map
+                    .get(&exit_id)
+                    .and_then(|s| s.child.lock().ok())
+                    .and_then(|mut c| c.try_wait().ok())
+                    .flatten()
+                    .is_some();
+                if dead {
+                    map.remove(&exit_id);
+                }
+            }
+        }
+    });
+    let out_tx_exit = out_tx.clone();
     // openpty + spawn PowerShell — блокирующие вызовы: уводим из команды,
     // чтобы не замораживать вызвавший поток
     let session = tauri::async_runtime::spawn_blocking(move || {
@@ -244,29 +326,10 @@ pub async fn pty_create(
             cols.clamp(20, 500),
             rows.clamp(5, 200),
             move |s| {
-                use tauri::Emitter;
-                let _ = app_out.emit("pty-output", PtyEvent { id: out_id.clone(), data: s });
+                let _ = out_tx.send(Some(s));
             },
             move || {
-                use tauri::{Emitter, Manager};
-                let _ = app.emit("pty-exit", exit_id.clone());
-                // Мёртвая сессия покидает реестр: записи раньше копились до
-                // перезапуска, а pty_create с тем же id молча возвращал «ок»
-                // для мёртвой сессии. Удаляем только если child действительно
-                // завершился и это не перезапуск под тем же id
-                if let Some(reg) = app.try_state::<PtyRegistry>() {
-                    if let Ok(mut map) = reg.0.lock() {
-                        let dead = map
-                            .get(&exit_id)
-                            .and_then(|s| s.child.lock().ok())
-                            .and_then(|mut c| c.try_wait().ok())
-                            .flatten()
-                            .is_some();
-                        if dead {
-                            map.remove(&exit_id);
-                        }
-                    }
-                }
+                let _ = out_tx_exit.send(None);
             },
         )
     })
