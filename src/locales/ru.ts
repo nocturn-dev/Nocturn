@@ -818,6 +818,7 @@ export const ru = {
     "themes.userCssReset": "Сбросить",
     "menu.projectAccent": "Акцент проекта (#hex)",
     "menu.projectAccentBad": "Некорректный цвет: нужен формат #rrggbb",
+    "menu.projectAccentPh": "#rrggbb — пусто, чтобы сбросить",
     "themes.termFontHint": "терминал и консоль",
     "themes.termShell": "Оболочка терминала",
     "themes.termShellHint": "Применяется к новым сессиям консоли. Авто — PowerShell",

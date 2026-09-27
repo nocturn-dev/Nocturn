@@ -803,6 +803,7 @@ export const en = {
     "themes.userCssReset": "Reset",
     "menu.projectAccent": "Project accent (#hex)",
     "menu.projectAccentBad": "Invalid color: #rrggbb format required",
+    "menu.projectAccentPh": "#rrggbb — leave empty to reset",
     "themes.termFontHint": "terminal and console",
     "themes.termShell": "Terminal shell",
     "themes.termShellHint": "Applies to new console sessions. Auto — PowerShell",
