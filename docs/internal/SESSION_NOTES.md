@@ -1,5 +1,22 @@
 # Nocturn (HaloUI) — handoff (21.09.2026)
 
+## Хэндофф 27.09.2026 — волна аудита (25 коммитов, `eaf31b5`…`590812a`)
+
+Полный read-only аудит (4 субагента: Rust/Tauri, кроссплатформа, React/TS,
+Tailwind/CSS; супервизор верифицировал каждую находку) → 46 находок, все
+закрыты волнами W0–W6. Ключевое: user32-FFI под `cfg(windows)` (+CI-матрица
+ubuntu/macos — cargo test линкует и ловит чужие `#[link]`); `chat-usage`
+эмитится на `[DONE]` (единый `emit_feed_event`, abort ≠ [DONE]); coli —
+`process_group(0)` + страховочный kill (Unix stop/exit не висят); `allow-hide`
+в capabilities (Esc/onBlur QuickEntry молча не работали); IME isComposing во
+всех Enter-обработчиках; админ-шары закрыты в `rejects_sensitive_path` (+тесты);
+vault/заметки/чекпоинты — через atomic_write; чекпоинт-список читает
+`.meta.json`-сайдкары (полный парс — только фолбэк). Владельцу проверить
+вручную: F11 на macOS/Linux, IME (zh/ja раскладки), закрытие QuickEntry,
+usage-статистика на OpenAI-совместимом провайдере, экспорт/импорт настроек.
+Остаточный долг (низкий): 17 × `as never` в t()-ключах, веб-зум Quick Entry
+на Wayland без системного сообщения (тост только при ремапе).
+
 Стек: Tauri 2 + React 19 + TS + Tailwind 4. Сборка: `npm run build` (tsc + vite),
 Rust-тесты: `cargo test` в `src-tauri` (40 + 2 e2e). Запуск: `npm run tauri dev`.
 Версия 0.2.0-alpha. Все разделы настроек реализованы — заглушек не осталось.
