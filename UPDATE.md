@@ -23,6 +23,18 @@
 
 ---
 
+## 2026-09-27 · [update-frontend] Типизация локаль-ключей: `as never` = 0
+- 14 сайтов `t(...)` переведены на компиляторную проверку: константам дан `MsgKey` (NOTIFY_SOUNDS, ROLE_KEYS, WEEKDAY_KEYS, шаблоны автоматизаций, индекс поиска настроек ~40 ключей, ContextRing/HeaderLabel), шаблонные union (`usage.${m}`, `profile.tone_${tone}`) выводятся сами, `greetingKey` — готовый литеральный union.
+- Бонус: `includes(x as never)` в appearance/themeProfiles заменены типогардом `isAmbientScene` (заодно сняты касты результата); searchIndex потерял рантайм-костыль `?? ""` — его инвариант «ключ обязан существовать» теперь принудителен.
+- Коммит `147a007`.
+
+## 2026-09-27 · [update-backend · update-frontend] Quick Entry: честный тост, когда глобальный хоткей недоступен
+- Причина → на Wayland-подобных системах регистрация хоткея проваливалась в `eprintln!`, пользователь вечность жал Ctrl+Alt+Space «в никуда».
+- Бек: `quickentry_status()` отдаёт, зарегистрирован ли комбо; при провале ремапа дефолт восстанавливается (раньше `unregister_all` убивал и его — хоткей умирал до рестарта, а UI был уверен в обратном).
+- Фронт: на старте — ремап → тост о промахе, затем статус → тост «глобальный хоткей недоступен в этой системе»; ключи `main.quickentryBindFail`/`quickentryUnavailable` во всех 4 локалях.
+- Полноценные хоткеи на Wayland (xdg-desktop-portal GlobalShortcuts) — отдельная задача, не этой волны.
+- Коммит `9f269ad`.
+
 ## 2026-09-27 · [global-fix · update-backend · update-frontend · infra] Волна аудита: 25 фиксов по итогам тотальной ревизии
 - Сборка/платформы: user32-FFI загейчен `#[cfg(windows)]` + ветка native-fullscreen для macOS/Linux; rust-job CI расширена до ubuntu/macos (cargo test линкует — ловит чужие `#[link]`); coli — своя процесс-группа на Unix + страховочный kill (stop/выход больше не висят); Quick Entry позиционируется по монитору курсора.
 - Данные/безопасность: `chat-usage` доезжает до фронта на OpenAI-совместимых стримах ([DONE] ≠ abort, единый исчерпывающий emit-хелпер); гардал путей закрыл админ-шары (`c$`/`admin$`, +тесты); vault/заметки/чекпоинты — atomic_write (0600 на Unix); websearch — потолок тела по ходу чтения; websearch.json в экспорте с маской Brave-ключа; capabilities: +allow-hide (Esc/onBlur QuickEntry не работали), −лишние fullscreen-права; perm-канонизация пути — в blocking-пул.
