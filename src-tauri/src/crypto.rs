@@ -219,6 +219,12 @@ pub fn verify_check(key: &[u8], check: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    /// VAULT_KEY — глобальный стат: cargo test гоняет тесты в параллельных
+    /// потоках, и clear_key()/set_key() соседа под ногой давали спорадические
+    /// падения. Мутирующие глобал тесты обязаны идти сериализованно
+    static KEY_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn hex_decode_rejects_non_ascii_without_panic() {
@@ -232,6 +238,7 @@ mod tests {
 
     #[test]
     fn roundtrip_with_key() {
+        let _serial = KEY_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         set_key(derive_key("master-пароль", b"salt-salt-salt-sa"));
         assert!(has_key());
         let secret = "sk-test-ключ-12345";
@@ -257,6 +264,7 @@ mod tests {
 
     #[test]
     fn locked_vault_encrypts_nothing() {
+        let _serial = KEY_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         clear_key();
         assert!(encrypt("x").is_err());
         assert!(decrypt("enc:v1:AAAA").is_none());
@@ -264,6 +272,7 @@ mod tests {
 
     #[test]
     fn argon2_derive_is_deterministic_and_salt_sensitive() {
+        // derive-часть не трогает глобал — мьютекс только вокруг set_key/clear_key
         let a1 = derive_key_argon2("мастер-пароль", b"salt-salt-salt-sa").expect("derive");
         let a2 = derive_key_argon2("мастер-пароль", b"salt-salt-salt-sa").expect("derive");
         let b = derive_key_argon2("мастер-пароль", b"another-salt-16!").expect("derive");
@@ -272,6 +281,7 @@ mod tests {
         assert_eq!(a1.len(), 32);
         // Не совпадает с легаси-KDF на тех же входах
         assert_ne!(a1, derive_key("мастер-пароль", b"salt-salt-salt-sa"));
+        let _serial = KEY_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         // Полнееценный раунд трип на argon2-ключе
         set_key(a1.clone());
         let enc = encrypt("sk-secret").expect("encrypt");

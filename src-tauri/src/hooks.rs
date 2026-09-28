@@ -177,6 +177,8 @@ fn exec_with_abort(
     let (shell, flag) = if cfg!(windows) {
         ("cmd", "/C")
     } else {
+        // POSIX sh: на Debian/Ubuntu /bin/sh — dash, bash-измы (массивы, [[ ]])
+        // в хуках пользователя упадут. Документированный контракт — «POSIX sh only»
         ("sh", "-c")
     };
     let mut cmd = Command::new(shell);
@@ -325,10 +327,10 @@ mod tests {
         assert!(matches(&hook, "PreToolUse", "fs_write"));
         assert!(!matches(&hook, "PostToolUse", "fs_write"));
         assert!(!matches(&hook, "PreToolUse", "shell_run"));
-        hook2();
     }
 
-    fn hook2() {
+    #[test]
+    fn disabled_hook_never_matches() {
         let hook = Hook {
             id: "b".into(),
             event: "Stop".into(),

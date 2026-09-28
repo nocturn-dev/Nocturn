@@ -669,21 +669,27 @@ fn emit_feed_event(
     event: FeedEvent,
 ) -> Result<(), String> {
     use tauri::Emitter;
+    // emit_to("main"), а не широковещательный emit: приватные дельты чата
+    // не должны рассылаться в quickentry-вебвью (тот же бандл, но там свой
+    // компонент без слушателей чата)
     match event {
         FeedEvent::Content { delta } => app
-            .emit(
+            .emit_to(
+                "main",
                 "chat-chunk",
                 serde_json::json!({ "requestId": request_id, "delta": delta }),
             )
             .map_err(|e| e.to_string()),
         FeedEvent::Thought { delta } => app
-            .emit(
+            .emit_to(
+                "main",
                 "chat-thought",
                 serde_json::json!({ "requestId": request_id, "thought": delta }),
             )
             .map_err(|e| e.to_string()),
         FeedEvent::Usage { prompt, completion, total } => app
-            .emit(
+            .emit_to(
+                "main",
                 "chat-usage",
                 serde_json::json!({
                     "requestId": request_id,
@@ -694,13 +700,15 @@ fn emit_feed_event(
             )
             .map_err(|e| e.to_string()),
         FeedEvent::ToolCallsFinished { calls } => app
-            .emit(
+            .emit_to(
+                "main",
                 "chat-tool-calls",
                 serde_json::json!({ "requestId": request_id, "calls": calls }),
             )
             .map_err(|e| e.to_string()),
         FeedEvent::ThinkingBlock { thinking, signature, redacted } => app
-            .emit(
+            .emit_to(
+                "main",
                 "chat-thinking",
                 serde_json::json!({
                     "requestId": request_id,

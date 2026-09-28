@@ -73,7 +73,10 @@ pub fn run() {
                 serde_json::from_str(&data).ok()
             };
             if let Some(v) = read("network.json") {
-                network::set_config(serde_json::from_value(v).unwrap_or_default());
+                // set_config читает CA синхронно и может висеть на UNC-пути
+                // до SMB-таймаута: старт окна не должен ждать его
+                let cfg: network::NetworkConfig = serde_json::from_value(v).unwrap_or_default();
+                std::thread::spawn(move || network::set_config(cfg));
             }
             if let Some(v) = read("browser.json") {
                 browser::set_config(serde_json::from_value(v).unwrap_or_default());
@@ -779,10 +782,15 @@ fn build_tray(app: &tauri::AppHandle) -> Result<(), String> {
 
 /// Полный сброс «Clear All Data»: стирает каталоги пользовательских данных
 /// (конфиги, чаты, профили, заметки, картинки, звуки, чекпоинты, vault) и
-/// перезапускает приложение в заводское состояние. Вызывается только после
-/// подтверждения в главном окне (clear-data-request → ResetConfirmModal).
+/// перезапускает приложение в заводское состояние. Разрушающая операция —
+/// требует серверного подтверждения confirm="RESET" (паритет с crypto_reset):
+/// единственная фронтовая модалка — недостаточный барьер для необратимого
+/// стирания всей локальной копии данных.
 #[tauri::command(async)]
-fn factory_reset(app: tauri::AppHandle) -> Result<(), String> {
+fn factory_reset(app: tauri::AppHandle, confirm: Option<String>) -> Result<(), String> {
+    if confirm.as_deref() != Some("RESET") {
+        return Err("confirmation required: pass confirm=\"RESET\" to wipe all local data".into());
+    }
     use tauri::Manager;
     let mut roots = Vec::new();
     if let Ok(d) = app.path().app_config_dir() {
@@ -802,8 +810,9 @@ fn factory_reset(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 /// Удаление временных профилей браузера: на каждый запуск создаётся
-/// haloui-browser-{port} в %TEMP%, при успешной сессии он не удалялся —
-/// накапливались сотни мегабайт. Вызывается на выходе приложения.
+/// haloui-browser-{uuid} в %TEMP% (uuid вместо порта — см. browser.rs),
+/// при успешной сессии он не удалялся — накапливались сотни мегабайт.
+/// Вызывается на выходе приложения.
 fn cleanup_browser_profiles() {
     let tmp = std::env::temp_dir();
     if let Ok(entries) = fs::read_dir(&tmp) {

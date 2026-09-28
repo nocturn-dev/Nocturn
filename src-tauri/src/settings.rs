@@ -208,7 +208,9 @@ pub async fn crypto_status(app: tauri::AppHandle) -> Result<serde_json::Value, S
 /// Вывод ключа — тяжёлый (Argon2id, 19 MiB) — исполняется вне потока UI.
 #[tauri::command(async)]
 pub async fn crypto_setup(app: tauri::AppHandle, password: String) -> Result<(), String> {
-    if password.len() < 8 {
+    // Символы, не байты: 4 CJK-символа (12 байт) не должны проходить
+    // политику «минимум 8»
+    if password.chars().count() < 8 {
         return Err("password too short (minimum 8 characters)".into());
     }
     // Zeroizing: мастер-пароль затирается при выходе из команды,
@@ -423,6 +425,9 @@ pub async fn crypto_reset(app: tauri::AppHandle, confirm: String) -> Result<(), 
 
 /// Конфиг-файлы, входящие в экспорт. crypto.json включён: без той же соли
 /// и check зашифрованные ключи не оживут на другой машине.
+/// memory.json (личная память агента) сознательно НЕ входит: приватные
+/// данные пользователя, перенос — только руками, как у sessions.json
+/// в «поделенный» экспорт без секретов.
 const EXPORT_FILES: &[&str] = &[
     "settings.json",
     "profiles.json",
@@ -438,6 +443,7 @@ const EXPORT_FILES: &[&str] = &[
     "imagegen.json",
     "browser.json",
     "computer.json",
+    "network.json",
     "websearch.json",
     "dictation.json",
     "crypto.json",
@@ -457,10 +463,12 @@ pub fn settings_read_all(
     let include_secrets = include_secrets.unwrap_or(false);
     let mut files = serde_json::Map::new();
     for name in EXPORT_FILES {
-        // crypto.json (соль KDF + check-маркер) — материал для офлайн-перебора
-        // мастер-пароля: в «поделенный» экспорт без секретов не попадает,
-        // машино-перенос — только осознанный include_secrets=true
-        if *name == "crypto.json" && !include_secrets {
+        // В «поделенный» экспорт (include_secrets=false) не идут:
+        // crypto.json — соль KDF + check-маркер, материал для офлайн-перебора
+        // мастер-пароля; sessions.json — вся история чатов, делиться файлом
+        // «настроек без ключей» не должно отдавать переписку.
+        // Машино-перенос — только осознанный include_secrets=true
+        if !include_secrets && (*name == "crypto.json" || *name == "sessions.json") {
             continue;
         }
         let path = dir.join(name);
@@ -805,7 +813,10 @@ pub fn chat_export_write(
 }
 
 /// Прочитать импорт-файл (путь контролируется фронтом: потолок 32 МБ —
-/// pagefile.sys раньше читался в память целиком)
+/// pagefile.sys раньше читался в память целиком).
+/// Модель доверия: гард закрывает только системные локации, любой файл
+/// пользователя читается в вебвью осознанно — это и есть фича импорта
+/// (та же модель у plugin_read и kb_add_document)
 #[tauri::command(async)]
 pub fn settings_import_read(path: String) -> Result<serde_json::Value, String> {
     rejects_sensitive_path(&path)?;
@@ -1190,5 +1201,3 @@ mod tests {
         assert!(!starts_dir(&format!("c:{sep}cfg-backup{sep}f.json"), &dir));
     }
 }
-
-// ---------- Серверный слой прав (perm.rs) ----------

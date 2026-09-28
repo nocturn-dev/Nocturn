@@ -3,7 +3,9 @@
 
 use crate::hooks;
 use crate::settings::{config_file, rejects_sensitive_path};
-use std::fs;// ---------- Хуки ----------
+use std::fs;
+
+// ---------- Хуки ----------
 
 pub fn hooks_dir(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
     use tauri::Manager;
