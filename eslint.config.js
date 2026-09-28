@@ -25,6 +25,9 @@ export default tseslint.config(
       'react-refresh/only-export-components': 'off',
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
       '@typescript-eslint/no-explicit-any': 'warn',
+      // non-null assertion хрупок к рефакторингу гардала: warning, чтобы
+      // новые не появлялись незаметно, старые вычищены волной аудита
+      '@typescript-eslint/no-non-null-assertion': 'warn',
     },
   },
 );
