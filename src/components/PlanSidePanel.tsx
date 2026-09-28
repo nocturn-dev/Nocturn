@@ -1,4 +1,5 @@
 import { useDelayedUnmount } from "../motion";
+import { copyText } from "../clipboard";
 import { useLang } from "../locales";
 import { type PlanTask } from "../types";
 import { CheckIcon, XSmallIcon } from "./cards/icons";
@@ -38,11 +39,9 @@ export function PlanSidePanel({
         p.status === "done" ? "[x]" : p.status === "in_progress" ? "[~]" : "[ ]";
       return `${mark} ${p.title}`;
     });
-    try {
-      await navigator.clipboard.writeText(lines.join("\n"));
+    // Тост только при реальном успехе: фолбэк внутри copyText (старый WebKitGTK)
+    if (await copyText(lines.join("\n"))) {
       onCopied();
-    } catch {
-      // В WebView буфер может быть недоступен — молча игнорируем
     }
   };
 

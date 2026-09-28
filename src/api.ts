@@ -449,8 +449,8 @@ export interface FileEntry {
   size: number;
 }
 
-/** Системный диалог выбора папки проекта. null — пользователь отменил */
-/** Ambient: выбрать видеофайл пользователя (mp4/webm/…) */
+/** Ambient: системный диалог выбора видеофайла пользователя (mp4/webm/…).
+ *  null — пользователь отменил */
 export async function pickVideoFile(): Promise<string | null> {
   if (!inTauri) {
     throw new Error("Выбор видео работает в нативном приложении (npm run tauri dev)");
@@ -978,8 +978,7 @@ export async function webSearchSetConfig(config: WebSearchConfig): Promise<void>
 
 // ---------- Свои звуки уведомлений ----------
 
-/** Диалог выбора аудиофайла; null — отмена */
-/** Диалог выбора файла шрифта; null — отмена */
+/** Диалог выбора файла шрифта; null — пользователь отменил */
 export async function pickFontFile(): Promise<string | null> {
   if (!inTauri) {
     throw new Error("Импорт шрифта работает в нативном приложении (npm run tauri dev)");
@@ -1123,12 +1122,13 @@ export async function onClearDataRequest(cb: () => void): Promise<() => void> {
 }
 
 /** Полный сброс: стереть пользовательские данные и перезапустить приложение.
- *  Не возвращает управление — процесс рестартует. */
+ *  Не возвращает управление — процесс рестартует. confirm="RESET" —
+ *  серверный гардал (паритет с crypto_reset): фронтовой модалки недостаточно. */
 export async function factoryReset(): Promise<void> {
   if (!inTauri) {
     throw new Error("Полный сброс работает в нативном приложении (npm run tauri dev)");
   }
-  return invoke("factory_reset");
+  return invoke("factory_reset", { confirm: "RESET" });
 }
 
 // ---------- Colibri (локальный MoE-движок, coli serve) ----------
@@ -1393,26 +1393,35 @@ export async function checkForUpdate(opts: {
 
 // ---------- Экспорт/импорт настроек одним файлом ----------
 
-/** localStorage-ключи, входящие в экспорт (всё, что не в config-файлах).
- *  Наружу не экспортируется: потребители только внутри api.ts */
-const LS_EXPORT_KEYS: string[] = [
-  "haloui-automations",
-  "haloui-theme-profiles",
-  "haloui-appearance",
-  "haloui-header-color",
-  "haloui-theme",
-  "haloui-lang",
-  "haloui-sidebar-width",
-  "haloui-sidebar-group",
-  "haloui-sidebar-projects",
-  "haloui-notify",
-  "haloui-keep-awake",
-  "haloui-browser-panel",
-];
+/** Экспортируются ВСЕ haloui-* ключи, кроме перечисленных здесь.
+ *  Прежний ручной allow-list вёлся за собой: комментарий обещал «всё, что
+ *  не в config-файлах», а фактически 12 ключей из ~50 — половина тумблеров
+ *  молча терялась при переносе. Exclude — только машинно-специфичное и
+ *  зеркала данных с серверным источником истины */
+const LS_EXCLUDE_KEYS: ReadonlySet<string> = new Set([
+  // Зеркала браузер-превью: истина в settings.json/profiles.json на бекенде
+  // (там работает маскирование) — сырые ключи в «поделенный» файл не должны
+  // утекать через localStorage
+  "haloui-api",
+  "haloui-profiles",
+  "haloui-sessions",
+  // Машинно-специфичное: абсолютные пути и железо другой машины бессмысленны
+  "haloui-project-root",
+  "haloui-mic-device",
+  "haloui-colibri",
+  // Состояние, а не настройка: журнал расхода токенов, кэш аватара,
+  // флаг онбординга (свежая машина должна пройти онбординг заново)
+  "haloui-usage",
+  "haloui-usage-backfill",
+  "haloui-user-profile",
+  "haloui-onboarded",
+]);
 
 export function collectLocal(): Record<string, string> {
   const out: Record<string, string> = {};
-  for (const k of LS_EXPORT_KEYS) {
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (k === null || !k.startsWith("haloui-") || LS_EXCLUDE_KEYS.has(k)) continue;
     const v = localStorage.getItem(k);
     if (v !== null) out[k] = v;
   }
@@ -1420,7 +1429,10 @@ export function collectLocal(): Record<string, string> {
 }
 
 export function restoreLocal(data: Record<string, string>): void {
+  // Только наше пространство имён: чужой/сбитый файл импорта не должен
+  // засорять localStorage произвольными ключами
   for (const [k, v] of Object.entries(data)) {
+    if (!k.startsWith("haloui-") || LS_EXCLUDE_KEYS.has(k)) continue;
     localStorage.setItem(k, v);
   }
 }

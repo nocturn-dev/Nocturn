@@ -661,7 +661,7 @@ export function ApiSection({
         </button>
         <button
           onClick={handleSave}
-          className="rounded-lg bg-halo-accent px-3.5 py-2 text-sm font-medium text-white transition-colors hover:bg-halo-accent-deep"
+          className="rounded-lg bg-halo-accent px-3.5 py-2 text-sm font-medium text-halo-on-accent transition-colors hover:bg-halo-accent-deep"
         >
           {saved ? t("api.saved") : t("api.save")}
         </button>

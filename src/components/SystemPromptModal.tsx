@@ -90,7 +90,7 @@ export default function SystemPromptModal({
               onSave(draft.trim() || null);
               onClose();
             }}
-            className="rounded-lg bg-halo-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-halo-accent-deep"
+            className="rounded-lg bg-halo-accent px-4 py-2 text-sm font-medium text-halo-on-accent transition-colors hover:bg-halo-accent-deep"
           >
             {t("prompts.save")}
           </button>

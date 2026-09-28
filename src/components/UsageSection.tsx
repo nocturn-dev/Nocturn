@@ -195,7 +195,9 @@ export default function UsageSection({
     const top = data.models.slice(0, 2).map((m) => m.model);
     const series = top.map((model) => ({
       model,
-      color: data.models.find((m) => m.model === model)!.color,
+      // find из slice того же массива — не может не найтись; фолбэк вместо
+      // non-null assertion, хрупкой к рефакторингу источника
+      color: data.models.find((m) => m.model === model)?.color ?? "var(--halo-accent)",
       values: daysList.map((d) => {
         const dayEvents = events.filter((e) => e.day === d && e.model === model);
         return dayEvents.reduce((acc, e) => acc + e.prompt + e.completion, 0);

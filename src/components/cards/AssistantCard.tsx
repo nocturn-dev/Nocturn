@@ -1,4 +1,6 @@
 import { summarizeArguments } from "../../diff";
+import { copyText } from "../../clipboard";
+import { isWindows } from "../../platform";
 import { useLang } from "../../locales";
 import { type Message } from "../../types";
 import type { StepRow } from "../../agent/steps";
@@ -89,12 +91,10 @@ function CodeBlock({
   const previewable = onPreview !== undefined && codeLanguage(_node) === "html";
 
   const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(text());
+    // Галочка только при реальном успехе: фолбэк внутри copyText (старый WebKitGTK)
+    if (await copyText(text())) {
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1500);
-    } catch {
-      // буфер недоступен (редкий кейс WebView) — молча
     }
   };
 
@@ -342,7 +342,10 @@ function AssistantCardBase({
                 живой статус хода приходит через hint из движка */}
           </span>
         )}
-        {!isStreaming && message.content.trim() !== "" && (
+        {/* TTS — SAPI, только Windows: на macOS/Linux бекенд вернёт Err,
+            а «живая» кнопка с молча гаснущим индикатором обманывала бы.
+            Прецедент честного скрытия фичи — keep-awake в AutomationsModal */}
+        {!isStreaming && isWindows() && message.content.trim() !== "" && (
           <button
             onClick={() =>
               speaking ? stopSpeaking() : speak(message.content, setSpeaking)

@@ -296,7 +296,14 @@ export function ThemeSection({
     if (!name) return;
     onThemeProfilesChange([
       ...themeProfiles,
-      { id: `tp-${Date.now()}`, name, theme, appearance },
+      {
+        // uuid, не Date.now(): два профиля в одну миллисекунду получали
+        // одинаковый id — дубли React-ключей (см. useApiSettings)
+        id: `tp-${crypto.randomUUID()}`,
+        name,
+        theme,
+        appearance,
+      },
     ]);
     setProfileNameDraft("");
     setProfileSaveOpen(false);
@@ -718,10 +725,10 @@ export function ThemeSection({
                       value={ok ? value : "#000000"}
                       onChange={(e) => setEditorField(f, e.target.value)}
                       className="size-6 shrink-0 cursor-pointer rounded border border-halo-line bg-transparent"
-                      aria-label={t(`themes.customColor${f[0]!.toUpperCase()}${f.slice(1)}` as MsgKey)}
+                      aria-label={t(`themes.customColor${f.charAt(0).toUpperCase()}${f.slice(1)}` as MsgKey)}
                     />
                     <span className="w-20 shrink-0">
-                      {t(`themes.customColor${f[0]!.toUpperCase()}${f.slice(1)}` as MsgKey)}
+                      {t(`themes.customColor${f.charAt(0).toUpperCase()}${f.slice(1)}` as MsgKey)}
                     </span>
                     <input
                       value={value}

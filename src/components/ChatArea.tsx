@@ -662,7 +662,18 @@ export default function ChatArea({
     [messages, showUserMsgs],
   );
 
-  // Изменения файлов за ВСЮ задачу: агрегат по всем fs_write-сообщениям
+  // Изменения файлов за ВСЮ задачу: агрегат по всем fs_write-сообщениям.
+  // C7: дорогой пересчёт (JSON.parse содержимого before/after) отсечён от
+  // ежекадровых флешей стрима — дешёвый ключ (id fs_write-результатов)
+  // меняется только когда реально появился новый результат записи
+  // (тот же паттерн, что у modifiedFiles в App.tsx)
+  const writeKey = useMemo(() => {
+    let key = "";
+    for (const m of messages) {
+      if (m.role === "tool" && m.toolName === "fs_write") key += `${m.id}|`;
+    }
+    return key;
+  }, [messages]);
   const sessionWrites = useMemo(() => {
     const map = new Map<string, ChangedFile>();
     for (const m of messages) {
@@ -679,7 +690,8 @@ export default function ChatArea({
       });
     }
     return [...map.values()];
-  }, [messages]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- ключ отсекает ежекадровый пересчёт
+  }, [writeKey]);
 
   // ── Производные данные ленты ──
   // IIFE рендера исполняется на каждый рендер; без кэша он пересоздавал
@@ -897,12 +909,16 @@ export default function ChatArea({
   }, [session?.id]);
 
   // Приветствие по времени суток (обновляется раз в минуту):
-  // 05–11:59 утро · 12–17:59 день · 18–22:59 вечер · 23–04:59 ночь
+  // 05–11:59 утро · 12–17:59 день · 18–22:59 вечер · 23–04:59 ночь.
+  // Таймер живёт только пока приветствие реально видно (пустая лента):
+  // раз в минуту ре-рендерил весь ChatArea с сотнями карточек впустую
   const [now, setNow] = useState(() => new Date());
+  const greetingVisible = visible.length === 0 && !typing;
   useEffect(() => {
+    if (!greetingVisible) return;
     const iv = window.setInterval(() => setNow(new Date()), 60_000);
     return () => window.clearInterval(iv);
-  }, []);
+  }, [greetingVisible]);
   const greetingKey = useMemo(() => {
     // UTC/GMT-совместимый расчёт периода (src/time.ts): при системном
     // поясе UTC часы берутся напрямую из GMT
@@ -1517,9 +1533,11 @@ export default function ChatArea({
         >
           {session?.title ?? t("chat.new")}
         </h1>
-        {/* Суммарные токены задачи (M5.3) */}
+        {/* Суммарные токены задачи (M5.3); неинтерактивный индикатор —
+            тоже drag-регион, иначе в шапке остаётся мёртвая зона */}
         {totals.all > 0 && (
           <span
+            data-tauri-drag-region
             title={`${t("tokens.up")}: ${fmtInt(totals.up, lang)} · ${t("tokens.down")}: ${fmtInt(totals.down, lang)} · ${t("tokens.total")}: ${fmtInt(totals.all, lang)}`}
             className="mr-2 shrink-0 text-[10px] text-halo-muted/70"
           >

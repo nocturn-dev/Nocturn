@@ -62,7 +62,12 @@ function ToolStepCardBase({
     () => (write ? diffLines(write.before ?? "", write.after) : null),
     [write],
   );
-  const stats = useMemo(() => (diff ? diffStats(diff) : null), [diff]);
+  // added/removed считаются из diff; диффа нет — нули. Вместо optional-объекта
+  // stats с non-null assertions в трёх местах рендера
+  const { added, removed } = useMemo(
+    () => (diff ? diffStats(diff) : { added: 0, removed: 0 }),
+    [diff],
+  );
 
   // image_generate: результат {ok, path} рендерится картинкой прямо в чате
   // (файл лежит в appdata/images, каталог разрешён в asset-скоупе на старте)
@@ -96,7 +101,7 @@ function ToolStepCardBase({
       : exitCode !== null
         ? `exit ${exitCode}`
         : write
-          ? `${t("agent.diffLinesAdded", { n: stats!.added })} · ${t("agent.diffLinesRemoved", { n: stats!.removed })}`
+          ? `${t("agent.diffLinesAdded", { n: added })} · ${t("agent.diffLinesRemoved", { n: removed })}`
           : t("agent.result");
 
   return (
@@ -151,10 +156,10 @@ function ToolStepCardBase({
                   </span>
                 )}
                 <span className="text-[10px] text-emerald-400">
-                  {t("agent.diffLinesAdded", { n: stats!.added })}
+                  {t("agent.diffLinesAdded", { n: added })}
                 </span>
                 <span className="text-[10px] text-red-400">
-                  {t("agent.diffLinesRemoved", { n: stats!.removed })}
+                  {t("agent.diffLinesRemoved", { n: removed })}
                 </span>
               </div>
               <DiffView lines={diff} hasBefore={write.before !== null} />

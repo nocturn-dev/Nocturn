@@ -8,6 +8,7 @@ import type {
   UsageEvent,
 } from "./types";
 import { useLang } from "./locales";
+import { copyText } from "./clipboard";
 import {
   diffLines,
   diffStats,
@@ -1593,11 +1594,8 @@ export default function App() {
     );
 
   const handleCopyTitle = async (title: string) => {
-    try {
-      await navigator.clipboard.writeText(title);
-    } catch {
-      // В WebView буфер может быть недоступен — молча игнорируем
-    }
+    // Фолбэк внутри (старые WebKitGTK) — при недоступности обоих путей молчим
+    await copyText(title);
   };
 
   // ---------- Онбординг первого запуска и полный сброс ----------
