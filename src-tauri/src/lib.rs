@@ -348,6 +348,36 @@ pub fn run() {
                         if eclipsed {
                             if let Some(w) = app.get_webview_window("main") {
                                 let _ = w.set_always_on_top(*focused);
+                                // Win+D сворачивает окно и в «затмении»: topmost
+                                // shell не защищает. При восстановлении tao
+                                // прикладывает протухшую внутреннюю геометрию —
+                                // вместо монитора появляется маленькое окно с
+                                // чёрным кадром, drag в котором «прыгает» по
+                                // столу. Целевые границы хранит FS_MON —
+                                // возвращаем их на первом же фокусе
+                                #[cfg(windows)]
+                                {
+                                    if *focused && !w.is_minimized().unwrap_or(true) {
+                                        let target = FS_MON
+                                            .lock()
+                                            .unwrap_or_else(|p| p.into_inner())
+                                            .as_ref()
+                                            .copied();
+                                        if let Some(full) = target {
+                                            if let Ok(hwnd) = w.hwnd() {
+                                                let hwnd = hwnd.0 as isize;
+                                                let cur =
+                                                    window_rect(&w).unwrap_or((0, 0, 0, 0));
+                                                let (fx, fy, fcx, fcy) =
+                                                    expand_by_borders(&w, full);
+                                                if cur != (fx, fy, fcx, fcy) {
+                                                    set_window_bounds(hwnd, fx, fy, fcx, fcy);
+                                                    nudge_window(&w);
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -439,6 +469,12 @@ fn window_toggle_maximize(app: tauri::AppHandle) -> Result<(), String> {
 type SavedBounds = ((i32, i32, i32, i32), bool);
 static FS_SAVE: Mutex<Option<SavedBounds>> = Mutex::new(None);
 
+/// Прямоугольник монитора, накрытого «затмением»: Focused-хук лечит
+/// геометрию после Win+D-минимизации по нему (монитор из MonitorFromWindow
+/// после сломанного restore не годится — окно может лежать на другом экране)
+#[cfg(windows)]
+static FS_MON: Mutex<Option<WinRect>> = Mutex::new(None);
+
 #[cfg(windows)]
 #[repr(C)]
 #[derive(Default, Clone, Copy)]
@@ -515,6 +551,7 @@ fn window_toggle_fullscreen(app: tauri::AppHandle) -> Result<(), String> {
     // Выход из «затмения»: назад к прежним границам (и в maximize, если
     // оттуда пришли)
     let saved = FS_SAVE.lock().unwrap_or_else(|p| p.into_inner()).take();
+    FS_MON.lock().unwrap_or_else(|p| p.into_inner()).take();
     if let Some(((x, y, cx, cy), was_max)) = saved {
         if w.is_maximized().unwrap_or(false) {
             let _ = w.unmaximize();
@@ -533,6 +570,7 @@ fn window_toggle_fullscreen(app: tauri::AppHandle) -> Result<(), String> {
     // таскбаром»). Невидимые DWM-границы безрамочного окна (shadow) дают
     // видимые отступы по бокам — компенсируем их расширением цели
     let (full, _work) = monitor_rects(hwnd)?;
+    *FS_MON.lock().unwrap_or_else(|p| p.into_inner()) = Some(full);
     let from = window_rect(&w)?;
     let was_max = w.is_maximized().unwrap_or(false);
     *FS_SAVE.lock().unwrap_or_else(|p| p.into_inner()) = Some((from, was_max));
