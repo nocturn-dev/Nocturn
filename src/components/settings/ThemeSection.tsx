@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useLang, MsgKey } from "../../locales";
 import type { Theme } from "../../types";
-import { ACCENT_PRESETS, appearanceTitleStyle, Appearance } from "../../appearance";
+import { ACCENT_PRESETS, ambientGradientDefaults, appearanceTitleStyle, Appearance } from "../../appearance";
 import { STYLE_PALETTES } from "../../themeStyles";
 import type { ThemeProfile } from "../../themeProfiles";
 import { dayPeriod } from "../../time";
@@ -1395,11 +1395,13 @@ export function ThemeSection({
 
           {appearance.ambientScene === "gradient" && (
             <div className="mt-2.5 grid grid-cols-2 gap-2">
+              {/* Пустые цвета = дефолт из живой темы (ambientGradientDefaults),
+                  тот же, что рисует слой: раньше в инпутах был зашитый синий */}
               <label className="flex items-center gap-1.5 text-xs text-halo-muted">
                 {t("themes.gradFrom")}
                 <input
                   type="color"
-                  value={appearance.ambientGradFrom ?? "#16213e"}
+                  value={appearance.ambientGradFrom ?? ambientGradientDefaults().from}
                   onChange={(e) =>
                     onAppearanceChange({ ...appearance, ambientGradFrom: e.target.value })
                   }
@@ -1410,7 +1412,7 @@ export function ThemeSection({
                 {t("themes.gradTo")}
                 <input
                   type="color"
-                  value={appearance.ambientGradTo ?? "#0f3460"}
+                  value={appearance.ambientGradTo ?? ambientGradientDefaults().to}
                   onChange={(e) =>
                     onAppearanceChange({ ...appearance, ambientGradTo: e.target.value })
                   }
