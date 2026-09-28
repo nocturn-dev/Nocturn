@@ -96,21 +96,42 @@ pub fn set_config(cfg: BrowserConfig) {
 pub struct BrowserRegistry(pub Arc<Mutex<Option<Arc<BrowserConnection>>>>);
 
 impl BrowserRegistry {
-    /// Текущее живое соединение или запуск нового (ленивая инициализация)
+    /// Текущее живое соединение или запуск нового (ленивая инициализация).
+    /// Лок НЕ держится через launch(): запуск браузера занимает до ~40 с
+    /// (2 попытки × 20 с дедлайна), и удерживаемый мьютекс замораживал
+    /// browser_view_size (tokio-воркер), поток живого просмотра (лочит
+    /// реестр каждые 400 мс) и kill_all на выходе. Вставка под локом —
+    /// после запуска, с двойной проверкой (как в mcp_connect_impl)
     pub fn get_or_launch(&self) -> Result<Arc<BrowserConnection>, String> {
-        let mut slot = self.0.lock().unwrap_or_else(|p| p.into_inner());
-        if let Some(conn) = slot.as_ref() {
-            if !conn.is_dead() && conn.child_alive() {
-                return Ok(Arc::clone(conn));
-            }
-            // Мёртвое соединение убираем — новый вызов перезапустит браузер
-            if let Some(old) = slot.take() {
-                old.kill();
+        {
+            let mut slot = self.0.lock().unwrap_or_else(|p| p.into_inner());
+            if let Some(conn) = slot.as_ref() {
+                if !conn.is_dead() && conn.child_alive() {
+                    return Ok(Arc::clone(conn));
+                }
+                // Мёртвое соединение убираем — новый вызов перезапустит браузер
+                if let Some(old) = slot.take() {
+                    old.kill();
+                }
             }
         }
         let conn = Arc::new(BrowserConnection::launch()?);
-        *slot = Some(Arc::clone(&conn));
-        Ok(conn)
+        let mut slot = self.0.lock().unwrap_or_else(|p| p.into_inner());
+        // Двойная проверка: пока запускались, соседний поток мог вставить
+        // своё соединение — наш дубль гасим, чтобы не плодить браузеры
+        match slot.as_ref() {
+            Some(existing) if !existing.is_dead() && existing.child_alive() => {
+                conn.kill();
+                Ok(Arc::clone(existing))
+            }
+            _ => {
+                if let Some(old) = slot.take() {
+                    old.kill();
+                }
+                *slot = Some(Arc::clone(&conn));
+                Ok(conn)
+            }
+        }
     }
 
     pub fn kill_all(&self) {
@@ -176,8 +197,16 @@ fn find_browser_executable() -> Option<String> {
         }
     }
     // Не-Windows: бинарники из PATH (Linux; macOS fallback, если приложение
-    // установлено нестандартно и есть симлинк в PATH)
-    for name in ["google-chrome", "chromium", "chromium-browser", "msedge"] {
+    // установлено нестандартно и есть симлинк в PATH). Edge на Linux живёт
+    // в PATH как microsoft-edge[-stable], имя «msedge» там не встречается
+    for name in [
+        "google-chrome",
+        "chromium",
+        "chromium-browser",
+        "microsoft-edge",
+        "microsoft-edge-stable",
+        "msedge",
+    ] {
         if which_exists(name) {
             return Some(name.to_string());
         }
@@ -349,9 +378,17 @@ impl BrowserConnection {
             if cfg.headless {
                 browser_args.insert(0, "--headless=new");
             }
-            let child = Command::new(&exe)
-                .args(&browser_args)
-                .stdin(Stdio::null())
+            let mut command = Command::new(&exe);
+            command.args(&browser_args).stdin(Stdio::null());
+            #[cfg(unix)]
+            {
+                use std::os::unix::process::CommandExt;
+                // Своя процесс-группа: proc::kill_tree бьёт kill(-pgid).
+                // Без этого браузер сидит в группе приложения, tree-kill
+                // промахивался (ESRCH) — конвенция проекта (colibri.rs, mcp.rs)
+                command.process_group(0);
+            }
+            let child = command
                 .spawn()
                 .map_err(|e| format!("failed to spawn browser {exe}: {e}"))?;
 
@@ -1067,15 +1104,23 @@ mod tests {
     }
 
     /// Полный e2e против реального браузера, если он установлен.
-    /// Нет браузера (CI/чистая машина) — тест молча пропускается.
+    /// Тяжёлый (реальный headless-браузер, порт, процесс) и мутит глобальный
+    /// CONFIG: гоняется только по явному запросу HALOUI_BROWSER_E2E=1 —
+    /// на CI-раннерах msedge предустановлен, и без гейта тест запускал
+    /// браузер в каждом cargo test. Нет браузера/гейта — молча пропускается.
     #[test]
     fn browser_e2e_if_available() {
+        // Явный opt-in: значение "0" выключает даже при установленной переменной
+        if !std::env::var("HALOUI_BROWSER_E2E").map(|v| v != "0").unwrap_or(false) {
+            return;
+        }
         if find_browser_executable().is_none() {
             return;
         }
         // is_navigable_url пускает только http/https — вместо старого data:-URL
         // навигируемся на локальный HTTP-сервер с той же тестовой страницей.
         // Локальный адрес — private-сеть, для теста явно разрешаем
+        let prev_config = config();
         set_config(BrowserConfig {
             enabled: true,
             headless: true,
@@ -1111,6 +1156,10 @@ mod tests {
         // В execute_on нет ветки browser_close — гасим реестр напрямую,
         // как делает продакшн-путь в lib.rs
         registry.kill_all();
+
+        // Восстанавливаем глобальный CONFIG: тесты в одном бинарнике не должны
+        // видеть browser_e2e-конфиг (allow_private_networks и пр.)
+        set_config(prev_config);
 
         // Сценарий прошёл — останавливаем тестовый сервер
         stop_server.store(true, Ordering::SeqCst);
