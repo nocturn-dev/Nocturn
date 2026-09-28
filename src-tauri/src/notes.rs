@@ -108,6 +108,16 @@ mod notes_tests {
         assert!(sanitize_note_file("x.txt").is_err());
     }
 
+    /// Регресс: имя без «.md» с многобайтными символами раньше паниковало
+    /// на срезе байтов до проверки суффикса (byte index not a char boundary)
+    #[test]
+    fn sanitize_no_panic_on_multibyte_without_suffix() {
+        assert!(sanitize_note_file("файл").is_err());
+        assert!(sanitize_note_file("файл.md").is_ok());
+        assert!(sanitize_note_file("заметка про Rust.md").is_ok());
+        assert!(sanitize_note_file("日本語").is_err());
+    }
+
     #[test]
     fn title_from_first_heading() {
         assert_eq!(
