@@ -112,13 +112,21 @@ static CLIENT_CACHE: Mutex<Option<(String, reqwest::Client)>> = Mutex::new(None)
 
 pub fn shared_client(connect_timeout: std::time::Duration) -> Result<reqwest::Client, String> {
     let cfg = config();
-    // Содержимое CA входит в фингерпринт длиной: перечитанный файл с другим
-    // сертификатом обязан дать пересборку, даже если is_some не изменился
+    // Фингерпринт содержимого CA — хэш, а не длина: замена сертификата
+    // файлом того же размера обязана пересобрать клиент
     let ca_fp = CA_PEM
         .lock()
         .unwrap_or_else(|p| p.into_inner())
         .as_ref()
-        .map(|r| r.as_ref().map(|pem| pem.len()).unwrap_or(0));
+        .map(|r| {
+            use std::hash::{Hash, Hasher};
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            match r.as_ref() {
+                Ok(pem) => pem.hash(&mut h),
+                Err(e) => e.hash(&mut h),
+            }
+            h.finish()
+        });
     let fp = format!(
         "{connect_timeout:?}|{}|{}|{ca_fp:?}",
         cfg.proxy, cfg.no_proxy

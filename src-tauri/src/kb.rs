@@ -308,58 +308,65 @@ pub async fn kb_add_document(
         }
         let added = now_ms();
         let conn = open_db(&dir)?;
-        // Переиндексация: старые куски того же пути — вон
-        let existing: Option<i64> = conn
-            .query_row(
-                "SELECT id FROM docs WHERE path = ?1",
-                [&path],
-                |r| r.get(0),
+        // Все записи — в одной транзакции: rusqlite в autocommit делал каждый
+        // INSERT отдельным fsync, документ на несколько МБ индексировался
+        // секундами и изнашивал диск
+        conn.execute_batch("BEGIN IMMEDIATE")
+            .map_err(|e| e.to_string())?;
+        let inserted = (|| -> Result<u64, String> {
+            // Переиндексация: старые куски того же пути — вон
+            let existing: Option<i64> = conn
+                .query_row(
+                    "SELECT id FROM docs WHERE path = ?1",
+                    [&path],
+                    |r| r.get(0),
+                )
+                .ok();
+            if let Some(doc_id) = existing {
+                remove_doc_chunks(&conn, doc_id)?;
+                conn.execute("DELETE FROM docs WHERE id = ?1", [doc_id])
+                    .map_err(|e| e.to_string())?;
+            }
+            conn.execute(
+                "INSERT INTO docs(title, path, added) VALUES (?1, ?2, ?3)",
+                rusqlite::params![title, path, added],
             )
-            .ok();
-        if let Some(doc_id) = existing {
-            remove_doc_chunks(&conn, doc_id)?;
-            conn.execute("DELETE FROM docs WHERE id = ?1", [doc_id])
+            .map_err(|e| e.to_string())?;
+            let doc_id = conn.last_insert_rowid();
+            for (ord, chunk) in chunks.iter().enumerate() {
+                conn.execute(
+                    "INSERT INTO chunks(doc_id, ord, text) VALUES (?1, ?2, ?3)",
+                    rusqlite::params![doc_id, ord as i64, chunk],
+                )
                 .map_err(|e| e.to_string())?;
-        }
-        conn.execute(
-            "INSERT INTO docs(title, path, added) VALUES (?1, ?2, ?3)",
-            rusqlite::params![title, path, added],
-        )
-        .map_err(|e| e.to_string())?;
-        let doc_id = conn.last_insert_rowid();
-        for (ord, chunk) in chunks.iter().enumerate() {
-            conn.execute(
-                "INSERT INTO chunks(doc_id, ord, text) VALUES (?1, ?2, ?3)",
-                rusqlite::params![doc_id, ord as i64, chunk],
-            )
-            .map_err(|e| e.to_string())?;
-            let rowid = conn.last_insert_rowid();
-            conn.execute(
-                "INSERT INTO fts(rowid, text, title, doc_id) VALUES (?1, ?2, ?3, ?4)",
-                rusqlite::params![rowid, chunk, title, doc_id],
-            )
-            .map_err(|e| e.to_string())?;
-        }
-        Ok(chunks.len() as u64)
+                let rowid = conn.last_insert_rowid();
+                conn.execute(
+                    "INSERT INTO fts(rowid, text, title, doc_id) VALUES (?1, ?2, ?3, ?4)",
+                    rusqlite::params![rowid, chunk, title, doc_id],
+                )
+                .map_err(|e| e.to_string())?;
+            }
+            Ok(chunks.len() as u64)
+        })()
+        .inspect_err(|_e| {
+            // Частичная индексация не должна остаться в базе
+            let _ = conn.execute_batch("ROLLBACK");
+        })?;
+        conn.execute_batch("COMMIT").map_err(|e| e.to_string())?;
+        Ok(inserted)
     })
     .await
     .map_err(|e| format!("join error: {e}"))?
 }
 
 fn remove_doc_chunks(conn: &Connection, doc_id: i64) -> Result<(), String> {
-    let ids: Vec<i64> = {
-        let mut st = conn
-            .prepare("SELECT id FROM chunks WHERE doc_id = ?1")
-            .map_err(|e| e.to_string())?;
-        let rows = st
-            .query_map([doc_id], |r| r.get(0))
-            .map_err(|e| e.to_string())?;
-        rows.collect::<Result<Vec<i64>, _>>().map_err(|e| e.to_string())?
-    };
-    for id in ids {
-        conn.execute("DELETE FROM fts WHERE rowid = ?1", [id])
-            .map_err(|e| e.to_string())?;
-    }
+    // Один запрос вместо DELETE по каждому rowid: вызывается и из
+    // переиндексации (внутри общей транзакции), и из kb_remove_document
+    conn.execute(
+        "DELETE FROM fts WHERE rowid IN (SELECT id FROM chunks WHERE doc_id = ?1)",
+        [doc_id],
+    )
+    .map_err(|e| e.to_string())?;
     conn.execute("DELETE FROM chunks WHERE doc_id = ?1", [doc_id])
         .map_err(|e| e.to_string())?;
     Ok(())

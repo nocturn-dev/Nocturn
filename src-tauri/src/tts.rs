@@ -40,7 +40,7 @@ pub async fn tts_speak(text: String) -> Result<(), String> {
     #[cfg(not(windows))]
     {
         let _ = text;
-        Err("TTS реализован для Windows (встроенный SAPI)".into())
+        Err("TTS is implemented for Windows (built-in SAPI) only".into())
     }
 }
 
@@ -113,7 +113,13 @@ async fn speak_impl(text: String) -> Result<(), String> {
         // CREATE_NO_WINDOW: консольное окно из GUI-процесса иначе мигает
         use std::os::windows::process::CommandExt;
         cmd.creation_flags(CREATE_NO_WINDOW);
-        cmd.spawn().map_err(|e| format!("cannot start SAPI host: {e}"))
+        cmd.spawn()
+            .map_err(|e| {
+                // Скрипт с Remove-Item не выполнится — файл с текстом ответа
+                // стираем руками, чтобы он не оседал в %TEMP%
+                let _ = std::fs::remove_file(&path);
+                format!("cannot start SAPI host: {e}")
+            })
     })
     .await
     .map_err(|e| format!("join error: {e}"))??;

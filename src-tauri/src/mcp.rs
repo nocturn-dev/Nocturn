@@ -172,11 +172,25 @@ impl McpConnection {
             }
         };
 
-        let stdout = child
-            .stdout
-            .take()
-            .ok_or("no stdout from server")?;
-        let stderr = child.stderr.take().ok_or("no stderr from server")?;
+        // std::process::Child не убивает процесс в Drop: при раннем Err гасим
+        // руками, иначе сервер-процесс остаётся жить (ветка stdin в from_child
+        // обрабатывает свой случай — здесь симметрично)
+        let stdout = match child.stdout.take() {
+            Some(s) => s,
+            None => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err("no stdout from server".into());
+            }
+        };
+        let stderr = match child.stderr.take() {
+            Some(s) => s,
+            None => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err("no stderr from server".into());
+            }
+        };
 
         match Self::from_child(&cfg.name, child, stdout, stderr) {
             Ok(conn) => Ok(conn),
@@ -950,7 +964,10 @@ pub async fn mcp_disconnect(
     Ok(())
 }
 
-/// Живые соединения и их инструменты (для вкладки MCP в настройках)
+/// Живые соединения и их инструменты (для вкладки MCP в настройках).
+/// connected всегда true и это не заглушка: реестр содержит только живые
+/// соединения, «отключён» фронт выражает ОТСУТСТВИЕМ записи (McpSection
+/// сверяет список серверов с этим ответом)
 #[tauri::command(async)]
 pub fn mcp_status(registry: tauri::State<'_, McpRegistry>) -> Vec<McpServerStatus> {
     let map = registry.0.lock().unwrap_or_else(|p| p.into_inner());

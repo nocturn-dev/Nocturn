@@ -89,6 +89,11 @@ pub fn colibri_start(
     registry: tauri::State<'_, ColibriRegistry>,
     launch: ColibriLaunch,
 ) -> Result<ColibriStatus, String> {
+    // Модель доверия: путь exe задаёт сам пользователь в настройках Colibri
+    // (по умолчанию «coli» из PATH), он приходит не от модели — поэтому
+    // perm::decide и rejects_sensitive_path здесь, в отличие от агентных
+    // инструментов, не применяются. Осознанный дисбаланс зафиксирован
+    // в SECURITY.md (Executable configs)
     let mut guard = registry.proc.lock().map_err(|e| e.to_string())?;
     let st = status(&mut guard);
     if st.running {
@@ -134,12 +139,13 @@ pub fn colibri_start(
         .spawn()
         .map_err(|e| format!("cannot start \"{exe}\": {e}"))?;
 
-    // Логи в вебвью: stdout как есть, stderr с префиксом — один канал
+    // Логи в вебвью: stdout как есть, stderr с префиксом — один канал.
+    // emit_to, не broadcast: слушает только главное окно (настройки Colibri)
     if let Some(out) = child.stdout.take() {
         let app2 = app.clone();
         std::thread::spawn(move || {
             for line in BufReader::new(out).lines().map_while(Result::ok) {
-                let _ = app2.emit("colibri-log", line);
+                let _ = app2.emit_to("main", "colibri-log", line);
             }
         });
     }

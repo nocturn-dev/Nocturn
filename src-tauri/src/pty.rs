@@ -88,7 +88,10 @@ fn build_shell_command(shell: Option<&str>, cwd: Option<&str>) -> Result<Command
     };
     #[cfg(not(windows))]
     let mut cmd = {
-        // "cmd"/"gitbash" на Unix трактуются как auto
+        // "cmd"/"gitbash" на Unix трактуются как auto; сам параметр там
+        // выбора не даёт ($SHELL) — глушим, чтобы не ловить unused_variables
+        // в unix-сборках CI
+        let _ = shell;
         let s =
             unix_shell().ok_or("no shell found: set $SHELL or install bash/zsh/sh")?;
         CommandBuilder::new(s)
@@ -283,7 +286,10 @@ pub async fn pty_create(
                         }
                     }
                     if !acc.is_empty() {
-                        let _ = app_out.emit(
+                        // emit_to, не broadcast: вывод шелла — приватный, слушает
+                        // только главное окно (quickentry своего терминала не имеет)
+                        let _ = app_out.emit_to(
+                            "main",
                             "pty-output",
                             PtyEvent { id: out_id.clone(), data: acc.clone() },
                         );

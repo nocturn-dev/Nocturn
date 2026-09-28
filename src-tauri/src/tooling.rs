@@ -721,7 +721,8 @@ pub fn browser_view_start(app: tauri::AppHandle) -> Result<(), String> {
             }
             // При ошибке кадра — пауза подольше: страница занята/браузер не запущен
             let pause = if payload["data"].is_null() { 1200 } else { 400 };
-            let _ = app.emit("browser-frame", payload);
+            // emit_to, не broadcast: кадры браузера слушает только главное окно
+            let _ = app.emit_to("main", "browser-frame", payload);
             std::thread::sleep(Duration::from_millis(pause));
         }
     });
@@ -1039,7 +1040,9 @@ pub fn ambient_video_register(app: tauri::AppHandle, path: String) -> Result<(),
     // Путь с фронта → тот же sensitive-path гардал, что у sound_import
     rejects_sensitive_path(&path)?;
     // ogv/mkv убраны: Chromium-движок (WebView2) не играет Matroska/Theora
-    // в <video> — пользователь получал тихо пустой слой вместо ошибки
+    // в <video> — пользователь получал тихо пустой слой вместо ошибки.
+    // Linux/WebKitGTK: mp4/mov/m4v требуют GStreamer gst-libav — в
+    // минимальных установках видео молча не играет, webm надёжнее
     const OK: &[&str] = &["mp4", "webm", "mov", "m4v"];
     let ext = std::path::Path::new(&path)
         .extension()
