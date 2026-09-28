@@ -271,6 +271,53 @@ function darken(hex: string, factor: number): string {
   return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, "0")}`;
 }
 
+// ---------- Цветовые утилиты для производных слоёв (ambient-сцены) ----------
+
+export type Rgb = [number, number, number];
+
+/** Разбор hex (#rgb/#rrggbb); не-hex значения (oklch, названия) — null:
+ *  вызывающая сторона деградирует на дефолт палитры */
+export function parseHexColor(v: string): Rgb | null {
+  const s = v.trim();
+  const m = /^#([0-9a-f]{6})$/i.exec(s) ?? /^#([0-9a-f]{3})$/i.exec(s);
+  if (!m) return null;
+  const h = m[1] ?? "";
+  const full = h.length === 3 ? [...h].map((c) => c + c).join("") : h;
+  const n = parseInt(full, 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
+/** Линейная интерполяция a→b, t ∈ [0..1] */
+export function mixRgb(a: Rgb, b: Rgb, t: number): Rgb {
+  const k = Math.min(1, Math.max(0, t));
+  return [
+    Math.round(a[0] + (b[0] - a[0]) * k),
+    Math.round(a[1] + (b[1] - a[1]) * k),
+    Math.round(a[2] + (b[2] - a[2]) * k),
+  ];
+}
+
+export function rgbCss(c: Rgb): string {
+  return `rgb(${c[0]}, ${c[1]}, ${c[2]})`;
+}
+
+/** Живое значение токена темы как Rgb: инлайн-переопределения Official и
+ *  производные акценты applyAppearance применяет до любого чтения */
+export function cssVarColor(name: string, fallback: string): Rgb {
+  if (typeof window === "undefined") return parseHexColor(fallback) ?? ([0, 0, 0] as Rgb);
+  const raw = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  return parseHexColor(raw) ?? parseHexColor(fallback) ?? ([0, 0, 0] as Rgb);
+}
+
+/** Дефолт ambient-градиента из живой темы (сцена gradient без явно
+ *  выбранных пользователем цветов): раньше был зашитый синий, не менявшийся
+ *  ни при какой теме. Единая точка для слоя и инпутов конструктора */
+export function ambientGradientDefaults(): { from: string; to: string } {
+  const deep = cssVarColor("--halo-deep", "#060606");
+  const accent = cssVarColor("--halo-accent", "#d97757");
+  return { from: rgbCss(mixRgb(deep, accent, 0.38)), to: rgbCss(deep) };
+}
+
 /**
  * Палитра темы Official — строгий монохром. Иерархия поверхностей
  * строится ступенями яркости (границы вместо теней), цвет остаётся
