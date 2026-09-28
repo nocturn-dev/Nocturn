@@ -41,3 +41,11 @@
   `TAURI_SIGNING_PRIVATE_KEY` the build step fails — that is intentional
   (unsigned updater artifacts must not ship).
 - The `pubkey` placeholder must be replaced before the first tagged release.
+- **macOS builds**: the updater requires a signed (and ideally notarized)
+  app bundle — ad-hoc signatures will not pass Gatekeeper when applying an
+  update. Configure `signingIdentity` + notarization in the CI job before
+  shipping any macOS artifact; until then macOS releases must be
+  distributed as manual downloads, not via the in-app updater.
+- **Linux builds**: auto-discovery for Browser Use expects Edge binaries in
+  PATH as `microsoft-edge` / `microsoft-edge-stable`; ambient video playback
+  depends on GStreamer codecs (gst-libav for mp4/mov) being installed.

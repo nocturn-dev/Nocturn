@@ -42,6 +42,23 @@ browser. Guards:
 Review what you approve — "Always for this task" persists the decision in the
 session store.
 
+## Known residual risks (design trade-offs)
+
+- **Symlink TOCTOU on path writes.** File writes validate the path
+  (canonicalize + sensitive-path check) and then write through the normal
+  filesystem. A local process racing the agent could swap a path component
+  for a symlink between check and write. Single-user local machine: the
+  attacker must already run as the same user. Hardening (open with
+  `FILE_FLAG_OPEN_REPARSE_POINT` on Windows / `O_NOFOLLOW` on Unix) is
+  tracked as future work.
+- **Broad import reads.** Settings import, plugin import and knowledge-base
+  indexing can read arbitrary user-chosen files (system locations are
+  rejected). This is the feature; the webview process is the trust boundary.
+- **Executable configs.** `hooks.json` / `mcp.json` define commands that the
+  app will execute. They are only written through an explicit confirmation
+  flow (`allowExecutableConfigs`) — treat any file claiming to be a Nocturn
+  config as untrusted input.
+
 ## Reporting
 
 Please open a GitHub issue for anything security-related you find. For
