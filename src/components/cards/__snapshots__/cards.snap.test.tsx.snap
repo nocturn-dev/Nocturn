@@ -44,35 +44,6 @@ exports[`chat cards snapshots > AssistantCard: markdown + usage, вне стри
         glm-5.3-flash
       </span>
     </span>
-    <button
-      class="ml-auto flex shrink-0 items-center rounded-md p-1 transition-colors text-halo-muted/70 hover:bg-halo-hover hover:text-halo-text"
-      title="Read aloud"
-    >
-      <span
-        class=""
-      >
-        <svg
-          fill="none"
-          height="14"
-          stroke="currentColor"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          stroke-width="2"
-          viewBox="0 0 24 24"
-          width="14"
-        >
-          <polygon
-            points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"
-          />
-          <path
-            d="M15.54 8.46a5 5 0 0 1 0 7.07"
-          />
-          <path
-            d="M19.07 4.93a10 10 0 0 1 0 14.14"
-          />
-        </svg>
-      </span>
-    </button>
   </div>
   <div
     class="markdown text-sm leading-relaxed text-halo-text"
@@ -163,35 +134,6 @@ exports[`chat cards snapshots > AssistantCard: с thinking-блоком 1`] = `
         claude-sonnet
       </span>
     </span>
-    <button
-      class="ml-auto flex shrink-0 items-center rounded-md p-1 transition-colors text-halo-muted/70 hover:bg-halo-hover hover:text-halo-text"
-      title="Read aloud"
-    >
-      <span
-        class=""
-      >
-        <svg
-          fill="none"
-          height="14"
-          stroke="currentColor"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          stroke-width="2"
-          viewBox="0 0 24 24"
-          width="14"
-        >
-          <polygon
-            points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"
-          />
-          <path
-            d="M15.54 8.46a5 5 0 0 1 0 7.07"
-          />
-          <path
-            d="M19.07 4.93a10 10 0 0 1 0 14.14"
-          />
-        </svg>
-      </span>
-    </button>
   </div>
   <div
     class="mb-1.5"

@@ -344,6 +344,10 @@ export default function SettingsModal({
   // секцию). Матч по локализованным подписям — работает во всех языках
   // Активная мини-игра во вкладке «Отдых»: Esc закрывает игру, потом модалку
   const [restGame, setRestGame] = useState<GameId | null>(null);
+  // Зеркало для Escape-хендлера: апдейтеры setState обязаны быть чистыми —
+  // StrictMode зовёт их дважды, и onClose дёргался по два раза
+  const restGameRef = useRef<GameId | null>(restGame);
+  restGameRef.current = restGame;
   const [searchQ, setSearchQ] = useState("");
   const [searchScope, setSearchScope] = useState<"all" | "custom">("all");
   // Пункт, к которому надо проскроллиться после перехода в секцию (label)
@@ -455,11 +459,11 @@ export default function SettingsModal({
         const tgt = e.target as HTMLElement | null;
         if (tgt && (tgt.tagName === "INPUT" || tgt.tagName === "TEXTAREA" || tgt.isContentEditable)) return;
         // Сначала — мини-игра «Отдыха», потом сама модалка
-        setRestGame((g) => {
-          if (g !== null) return null;
+        if (restGameRef.current !== null) {
+          setRestGame(null);
+        } else {
           onClose();
-          return g;
-        });
+        }
       }
     };
     window.addEventListener("keydown", onKey);
@@ -769,7 +773,6 @@ export default function SettingsModal({
               pluginIds={new Set(plugins.filter((p) => p.enabled).flatMap((p) => p.roles ?? []).map((r) => r.id))}
             />
           )}
-          {section === "commands" && <CommandsSection />}
           {section === "plugins" && (
             <PluginsSection plugins={plugins} onChange={onPluginsChange} />
           )}

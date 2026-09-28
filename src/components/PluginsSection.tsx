@@ -160,7 +160,7 @@ export default function PluginsSection({
       <div className="flex flex-wrap gap-2">
         <button
           onClick={() => void pickAndRead()}
-          className="rounded-lg bg-halo-accent px-3.5 py-1.5 text-sm font-medium text-white transition-colors hover:bg-halo-accent-deep"
+          className="rounded-lg bg-halo-accent px-3.5 py-1.5 text-sm font-medium text-halo-on-accent transition-colors hover:bg-halo-accent-deep"
         >
           {t("plug.import")}
         </button>
@@ -200,12 +200,12 @@ export default function PluginsSection({
           </p>
           {(packHooks?.length ?? 0) > 0 && (
             <p className="text-xs font-medium text-amber-400">
-              {t("plug.bringsHooks", { n: String(packHooks!.length) })}
+              {t("plug.bringsHooks", { n: String(packHooks?.length ?? 0) })}
             </p>
           )}
           {(packMcp?.length ?? 0) > 0 && (
             <p className="text-xs font-medium text-amber-400">
-              {t("plug.bringsMcp", { n: String(packMcp!.length) })}
+              {t("plug.bringsMcp", { n: String(packMcp?.length ?? 0) })}
             </p>
           )}
           <div className="flex justify-end gap-2">
@@ -217,7 +217,7 @@ export default function PluginsSection({
             </button>
             <button
               onClick={confirmInstall}
-              className="rounded-lg bg-halo-accent px-3.5 py-1.5 text-sm font-medium text-white transition-colors hover:bg-halo-accent-deep"
+              className="rounded-lg bg-halo-accent px-3.5 py-1.5 text-sm font-medium text-halo-on-accent transition-colors hover:bg-halo-accent-deep"
             >
               {t("plug.install")}
             </button>

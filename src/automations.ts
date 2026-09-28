@@ -38,12 +38,59 @@ export const VAULT_REPORT_SUFFIX =
 
 const LS_KEY = "haloui-automations";
 
+/** Валидация записи: тикер в App работает с полями напрямую (name.slice,
+ *  nextRunAfter → schedule.kind) — битый элемент из чужого файла импорта
+ *  (haloui-automations входит в settings-экспорт) ронял setInterval каждые
+ *  30 с и стопорил тик для задач, стоящих позже в массиве. Та же конвенция
+ *  «диск не доверяем», что sanitizeSession у сессий */
+function sanitizeAutomation(v: unknown): Automation | null {
+  if (typeof v !== "object" || v === null) return null;
+  const r = v as Record<string, unknown>;
+  if (typeof r.id !== "string" || r.id === "") return null;
+  if (typeof r.name !== "string" || typeof r.prompt !== "string") return null;
+  if (typeof r.schedule !== "object" || r.schedule === null) return null;
+  const s = r.schedule as Record<string, unknown>;
+  if (
+    s.kind !== "daily" &&
+    s.kind !== "weekdays" &&
+    s.kind !== "weekly" &&
+    s.kind !== "interval"
+  ) {
+    return null;
+  }
+  if (s.kind === "interval") {
+    if (typeof s.minutes !== "number" || !Number.isFinite(s.minutes)) return null;
+  } else if (typeof s.time !== "string") {
+    return null;
+  }
+  if (s.kind === "weekly" && typeof s.weekday !== "number") return null;
+  return {
+    id: r.id,
+    name: r.name,
+    prompt: r.prompt,
+    schedule: r.schedule as Schedule,
+    nextRunAt:
+      typeof r.nextRunAt === "number" && Number.isFinite(r.nextRunAt)
+        ? r.nextRunAt
+        : 0,
+    lastRunAt: typeof r.lastRunAt === "number" ? r.lastRunAt : 0,
+    enabled: r.enabled === true,
+    createdAt: typeof r.createdAt === "number" ? r.createdAt : 0,
+    runs: Array.isArray(r.runs)
+      ? r.runs.filter((x): x is number => typeof x === "number").slice(-10)
+      : undefined,
+    toVault: r.toVault === true,
+  };
+}
+
 export function loadAutomations(): Automation[] {
   try {
     const raw = localStorage.getItem(LS_KEY);
     if (!raw) return [];
-    const v = JSON.parse(raw) as Automation[];
-    return Array.isArray(v) ? v : [];
+    const v: unknown = JSON.parse(raw);
+    return Array.isArray(v)
+      ? v.map(sanitizeAutomation).filter((a): a is Automation => a !== null)
+      : [];
   } catch {
     return [];
   }

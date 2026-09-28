@@ -642,8 +642,16 @@ export function useAgentRun(deps: AgentRunDeps) {
         deltaRaf = window.setTimeout(flushDeltas, 250);
       }
     };
+    // Окно ушло в hidden ПОСЛЕ планирования rAF: rAF не тикает до возврата
+    // видимости, буфер копит весь ответ, стор не обновляется. По hidden
+    // сливаем сразу — слушатель живёт до finalize (все пути выхода зовут его)
+    const onVisibility = () => {
+      if (document.hidden) flushDeltas();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
 
     const finalize = () => {
+      document.removeEventListener("visibilitychange", onVisibility);
       // Отменить ask-таймер: вопрос разрешён (или прогон умер) — таймер не нужен
       if (askTimerRef.current !== null) {
         window.clearTimeout(askTimerRef.current);

@@ -181,6 +181,11 @@ export default function TerminalPanel({
   const scrollRef = useRef<HTMLDivElement>(null);
   const consoleRef = useRef<HTMLDivElement>(null);
   const linesRef = useRef<Line[]>([]);
+  // Абсолютный индекс первой строки буфера: при слайде кольцевого буфера
+  // индексы в массиве съезжают, и key={i} ремонтировал до 2000 DOM-узлов
+  // разом. Ключ от абсолютного номера — ремount только у выброшенной строки
+  const lineBaseRef = useRef(0);
+  const [linesBase, setLinesBase] = useState(0);
   const sgrRef = useRef<SgrState>({ bold: false, dim: false, italic: false });
   const [lines, setLines] = useState<Line[]>([]);
   const [awaiting, setAwaiting] = useState(false);
@@ -224,7 +229,9 @@ export default function TerminalPanel({
     // setLines([...buf]) на каждый write копировал ВСЁ — O(n²) аллокаций
     // и неограниченный рост памяти в длинных агентных сессиях
     if (buf.length > MAX_PANEL_LINES) {
+      lineBaseRef.current += buf.length - MAX_PANEL_LINES;
       linesRef.current = buf.slice(-MAX_PANEL_LINES);
+      setLinesBase(lineBaseRef.current);
     }
 
     setLines([...linesRef.current]);
@@ -480,9 +487,12 @@ export default function TerminalPanel({
   if (vtRef.current === null) {
     vtRef.current = new Vt(PTY_COLS, PTY_ROWS, termPalette);
   }
+  // Локальная константа вместо vtRef.current!: внутри колбэка useState
+  // сужение типов теряется, а гарантия ненуля здесь есть по построению
+  const vtInstance = vtRef.current;
   const createdRef = useRef(false);
   const exitedRef = useRef(false);
-  const [consoleRows, setConsoleRows] = useState(() => vtRef.current!.render());
+  const [consoleRows, setConsoleRows] = useState(() => vtInstance.render());
 
   // Создание PTY и подписка на вывод — при первом включении консоли
   useEffect(() => {
@@ -548,8 +558,10 @@ export default function TerminalPanel({
         const offExit = await listen<string>("pty-exit", (e) => {
           if (e.payload !== PTY_ID || disposed) return;
           exitedRef.current = true;
-          vtRef.current!.feed(`\r\n\x1b[2m${t("terminal.exited")}\x1b[0m\r\n`);
-          setConsoleRows(vtRef.current!.render());
+          const vt = vtRef.current;
+          if (!vt) return;
+          vt.feed(`\r\n\x1b[2m${t("terminal.exited")}\x1b[0m\r\n`);
+          setConsoleRows(vt.render());
         });
         if (disposed) {
           offExit();
@@ -789,7 +801,7 @@ export default function TerminalPanel({
         }`}
       >
         {lines.map((line, i) => (
-          <div key={i} className="whitespace-pre-wrap break-words">
+          <div key={linesBase + i} className="whitespace-pre-wrap break-words">
             {line.length === 0
               ? "\u00A0"
               : line.map((sp, j) => (

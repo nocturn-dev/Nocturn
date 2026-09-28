@@ -3,6 +3,7 @@ import type { Project, Session } from "../types";
 import WindowControls from "./WindowControls";
 import { pickFolder, listDir, gitStatus, checkpointList, checkpointRestore, checkpointDelete, type CheckpointMeta, type FileEntry, type NoteInfo } from "../api";
 import { normalizePath } from "../diff";
+import { copyText } from "../clipboard";
 import { ACCENT_PRESETS } from "../appearance";
 import { useLang, type MsgKey } from "../locales";
 import NocturnMark from "./NocturnMark";
@@ -479,28 +480,34 @@ export default function Sidebar({
                   </p>
                 )}
                 <div className="space-y-2.5">
-                  {projectGroups.filter((g) => g.project).map(({ project, items }) => {
-                    const key = project?.id ?? "none";
+                  {/* flatMap-сужение вместо filter+non-null assertions: в
+                      колбэке map project гарантированно Project */}
+                  {projectGroups
+                    .flatMap(({ project, items }) =>
+                      project ? [{ project, items }] : [],
+                    )
+                    .map(({ project, items }) => {
+                    const key = project.id ?? "none";
                     const open = expandedGroups.has(key);
                     const shown = open ? items : items.slice(0, 5);
-                    const selected = project?.id === activeProjectId;
+                    const selected = project.id === activeProjectId;
                     return (
                       <div key={key}>
                         <button
-                          onClick={() => onSelectProject(selected ? null : project!.id)}
+                          onClick={() => onSelectProject(selected ? null : project.id)}
                           onContextMenu={(e) => {
                             e.preventDefault();
-                            onProjectMenu(project!.id, e.clientX, e.clientY);
+                            onProjectMenu(project.id, e.clientX, e.clientY);
                           }}
-                          title={selected ? t("sidebar.showAll") : t("sidebar.showProject", { name: project!.name })}
+                          title={selected ? t("sidebar.showAll") : t("sidebar.showProject", { name: project.name })}
                           className={`flex w-full items-center gap-1.5 rounded-md px-2 pb-1 text-left text-sm transition-colors ${
                             selected
                               ? "text-halo-text"
                               : "text-halo-muted/70 hover:text-halo-text"
                           }`}
                         >
-                          <span className={`size-1.5 shrink-0 rounded-full ${PROJECT_DOTS[projects.indexOf(project!) % PROJECT_DOTS.length]}`} />
-                          <span className="min-w-0 flex-1 truncate">{project?.name}</span>
+                          <span className={`size-1.5 shrink-0 rounded-full ${PROJECT_DOTS[projects.indexOf(project) % PROJECT_DOTS.length]}`} />
+                          <span className="min-w-0 flex-1 truncate">{project.name}</span>
                           <span className="text-[11px] text-halo-muted/50">{items.length}</span>
                         </button>
                         <ul className="ml-1 space-y-0.5 border-l border-halo-line/70 pl-1.5">
@@ -1106,9 +1113,7 @@ const FileTree = memo(function FileTree({
             onClick={() => {
               if (e.is_dir) toggle(childPath);
               else {
-                navigator.clipboard
-                  .writeText(childPath)
-                  .catch(() => {});
+                void copyText(childPath);
               }
             }}
             title={

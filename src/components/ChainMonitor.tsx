@@ -59,8 +59,9 @@ export default function ChainMonitor({ chain, onClose }: ChainMonitorProps) {
     const byDepth = new Map<number, Note[]>();
     for (const n of plan) {
       const d = depth.get(n.file) ?? 0;
-      if (!byDepth.has(d)) byDepth.set(d, []);
-      byDepth.get(d)!.push(n);
+      const bucket = byDepth.get(d);
+      if (bucket) bucket.push(n);
+      else byDepth.set(d, [n]);
     }
     const pos = new Map<string, { x: number; y: number }>();
     let maxDepth = 0;

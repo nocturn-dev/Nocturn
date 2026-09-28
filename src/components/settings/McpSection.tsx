@@ -419,7 +419,7 @@ export function McpSection() {
               !name.trim() ||
               (remote ? !url.trim() : !command.trim())
             }
-            className="rounded-lg bg-halo-accent px-3.5 py-1.5 text-sm font-medium text-white transition-colors hover:bg-halo-accent-deep disabled:cursor-not-allowed disabled:opacity-40"
+            className="rounded-lg bg-halo-accent px-3.5 py-1.5 text-sm font-medium text-halo-on-accent transition-colors hover:bg-halo-accent-deep disabled:cursor-not-allowed disabled:opacity-40"
           >
             {t("mcp.add")}
           </button>

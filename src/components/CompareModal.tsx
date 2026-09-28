@@ -115,7 +115,55 @@ export default function CompareModal({ open, onClose, profiles, current }: Compa
     });
   };
 
+  // Дельты полос батчатся через rAF — тот же C17-паттерн, что в useAgentRun:
+  // setLanes на каждую SSE-дельту (до ~100+/сек × 3 полосы) ре-рендерил
+  // модалку целиком на каждую порцию токенов
+  const laneBufRef = useRef<Map<string, string>>(new Map());
+  const laneRafRef = useRef(0);
+  const laneTimerRef = useRef<number | null>(null);
+
+  const flushLanes = () => {
+    laneRafRef.current = 0;
+    if (laneTimerRef.current !== null) {
+      window.clearTimeout(laneTimerRef.current);
+      laneTimerRef.current = null;
+    }
+    const buf = laneBufRef.current;
+    if (buf.size === 0) return;
+    const pending = [...buf.entries()];
+    buf.clear();
+    setLanes((prev) => {
+      let next = prev;
+      for (const [key, delta] of pending) {
+        const base = next[key] ?? EMPTY_LANE;
+        next = { ...next, [key]: { ...base, text: base.text + delta } };
+      }
+      return next;
+    });
+  };
+
+  const scheduleLaneFlush = () => {
+    if (laneRafRef.current || laneTimerRef.current !== null) return;
+    if (typeof requestAnimationFrame === "function" && !document.hidden) {
+      laneRafRef.current = requestAnimationFrame(flushLanes);
+    } else {
+      // C17: в свёрнутом/перекрытом окне rAF не тикает — фолбэк на таймер
+      laneTimerRef.current = window.setTimeout(flushLanes, 250);
+    }
+  };
+
+  // Отложенный флаж пережил компонент — тикать в размонтированный нечего
+  useEffect(() => {
+    return () => {
+      if (laneRafRef.current) cancelAnimationFrame(laneRafRef.current);
+      if (laneTimerRef.current !== null) window.clearTimeout(laneTimerRef.current);
+    };
+  }, []);
+
   const laneFinished = (key: string, totalMs: number, error: string | null) => {
+    // Хвостовые дельты — в ленту ДО статуса «готово», иначе последний кусок
+    // ответа потеряется в буфере
+    flushLanes();
     setLane(key, { running: false, totalMs, error });
     remainingRef.current -= 1;
     if (remainingRef.current <= 0) setRunning(false);
@@ -166,6 +214,8 @@ export default function CompareModal({ open, onClose, profiles, current }: Compa
       };
     }
     setLanes(initial);
+    // Буфер от прошлого прогона не должен втекать в новые полосы
+    laneBufRef.current.clear();
     setActive(chosen);
     setRunning(true);
     remainingRef.current = chosen.length;
@@ -188,10 +238,12 @@ export default function CompareModal({ open, onClose, profiles, current }: Compa
             firstDelta = false;
             setLane(tg.key, { ttft: Math.round(performance.now() - t0) });
           }
-          setLanes((prev) => {
-            const base = prev[tg.key] ?? EMPTY_LANE;
-            return { ...prev, [tg.key]: { ...base, text: base.text + delta } };
-          });
+          // Дельта — в буфер, рендер по rAF (см. flushLanes выше)
+          laneBufRef.current.set(
+            tg.key,
+            (laneBufRef.current.get(tg.key) ?? "") + delta,
+          );
+          scheduleLaneFlush();
         },
         onThought: () => {},
         onUsage: (usage) => setLane(tg.key, { usage }),
