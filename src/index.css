@@ -123,6 +123,10 @@ html.light {
 
 
 @theme inline {
+  /* /opacity-утилиты (bg-halo-accent/10 и пр.) компилируются через
+     color-mix с @supports-фолбэком до сплошного цвета: на WebKitGTK
+     < 2.40 полупрозрачные поверхности становятся плотными — деградация
+     читаемая, но системная (см. C5-фолбэки ниже) */
   --color-halo-bg: var(--halo-bg);
   --color-halo-deep: var(--halo-deep);
   --color-halo-surface: var(--halo-surface);
@@ -173,6 +177,11 @@ html.accent-gradient .bg-halo-accent {
 html.accent-gradient .bg-halo-accent:hover {
   background-image: linear-gradient(135deg, var(--halo-accent-deep), var(--halo-accent));
 }
+/* Декоративные точки (typing-dot и пр.) — не интерактив: hover-градиент
+   менял их заливку при случайном попадании курсора */
+html.accent-gradient .typing-dot.bg-halo-accent:hover {
+  background-image: none;
+}
 
 /* ---------- Микроанимации ---------- */
 @keyframes halo-fade-up {
@@ -212,8 +221,11 @@ html.accent-gradient .bg-halo-accent:hover {
 /* Плавное закрытие модалок: класс вешается на время выхода, потом unmount */
 .anim-pop-out {
   animation: halo-pop-out var(--motion-fast) var(--ease-exit) both;
-  /* Живой backdrop-blur пересчитывается каждый кадр — на выходе он не нужен */
+  /* Живой backdrop-blur пересчитывается каждый кадр — на выходе он не нужен.
+     Пара с -webkit-: утилиты backdrop-blur компилируются с префиксом, и на
+     Safari/WKWebView без пары blur продолжал считаться в кадрах выхода */
   backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 .anim-fade-out {
   animation: halo-fade-out var(--motion-fast) var(--ease-exit) both;
@@ -252,15 +264,16 @@ html.motion-reduced .snake-preview-seg {
   animation: none;
 }
 
-/* Фокус-кольцо композера: акцент с альфой. Переменная (а не color-mix
-   прямо в утилите) — чтобы у WebKitGTK < 2.40 без color-mix остался
-   фолбэк с чистым акцентом вместо отброшенной декларации */
+/* Найденный через поиск пункт: короткая вспышка акцентом.
+   color-mix в keyframes внутри @supports не завернуть — вынесен в
+   переменную с фолбэком (WebKitGTK < 2.40 отбрасывал бы декларацию
+   background внутри ключевых кадров целиком) */
 :root {
-  --halo-accent-focus: var(--halo-accent);
+  --halo-hit-bg: var(--halo-accent);
 }
 @supports (background: color-mix(in srgb, red, blue)) {
   :root {
-    --halo-accent-focus: color-mix(in srgb, var(--halo-accent) 12%, transparent);
+    --halo-hit-bg: color-mix(in srgb, var(--halo-accent) 10%, transparent);
   }
 }
 
@@ -271,7 +284,6 @@ html.motion-reduced .snake-preview-seg {
   outline: none;
 }
 
-/* Найденный через поиск пункт: короткая вспышка акцентом */
 .search-hit {
   animation: search-hit 1.6s ease both;
   border-radius: 12px;
@@ -280,7 +292,7 @@ html.motion-reduced .snake-preview-seg {
   0%, 60% {
     outline: 1px solid var(--halo-accent);
     outline-offset: 6px;
-    background: color-mix(in srgb, var(--halo-accent) 10%, transparent);
+    background: var(--halo-hit-bg);
   }
   100% {
     outline: 1px solid transparent;
@@ -354,9 +366,13 @@ html.motion-reduced .snake-preview-seg {
   .typing-dot,
   .nav-tick-in,
   .splash-pulse,
-  /* змейка и search-hit раньше глушились только тумблером html.motion-reduced */
+  /* змейка и search-hit глушились и тумблером html.motion-reduced —
+     список ниже обязан совпадать с этим */
   .snake-preview-seg,
-  .search-hit {
+  .search-hit,
+  .usage-draw,
+  .usage-cell,
+  .usage-arc {
     animation: none;
   }
 }
@@ -392,14 +408,23 @@ html.motion-reduced .snake-preview-seg {
 
 /* Motion/Reduced (фидбек 26.09): тумблер в «Кастомизации» форсит то же
    глушение поверх системной настройки — тот же список + ambient-glow.
-   Canvas-сцены ставит на паузу App (paused у AmbientLayer) */
+   Canvas-сцены ставит на паузу App (paused у AmbientLayer).
+   Синхронно со списком prefers-reduced-motion выше: anim-slide-left(-out),
+   anim-fade-out, search-hit, usage-* там гасятся — и здесь обязаны */
 html.motion-reduced .anim-fade-up,
 html.motion-reduced .anim-pop,
 html.motion-reduced .anim-pop-out,
 html.motion-reduced .anim-fade,
+html.motion-reduced .anim-fade-out,
+html.motion-reduced .anim-slide-left,
+html.motion-reduced .anim-slide-left-out,
 html.motion-reduced .typing-dot,
 html.motion-reduced .nav-tick-in,
 html.motion-reduced .splash-pulse,
+html.motion-reduced .search-hit,
+html.motion-reduced .usage-draw,
+html.motion-reduced .usage-cell,
+html.motion-reduced .usage-arc,
 html.motion-reduced .animate-pulse,
 html.motion-reduced .animate-ping,
 html.motion-reduced .animate-spin,
@@ -413,6 +438,11 @@ html.motion-reduced body::before {
 }
 
 /* Тонкий аккуратный скроллбар в духе claude.ai */
+/* Скроллбар двойной системы: стандартные свойства — для Chromium 121+
+   (они отключают webkit-псевдоэлементы), ::-webkit-scrollbar — для старых
+   движков и WebKitGTK. Вид на evergreen WebView2 и старом WebKitGTK слегка
+   расходится (hover-подсветка есть только в webkit-ветке) — осознанный
+   компромисс ради обоих рантаймов */
 .scroll-slim {
   scrollbar-width: thin;
   scrollbar-color: var(--halo-line) transparent;
@@ -712,6 +742,9 @@ html.ambient-paused .glass-pane {
   }
   html.glass .bg-halo-bg {
     background: var(--halo-bg);
+  }
+  html.glass .bg-halo-deep {
+    background: var(--halo-deep);
   }
   html.glass .bg-halo-surface {
     background: var(--halo-surface);

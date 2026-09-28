@@ -117,15 +117,15 @@ function tileClass(v: number): string {
     4: "bg-halo-surface/80 text-halo-text",
     8: "bg-halo-accent/20 text-halo-text",
     16: "bg-halo-accent/30 text-halo-text",
-    32: "bg-halo-accent/40 text-white",
-    64: "bg-halo-accent/55 text-white",
-    128: "bg-halo-accent/70 text-white",
-    256: "bg-halo-accent/85 text-white",
-    512: "bg-halo-accent text-white",
-    1024: "bg-halo-accent-deep text-white",
-    2048: "bg-halo-accent-deep text-white ring-2 ring-halo-accent",
+    32: "bg-halo-accent/40 text-halo-on-accent",
+    64: "bg-halo-accent/55 text-halo-on-accent",
+    128: "bg-halo-accent/70 text-halo-on-accent",
+    256: "bg-halo-accent/85 text-halo-on-accent",
+    512: "bg-halo-accent text-halo-on-accent",
+    1024: "bg-halo-accent-deep text-halo-on-accent",
+    2048: "bg-halo-accent-deep text-halo-on-accent ring-2 ring-halo-accent",
   };
-  return map[v] ?? "bg-halo-accent-deep text-white";
+  return map[v] ?? "bg-halo-accent-deep text-halo-on-accent";
 }
 
 export default function Game2048() {
