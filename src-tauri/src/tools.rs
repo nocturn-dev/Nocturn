@@ -274,8 +274,11 @@ pub(crate) fn sanitize_note_name(file: &str) -> Result<String, String> {
         "con", "prn", "aux", "nul", "com1", "com2", "com3", "com4", "com5", "com6", "com7",
         "com8", "com9", "lpt1", "lpt2", "lpt3", "lpt4", "lpt5", "lpt6", "lpt7", "lpt8", "lpt9",
     ];
-    // Срез ".md" безопасен по байтам: суффикс ASCII и проверен ends_with ниже
-    let stem = if file.len() >= 3 { &file[..file.len() - 3] } else { "" };
+    // stem — только через strip_suffix: прежний срез &file[..len-3]
+    // вычислялся ДО проверки ends_with(".md") и паниковал на байте внутри
+    // многобайтного символа (имя «файл» без суффикса — гарантированный
+    // путь паники от данных модели)
+    let stem = file.strip_suffix(".md").unwrap_or("");
     let bad = file.is_empty()
         || file.contains('/')
         || file.contains('\\')
@@ -319,6 +322,7 @@ fn vault_outgoing_links(content: &str) -> Vec<String> {
 }
 
 fn vault_search(notes_dir: &Path, query: &str) -> Result<String, String> {
+    const SEARCH_READ_CAP: usize = 1024 * 1024;
     let mut rows: Vec<(bool, String, String)> = Vec::new(); // (по заголовку, файл, сниппет)
     let entries = fs::read_dir(notes_dir).map_err(|e| format!("cannot read notes: {e}"))?;
     for entry in entries.flatten() {
@@ -326,8 +330,13 @@ fn vault_search(notes_dir: &Path, query: &str) -> Result<String, String> {
         if !name.ends_with(".md") {
             continue;
         }
-        let Ok(content) = fs::read(entry.path()) else { continue };
-        let content = String::from_utf8_lossy(&content).to_string();
+        // Кап на чтение — как у vault_read/notes_list: поиск не должен
+        // тащить произвольно большие заметки целиком на каждый вызов
+        let Ok(content) =
+            crate::fsutil::read_capped_string(&entry.path(), SEARCH_READ_CAP)
+        else {
+            continue;
+        };
         let title = vault_title(&name, &content);
         if query.is_empty() {
             rows.push((true, name, title));
