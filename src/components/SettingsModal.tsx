@@ -42,6 +42,11 @@ import type { PromptPreset } from "../presets";
 import type { SubagentsConfig } from "../subagents";
 export type { Section } from "./settings/types";
 
+/** Адрес для поддержки проекта: заполняется владельцем. Пусто — кнопка
+ *  «Поддержать проект» честно отвечает «скоро»; заполнено — клик копирует
+ *  адрес в буфер обмена */
+const SUPPORT_ADDRESS = "";
+
 interface SettingsModalProps {
   open: boolean;
   /** Раздел для программного открытия (null/undefined — как есть) */
@@ -356,6 +361,8 @@ export default function SettingsModal({
   restGameRef.current = restGame;
   const [searchQ, setSearchQ] = useState("");
   const [searchScope, setSearchScope] = useState<"all" | "custom">("all");
+  // Подсказка кнопки «Поддержать проект» (скопировано/скоро), гаснет сама
+  const [supportHint, setSupportHint] = useState<string | null>(null);
   // Пункт, к которому надо проскроллиться после перехода в секцию (label)
   const [pendingItem, setPendingItem] = useState<string | null>(null);
   const contentPaneRef = useRef<HTMLDivElement>(null);
@@ -522,6 +529,37 @@ export default function SettingsModal({
           </div>
           {/* Поиск по настройкам: область «везде» / «только кастомизация» */}
           <div className="px-1 pb-2">
+            {/* Поддержать проект: минимальный отступ от шапки, сердце.
+                Клик копирует адрес (SUPPORT_ADDRESS) в буфер; адрес не задан —
+                честное «скоро» без обмана */}
+            <button
+              onClick={() => {
+                if (!SUPPORT_ADDRESS) {
+                  setSupportHint(t("settings.supportSoon"));
+                } else {
+                  void navigator.clipboard
+                    .writeText(SUPPORT_ADDRESS)
+                    .then(() => setSupportHint(t("settings.supportCopied")))
+                    .catch(() => setSupportHint(t("settings.supportCopyFail")));
+                }
+                window.setTimeout(() => setSupportHint(null), 2200);
+              }}
+              className="mb-2 flex w-full items-center justify-center gap-1.5 rounded-lg border border-halo-line bg-halo-surface/60 px-2.5 py-1.5 text-xs transition-colors hover:border-halo-accent/50 hover:bg-halo-accent/10"
+            >
+              <svg
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="currentColor"
+                aria-hidden
+                className={supportHint ? "text-halo-accent" : "text-halo-muted"}
+              >
+                <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" />
+              </svg>
+              <span className={supportHint ? "text-halo-accent" : "text-halo-muted"}>
+                {supportHint ?? t("settings.support")}
+              </span>
+            </button>
             <input
               type="text"
               value={searchQ}

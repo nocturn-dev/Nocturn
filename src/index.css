@@ -311,15 +311,20 @@ html.motion-reduced.voice-listening body::after {
 
 /* ---------- Zen-режим (бинд toggle_zen, дефолт Ctrl+Alt+Z) ----------
    Медитативный вид: весь GUI скрыт (visibility, не display — лэйаут не
-   пересчитывается при выходе), остаётся только ambient-слой/фон. Окно
-   продолжает получать клавиатуру: повторный бинд возвращает интерфейс.
-   Тосты/пилюли тоже скрыты — zen это zen */
+   пересчитывается при выходе). Фон — ЖЁСТКО ЗАШИТАЯ кастомная тема
+   (глубокий сине-чёрный градиент как на референсе): никакие темы,
+   палитры и ambient-переменные не подтягиваются — иначе под скрытым
+   GUI прорезался фон активной темы и режим превращался в «BSOD».
+   Окно продолжает получать клавиатуру: повторный бинд возвращает GUI */
+html.zen,
+html.zen body {
+  background:
+    radial-gradient(1100px 700px at 16% 10%, rgba(70, 110, 190, 0.16), transparent 62%),
+    radial-gradient(900px 700px at 85% 90%, rgba(40, 70, 140, 0.1), transparent 65%),
+    linear-gradient(165deg, #0a0d13 0%, #070a10 52%, #04060a 100%) !important;
+}
 html.zen #root {
   visibility: hidden;
-}
-html.zen #root .ambient-layer,
-html.zen #root .ambient-layer * {
-  visibility: visible;
 }
 html.zen.voice-listening body::after {
   visibility: visible;
