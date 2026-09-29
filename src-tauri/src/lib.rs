@@ -345,8 +345,15 @@ pub fn run() {
                     }
                     // Во время «затмения» topmost держится ТОЛЬКО при фокусе:
                     // постоянный always-on-top накрывал собой приложения,
-                    // выбранные через ALT+TAB/панель задач (переключение
-                    // «не работало» — окно оставалось поверх)
+                    // выбранные через ALT+TAB/панель задач.
+                    // ФИКС (фидбек 29.09, «Alt+Tab и Win+D не работают, пока
+                    // Nocturn на фоне»): tao-шный set_always_on_top на Windows
+                    // ставит z-порядок БЕЗ SWP_NOACTIVATE — HWND_NOTOPMOST/
+                    // HWND_TOPMOST АКТИВИРУЮТ окно → каждое переключение фокуса
+                    // дёргало активацию, окно воровало фокус обратно, петля:
+                    // «вообще никак не уйти». Теперь z-порядок меняем сырым
+                    // SetWindowPos c SWP_NOACTIVATE и только при реальной смене
+                    // состояния — активация не дёргается, петли нет
                     if let tauri::WindowEvent::Focused(focused) = event {
                         let eclipsed = FS_SAVE
                             .lock()
@@ -354,16 +361,18 @@ pub fn run() {
                             .unwrap_or(false);
                         if eclipsed {
                             if let Some(w) = app.get_webview_window("main") {
-                                let _ = w.set_always_on_top(*focused);
-                                // Win+D сворачивает окно и в «затмении»: topmost
-                                // shell не защищает. При восстановлении tao
-                                // прикладывает протухшую внутреннюю геометрию —
-                                // вместо монитора появляется маленькое окно с
-                                // чёрным кадром, drag в котором «прыгает» по
-                                // столу. Целевые границы хранит FS_MON —
-                                // возвращаем их на первом же фокусе
                                 #[cfg(windows)]
                                 {
+                                    if let Ok(hwnd) = w.hwnd() {
+                                        set_topmost_noactivate(hwnd.0 as isize, *focused);
+                                    }
+                                    // Win+D сворачивает окно и в «затмении»: topmost
+                                    // shell не защищает. При восстановлении tao
+                                    // прикладывает протухшую внутреннюю геометрию —
+                                    // вместо монитора появляется маленькое окно с
+                                    // чёрным кадром, drag в котором «прыгает» по
+                                    // столу. Целевые границы хранит FS_MON —
+                                    // возвращаем их на первом же фокусе
                                     if *focused && !w.is_minimized().unwrap_or(true) {
                                         let target = FS_MON
                                             .lock()
@@ -384,6 +393,10 @@ pub fn run() {
                                             }
                                         }
                                     }
+                                }
+                                #[cfg(not(windows))]
+                                {
+                                    let _ = w.set_always_on_top(*focused);
                                 }
                             }
                         }
@@ -482,6 +495,60 @@ static FS_SAVE: Mutex<Option<SavedBounds>> = Mutex::new(None);
 #[cfg(windows)]
 static FS_MON: Mutex<Option<WinRect>> = Mutex::new(None);
 
+/// Текущее topmost-состояние главного окна в «затмении»: guard, чтобы
+/// Focused-хук не дёргал SetWindowPos при каждом событии без смены значения
+#[cfg(windows)]
+static ECLIPSE_TOPMOST: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// z-порядок БЕЗ активации окна: tao-шный set_always_on_top ставит
+/// HWND_TOPMOST/NOTOPMOST без SWP_NOACTIVATE, а этиplacement-константы
+/// АКТИВИРУЮТ окно — переключение фокуса в «затмении» запускало петлю
+/// воровства фокуса (Alt+Tab/Win+D «не работали»)
+#[cfg(windows)]
+fn set_topmost_noactivate(hwnd: isize, topmost: bool) {
+    use std::sync::atomic::Ordering;
+    if ECLIPSE_TOPMOST.load(Ordering::Relaxed) == topmost {
+        return;
+    }
+    #[link(name = "user32")]
+    extern "system" {
+        fn SetWindowPos(
+            hwnd: isize,
+            after: isize,
+            x: i32,
+            y: i32,
+            cx: i32,
+            cy: i32,
+            flags: u32,
+        ) -> i32;
+    }
+    const HWND_TOPMOST: isize = -1;
+    const HWND_NOTOPMOST: isize = -2;
+    const SWP_NOSIZE: u32 = 0x1;
+    const SWP_NOMOVE: u32 = 0x2;
+    const SWP_NOACTIVATE: u32 = 0x10;
+    unsafe {
+        SetWindowPos(
+            hwnd,
+            if topmost { HWND_TOPMOST } else { HWND_NOTOPMOST },
+            0,
+            0,
+            0,
+            0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+        );
+    }
+    ECLIPSE_TOPMOST.store(topmost, Ordering::Relaxed);
+}
+
+/// Синхронизировать guard при входе/выходе из «затмения» (там topmost
+/// выставляется через set_always_on_top — guard обязан знать значение)
+#[cfg(windows)]
+fn sync_eclipse_topmost(topmost: bool) {
+    use std::sync::atomic::Ordering;
+    ECLIPSE_TOPMOST.store(topmost, Ordering::Relaxed);
+}
+
 #[cfg(windows)]
 #[repr(C)]
 #[derive(Default, Clone, Copy)]
@@ -564,6 +631,7 @@ fn window_toggle_fullscreen(app: tauri::AppHandle) -> Result<(), String> {
             let _ = w.unmaximize();
         }
         let _ = w.set_always_on_top(false);
+        sync_eclipse_topmost(false);
         set_window_bounds(hwnd, x, y, cx, cy);
         if was_max {
             let _ = w.maximize();
@@ -585,6 +653,7 @@ fn window_toggle_fullscreen(app: tauri::AppHandle) -> Result<(), String> {
         let _ = w.unmaximize();
     }
     let _ = w.set_always_on_top(true);
+    sync_eclipse_topmost(true);
     // Прыжок одним атомарным SetWindowPos. Живой ресайз шагами заставляет
     // WebView2 догонять окно (смаз/тёмные края в каждом кадре — «нескриншот-
     // еляемые» артефакты); DWM на одиночном прыжке просто растягивает старый

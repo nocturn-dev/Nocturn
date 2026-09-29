@@ -309,6 +309,22 @@ html.motion-reduced.voice-listening body::after {
   animation: none;
 }
 
+/* ---------- Zen-режим (бинд toggle_zen, дефолт Ctrl+Alt+Z) ----------
+   Медитативный вид: весь GUI скрыт (visibility, не display — лэйаут не
+   пересчитывается при выходе), остаётся только ambient-слой/фон. Окно
+   продолжает получать клавиатуру: повторный бинд возвращает интерфейс.
+   Тосты/пилюли тоже скрыты — zen это zen */
+html.zen #root {
+  visibility: hidden;
+}
+html.zen #root .ambient-layer,
+html.zen #root .ambient-layer * {
+  visibility: visible;
+}
+html.zen.voice-listening body::after {
+  visibility: visible;
+}
+
 .search-hit {
   animation: search-hit 1.6s ease both;
   border-radius: 12px;

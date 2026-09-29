@@ -289,6 +289,14 @@ export default function App() {
     hardSkinRef.current = hardSkin;
     if (!hardMode) setHardSkin(false); // тумблер выключен — скин снимается
   }, [hardMode, hardSkin, setHardSkin]);
+  // Zen-режим (бинд toggle_zen, дефолт Ctrl+Alt+Z): весь GUI скрыт,
+  // остаётся только ambient/фон — медитативный вид. Не персистим:
+  // приложение всегда стартует с интерфейсом
+  const [zenMode, setZenMode] = useState(false);
+  useEffect(() => {
+    document.documentElement.classList.toggle("zen", zenMode);
+    return () => document.documentElement.classList.remove("zen");
+  }, [zenMode]);
   const [printSpeed, setPrintSpeed] = useNumPref("haloui-print-speed", 1, (v) =>
     [0.5, 1, 2].includes(v) ? v : 1,
   );
@@ -1377,6 +1385,11 @@ export default function App() {
       case "toggle_fullscreen":
         void invoke("window_toggle_fullscreen").catch(() => {});
         break;
+      case "toggle_zen":
+        // Медитативный режим: весь GUI скрыт, остаётся только ambient/фон.
+        // Повторный бинд возвращает интерфейс
+        setZenMode((v) => !v);
+        break;
       case "hard_mode":
         if (hardModeRef.current) setHardSkin((v) => !v);
         else addToast(t("hard.needEnable"));
@@ -2200,6 +2213,12 @@ export default function App() {
         pendingAsk={pendingAsk}
         onAskAnswer={handleAskAnswer}
         onConfirmDecision={handleConfirmDecision}
+        sessions={sessions}
+        onOpenSession={setActiveId}
+        onOpenSettingsSection={(s) => {
+          setSettingsSection(s);
+          setSettingsOpen(true);
+        }}
         promptPresets={builtinPresetsFor(lang)}
         customPresets={promptLibrary}
         onSend={stableHandleSend}
