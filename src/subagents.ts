@@ -172,8 +172,12 @@ export async function runSubagent(opts: SubagentRunOpts): Promise<string> {
     "browser_screenshot",
   ]);
   // ask_user субагентам не выдаётся: вопрос блокирует только свой вложенный
-  // цикл, а отвечать на него должен пользователь в чате главного агента
-  const withoutAsk = pool.filter((t) => t.function.name !== "ask_user");
+  // цикл, а отвечать на него должен пользователь в чате главного агента.
+  // subagent_run/subagent_status — тоже: глубина 1, реестр фоновых задач
+  // живёт в чате главного агента
+  const withoutAsk = pool.filter(
+    (t) => t.function.name !== "ask_user" && !t.function.name.startsWith("subagent_"),
+  );
   const allowed = role.tools
     ? withoutAsk.filter((t) => role.tools?.includes(t.function.name))
     : withoutAsk.filter((t) => READ_ONLY.has(t.function.name));

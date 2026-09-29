@@ -352,6 +352,21 @@ export function useAgentRun(deps: AgentRunDeps) {
   const patchSubRun = (id: string, fn: (r: SubRunState) => SubRunState) =>
     setSubRuns((prev) => (prev[id] ? { ...prev, [id]: fn(prev[id]) } : prev));
 
+  // ── Фоновые субагенты (ZCode-стиль): background=true возвращает сразу,
+  // отчёт дописывается в сессию по завершении; статус — subagent_status ──
+  interface BgSubTask {
+    id: string;
+    roleId: string;
+    roleName: string;
+    task: string;
+    sessionId: string;
+    startedAt: number;
+    status: "running" | "done" | "failed";
+    report: string | null;
+  }
+  const bgRegistryRef = useRef(new Map<string, BgSubTask>());
+  const bgCounterRef = useRef(0);
+
   // План задач агента: живёт в сессии, перезаписывается только plan_update.
   // setSessions — сеттер useState, идентичность стабильна
   const applyPlan = useCallback(
@@ -1574,6 +1589,54 @@ export function useAgentRun(deps: AgentRunDeps) {
         }
         finishAsk(JSON.stringify({ ok: true, ...answer }));
       }
+      // Статус фоновых субагентов: реестр на фронте, full report по id
+      const statusCalls = toolCalls.filter((c) => c.name === "subagent_status");
+      for (const call of statusCalls) {
+        if (abortedRef.current.has(requestId)) return finalize();
+        let content: string;
+        let parsedId = "";
+        try {
+          const parsed = JSON.parse(call.arguments) as { id?: string };
+          parsedId = (parsed.id ?? "").trim();
+        } catch {
+          parsedId = "";
+        }
+        const reg = bgRegistryRef.current;
+        if (parsedId) {
+          const t = reg.get(parsedId);
+          if (!t) {
+            content = `no background subagent "${parsedId}"`;
+          } else if (t.status === "running") {
+            const elapsed = Math.round((Date.now() - t.startedAt) / 1000);
+            content = `${parsedId} (${t.roleName}) still running — ${elapsed}s elapsed.\nTask: ${t.task.slice(0, 300)}`;
+          } else {
+            content = `${parsedId} [${t.status}]\n${t.report ?? "(no report)"}`;
+          }
+        } else if (reg.size === 0) {
+          content = "no background subagents";
+        } else {
+          content = [...reg.values()]
+            .map((t) => {
+              const elapsed = Math.round((Date.now() - t.startedAt) / 1000);
+              return `${t.id} [${t.status}] ${t.roleName} (${elapsed}s): ${t.task.slice(0, 150)}`;
+            })
+            .join("\n");
+        }
+        pushMessage({
+          id: uid(),
+          role: "tool",
+          content,
+          toolCallId: call.id,
+          toolName: call.name,
+        });
+        history.push({
+          role: "tool",
+          tool_call_id: call.id,
+          name: call.name,
+          content,
+        });
+      }
+
       const runOneSubagent = async (call: ToolCallInfo): Promise<void> => {
         let subContent: string;
         // FIX: машиный статус tool-результата (см. Message.status) — рендер
@@ -1583,6 +1646,7 @@ export function useAgentRun(deps: AgentRunDeps) {
           const parsed = JSON.parse(call.arguments) as {
             role?: string;
             task?: string;
+            background?: boolean;
           };
           const role: SubagentRole =
             mergeRoles(subConfigRef.current.roles).find(
@@ -1650,6 +1714,131 @@ export function useAgentRun(deps: AgentRunDeps) {
                 report: null,
               },
             }));
+            // ── Фоновый запуск: вызов возвращается сразу, цикл главного
+            // агента продолжается; отчёт дописывается в сессию по завершении ──
+            if (parsed.background === true) {
+              bgCounterRef.current += 1;
+              const bgId = `bg-${bgCounterRef.current}`;
+              bgRegistryRef.current.set(bgId, {
+                id: bgId,
+                roleId: role.id,
+                roleName: role.name,
+                task,
+                sessionId: targetId,
+                startedAt: Date.now(),
+                status: "running",
+                report: null,
+              });
+              const toolMsgId = uid();
+              subContent = `Subagent ${role.name} started in background (id: ${bgId}). Continue your work — the report will be appended to this conversation when it finishes; check progress with subagent_status {"id": "${bgId}"}.`;
+              pushMessage({
+                id: toolMsgId,
+                role: "tool",
+                content: subContent,
+                toolCallId: call.id,
+                toolName: call.name,
+              });
+              history.push({
+                role: "tool",
+                tool_call_id: call.id,
+                name: call.name,
+                content: subContent,
+              });
+              // Отсоединённый прогон: живые дельты — в ту же карточку, что
+              // у форграунда; завершение патчит tool-сообщение в сессии
+              void (async () => {
+                const onStep = (st: SubagentStep) => {
+                  if (st.type === "thought") {
+                    deltaBuf.appendSubThought(call.id, st.text);
+                    scheduleFlush();
+                    return;
+                  }
+                  flushDeltas();
+                  patchSubRun(call.id, (r) => {
+                    if (st.type === "tool")
+                      return { ...r, tools: [...r.tools, st.text], thought: "" };
+                    return { ...r, report: st.text };
+                  });
+                };
+                const entry = bgRegistryRef.current.get(bgId);
+                try {
+                  const report = await runSubagent({
+                    role,
+                    task,
+                    baseUrl: apiSettings.base_url,
+                    apiKey: apiSettings.api_key,
+                    model: role.model || apiSettings.model,
+                    onStep,
+                    onUsage: (u) => {
+                      usageAcc.prompt += u.prompt;
+                      usageAcc.completion += u.completion;
+                      checkHardLimit();
+                    },
+                    effort: effortRef.current,
+                    aborted: () => abortedRef.current.has(requestId),
+                    runRequestId: requestId,
+                    disabledTools: sessionsRef.current
+                      .find((s) => s.id === targetId)
+                      ?.disabledTools,
+                  });
+                  if (entry) {
+                    entry.status = "done";
+                    entry.report = report;
+                  }
+                  const content = `[${role.name} • background ${bgId} — completed]\n${report}`;
+                  addToast(t("sub.bgDone", { s: role.name }));
+                  // Хвостовые дельты перед патчем сообщения
+                  flushDeltas();
+                  setSessions((prev) =>
+                    prev.map((s) =>
+                      s.id === targetId
+                        ? {
+                            ...s,
+                            messages: s.messages.map((m) =>
+                              m.id === toolMsgId ? { ...m, content } : m,
+                            ),
+                          }
+                        : s,
+                    ),
+                  );
+                } catch (e) {
+                  if (entry) {
+                    entry.status = "failed";
+                    entry.report = `error: ${e}`;
+                  }
+                  setSessions((prev) =>
+                    prev.map((s) =>
+                      s.id === targetId
+                        ? {
+                            ...s,
+                            messages: s.messages.map((m) =>
+                              m.id === toolMsgId
+                                ? { ...m, content: `background ${bgId} failed: ${e}` }
+                                : m,
+                            ),
+                          }
+                        : s,
+                    ),
+                  );
+                }
+                // Локальная история текущего хода: обновить запись, если ход
+                // ещё жив (после finalize массив мёртв — обновление no-op)
+                const hEntry = history.find((h) => h.tool_call_id === call.id);
+                if (hEntry && entry?.report) {
+                  hEntry.content = `[${role.name} • background ${bgId} — completed]\n${entry.report}`;
+                }
+                const subTimerId = window.setTimeout(() => {
+                  subRunTimersRef.current.delete(subTimerId);
+                  setSubRuns((prev) => {
+                    if (!(call.id in prev)) return prev;
+                    const { [call.id]: _done, ...rest } = prev;
+                    return rest;
+                  });
+                }, 30_000);
+                subRunTimersRef.current.add(subTimerId);
+              })();
+              return;
+            }
             const onStep = (st: SubagentStep) => {
               // Thought-дельты субагента батчим так же, как основной стрим.
               // Текст/инструмент — после принудительного сброса, иначе
@@ -1736,6 +1925,7 @@ ${report}`;
       for (const call of toolCalls) {
         if (abortedRef.current.has(requestId)) return finalize();
         if (call.name === "subagent_run") continue; // уже исполнены выше
+        if (call.name === "subagent_status") continue; // уже исполнены выше
         if (call.name === "plan_update") continue; // уже исполнены выше (фронтенд)
         if (call.name === "ask_user") continue; // уже исполнены выше (фронтенд)
 
