@@ -16,6 +16,7 @@ import {
   type ApiProfile,
 } from "../api";
 import { useLang, type MsgKey } from "../locales";
+import type { VoiceSettings } from "../voice/prefs";
 import { MainSection } from "./settings/MainSection";
 import { McpSection } from "./settings/McpSection";
 import { ShortcutsSection } from "./settings/ShortcutsSection";
@@ -60,6 +61,9 @@ interface SettingsModalProps {
   limits: HardLimits;
   onLimitsChange: (l: HardLimits) => void;
   onImportSessions: (sessions: Session[]) => void;
+  /** Voice Wake («Jarvis-режим»): тумблер и параметры слушателя */
+  voice: VoiceSettings;
+  onVoiceChange: (patch: Partial<VoiceSettings>) => void;
   /** Эргономика: сторона сайдбара и стартовые подсказки */
   sidebarSide: "left" | "right";
   onSidebarSideChange: (side: "left" | "right") => void;
@@ -309,6 +313,8 @@ export default function SettingsModal({
   onSessionAllowedChange,
   onPromptLibraryChange,
   onAllowedCommandsChange,
+  voice,
+  onVoiceChange,
   onThemeChange,
   onGlassChange,
   onApiChange,
@@ -676,6 +682,8 @@ export default function SettingsModal({
               limits={limits}
               onLimitsChange={onLimitsChange}
               onImportSessions={onImportSessions}
+              voice={voice}
+              onVoiceChange={onVoiceChange}
             />
           )}
           {section === "theme" && (

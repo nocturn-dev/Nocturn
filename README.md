@@ -76,6 +76,9 @@ but stay at the plain-chat level. Nocturn is the missing middle ground:
 
 - **Dictation** — push-to-talk via a local whisper.cpp (the model downloads on
   first use, microphone is selectable).
+- **Voice Wake (Jarvis mode)** — optional always-on local wake word
+  (openWakeWord, fully offline): say "Hey Jarvis" and dictate a task
+  hands-free. Audio never leaves the machine.
 - **Read-aloud** — answers spoken by local Windows SAPI voices, ru/en
   auto-selected. No cloud speech anywhere.
 - **Image generation** — an optional `image_generate` agent tool via your own

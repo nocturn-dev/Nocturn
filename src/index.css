@@ -284,6 +284,31 @@ html.motion-reduced .snake-preview-seg {
   outline: none;
 }
 
+/* ---------- Voice Wake: индикатор всегда слушающего микрофона ----------
+   Крошечная пульсирующая точка в левом нижнем углу: пока микрофон активен,
+   пользователь обязан это видеть. Гасится вместе с тумблером режима */
+html.voice-listening body::after {
+  content: "";
+  position: fixed;
+  left: 10px;
+  bottom: 10px;
+  width: 7px;
+  height: 7px;
+  border-radius: 9999px;
+  background: var(--halo-accent);
+  opacity: 0.9;
+  animation: voice-blink 1.8s ease-in-out infinite;
+  z-index: 200;
+  pointer-events: none;
+}
+@keyframes voice-blink {
+  0%, 100% { opacity: 0.9; }
+  50% { opacity: 0.3; }
+}
+html.motion-reduced.voice-listening body::after {
+  animation: none;
+}
+
 .search-hit {
   animation: search-hit 1.6s ease both;
   border-radius: 12px;

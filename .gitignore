@@ -28,3 +28,4 @@ public/pyodide/
 
 # Отладочные артефакты аудита (не для репозитория)
 .audit-tmp/
+public/ort/
