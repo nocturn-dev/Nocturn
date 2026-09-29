@@ -250,6 +250,7 @@ export const ja = {
     "tokens.total": "合計トークン",
     // Фазы генерации
     // Живой статус модели (TypingBubble)
+    "sub.bgDone": "バックグラウンドサブエージェント {s} が完了 — レポートはチャット内",
     "activity.subagent": "サブエージェント {role} が作業中…",
     "activity.thinking": "思考中…",
     "activity.toolCall": "呼び出し中：{name}",

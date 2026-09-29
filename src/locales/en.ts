@@ -227,6 +227,7 @@ export const en = {
     "tokens.up": "Prompt tokens",
     "tokens.down": "Completion tokens",
     "tokens.total": "Total tokens",
+    "sub.bgDone": "Background subagent {s} finished — report in the chat",
     "activity.subagent": "Subagent {role} is working…",
     "activity.thinking": "Thinking…",
     "activity.toolCall": "Calling: {name}",

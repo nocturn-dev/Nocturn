@@ -884,7 +884,7 @@ pub fn frontend_tool_schemas() -> Vec<serde_json::Value> {
             "type": "function",
             "function": {
                 "name": "subagent_run",
-                "description": "Run a subagent: an isolated agent with its own role, context and tool allowlist. It returns a final report. Use for research, coding subtasks, review (critic) or repo navigation. Depth is 1 — a subagent cannot spawn subagents.",
+                "description": "Run a subagent: an isolated agent with its own role, context and tool allowlist. It returns a final report. Use for research, coding subtasks, review (critic) or repo navigation. Depth is 1 — a subagent cannot spawn subagents. With background=true the call returns immediately (id bg-N), the subagent works in parallel, and the report lands in this conversation when ready — check progress anytime with subagent_status.",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -895,9 +895,28 @@ pub fn frontend_tool_schemas() -> Vec<serde_json::Value> {
                         "task": {
                             "type": "string",
                             "description": "Self-contained brief for the subagent: what to do, where to look, what to return. It does NOT see this conversation."
+                        },
+                        "background": {
+                            "type": "boolean",
+                            "description": "Run in background: return immediately and keep working in parallel. The report is appended to this conversation on completion; poll subagent_status for progress"
                         }
                     },
                     "required": ["role", "task"]
+                }
+            }
+        }),
+        // Статус/отчёт фоновых субагентов: исполнение на фронтенде (реестр
+        // фоновых задач в useAgentRun), Rust — только схема
+        serde_json::json!({
+            "type": "function",
+            "function": {
+                "name": "subagent_status",
+                "description": "Status of background subagents. Without id: a list of all background tasks with statuses. With id: running progress, or the FULL final report of a completed subagent.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "id": { "type": "string", "description": "Background task id, e.g. \"bg-1\"" }
+                    }
                 }
             }
         }),

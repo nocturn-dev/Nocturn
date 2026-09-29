@@ -250,6 +250,7 @@ export const zh = {
     "tokens.total": "总 tokens",
     // Фазы генерации
     // Живой статус модели (TypingBubble)
+    "sub.bgDone": "后台子代理 {s} 已完成 — 报告在对话中",
     "activity.subagent": "子代理 {role} 正在工作…",
     "activity.thinking": "思考中…",
     "activity.toolCall": "正在调用：{name}",

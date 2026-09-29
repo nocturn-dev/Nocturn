@@ -233,6 +233,7 @@ export const ru = {
     "tokens.total": "Всего токенов",
     // Фазы генерации
     // Живой статус модели (TypingBubble)
+    "sub.bgDone": "Фоновый субагент {s} завершился — отчёт в чате",
     "activity.subagent": "Субагент {role} работает…",
     "activity.thinking": "Размышляет…",
     "activity.toolCall": "Вызывает: {name}",
