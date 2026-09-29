@@ -14,6 +14,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 #[cfg(windows)]
 use std::sync::mpsc;
 use std::path::PathBuf;
+use std::time::Duration;
+
+/// Кап одного вызова MCP-инструмента (обе попытки пула)
+const MCP_TOOL_TIMEOUT: Duration = Duration::from_secs(120);
 /// M2: исполнение инструмента агента (вызывается из агентного цикла / для тестов).
 /// Имена mcp__<server>__<tool> маршрутизируются в подключённый MCP-сервер.
 /// По пути прогоняются хуки PreToolUse (может заблокировать) и PostToolUse
@@ -208,6 +212,7 @@ pub async fn run_tool(
     .await
     .unwrap_or(None);
     let result = execute_tool_inner(
+        app.clone(),
         mcp_registry,
         browser_registry,
         name.clone(),
@@ -277,6 +282,7 @@ async fn wait_for_abort(flag: Option<&std::sync::Arc<AtomicBool>>) {
 // IPC-внутренняя граница: плоские параметры (как у run_tool с chat_stream)
 #[allow(clippy::too_many_arguments)]
 pub async fn execute_tool_inner(
+    app: tauri::AppHandle,
     mcp_registry: tauri::State<'_, mcp::McpRegistry>,
     browser_registry: tauri::State<'_, browser::BrowserRegistry>,
     name: String,
@@ -358,38 +364,51 @@ pub async fn execute_tool_inner(
     if let Some((server_raw, tool_raw)) = mcp::split_prefixed_name(&name) {
         let server = server_raw.to_string();
         let tool = tool_raw.to_string();
-        // Соединение берём синхронно (дешёвый Arc)
-        let handle = {
-            let map = mcp_registry.0.lock().map_err(|e| e.to_string())?;
-            map.get(&server)
-                .cloned()
-                .ok_or_else(|| format!("MCP server \"{server}\" is not connected"))?
-        };
-        let args = args.clone();
-        // Таймаут + abort: зависший/однопоточный MCP-сервер, переставший
-        // отвечать, раньше вешал runTool навсегда — Stop не помогал, шаг
-        // агента стоял до перезапуска приложения. call_tool теперь async
-        // для обоих транспортов (stdio уходит в spawn_blocking внутри)
-        const MCP_TOOL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
-        let (server_c, tool_c) = (server.clone(), tool.clone());
-        let call = async {
-            handle
-                .call_tool(&tool_c, args)
-                .await
-                .map_err(|e| format!("mcp {server_c}.{tool_c}: {e}"))
-        };
-        tokio::pin!(call);
-        let result: String = tokio::select! {
-            res = &mut call => res.map_err(|e| format!("tool task failed: {e}"))?,
-            _ = tokio::time::sleep(MCP_TOOL_TIMEOUT) => {
-                return Err(format!(
-                    "mcp {server}.{tool}: timed out after {}s",
-                    MCP_TOOL_TIMEOUT.as_secs()
-                ));
+        // Пул: не подключён — прозрачный connect-on-demand (сервер включён
+        // в конфиге); подключён — живой хендл
+        let registry_arc = mcp_registry.0.clone();
+        let handle = mcp::ensure_connected(app.clone(), registry_arc.clone(), server.clone())
+            .await
+            .map_err(|e| format!("mcp {server}.{tool}: {e}"))?;
+
+        // Одна попытка вызова: кап таймаута + abort (зависший/однопоточный
+        // MCP-сервер раньше вешал runTool навсегда — Stop не помогал)
+        macro_rules! mcp_attempt {
+            ($h:expr, $a:expr) => {
+                tokio::select! {
+                    res = $h.call_tool(&tool, $a) => res.map_err(|e| format!("mcp {server}.{tool}: {e}")),
+                    _ = tokio::time::sleep(MCP_TOOL_TIMEOUT) => Err(format!(
+                        "mcp {server}.{tool}: timed out after {}s",
+                        MCP_TOOL_TIMEOUT.as_secs()
+                    )),
+                    _ = wait_for_abort(abort_flag.as_ref()) => {
+                        Err("aborted by user".to_string())
+                    }
+                }
+            };
+        }
+
+        // Попытка 1. Транспортная ошибка (процесс умер, EPIPE, сеть упала) →
+        // реконнект + ОДИН повтор; ошибки самого инструмента не повторяем —
+        // побочные эффекты вызова задвоились бы. Таймаут ответа тоже не
+        // ретраится: сервер жив, просто метод долгий
+        let first = handle.call_tool(&tool, args.clone()).await;
+        let result: String = match first {
+            Ok(r) => r,
+            Err(e) if mcp::is_transport_err(&e) => {
+                // Мёртвый хендл вон из реестра: mcp_status честно покажет
+                // «не подключён», следующий вызов сам переподключится
+                registry_arc
+                    .lock()
+                    .map_err(|err| err.to_string())?
+                    .remove(&server);
+                mcp::note_transport_fail(&server);
+                let fresh = mcp::ensure_connected(app.clone(), registry_arc.clone(), server.clone())
+                    .await
+                    .map_err(|e| format!("mcp {server}.{tool}: reconnect: {e}"))?;
+                mcp_attempt!(fresh, args.clone())?
             }
-            _ = wait_for_abort(abort_flag.as_ref()) => {
-                return Err("aborted by user".to_string());
-            }
+            Err(e) => return Err(format!("mcp {server}.{tool}: {e}")),
         };
         return Ok(result);
     }
@@ -689,6 +708,7 @@ static BROWSER_VIEW_GEN: std::sync::atomic::AtomicU64 = std::sync::atomic::Atomi
 pub fn browser_view_start(app: tauri::AppHandle) -> Result<(), String> {
     use tauri::{Emitter, Manager};
     use std::time::Duration;
+
     use serde_json::{json, Value};
     if BROWSER_VIEW_ACTIVE.swap(true, Ordering::SeqCst) {
         return Ok(()); // трансляция уже идёт

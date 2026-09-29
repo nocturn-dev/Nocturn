@@ -44,6 +44,51 @@ fn mcp_client_end_to_end() {
     conn.kill();
 }
 
+/// Пул: краш сервера → транспортная ошибка (детектится is_transport_err),
+/// после реконнекта (новый процесс) вызов снова работает
+#[test]
+fn mcp_pool_reconnect_after_crash() {
+    let mut child = spawn_helper();
+    let stdout = child.stdout.take().unwrap();
+    let stderr = child.stderr.take().unwrap();
+    let conn =
+        nocturn_lib::mcp::McpConnection::from_child("echo", child, stdout, stderr)
+            .expect("handshake must succeed");
+
+    let ok = conn
+        .call_tool("echo", json!({ "text": "before crash" }))
+        .expect("call before crash must succeed");
+    assert_eq!(ok, "echo: before crash");
+
+    // Краш сервера: пайпы умирают вместе с процессом
+    conn.kill();
+
+    let err = conn
+        .call_tool("echo", json!({ "text": "after crash" }))
+        .expect_err("call on dead server must fail");
+    assert!(
+        nocturn_lib::mcp::is_transport_err(&err),
+        "must be a transport error, got: {err}"
+    );
+
+    // Реконнект: свежий процесс → вызов снова работает
+    let mut fresh_child = spawn_helper();
+    let fresh_stdout = fresh_child.stdout.take().unwrap();
+    let fresh_stderr = fresh_child.stderr.take().unwrap();
+    let fresh = nocturn_lib::mcp::McpConnection::from_child(
+        "echo",
+        fresh_child,
+        fresh_stdout,
+        fresh_stderr,
+    )
+    .expect("reconnect must succeed");
+    let out = fresh
+        .call_tool("echo", json!({ "text": "after reconnect" }))
+        .expect("call after reconnect must succeed");
+    assert_eq!(out, "echo: after reconnect");
+    fresh.kill();
+}
+
 #[test]
 fn mcp_client_unicode_roundtrip() {
     let mut child = spawn_helper();
