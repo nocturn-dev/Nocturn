@@ -26,6 +26,7 @@ mod dictation;
 mod settings;
 mod tooling;
 mod tts;
+mod voice;
 mod kb;
 pub mod mcp;
 mod perm;
@@ -310,6 +311,9 @@ pub fn run() {
             mcp::mcp_autoconnect,
             network::network_get_config,
             network::network_set_config,
+            voice::voice_status,
+            voice::voice_download_models,
+            voice::voice_read_model,
             hide_to_tray,
             set_tray_variant,
             quickentry_set_bind,

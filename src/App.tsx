@@ -44,7 +44,10 @@ import {
   quickentrySetBind,
   quickentryStatus,
   factoryReset,
+  dictationTranscribe,
 } from "./api";
+import { stopSpeaking, speak } from "./tts";
+import { VoiceWake, stripWakeWord, type WakeHandle } from "./voice/wake";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { useApiSettings } from "./hooks/useApiSettings";
 import { useSessions } from "./hooks/useSessions";
@@ -220,6 +223,19 @@ export default function App() {
     "left",
   );
   const [hideStarter, setHideStarter] = useBoolPref("haloui-hide-starter", false);
+  // Voice Wake («Jarvis-режим»): локальное голосовое пробуждение по фразе.
+  // Всё офлайн: openWakeWord в вебвью, команды — через существующий perm-слой
+  const [voiceWakeOn, setVoiceWakeOn] = useBoolPref("haloui-voice-wake", false);
+  const [voiceModel, setVoiceModel] = useStringPref<"hey_jarvis" | "hey_mycroft">(
+    "haloui-voice-model",
+    "hey_jarvis",
+  );
+  const [voiceThreshold, setVoiceThreshold] = useNumPref(
+    "haloui-voice-threshold",
+    0.55,
+    (v) => (isNaN(v) ? 0.55 : clampNum(v, 0.3, 0.9)),
+  );
+  const [voiceTtsReply, setVoiceTtsReply] = useBoolPref("haloui-voice-tts", false);
   // Заметки (M-N1): список + открытая заметка
   const [notes, setNotes] = useState<Note[]>([]);
   const [openNoteFile, setOpenNoteFile] = useState<string | null>(null);
@@ -1203,6 +1219,101 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // ---------- Voice Wake («Jarvis-режим») ----------
+  // Слушатель живёт, пока включён тумблер; suspend на время стрима (микрофон
+  // не нужен, пока агент работает) и на время диктовки (арбитраж через
+  // nocturn-voice-busy внутри VoiceWake). Результат — новая задача через
+  // тот же агентный цикл, что у обычных сообщений: perm-слой и Hard Limits
+  // применяются как всегда
+  const voiceWakeRef = useRef<WakeHandle | null>(null);
+  // Задача, запущенная голосом: по её завершении (если включена озвучка)
+  // последняя реплика ассистента произносится локальным SAPI
+  const voiceSessionRef = useRef<string | null>(null);
+  const voiceOptsRef = useRef({ model: voiceModel, threshold: voiceThreshold, tts: voiceTtsReply });
+  useEffect(() => {
+    voiceOptsRef.current = { model: voiceModel, threshold: voiceThreshold, tts: voiceTtsReply };
+  }, [voiceModel, voiceThreshold, voiceTtsReply]);
+  // streamingId для асинхронных колбэков слушателя: эффект не должен
+  // пересоздавать слушателя на каждый старт/финиш прогона
+  const streamingIdRef = useRef(streamingId);
+  useEffect(() => {
+    streamingIdRef.current = streamingId;
+    // Стрим идёт → микрофон не нужен: экономим устройство и батарею
+    const h = voiceWakeRef.current;
+    if (!h) return;
+    if (streamingId) h.suspend();
+    else h.resume();
+  }, [streamingId]);
+
+  useEffect(() => {
+    if (!voiceWakeOn) return;
+    const handle = new VoiceWake({
+      model: voiceModel,
+      threshold: voiceThreshold,
+      onState: (s) => {
+        // Индикатор всегда слушающего микрофона (CSS-точка в углу)
+        document.documentElement.classList.toggle(
+          "voice-listening",
+          s === "listening" || s === "capturing",
+        );
+      },
+      onError: (msg) => {
+        addToast(msg === "mic denied" ? t("voice.micDenied") : t("voice.failed", { e: msg.slice(0, 90) }));
+      },
+      onWake: (b64) => {
+        void (async () => {
+          try {
+            const raw = (await dictationTranscribe(b64)).trim();
+            const cmd = stripWakeWord(raw, voiceOptsRef.current.model);
+            if (!cmd) {
+              addToast(t("voice.noCommand"));
+              return;
+            }
+            addToast(t("voice.heard", { s: cmd.slice(0, 80) }));
+            const session: Session = {
+              id: uid(),
+              title: cmd.slice(0, 48),
+              createdAt: Date.now(),
+              messages: [],
+            };
+            voiceSessionRef.current = session.id;
+            setSessions((prev) => [session, ...prev]);
+            setActiveId(session.id);
+            handleSendRef.current?.(cmd, undefined, session.id);
+          } catch (e) {
+            addToast(t("voice.failed", { e: String(e).slice(0, 90) }));
+          }
+        })();
+      },
+    });
+    voiceWakeRef.current = handle;
+    void handle.start();
+    if (streamingIdRef.current) handle.suspend();
+    return () => {
+      handle.stop();
+      voiceWakeRef.current = null;
+      document.documentElement.classList.remove("voice-listening");
+    };
+    // t/addToast/handleSendRef/setSessions/setActiveId — стабильные рефы и
+    // сеттеры; слушатель mount-only по замыслу (как тикер автоматизаций)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [voiceWakeOn, voiceModel, voiceThreshold]);
+
+  // Ответ голосовой задачи — вслух (локальный SAPI), если тумблер включён
+  useEffect(() => {
+    if (streamingId || !voiceSessionRef.current) return;
+    const sid = voiceSessionRef.current;
+    const sess = sessions.find((s) => s.id === sid);
+    const lastAssistant = [...(sess?.messages ?? [])]
+      .reverse()
+      .find((m) => m.role === "assistant");
+    if (!lastAssistant?.content?.trim()) return;
+    voiceSessionRef.current = null;
+    if (!voiceOptsRef.current.tts) return;
+    stopSpeaking();
+    speak(lastAssistant.content, () => {});
+  }, [streamingId, sessions]);
+
   // Диспетчер действий биндов — актуальные обработчики через реф.
   // Эффект без deps вместо присваивания в теле рендера (React Compiler)
   const dispatchShortcutRef = useRef<(a: ShortcutAction) => void>(() => {});
@@ -2163,6 +2274,13 @@ export default function App() {
         onImportSessions={(imported) => {
           // Импорт внешней истории: дописываем в список, ничего не перезаписываем
           setSessions((prev) => [...imported, ...prev]);
+        }}
+        voice={{ wake: voiceWakeOn, model: voiceModel, threshold: voiceThreshold, ttsReply: voiceTtsReply }}
+        onVoiceChange={(patch) => {
+          if (patch.wake !== undefined) setVoiceWakeOn(patch.wake);
+          if (patch.model !== undefined) setVoiceModel(patch.model);
+          if (patch.threshold !== undefined) setVoiceThreshold(patch.threshold);
+          if (patch.ttsReply !== undefined) setVoiceTtsReply(patch.ttsReply);
         }}
         sidebarSide={sidebarSide}
         onSidebarSideChange={setSidebarSide}

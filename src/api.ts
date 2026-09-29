@@ -1545,6 +1545,38 @@ export async function dictationTranscribe(audioBase64: string): Promise<string> 
   return invoke<string>("dictation_transcribe", { audioBase64 });
 }
 
+// ---------- Voice Wake («Jarvis-режим»): openWakeWord, офлайн ----------
+
+export interface VoiceFileStatus {
+  name: string;
+  exists: boolean;
+  bytes: number;
+}
+
+export interface VoiceStatus {
+  files: VoiceFileStatus[];
+  downloading: boolean;
+}
+
+/** Статус моделей wake-детектора в appdata/voice */
+export async function voiceStatus(wakeModel: string): Promise<VoiceStatus> {
+  if (!inTauri) return { files: [], downloading: false };
+  return invoke<VoiceStatus>("voice_status", { wakeModel });
+}
+
+/** Скачать недостающие модели (~3-5 МБ суммарно, GitHub Releases → appdata) */
+export async function voiceDownloadModels(wakeModel: string): Promise<void> {
+  if (!inTauri) return;
+  await invoke("voice_download_models", { wakeModel });
+}
+
+/** Байты модели (base64) для инференса в вебвью: ort-web строит сессию
+ *  из ArrayBuffer. Имя — строго из белого списка на бекенде */
+export async function voiceReadModel(name: string): Promise<string> {
+  if (!inTauri) throw new Error("Voice Wake работает в нативном приложении (npm run tauri dev)");
+  return invoke<string>("voice_read_model", { name });
+}
+
 /** Озвучить текст: локальный SAPI-синтез (Windows), ноль сети. Промис
  *  разрешается по завершении речи — индикатор карточки гаснет сам */
 export async function ttsSpeak(text: string): Promise<void> {

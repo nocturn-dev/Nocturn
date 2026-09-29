@@ -3,7 +3,10 @@ import { getVersion } from "@tauri-apps/api/app";
 import { useLang, type Lang } from "../../locales";
 import type { HardLimits } from "../../limits";
 import { NOTIFY_SOUNDS, playSound, refreshCustomSound, NotifyPrefs } from "../../notify";
-import { pickSaveFile, pickJsonFile, pickAudioFile, pickCliFile, settingsReadAll, settingsWriteAll, settingsExportWrite, settingsImportRead, soundImport, soundDelete, collectLocal, restoreLocal, autostartIsEnabled, autostartSet, storageStats, storageCleanup, quickentrySetBind, dictationStatus, dictationDownloadModel, dictationSetConfig, type DictationStatus, type StorageStats } from "../../api";
+import { pickSaveFile, pickJsonFile, pickAudioFile, pickCliFile, settingsReadAll, settingsWriteAll, settingsExportWrite, settingsImportRead, soundImport, soundDelete, collectLocal, restoreLocal, autostartIsEnabled, autostartSet, storageStats, storageCleanup, quickentrySetBind, dictationStatus, dictationDownloadModel, dictationSetConfig, voiceStatus, voiceDownloadModels, type DictationStatus, type VoiceStatus, type StorageStats } from "../../api";
+import type { VoiceSettings } from "../../voice/prefs";
+import { VOICE_MODEL_LABELS } from "../../voice/prefs";
+import type { WakeModel } from "../../voice/wake";
 import { parseChatGptExport, parseGeminiExport } from "../../external/importChats";
 import type { Session } from "../../types";
 import { quickentryComboFromEvent, prettyQuickentryCombo } from "../../shortcuts";
@@ -143,6 +146,8 @@ export function MainSection({
   askAutoContinue,
   autoArchive,
   archiveRetention,
+  voice,
+  onVoiceChange,
   onStreamSmoothChange,
   onHighlightLiveChange,
   onPrintSpeedChange,
@@ -228,6 +233,9 @@ export function MainSection({
   onLimitsChange: (l: HardLimits) => void;
   /** Импорт истории из внешних экспортов: готовые сессии App дописывает в список */
   onImportSessions: (sessions: Session[]) => void;
+  /** Voice Wake («Jarvis-режим»): тумблер и параметры слушателя */
+  voice: VoiceSettings;
+  onVoiceChange: (patch: Partial<VoiceSettings>) => void;
 }) {
   const { t, lang } = useLang();
   // Версия — из самого приложения (tauri.conf.json), а не из локали: раньше
@@ -374,6 +382,31 @@ export function MainSection({
       })
       .catch(() => {});
   };
+  // Voice Wake: статус моделей (скачивание опрашивается, как у диктовки)
+  const [voiceStatusState, setVoiceStatusState] = useState<VoiceStatus | null>(null);
+  const [voiceBusy, setVoiceBusy] = useState(false);
+  const refreshVoiceStatus = useCallback(() => {
+    void voiceStatus(voice.model)
+      .then(setVoiceStatusState)
+      .catch(() => {});
+    // voice.model — зависимость: смена фразы проверяет её файл
+  }, [voice.model]);
+  useEffect(() => {
+    refreshVoiceStatus();
+  }, [refreshVoiceStatus]);
+  useEffect(() => {
+    if (!voiceStatusState?.downloading) return;
+    const iv = window.setInterval(refreshVoiceStatus, 1000);
+    return () => window.clearInterval(iv);
+  }, [voiceStatusState?.downloading, refreshVoiceStatus]);
+  const downloadVoiceModels = () => {
+    setVoiceBusy(true);
+    void voiceDownloadModels(voice.model)
+      .then(refreshVoiceStatus)
+      .catch((e) => window.alert(String(e)))
+      .finally(() => setVoiceBusy(false));
+  };
+  const voiceModelsReady = (voiceStatusState?.files ?? []).every((f) => f.exists);
   useEffect(() => {
     if (!qeRecording) return;
     const onKey = (e: KeyboardEvent) => {
@@ -600,6 +633,76 @@ export function MainSection({
           />
         }
       />
+      {/* ---------- Voice Wake («Jarvis-режим») ---------- */}
+      <ToggleRow
+        label={t("voice.title")}
+        desc={t("voice.desc")}
+        on={voice.wake}
+        onChange={(v) => onVoiceChange({ wake: v })}
+      />
+      {voice.wake && (
+        <>
+          <Row
+            label={t("voice.modelLabel")}
+            desc={t("voice.modelDesc")}
+            value=""
+            extra={
+              <div className="flex items-center gap-2">
+                <Dropdown
+                  value={voice.model}
+                  options={(Object.keys(VOICE_MODEL_LABELS) as WakeModel[]).map((m) => ({
+                    value: m,
+                    label: VOICE_MODEL_LABELS[m],
+                  }))}
+                  onSelect={(m) => {
+                    if (m === "hey_jarvis" || m === "hey_mycroft") onVoiceChange({ model: m });
+                  }}
+                  className="w-44"
+                />
+                <button
+                  onClick={downloadVoiceModels}
+                  disabled={voiceBusy || voiceStatusState?.downloading === true}
+                  title={voiceModelsReady ? t("voice.modelsReady") : undefined}
+                  className="shrink-0 rounded-md border border-halo-line px-2.5 py-1 text-xs text-halo-muted transition-colors hover:text-halo-text disabled:opacity-50"
+                >
+                  {voiceStatusState?.downloading
+                    ? t("voice.downloadingBtn")
+                    : voiceModelsReady
+                      ? t("voice.modelsReady")
+                      : t("voice.download")}
+                </button>
+              </div>
+            }
+          />
+          <Row
+            label={t("voice.threshold")}
+            desc={t("voice.thresholdDesc")}
+            value=""
+            extra={
+              <div className="flex items-center gap-2">
+                <input
+                  type="range"
+                  min={0.3}
+                  max={0.9}
+                  step={0.05}
+                  value={voice.threshold}
+                  onChange={(e) => onVoiceChange({ threshold: Number(e.target.value) })}
+                  className="w-36 accent-[var(--halo-accent)]"
+                />
+                <span className="w-9 shrink-0 text-right text-xs tabular-nums text-halo-muted">
+                  {voice.threshold.toFixed(2)}
+                </span>
+              </div>
+            }
+          />
+          <ToggleRow
+            label={t("voice.ttsReply")}
+            desc={t("voice.ttsReplyDesc")}
+            on={voice.ttsReply}
+            onChange={(v) => onVoiceChange({ ttsReply: v })}
+          />
+        </>
+      )}
       {/* Уведомления, когда пользователь не в приложении */}
       <ToggleRow
         label={t("main.notifyDone")}

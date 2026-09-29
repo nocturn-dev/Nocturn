@@ -500,6 +500,9 @@ export default function ChatArea({
       node.connect(mute);
       mute.connect(ctx.destination);
       recRef.current = { ctx, stream, node, chunks };
+      // Voice Wake уступает устройство: слушатель suspend'ится по событию
+      window.__nocturnMicBusy = true;
+      document.dispatchEvent(new CustomEvent("nocturn-voice-busy"));
     } catch {
       setRecording(false);
       window.alert(t("dictation.micDenied"));
@@ -512,6 +515,8 @@ export default function ChatArea({
     const rec = recRef.current;
     if (!rec) return;
     recRef.current = null;
+    window.__nocturnMicBusy = false;
+    document.dispatchEvent(new CustomEvent("nocturn-voice-busy"));
     setRecording(false);
     rec.node.disconnect();
     rec.stream.getTracks().forEach((tr) => tr.stop());
@@ -560,6 +565,8 @@ export default function ChatArea({
       const rec = recRef.current;
       if (!rec) return;
       recRef.current = null;
+      window.__nocturnMicBusy = false;
+      document.dispatchEvent(new CustomEvent("nocturn-voice-busy"));
       rec.node.disconnect();
       rec.stream.getTracks().forEach((tr) => tr.stop());
       void rec.ctx.close();
