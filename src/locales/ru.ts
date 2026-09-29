@@ -597,6 +597,8 @@ export const ru = {
     "support.gasTron": "Требуется газ для сети TRON",
     "support.gasBnb": "Низкая комиссия, требуется BNB для газа",
     "support.copied": "Скопировано",
+    "support.zoomHint": "Увеличить QR для сканирования",
+    "support.zoomClose": "Клик мимо QR — закрыть",
     "settings.searchPh": "Поиск настроек…",
     "settings.searchAll": "По всем настройкам",
     "settings.searchCustom": "Только в кастомизации",

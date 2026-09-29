@@ -614,6 +614,8 @@ export const zh = {
     "support.gasTron": "需要 TRON 网络的 gas",
     "support.gasBnb": "手续费低，需要 BNB 作为 gas",
     "support.copied": "已复制",
+    "support.zoomHint": "放大二维码以便扫描",
+    "support.zoomClose": "点击二维码外任意处关闭",
     "settings.searchPh": "搜索设置…",
     "settings.searchAll": "全部设置",
     "settings.searchCustom": "仅自定义",

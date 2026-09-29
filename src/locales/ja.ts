@@ -614,6 +614,8 @@ export const ja = {
     "support.gasTron": "TRON ネットワークのガスが必要です",
     "support.gasBnb": "手数料は安いですが、ガスに BNB が必要です",
     "support.copied": "コピーしました",
+    "support.zoomHint": "スキャンしやすいようQRを拡大",
+    "support.zoomClose": "QR の外側をクリックで閉じる",
     "settings.searchPh": "設定を検索…",
     "settings.searchAll": "すべての設定",
     "settings.searchCustom": "カスタマイズのみ",

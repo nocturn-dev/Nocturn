@@ -55,6 +55,9 @@ export default function SupportModal({ onClose }: { onClose: () => void }) {
   const { t } = useLang();
   // Обратная связь копирования: адрес → «скопировано» на 1.6 с
   const [copied, setCopied] = useState<string | null>(null);
+  // Увеличенный QR: клик по миниатюре открывает просмотр поверх всего —
+  // чтобы с телефона было удобно отсканировать
+  const [zoom, setZoom] = useState<{ name: string; qr: string } | null>(null);
   const copy = (address: string) => {
     void navigator.clipboard
       .writeText(address)
@@ -114,7 +117,9 @@ export default function SupportModal({ onClose }: { onClose: () => void }) {
                   <img
                     src={w.qr}
                     alt={`QR ${w.name}`}
-                    className="size-20 shrink-0 rounded-lg border border-halo-line/60 bg-white"
+                    title={t("support.zoomHint")}
+                    onClick={() => setZoom({ name: w.name, qr: w.qr })}
+                    className="size-20 shrink-0 cursor-zoom-in rounded-lg border border-halo-line/60 bg-white"
                     loading="lazy"
                   />
                   <div className="min-w-0 flex-1">
@@ -143,6 +148,26 @@ export default function SupportModal({ onClose }: { onClose: () => void }) {
             </div>
           </div>
         ))}
+
+        {/* Увеличенный QR: клик по миниатюре — просмотр, удобный для скана
+            с телефона; клик мимо картинки закрывает */}
+        {zoom && (
+          <div
+            className="anim-fade fixed inset-0 z-[90] flex flex-col items-center justify-center gap-4 bg-black/80 p-6 backdrop-blur-sm"
+            onClick={() => setZoom(null)}
+          >
+            <img
+              src={zoom.qr}
+              alt={`QR ${zoom.name}`}
+              onClick={(e) => e.stopPropagation()}
+              className="w-[min(70vw,min(70vh,560px))] rounded-2xl bg-white shadow-2xl"
+            />
+            <p className="text-sm font-medium text-white">{zoom.name}</p>
+            <p className="text-[11px] text-white/60">
+              {t("support.zoomClose")}
+            </p>
+          </div>
+        )}
       </div>
     </div>
   );
