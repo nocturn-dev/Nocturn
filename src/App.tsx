@@ -48,6 +48,7 @@ import {
 } from "./api";
 import { stopSpeaking, speak } from "./tts";
 import { VoiceWake, stripWakeWord, type WakeHandle } from "./voice/wake";
+import VoicePill, { type VoicePhase } from "./components/VoicePill";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { useApiSettings } from "./hooks/useApiSettings";
 import { useSessions } from "./hooks/useSessions";
@@ -233,8 +234,8 @@ export default function App() {
   );
   const [voiceThreshold, setVoiceThreshold] = useNumPref(
     "haloui-voice-threshold",
-    0.55,
-    (v) => (isNaN(v) ? 0.55 : clampNum(v, 0.3, 0.9)),
+    0.45,
+    (v) => (isNaN(v) ? 0.45 : clampNum(v, 0.3, 0.9)),
   );
   const [voiceTtsReply, setVoiceTtsReply] = useBoolPref("haloui-voice-tts", false);
   // Заметки (M-N1): список + открытая заметка
@@ -1230,6 +1231,9 @@ export default function App() {
   // Задача, запущенная голосом: по её завершении (если включена озвучка)
   // последняя реплика ассистента произносится локальным SAPI
   const voiceSessionRef = useRef<string | null>(null);
+  // Фаза для пилюли сверху: слушает (детектор активен) → выполняет (голосовая
+  // задача стримится) → выполнил (завершена, гаснет сама)
+  const [voicePhase, setVoicePhase] = useState<VoicePhase>("idle");
   const voiceOptsRef = useRef({ model: voiceModel, threshold: voiceThreshold, tts: voiceTtsReply });
   useEffect(() => {
     voiceOptsRef.current = { model: voiceModel, threshold: voiceThreshold, tts: voiceTtsReply };
@@ -1239,8 +1243,9 @@ export default function App() {
   const streamingIdRef = useRef(streamingId);
   useEffect(() => {
     streamingIdRef.current = streamingId;
-    // Стрим идёт → микрофон не нужен: экономим устройство и батарею
+    // Стрим идёт → микрофон не нужен: экономим устройство и батареи
     const h = voiceWakeRef.current;
+    if (streamingId && voiceSessionRef.current) setVoicePhase("run");
     if (!h) return;
     if (streamingId) h.suspend();
     else h.resume();
@@ -1248,6 +1253,7 @@ export default function App() {
 
   useEffect(() => {
     if (!voiceWakeOn) return;
+    setVoicePhase("listen");
     const handle = new VoiceWake({
       model: voiceModel,
       threshold: voiceThreshold,
@@ -1257,6 +1263,9 @@ export default function App() {
           "voice-listening",
           s === "listening" || s === "capturing",
         );
+        // Пилюля: suspended во время стрима не сбрасывает «выполняет»
+        if (s === "listening" || s === "capturing") setVoicePhase("listen");
+        else if (s === "suspended" && !streamingIdRef.current) setVoicePhase("idle");
       },
       onError: (msg) => {
         addToast(msg === "mic denied" ? t("voice.micDenied") : t("voice.failed", { e: msg.slice(0, 90) }));
@@ -1294,13 +1303,15 @@ export default function App() {
       handle.stop();
       voiceWakeRef.current = null;
       document.documentElement.classList.remove("voice-listening");
+      setVoicePhase("idle");
     };
     // t/addToast/handleSendRef/setSessions/setActiveId — стабильные рефы и
     // сеттеры; слушатель mount-only по замыслу (как тикер автоматизаций)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [voiceWakeOn, voiceModel, voiceThreshold]);
 
-  // Ответ голосовой задачи — вслух (локальный SAPI), если тумблер включён
+  // Ответ голосовой задачи — вслух (локальный SAPI), если тумблер включён.
+  // По завершении голосовой задачи пилюля показывает «выполнил» и гаснет
   useEffect(() => {
     if (streamingId || !voiceSessionRef.current) return;
     const sid = voiceSessionRef.current;
@@ -1310,10 +1321,16 @@ export default function App() {
       .find((m) => m.role === "assistant");
     if (!lastAssistant?.content?.trim()) return;
     voiceSessionRef.current = null;
-    if (!voiceOptsRef.current.tts) return;
+    setVoicePhase("done");
+    const toListen = window.setTimeout(
+      () => setVoicePhase(streamingIdRef.current ? "run" : voiceWakeOn ? "listen" : "idle"),
+      2500,
+    );
+    if (!voiceOptsRef.current.tts) return () => window.clearTimeout(toListen);
     stopSpeaking();
     speak(lastAssistant.content, () => {});
-  }, [streamingId, sessions]);
+    return () => window.clearTimeout(toListen);
+  }, [streamingId, sessions, voiceWakeOn]);
 
   // Диспетчер действий биндов — актуальные обработчики через реф.
   // Эффект без deps вместо присваивания в теле рендера (React Compiler)
@@ -2440,6 +2457,8 @@ export default function App() {
       <Toasts items={toasts} />
       {/* Скачивание моделей (whisper / voice wake): тематизированное окно */}
       <DownloadProgress />
+      {/* Статус Jarvis: слушает / выполняет / выполнил */}
+      <VoicePill phase={voicePhase} />
       {onboardingOpen && splashDone && (
         <Onboarding
           theme={theme}

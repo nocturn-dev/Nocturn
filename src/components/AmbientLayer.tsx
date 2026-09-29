@@ -44,7 +44,6 @@ function readScenePalette(): ScenePalette {
   return { deep, bg, tint: sceneTint(deep, bg, accent), text: cssVarColor("--halo-text", "#fafafa") };
 }
 
-const BLACK: Rgb = [0, 0, 0];
 
 const rgbaCss = (c: Rgb, a: number) => `rgba(${c[0]}, ${c[1]}, ${c[2]}, ${a})`;
 
@@ -214,7 +213,7 @@ export function AmbientLayer({
         const g = octx.createLinearGradient(0, 0, 0, h);
         g.addColorStop(0, rgbCss(mixRgb(p.deep, p.bg, 0.22)));
         g.addColorStop(0.55, rgbCss(p.deep));
-        g.addColorStop(1, rgbCss(mixRgb(p.deep, BLACK, 0.35)));
+        g.addColorStop(1, rgbCss(mixRgb(p.deep, p.bg, 0.25)));
         octx.fillStyle = g;
         octx.fillRect(0, 0, w, h);
         // лёгкая дымка у горизонта — в тоне акцента темы
@@ -225,7 +224,7 @@ export function AmbientLayer({
         octx.fillRect(0, h * 0.7, w, h * 0.3);
       } else if (scene === "snow") {
         const g = octx.createLinearGradient(0, 0, 0, h);
-        g.addColorStop(0, rgbCss(mixRgb(p.deep, BLACK, 0.2)));
+        g.addColorStop(0, rgbCss(mixRgb(p.deep, p.bg, 0.1)));
         g.addColorStop(1, rgbCss(mixRgb(p.deep, p.bg, 0.55)));
         octx.fillStyle = g;
         octx.fillRect(0, 0, w, h);
@@ -239,7 +238,7 @@ export function AmbientLayer({
         }
       } else if (scene === "city") {
         const g = octx.createLinearGradient(0, 0, 0, h);
-        g.addColorStop(0, rgbCss(mixRgb(p.deep, BLACK, 0.35)));
+        g.addColorStop(0, rgbCss(mixRgb(p.deep, p.bg, 0.25)));
         g.addColorStop(1, rgbCss(mixRgb(p.deep, p.bg, 0.55)));
         octx.fillStyle = g;
         octx.fillRect(0, 0, w, h);
@@ -250,7 +249,7 @@ export function AmbientLayer({
         octx.fillStyle = haze;
         octx.fillRect(0, 0, w, h);
         for (const b of buildings) {
-          octx.fillStyle = rgbCss(mixRgb(p.deep, BLACK, 0.45));
+          octx.fillStyle = rgbCss(mixRgb(p.deep, p.bg, 0.35));
           octx.fillRect(b.x, h - b.h, b.w, b.h);
         }
         // неоновое свечение самого высокого здания (позиция статична)
@@ -273,7 +272,7 @@ export function AmbientLayer({
           octx.fillRect(0, 0, w, h);
         }
       } else {
-        octx.fillStyle = rgbCss(mixRgb(p.deep, BLACK, 0.35));
+        octx.fillStyle = rgbCss(mixRgb(p.deep, p.bg, 0.25));
         octx.fillRect(0, 0, w, h);
         for (const nebulaColor of [rgbaCss(p.tint, 0.05), rgbaCss(mixRgb(p.tint, p.text, 0.5), 0.045)]) {
           const grad = octx.createRadialGradient(

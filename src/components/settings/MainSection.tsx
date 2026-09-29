@@ -3,7 +3,7 @@ import { getVersion } from "@tauri-apps/api/app";
 import { useLang, type Lang } from "../../locales";
 import type { HardLimits } from "../../limits";
 import { NOTIFY_SOUNDS, playSound, refreshCustomSound, NotifyPrefs } from "../../notify";
-import { pickSaveFile, pickJsonFile, pickAudioFile, pickCliFile, settingsReadAll, settingsWriteAll, settingsExportWrite, settingsImportRead, soundImport, soundDelete, collectLocal, restoreLocal, autostartIsEnabled, autostartSet, storageStats, storageCleanup, quickentrySetBind, dictationStatus, dictationDownloadModel, dictationSetConfig, voiceStatus, voiceDownloadModels, type DictationStatus, type VoiceStatus, type StorageStats } from "../../api";
+import { pickSaveFile, pickJsonFile, pickAudioFile, pickCliFile, settingsReadAll, settingsWriteAll, settingsExportWrite, settingsImportRead, soundImport, soundDelete, collectLocal, restoreLocal, autostartIsEnabled, autostartSet, storageStats, storageCleanup, quickentrySetBind, dictationStatus, dictationDownloadModel, dictationSetConfig, voiceStatus, voiceDownloadModels, audioOutputs, type DictationStatus, type VoiceStatus, type StorageStats } from "../../api";
 import type { VoiceSettings } from "../../voice/prefs";
 import { VOICE_MODEL_LABELS } from "../../voice/prefs";
 import type { WakeModel } from "../../voice/wake";
@@ -11,6 +11,7 @@ import { parseChatGptExport, parseGeminiExport } from "../../external/importChat
 import type { Session } from "../../types";
 import { quickentryComboFromEvent, prettyQuickentryCombo } from "../../shortcuts";
 import { Dropdown, LangSwitch, Row, ToggleRow } from "./parts";
+import { isWindows } from "../../platform";
 
 export function HardLimitSection({
   limits,
@@ -407,6 +408,18 @@ export function MainSection({
       .finally(() => setVoiceBusy(false));
   };
   const voiceModelsReady = (voiceStatusState?.files ?? []).every((f) => f.exists);
+  // Устройство вывода речи (TTS): список с бекенда, выбор — в localStorage
+  // (tts.ts читает его напрямую при каждом speak, паттерн haloui-mic-device)
+  const [audioOut, setAudioOut] = useState(
+    () => localStorage.getItem("haloui-audio-output") ?? "",
+  );
+  const [audioDevices, setAudioDevices] = useState<string[]>([]);
+  useEffect(() => {
+    if (!voice.wake) return;
+    void audioOutputs()
+      .then(setAudioDevices)
+      .catch(() => {});
+  }, [voice.wake]);
   useEffect(() => {
     if (!qeRecording) return;
     const onKey = (e: KeyboardEvent) => {
@@ -706,6 +719,27 @@ export function MainSection({
             on={voice.ttsReply}
             onChange={(v) => onVoiceChange({ ttsReply: v })}
           />
+          {isWindows() && (
+            <Row
+              label={t("voice.outputLabel")}
+              desc={t("voice.outputDesc")}
+              value=""
+              extra={
+                <Dropdown
+                  value={audioOut}
+                  options={[
+                    { value: "", label: t("voice.outputDefault") },
+                    ...audioDevices.map((d) => ({ value: d, label: d })),
+                  ]}
+                  onSelect={(d) => {
+                    setAudioOut(d);
+                    localStorage.setItem("haloui-audio-output", d);
+                  }}
+                  className="w-64"
+                />
+              }
+            />
+          )}
         </>
       )}
       {/* Уведомления, когда пользователь не в приложении */}

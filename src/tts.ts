@@ -28,6 +28,11 @@ export function stopSpeaking(): void {
   void ttsStop().catch(() => {});
 }
 
+/** Ключ устройства вывода речи (localStorage): читается здесь, а не в
+ *  вызывающих — селектор в «Основном» пишет его напрямую (паттерн
+ *  haloui-mic-device) */
+export const AUDIO_OUTPUT_KEY = "haloui-audio-output";
+
 /** Озвучить текст; включает индикатор карточки через setUi. Промис
  *  tts_speak разрешается по завершении речи (или после ttsStop) —
  *  индикатор гаснет сам, без опроса статуса */
@@ -36,7 +41,14 @@ export function speak(text: string, setUi: (on: boolean) => void): void {
   setUi(true);
   const reset = () => setUi(false);
   activeReset = reset;
-  void ttsSpeak(speakableText(text))
+  const output = (() => {
+    try {
+      return localStorage.getItem(AUDIO_OUTPUT_KEY) || null;
+    } catch {
+      return null;
+    }
+  })();
+  void ttsSpeak(speakableText(text), output)
     .catch(() => {})
     .finally(() => {
       // Индикатор гасим, только если говорящей всё ещё является эта

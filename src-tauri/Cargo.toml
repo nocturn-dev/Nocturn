@@ -54,6 +54,12 @@ url = "2"
 # kill(-pgid) для kill_tree: std не умеет сигналить процесс-группе
 libc = "0.2"
 
+[target.'cfg(windows)'.dependencies]
+# Проигрывание SAPI-WAV в выбранное устройство вывода (TTS): SAPI сам
+# умеет только дефолтное устройство. rodio = cpal + декодер; wav —
+# единственный нужный формат (наш собственный рендер)
+rodio = { version = "0.19", default-features = false, features = ["wav"] }
+
 [target.'cfg(target_os = "linux")'.dependencies]
 # Портал GlobalShortcuts — единственный легальный путь глобальных хоткеев на
 # Wayland (XGrabKey там недоступен в принципе). ashpd unix-only (file_path
