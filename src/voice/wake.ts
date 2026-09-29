@@ -33,11 +33,17 @@ export interface WakeOptions {
 }
 
 const SAMPLE_RATE = 16000;
-/** Чанк openWakeWord: 1280 сэмплов = 80 мс */
-const OWW_CHUNK = 1280;
-const MEL_DIMS = 32;
+/** Шаг блока инференса: 1280 сэмплов = 80 мс аудио */
+const HOP = 1280;
+/** Окно инференса мела: 1792 = hop + 512 (n_fft), даёт ровно 8 кадров
+ *  по 10 мс с непрерывной фреймингой (модель без центр-паддинга:
+ *  frames(len) = floor((len-512)/160)+1 — проверено на инспекции моделей) */
+const MEL_WIN = 1792;
+const MELS = 32;
+/** Окно embedding-модели: 76 кадров = 0.76 с, вход (1, 76, 32, 1) */
+const MEL_WINDOW = 76;
 const EMB_DIMS = 96;
-const EMB_WINDOW = 16; // глубина окна wake-модели (1.28 с)
+const EMB_WINDOW = 16; // глубина окна wake-модели, вход (1, 16, 96)
 /** pre-roll до срабатывания: сама фраза «hey jarvis» целиком */
 const PRE_ROLL_SAMPLES = SAMPLE_RATE * 2;
 const MAX_CAPTURE_SAMPLES = SAMPLE_RATE * 12;
@@ -95,10 +101,19 @@ export class VoiceWake {
   private emb!: Sess;
   private wake!: Sess;
 
-  // Хвост неполного чанка (аудиопроцессор отдаёт 4096, модели хотят 1280)
-  private pend: F32 = new Float32Array(0);
-  // История embedding-кадров для окна wake-модели
+  // Стрим-буфер инференса: непотреблённые сэмплы между блоками.
+  // Блок = окно 1792, потребляем 1280 → 512 «хвоста» переиспользуются
+  private melStream: F32[] = [];
+  private melStreamLen = 0;
+  // Последние ≤76 mel-кадров (каждый — Float32Array(32), кадр-мажор)
+  private frames: F32[] = [];
+  // Последние ≤16 embedding-векторов (Float32Array(96))
   private embHist: F32[] = [];
+  // Последние 5 скоров — медианное сглаживание против одиночных пиков
+  private scoreHist: number[] = [];
+  // Сериализация инференса: чанки приходят чаще, чем выполняется WASM,
+  // и без очереди состояния (frames/embHist) интерливились бы
+  private chain: Promise<void> = Promise.resolve();
   // Кольцевой pre-roll: последние ~2 с сырого аудио
   private ring = new Float32Array(PRE_ROLL_SAMPLES);
   private ringAt = 0;
@@ -145,6 +160,9 @@ export class VoiceWake {
           : "hey_mycroft_v0.1.onnx";
       this.wake = await makeSess(ort, await b64ToBuf(wakeFile));
     } catch (e) {
+      // Модели не загрузились: не оставляем полумёртвый слушатель —
+      // тумблер честно гасится, пользователь включает заново после фикса
+      this.stop();
       this.opts.onError(String(e));
       return;
     }
@@ -196,6 +214,8 @@ export class VoiceWake {
       this.node = node;
       this.setState("listening");
     } catch {
+      // Микрофон недоступен: гасим слушателя — тумблер выключается честно
+      this.stop();
       this.opts.onError("mic denied");
     }
   }
@@ -256,33 +276,66 @@ export class VoiceWake {
       return;
     }
 
-    // Слушание: обновляем пол шума и прогоняем чанк через модели
+    // Слушание: обновляем пол шума и копим стрим до полного окна инференса
     const rms = rmsOf(chunk);
     if (!this.noiseSeen && rms > 0) {
       this.noiseFloor = this.noiseFloor * 0.95 + rms * 0.05;
       this.noiseSeen = true;
     }
 
-    this.pend = concat(this.pend, chunk);
-    while (this.pend.length >= OWW_CHUNK) {
-      const piece = this.pend.subarray(0, OWW_CHUNK);
-      this.pend = this.pend.slice(OWW_CHUNK);
-      void this.scoreChunk(new Float32Array(piece));
+    this.melStream.push(chunk);
+    this.melStreamLen += chunk.length;
+    if (this.melStreamLen < MEL_WIN) return;
+    // Склейка буфера: берём первое окно 1792, остаток (включая 512-хвост
+    // перекрытия — контекст следующего блока, мел без центр-паддинга:
+    // n_fft 512, hop 160) ждёт следующего захода
+    const all = new Float32Array(this.melStreamLen);
+    let off = 0;
+    for (const piece of this.melStream) {
+      all.set(piece, off);
+      off += piece.length;
     }
+    const win = all.slice(0, MEL_WIN);
+    const rest = all.subarray(HOP);
+    this.melStream = [Float32Array.from(rest)];
+    this.melStreamLen = rest.length;
+    // Сериализация: чанки приходят чаще, чем выполняется WASM
+    this.chain = this.chain
+      .then(() => this.processBlock(win))
+      .catch(() => {});
   }
 
-  private async scoreChunk(chunk: F32): Promise<void> {
+  private async processBlock(win: F32): Promise<void> {
     if (this.stopped || this.capturing || this.state === "suspended") return;
     try {
-      const mel = await this.mel.run(chunk, [1, chunk.length]);
-      const emb = await this.emb.run(mel, [1, mel.length / MEL_DIMS, MEL_DIMS]);
-      this.embHist.push(emb);
+      const mel = await this.mel.run(win, [1, MEL_WIN]);
+      // Выход (1, 1, 8, 32), кадр-мажор: кадр f = данные [f*32 .. f*32+32)
+      for (let f = 0; f < 8; f++) {
+        this.frames.push(Float32Array.from(mel.slice(f * MELS, (f + 1) * MELS)));
+      }
+      if (this.frames.length > MEL_WINDOW) {
+        this.frames.splice(0, this.frames.length - MEL_WINDOW);
+      }
+      if (this.frames.length < MEL_WINDOW) return;
+      // Embedding: окно (1, 76, 32, 1) → вектор 96 (имя входа — "input_1",
+      // резолвится динамически через inputNames)
+      const win76 = new Float32Array(MEL_WINDOW * MELS);
+      this.frames.forEach((fr, i) => win76.set(fr, i * MELS));
+      const emb = await this.emb.run(win76, [1, MEL_WINDOW, MELS, 1]);
+      this.embHist.push(Float32Array.from(emb.slice(0, EMB_DIMS)));
       if (this.embHist.length > EMB_WINDOW) this.embHist.shift();
-      if (this.embHist.length < EMB_WINDOW) return;
-      const window = new Float32Array(EMB_WINDOW * EMB_DIMS);
-      this.embHist.forEach((frame, i) => window.set(frame, i * EMB_DIMS));
-      const score = (await this.wake.run(window, [1, EMB_WINDOW, EMB_DIMS]))[0] ?? 0;
-      if (score >= this.opts.threshold && Date.now() >= this.cooldownUntil) {
+      // Wake: окно (1, 16, 96); в размогреве — нули СПЕРЕДИ (как np.pad
+      // в openwakeword), чтобы скор считался с первых секунд
+      const w = new Float32Array(EMB_WINDOW * EMB_DIMS);
+      const pad = EMB_WINDOW - this.embHist.length;
+      this.embHist.forEach((v, i) => w.set(v, (pad + i) * EMB_DIMS));
+      const score = (await this.wake.run(w, [1, EMB_WINDOW, EMB_DIMS]))[0] ?? 0;
+      // Медиана последних 5: одиночный всплеск помехи не триггерит
+      this.scoreHist.push(score);
+      if (this.scoreHist.length > 5) this.scoreHist.shift();
+      const sorted = [...this.scoreHist].sort((a, b) => a - b);
+      const median = sorted[Math.floor(sorted.length / 2)] ?? 0;
+      if (median >= this.opts.threshold && Date.now() >= this.cooldownUntil) {
         this.beginCapture();
       }
     } catch (e) {
@@ -294,6 +347,9 @@ export class VoiceWake {
 
   private beginCapture(): void {
     this.capturing = true;
+    // Стрим-хвост протухнет за время захвата — размогрев после него чище
+    this.melStream = [];
+    this.melStreamLen = 0;
     this.capture = [];
     this.captureSamples = 0;
     this.speechSeen = false;
@@ -323,14 +379,6 @@ function rmsOf(chunk: F32): number {
   let sum = 0;
   for (let i = 0; i < chunk.length; i++) sum += (chunk[i] ?? 0) * (chunk[i] ?? 0);
   return Math.sqrt(sum / Math.max(1, chunk.length));
-}
-
-function concat(a: F32, b: F32): F32 {
-  if (a.length === 0) return b;
-  const out = new Float32Array(a.length + b.length);
-  out.set(a, 0);
-  out.set(b, a.length);
-  return out;
 }
 
 /** Срезать активационную фразу с начала транскрипта («Hey Jarvis, …» → «…»).

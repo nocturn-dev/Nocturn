@@ -737,6 +737,7 @@ export const en = {
     "dictation.micDefault": "System default",
     "dictation.micUnnamed": "Microphone {n}",
     "voice.title": "Jarvis mode (voice wake word)",
+    "voice.needCli": "Recognizing your command requires whisper-cli — install whisper.cpp or set its path in the Dictation row above",
     "voice.desc": "Continuous local microphone listening: say \"Hey Jarvis\" and dictate your task. Audio is processed on-device, wake phrase detection is fully offline",
     "voice.modelLabel": "Wake phrase",
     "voice.modelDesc": "Detector model (openWakeWord); downloads once, ~3 MB",

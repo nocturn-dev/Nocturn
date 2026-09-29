@@ -787,6 +787,7 @@ export const zh = {
     "dictation.micDefault": "系统默认",
     "dictation.micUnnamed": "麦克风 {n}",
     "voice.title": "Jarvis 模式（语音唤醒）",
+    "voice.needCli": "识别指令需要 whisper-cli——请安装 whisper.cpp 或在上方“听写”一行中设置路径",
     "voice.desc": "持续本地监听麦克风：说一声“Hey Jarvis”即可口述任务。音频在本地处理，唤醒词检测完全离线",
     "voice.modelLabel": "唤醒短语",
     "voice.modelDesc": "检测模型（openWakeWord）；只需下载一次，约 3 MB",

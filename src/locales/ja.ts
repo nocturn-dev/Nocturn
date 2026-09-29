@@ -787,6 +787,7 @@ export const ja = {
     "dictation.micDefault": "システムのデフォルト",
     "dictation.micUnnamed": "マイク {n}",
     "voice.title": "Jarvis モード（音声ウェイクワード）",
+    "voice.needCli": "コマンドの認識には whisper-cli が必要です。whisper.cpp をインストールするか、上の「音声入力」行でパスを設定してください",
     "voice.desc": "マイクを常時ローカルでリスニング：「Hey Jarvis」と声をかけ、タスクを口述できます。音声は端末内で処理され、ウェイクワード検出は完全オフライン",
     "voice.modelLabel": "ウェイクフレーズ",
     "voice.modelDesc": "検出モデル（openWakeWord）。一度だけ約 3 MB をダウンロード",

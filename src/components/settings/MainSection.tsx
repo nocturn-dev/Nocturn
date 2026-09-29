@@ -640,6 +640,11 @@ export function MainSection({
         on={voice.wake}
         onChange={(v) => onVoiceChange({ wake: v })}
       />
+      {voice.wake && dictStatus && !dictStatus.cliFound && (
+        <p className="-mt-1 px-3.5 text-[10px] leading-relaxed text-amber-400">
+          {t("voice.needCli")}
+        </p>
+      )}
       {voice.wake && (
         <>
           <Row
