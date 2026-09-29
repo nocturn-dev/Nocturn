@@ -779,6 +779,8 @@ export const ja = {
     "dictation.needModel": "横のボタンでモデルをダウンロードしてください",
     "dictation.ready": "準備完了:入力欄にマイクボタンがあります",
     "dictation.micDenied": "マイクへのアクセスが拒否されました",
+    "dl.title": "モデルをダウンロード中",
+    "dl.done": "ダウンロード完了",
     "dictation.empty": "音声を認識できませんでした",
     "dictation.micLabel": "音声入力マイク",
     "dictation.micDesc": "音声記録に使う入力デバイス。「デフォルト」はシステムの選択に従います",

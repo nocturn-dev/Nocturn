@@ -779,6 +779,8 @@ export const zh = {
     "dictation.needModel": "请用旁边的按钮下载模型",
     "dictation.ready": "已就绪：输入框中有麦克风按钮",
     "dictation.micDenied": "没有麦克风权限",
+    "dl.title": "正在下载模型",
+    "dl.done": "下载完成",
     "dictation.empty": "未识别到语音",
     "dictation.micLabel": "听写麦克风",
     "dictation.micDesc": "语音录入使用的输入设备；“默认”由系统自动选择",
