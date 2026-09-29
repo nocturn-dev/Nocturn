@@ -585,6 +585,8 @@ export const en = {
     "support.gasTron": "TRON network gas is required",
     "support.gasBnb": "Low fees, BNB is required for gas",
     "support.copied": "Copied",
+    "support.zoomHint": "Enlarge QR for scanning",
+    "support.zoomClose": "Click outside the QR to close",
     "settings.searchPh": "Search settings…",
     "settings.searchAll": "All settings",
     "settings.searchCustom": "Customization only",
