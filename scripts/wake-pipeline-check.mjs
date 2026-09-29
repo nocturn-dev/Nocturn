@@ -1,42 +1,61 @@
 /**
- * Эталонная реализация стрим-пайплайна openWakeWord (совпадает с wake.ts):
- * блоки по 1280 сэмплов, инференс мела на окне 1792 (n_fft 512, hop 160,
- * center=false) → 8 кадров по 10 мс на блок → embedding последнего окна
- * 76 кадров → 96-вектор → окно 16 векторов (в размогреве — нули спереди)
- * → score. Запуск: node .audit-tmp/inspect-oww.mjs
+ * Проверка пайплайна voice-wake вне приложения (onnxruntime-node).
+ * Реплицирует src/voice/wake.ts 1:1 и сверяется с эталоном openwakeword
+ * (python, utils.py): вход мела в int16-масштабе, трансформ x/10 + 2,
+ * размогрев кадров единицами, окно мела 1792/шаг 1280 → 8 кадров →
+ * embedding 76×32 → окно wake 16.
+ *
+ * Запуск (нужен `npm i -D onnxruntime-node` и модели в .audit-tmp/oww):
+ *   node scripts/wake-pipeline-check.mjs hey.wav [anti.wav]
+ * Модели: https://github.com/dscripka/openWakeWord/releases/download/v0.5.1/
+ * (melspectrogram.onnx, embedding_model.onnx, hey_jarvis_v0.1.onnx)
  */
 import ort from "onnxruntime-node";
 import { readFileSync, existsSync } from "node:fs";
 
-const dir = new URL("./oww/", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1");
+const dir = process.env.OWW_MODELS ?? ".audit-tmp/oww/";
+if (!existsSync(`${dir}melspectrogram.onnx`)) {
+  console.error(`Модели не найдены в ${dir} — скачай с openWakeWord releases v0.5.1`);
+  process.exit(1);
+}
 
 const mel = await ort.InferenceSession.create(readFileSync(`${dir}melspectrogram.onnx`));
 const emb = await ort.InferenceSession.create(readFileSync(`${dir}embedding_model.onnx`));
-const wake = await ort.InferenceSession.create(readFileSync(`${dir}hey_jarvis_v0.1.onnx`));
+const wakeName = process.env.OWW_WAKE ?? "hey_jarvis_v0.1.onnx";
+const wake = await ort.InferenceSession.create(readFileSync(`${dir}${wakeName}`));
 const run = async (s, data, dims) => {
   const res = await s.run({ [s.inputNames[0]]: new ort.Tensor("float32", data, dims) });
   const out = res[s.outputNames[0]];
   return { data: out.data, dims: out.dims };
 };
 
-const MELS = 32, WINDOW = 76, EMB_DIMS = 96, EMB_WIN = 16, CHUNK = 1280, MEL_WIN = 1792;
+const MELS = 32, MEL_WINDOW = 76, EMB_DIMS = 96, EMB_WIN = 16, CHUNK = 1280, MEL_WIN = 1792;
 
 async function scoreWav(pcm) {
-  const frames = []; // последние ≤76 кадров (Float32Array(32))
+  // int16-масштаб: float32 от int16 без нормализации (модель обучена на нём)
+  const pcm16 = new Float32Array(pcm.length);
+  for (let i = 0; i < pcm.length; i++) {
+    pcm16[i] = Math.max(-32768, Math.min(32767, Math.round(pcm[i] * 32767)));
+  }
+  // Размогрев кадров — единицы (np.ones((76,32)) в openwakeword);
+  // значения кадров хранятся ПОСЛЕ трансформа x/10 + 2
+  const frames = Array.from({ length: MEL_WINDOW }, () => new Float32Array(MELS).fill(1));
   const embHist = [];
-  let scores = [];
-  for (let pos = 0; pos + MEL_WIN <= pcm.length; pos += CHUNK) {
-    const m = await run(mel, pcm.subarray(pos, pos + MEL_WIN), [1, MEL_WIN]);
-    for (let f = 0; f < 8; f++) frames.push(Float32Array.from(m.data.slice(f * MELS, (f + 1) * MELS)));
-    if (frames.length > WINDOW) frames.splice(0, frames.length - WINDOW);
-    if (frames.length < WINDOW) continue;
-    const win = new Float32Array(WINDOW * MELS);
+  const scores = [];
+  for (let pos = 0; pos + MEL_WIN <= pcm16.length; pos += CHUNK) {
+    const m = await run(mel, pcm16.subarray(pos, pos + MEL_WIN), [1, MEL_WIN]);
+    for (let f = 0; f < 8; f++) {
+      const fr = new Float32Array(MELS);
+      for (let k = 0; k < MELS; k++) fr[k] = m.data[f * MELS + k] / 10 + 2;
+      frames.push(fr);
+    }
+    if (frames.length > MEL_WINDOW) frames.splice(0, frames.length - MEL_WINDOW);
+    const win = new Float32Array(MEL_WINDOW * MELS);
     frames.forEach((fr, i) => win.set(fr, i * MELS));
-    const e = await run(emb, win, [1, WINDOW, MELS, 1]);
+    const e = await run(emb, win, [1, MEL_WINDOW, MELS, 1]);
     embHist.push(Float32Array.from(e.data.slice(0, EMB_DIMS)));
     if (embHist.length > EMB_WIN) embHist.splice(0, embHist.length - EMB_WIN);
     const w = new Float32Array(EMB_WIN * EMB_DIMS);
-    // В размогреве — нули СПЕРЕДИ (как np.pad в openwakeword)
     const pad = EMB_WIN - embHist.length;
     embHist.forEach((v, i) => w.set(v, (pad + i) * EMB_DIMS));
     const s = await run(wake, w, [1, EMB_WIN, EMB_DIMS]);
@@ -60,14 +79,11 @@ function wavToPcm(path) {
   return out;
 }
 
-for (const [label, file] of [
-  ["Hey Jarvis (wake)", "hey-jarvis.wav"],
-  ["Проверка связи (анти-тест)", "control.wav"],
-]) {
-  const p = new URL(`./oww/${file}`, import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1");
-  if (!existsSync(p)) continue;
-  const scores = await scoreWav(wavToPcm(p));
+for (const f of process.argv.slice(2)) {
+  if (!existsSync(f)) { console.log(`${f}: нет файла`); continue; }
+  const scores = await scoreWav(wavToPcm(f));
   const max = Math.max(...scores);
-  const mean = scores.reduce((a, b) => a + b, 0) / Math.max(1, scores.length);
-  console.log(`${label}: blocks=${scores.length} max=${max.toFixed(4)} mean=${mean.toFixed(4)}`);
+  const mean = scores.reduce((a, b) => a + b, 0) / scores.length;
+  const top = [...scores].sort((a, b) => b - a).slice(0, 3).map((v) => v.toFixed(3));
+  console.log(`${f}: blocks=${scores.length} max=${max.toFixed(4)} mean=${mean.toFixed(5)} top3=[${top}]`);
 }

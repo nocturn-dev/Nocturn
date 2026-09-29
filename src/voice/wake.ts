@@ -102,11 +102,17 @@ export class VoiceWake {
   private wake!: Sess;
 
   // Стрим-буфер инференса: непотреблённые сэмплы между блоками.
-  // Блок = окно 1792, потребляем 1280 → 512 «хвоста» переиспользуются
+  // Блок = окно 1792, потребляем 1280 → 512 «хвоста» переиспользуются.
+  // Значения — в int16-масштабе (±32767): модель обучена на float32 от
+  // int16 PCM, нормализация [-1;1] занижала скоры в ~10 раз
   private melStream: F32[] = [];
   private melStreamLen = 0;
-  // Последние ≤76 mel-кадров (каждый — Float32Array(32), кадр-мажор)
-  private frames: F32[] = [];
+  // Последние ≤76 mel-кадров (каждый — Float32Array(32), кадр-мажор).
+  // Размогрев — единицы (np.ones((76,32)) в openwakeword); значения
+  // хранятся ПОСЛЕ трансформа x/10 + 2
+  private frames: F32[] = Array.from({ length: MEL_WINDOW }, () =>
+    new Float32Array(MELS).fill(1),
+  );
   // Последние ≤16 embedding-векторов (Float32Array(96))
   private embHist: F32[] = [];
   // Последние 5 скоров — медианное сглаживание против одиночных пиков
@@ -288,14 +294,18 @@ export class VoiceWake {
     if (this.melStreamLen < MEL_WIN) return;
     // Склейка буфера: берём первое окно 1792, остаток (включая 512-хвост
     // перекрытия — контекст следующего блока, мел без центр-паддинга:
-    // n_fft 512, hop 160) ждёт следующего захода
+    // n_fft 512, hop 160) ждёт следующего захода.
+    // В инференс уходит int16-масштаб: [-1;1] → ±32767
     const all = new Float32Array(this.melStreamLen);
     let off = 0;
     for (const piece of this.melStream) {
       all.set(piece, off);
       off += piece.length;
     }
-    const win = all.slice(0, MEL_WIN);
+    const win = new Float32Array(MEL_WIN);
+    for (let i = 0; i < MEL_WIN; i++) {
+      win[i] = (all[i] ?? 0) * 32767;
+    }
     const rest = all.subarray(HOP);
     this.melStream = [Float32Array.from(rest)];
     this.melStreamLen = rest.length;
@@ -309,9 +319,13 @@ export class VoiceWake {
     if (this.stopped || this.capturing || this.state === "suspended") return;
     try {
       const mel = await this.mel.run(win, [1, MEL_WIN]);
-      // Выход (1, 1, 8, 32), кадр-мажор: кадр f = данные [f*32 .. f*32+32)
+      // Выход (1, 1, 8, 32), кадр-мажор: кадр f = данные [f*32 .. f*32+32).
+      // ОБЯЗАТЕЛЬНЫЙ трансформ openwakeword: mel/10 + 2 — без него
+      // эмбеддинги вне распределения обучения и скоры ≈ 0.03 вместо 0.3+
       for (let f = 0; f < 8; f++) {
-        this.frames.push(Float32Array.from(mel.slice(f * MELS, (f + 1) * MELS)));
+        const fr = new Float32Array(MELS);
+        for (let k = 0; k < MELS; k++) fr[k] = (mel[f * MELS + k] ?? 0) / 10 + 2;
+        this.frames.push(fr);
       }
       if (this.frames.length > MEL_WINDOW) {
         this.frames.splice(0, this.frames.length - MEL_WINDOW);

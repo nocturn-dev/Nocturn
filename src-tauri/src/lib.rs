@@ -288,6 +288,7 @@ pub fn run() {
             dictation::dictation_transcribe,
             tts::tts_speak,
             tts::tts_stop,
+            tts::audio_outputs,
             kb::kb_create,
             kb::kb_list,
             kb::kb_delete,

@@ -956,19 +956,24 @@ html.ambient.ambient-paused body::before {
   object-fit: cover;
 }
 .ambient-video {
-  filter: brightness(0.72) saturate(0.92);
+  filter: brightness(0.85) saturate(0.95);
 }
-/* затемняющий градиент: текст поверх видео остаётся читаемым */
+/* затемняющий градиент: текст поверх видео/сцен остаётся читаемым.
+   Фидбек 29.09: прошлые значения (0.32/0.12/0.3) «давили» фон —
+   ослаблено вдвое; в режиме «За интерфейсом» оверлей выключен вовсе */
 .ambient-layer::after {
   content: "";
   position: absolute;
   inset: 0;
   background: linear-gradient(
     180deg,
-    rgba(0, 0, 0, 0.32),
-    rgba(0, 0, 0, 0.12) 45%,
-    rgba(0, 0, 0, 0.3)
+    rgba(0, 0, 0, 0.16),
+    rgba(0, 0, 0, 0.05) 45%,
+    rgba(0, 0, 0, 0.15)
   );
+}
+.ambient-video {
+  filter: brightness(0.85) saturate(0.95);
 }
 html.light .ambient-layer {
   display: none;

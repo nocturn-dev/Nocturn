@@ -1578,10 +1578,17 @@ export async function voiceReadModel(name: string): Promise<string> {
 }
 
 /** Озвучить текст: локальный SAPI-синтез (Windows), ноль сети. Промис
- *  разрешается по завершении речи — индикатор карточки гаснет сам */
-export async function ttsSpeak(text: string): Promise<void> {
+ *  разрешается по завершении речи — индикатор карточки гаснет сам.
+ *  output — имя устройства вывода (audio_outputs); null — системное */
+export async function ttsSpeak(text: string, output?: string | null): Promise<void> {
   if (!inTauri) throw new Error("Озвучка работает в нативном приложении (npm run tauri dev)");
-  await invoke("tts_speak", { text });
+  await invoke("tts_speak", { text, output: output || null });
+}
+
+/** Устройства вывода звука (для селектора речи); не Windows — пусто */
+export async function audioOutputs(): Promise<string[]> {
+  if (!inTauri) return [];
+  return invoke<string[]>("audio_outputs");
 }
 
 /** Остановить текущую озвучку (idempotent) */
