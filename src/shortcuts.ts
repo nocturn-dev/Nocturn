@@ -19,6 +19,7 @@ export const SHORTCUT_ACTIONS = [
   "cycle_perm_mode",
   "toggle_fullscreen",
   "hard_mode",
+  "toggle_zen",
 ] as const;
 
 export type ShortcutAction = (typeof SHORTCUT_ACTIONS)[number];
@@ -44,9 +45,10 @@ export const SHORTCUT_DEFAULTS: ShortcutBinds = {
   cycle_perm_mode: "Ctrl+Shift+M",
   toggle_fullscreen: "F11",
   hard_mode: "Ctrl+Shift+H",
+  toggle_zen: "Ctrl+Alt+Z",
 };
 
-/** Развёрнутые подписи действий (ключи локали) */
+/** Развёрнутые подписи действий (ключи локалей) */
 export const SHORTCUT_LABEL_KEYS: Record<ShortcutAction, string> = {
   new_task: "sc.newTask",
   search: "sc.search",
@@ -58,6 +60,7 @@ export const SHORTCUT_LABEL_KEYS: Record<ShortcutAction, string> = {
   cycle_perm_mode: "sc.permMode",
   toggle_fullscreen: "win.fullscreen",
   hard_mode: "sc.hardMode",
+  toggle_zen: "sc.zen",
 };
 
 export interface ComboParts {
