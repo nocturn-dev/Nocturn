@@ -708,12 +708,14 @@ export default function ChatArea({
   interface TurnDerived {
     assistants: Message[];
     toolMsgs: Message[];
-    merged: Message | null;
+    /** Раскладка tool-сообщений по раундам (владелец по toolCallId);
+     *  сироты без владельца — к последнему раунду, чтобы не терялись */
+    toolMsgsOf: Map<string, Message[]>;
+    /** Шаги каждого раунда для аккордеона (Edit/Terminal/Explore/Asked) */
+    roundSteps: Map<string, StepRow[]>;
     results: { id: string; content: string }[];
     resultsOf: Map<string, { id: string; content: string }[]>;
     writesFiles: ChangedFile[];
-    /** Шаги для аккордеона (Edit/Terminal/Explore/Asked) */
-    steps: StepRow[];
   }
   const turnCacheRef = useRef(new Map<string, TurnDerived>());
   const ribbon = useMemo(() => {
@@ -757,6 +759,7 @@ export default function ChatArea({
           after: w.after,
         });
       }
+      // Результаты вызовов: общая лента + раскладка по владельцам
       const results = toolMsgs.map((m) => ({ id: m.id, content: m.content }));
       const resultsOf = new Map<string, { id: string; content: string }[]>();
       const ownerOf = new Map<string, string>();
@@ -771,38 +774,30 @@ export default function ChatArea({
         arr.push({ id: m.id, content: m.content });
         resultsOf.set(owner, arr);
       }
-      // merged: весь ход одной карточкой (режим groupTurns)
-      let merged: Message | null = null;
-      if (assistants.length > 0) {
-        const first = assistants[0];
-        const contents = assistants.map((a) => a.content).filter(Boolean);
-        const thoughts = assistants.map((a) => a.thought ?? "").filter(Boolean);
-        const calls = assistants.flatMap((a) => a.toolCalls ?? []);
-        const lastUsage = [...assistants].reverse().find((a) => a.usage)?.usage;
-        const workedMs = assistants.reduce(
-          (acc, a) => acc + (a.workedMs ?? 0),
-          0,
-        );
-        merged = {
-          id: first?.id ?? uid(),
-          role: "assistant",
-          content: contents.join("\n\n"),
-          thought: thoughts.length ? thoughts.join("\n\n") : undefined,
-          toolCalls: calls.length ? calls : undefined,
-          usage: lastUsage,
-          workedMs: workedMs > 0 ? workedMs : undefined,
-          model: [...assistants].reverse().find((a) => a.model)?.model,
-          error: assistants.find((a) => a.error)?.error,
-        };
+      // Раскладка tool-сообщений по раундам: каждый раунд (assistant-сообщение)
+      // получает СВОИ вызовы и результаты — лента «мысль → вызовы → мысль…»
+      const toolMsgsOf = new Map<string, Message[]>();
+      const lastAssistantId = assistants[assistants.length - 1]?.id ?? "";
+      for (const m of toolMsgs) {
+        const owner =
+          (m.toolCallId ? ownerOf.get(m.toolCallId) : undefined) ?? lastAssistantId;
+        if (!owner) continue;
+        const arr = toolMsgsOf.get(owner) ?? [];
+        arr.push(m);
+        toolMsgsOf.set(owner, arr);
+      }
+      const roundSteps = new Map<string, StepRow[]>();
+      for (const a of assistants) {
+        roundSteps.set(a.id, buildStepRows([a], toolMsgsOf.get(a.id) ?? []));
       }
       const derived: TurnDerived = {
         assistants,
         toolMsgs,
-        merged,
+        toolMsgsOf,
+        roundSteps,
         results,
         resultsOf,
         writesFiles: [...writes.values()],
-        steps: buildStepRows(assistants, toolMsgs),
       };
       nextCache.set(key, derived);
       return { ...turn, derived };
@@ -1332,28 +1327,38 @@ export default function ChatArea({
                 const assistants = derived.assistants;
 
                 if (groupTurns) {
-                  // —— Весь ход одной карточкой ——
-                  if (assistants.length > 0 && derived.merged) {
-                    const merged = derived.merged;
-                    const emptyMerged =
-                      !merged.content &&
-                      !merged.thought &&
-                      !merged.toolCalls &&
-                      !merged.error;
-                    if (!emptyMerged) {
-                      if (ti === turns.length - 1) lastTurnMerged = true;
+                  // —— Ход по РАУНДАМ (фидбек 29.09): мысль раунда → её
+                  // вызовы → следующий раунд, хронологически как в референсе,
+                  // а не все мысли одним блоком + вызовы в конце ——
+                  if (assistants.length > 0) {
+                    const rounds = assistants.filter(
+                      (a) =>
+                        a.content ||
+                        a.thought ||
+                        (a.toolCalls && a.toolCalls.length > 0) ||
+                        a.error,
+                    );
+                    if (rounds.length > 0 && ti === turns.length - 1) {
+                      lastTurnMerged = true;
+                    }
+                    const renderedSubs = new Set<string>();
+                    for (const a of rounds) {
                       nodes.push(
                         <AssistantCard
-                          key={`merged-${merged.id}`}
-                          mid={merged.id}
-                          message={merged}
-                          model={merged.model ?? model}
-                          results={derived.results}
-                          steps={derived.steps}
-                          hint={ti === turns.length - 1 ? activity : null}
+                          key={`round-${a.id}`}
+                          mid={a.id}
+                          message={a}
+                          model={a.model ?? model}
+                          results={derived.resultsOf.get(a.id) ?? []}
+                          steps={derived.roundSteps.get(a.id) ?? []}
+                          hint={
+                            ti === turns.length - 1 && a === rounds[rounds.length - 1]
+                              ? activity
+                              : null
+                          }
                           glassEffect={msgGlass}
                           showMsgTime={showMsgTime}
-                          isStreaming={merged.id === streamingMsgId}
+                          isStreaming={a.id === streamingMsgId}
                           smooth={streamSmooth}
                           highlightLive={highlightLive}
                           printSpeed={printSpeed}
@@ -1362,10 +1367,10 @@ export default function ChatArea({
                           onPreviewArtifact={openArtifact}
                         />,
                       );
-                      // Субагентные tool-сообщения хода — живыми карточками
-                      // (в аккордеон шагов они не входят сознательно)
-                      for (const m of derived.toolMsgs) {
+                      // Субагентные tool-сообщения раунда — живыми карточками
+                      for (const m of derived.toolMsgsOf.get(a.id) ?? []) {
                         if (m.toolName !== "subagent_run") continue;
+                        renderedSubs.add(m.id);
                         nodes.push(
                           <SubagentCard
                             key={`sub-${m.id}`}
@@ -1378,6 +1383,22 @@ export default function ChatArea({
                           />,
                         );
                       }
+                    }
+                    // Субагенты-сироты (владелец не найден) — не теряем
+                    for (const m of derived.toolMsgs) {
+                      if (m.toolName !== "subagent_run" || renderedSubs.has(m.id))
+                        continue;
+                      nodes.push(
+                        <SubagentCard
+                          key={`sub-${m.id}`}
+                          mid={m.id}
+                          call={
+                            m.toolCallId ? callById.get(m.toolCallId) : undefined
+                          }
+                          content={m.content}
+                          run={subRuns?.[m.toolCallId ?? ""]}
+                        />,
+                      );
                     }
                     // Закрытые вопросы ask_user остаются в истории
                     // (живой вопрос показывается панелью над композером)
