@@ -87,7 +87,12 @@ fn model_file(app: &tauri::AppHandle, configured: Option<&str>) -> PathBuf {
     }
 }
 
+/// camelCase обязателен: Tauri отдаёт payload как есть (serde), а фронт
+/// типизирован под cliFound/modelExists — без rename_all поля приходили
+/// snake_case, UI вечно показывал «whisper-cli не найден», даже когда путь
+/// был корректно указан через диалог (фидбек 29.09)
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DictationStatus {
     pub cli_found: bool,
     pub cli_path: Option<String>,
