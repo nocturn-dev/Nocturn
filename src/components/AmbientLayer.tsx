@@ -6,10 +6,11 @@
  *  - один resize-обработчик, devicePixelRatio ограничен двойкой;
  *  - слой pointer-events:none, z-ниже модалок; яркость — через
  *    --ambient-alpha (интенсивность в «Кастомизации»).
- * Палитра сцен — живые токены темы (deep/bg/accent/text): смена темы
- * перезапекает слой через MutationObserver на <html>, синего дефолта
- * больше нет. Сцены тёмные по природе — в светлой теме слой скрывается
- * на уровне CSS.
+ * Оттенок сцен выводится из палитры СТИЛЯ (hue поверхностей deep/bg),
+ * акцент в окрашивании не участвует — дефолтный терракотовый акцент на
+ * синем стиле давал коричневый рендер. Смена темы/стиля перезапекает слой
+ * через MutationObserver на <html>. Сцены тёмные по природе — в светлой
+ * теме слой скрывается на уровне CSS.
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -19,27 +20,28 @@ import {
   cssVarColor,
   mixRgb,
   rgbCss,
+  sceneTint,
   type Rgb,
 } from "../appearance";
 
 export type AmbientScene = "fog" | "snow" | "city" | "stars" | "video" | "gradient";
 
-/** Палитра сцены из живых токенов темы: раньше fog/snow/city/stars были
- *  прибиты к сине-небесным константам и не менялись ни при какой теме */
+/** Палитра сцены из живых токенов темы. tint — оттенок ПАЛИТРЫ СТИЛЯ
+ *  (hue поверхностей с форсированной насыщенностью, см. sceneTint), а не
+ *  акцента: дефолтный терракотовый акцент на синем «Шторме» давал
+ *  коричневый рендер */
 interface ScenePalette {
   deep: Rgb;
   bg: Rgb;
-  accent: Rgb;
+  tint: Rgb;
   text: Rgb;
 }
 
 function readScenePalette(): ScenePalette {
-  return {
-    deep: cssVarColor("--halo-deep", "#060606"),
-    bg: cssVarColor("--halo-bg", "#0a0a0a"),
-    accent: cssVarColor("--halo-accent", "#d97757"),
-    text: cssVarColor("--halo-text", "#fafafa"),
-  };
+  const deep = cssVarColor("--halo-deep", "#060606");
+  const bg = cssVarColor("--halo-bg", "#0a0a0a");
+  const accent = cssVarColor("--halo-accent", "#d97757");
+  return { deep, bg, tint: sceneTint(deep, bg, accent), text: cssVarColor("--halo-text", "#fafafa") };
 }
 
 const BLACK: Rgb = [0, 0, 0];
@@ -128,10 +130,10 @@ export function AmbientLayer({
         setThemeRev((v) => v + 1);
       }
     });
-    obs.observe(document.documentElement, {
-      attributes: true,
-      attributeFilter: ["style", "class"],
-    });
+    // Без attributeFilter: палитру меняют и style/классы, и data-style
+    // (выбор стиля вроде «Шторма») — фильтр на style/class пропусквал
+    // смену стиля, и сцена оставалась в старых цветах
+    obs.observe(document.documentElement, { attributes: true });
     return () => obs.disconnect();
   }, []);
   // Новый объект только при реальной смене палитры: депс canvas-эффекта
@@ -217,8 +219,8 @@ export function AmbientLayer({
         octx.fillRect(0, 0, w, h);
         // лёгкая дымка у горизонта — в тоне акцента темы
         const haze = octx.createLinearGradient(0, h * 0.7, 0, h);
-        haze.addColorStop(0, rgbaCss(p.accent, 0));
-        haze.addColorStop(1, rgbaCss(p.accent, 0.07));
+        haze.addColorStop(0, rgbaCss(p.tint, 0));
+        haze.addColorStop(1, rgbaCss(p.tint, 0.07));
         octx.fillStyle = haze;
         octx.fillRect(0, h * 0.7, w, h * 0.3);
       } else if (scene === "snow") {
@@ -230,8 +232,8 @@ export function AmbientLayer({
         // фонари: два тёплых пятна в акценте темы
         for (const fx of [w * 0.3, w * 0.72]) {
           const grad = octx.createRadialGradient(fx, h * 0.24, 0, fx, h * 0.24, h * 0.4);
-          grad.addColorStop(0, rgbaCss(mixRgb(p.accent, p.text, 0.25), 0.14));
-          grad.addColorStop(1, rgbaCss(mixRgb(p.accent, p.text, 0.25), 0));
+          grad.addColorStop(0, rgbaCss(mixRgb(p.tint, p.text, 0.25), 0.14));
+          grad.addColorStop(1, rgbaCss(mixRgb(p.tint, p.text, 0.25), 0));
           octx.fillStyle = grad;
           octx.fillRect(0, 0, w, h);
         }
@@ -243,8 +245,8 @@ export function AmbientLayer({
         octx.fillRect(0, 0, w, h);
         // дымка над городом — акцент темы
         const haze = octx.createLinearGradient(0, h * 0.35, 0, h);
-        haze.addColorStop(0, rgbaCss(p.accent, 0));
-        haze.addColorStop(1, rgbaCss(p.accent, 0.1));
+        haze.addColorStop(0, rgbaCss(p.tint, 0));
+        haze.addColorStop(1, rgbaCss(p.tint, 0.1));
         octx.fillStyle = haze;
         octx.fillRect(0, 0, w, h);
         for (const b of buildings) {
@@ -265,15 +267,15 @@ export function AmbientLayer({
             h - tallest.h,
             tallest.h * 0.9,
           );
-          grad.addColorStop(0, rgbaCss(p.accent, 0.1));
-          grad.addColorStop(1, rgbaCss(p.accent, 0));
+          grad.addColorStop(0, rgbaCss(p.tint, 0.1));
+          grad.addColorStop(1, rgbaCss(p.tint, 0));
           octx.fillStyle = grad;
           octx.fillRect(0, 0, w, h);
         }
       } else {
         octx.fillStyle = rgbCss(mixRgb(p.deep, BLACK, 0.35));
         octx.fillRect(0, 0, w, h);
-        for (const nebulaColor of [rgbaCss(p.accent, 0.05), rgbaCss(mixRgb(p.accent, p.text, 0.5), 0.045)]) {
+        for (const nebulaColor of [rgbaCss(p.tint, 0.05), rgbaCss(mixRgb(p.tint, p.text, 0.5), 0.045)]) {
           const grad = octx.createRadialGradient(
             w * 0.7,
             h * 0.25,
@@ -322,10 +324,10 @@ export function AmbientLayer({
       if (scene === "fog") {
         // Четыре тона акцента темы (к светлому/к тёмному) вместо синих констант
         const tones = [
-          mixRgb(p.accent, p.text, 0.3),
-          mixRgb(p.accent, p.text, 0.12),
-          mixRgb(p.accent, p.deep, 0.35),
-          mixRgb(p.accent, p.text, 0.45),
+          mixRgb(p.tint, p.text, 0.3),
+          mixRgb(p.tint, p.text, 0.12),
+          mixRgb(p.tint, p.deep, 0.35),
+          mixRgb(p.tint, p.text, 0.45),
         ];
         const fogColor = (i: number): string => {
           // Префикс "rgba(r, g, b, " — spriteFor дописывает альфу сам
@@ -418,7 +420,7 @@ export function AmbientLayer({
           f.x = Math.random() * w;
         }
         ctx.globalAlpha = f.alpha;
-        ctx.fillStyle = rgbCss(mixRgb(p.text, p.accent, 0.08));
+        ctx.fillStyle = rgbCss(mixRgb(p.text, p.tint, 0.08));
         ctx.beginPath();
         ctx.arc(f.x, f.y, f.r, 0, Math.PI * 2);
         ctx.fill();
@@ -433,7 +435,7 @@ export function AmbientLayer({
         for (const win of b.lit) {
           const flicker = 0.55 + 0.45 * Math.sin(now / 900 + win.phase);
           // Тёплые окна в тоне акцента, разбелённого к тексту
-          ctx.fillStyle = rgbaCss(mixRgb(p.accent, p.text, 0.55), Number((0.28 * flicker).toFixed(3)));
+          ctx.fillStyle = rgbaCss(mixRgb(p.tint, p.text, 0.55), Number((0.28 * flicker).toFixed(3)));
           ctx.fillRect(win.x, win.y, 4, 6);
         }
       }
@@ -453,7 +455,7 @@ export function AmbientLayer({
       for (const st of stars) {
         const a = 0.35 + 0.45 * (0.5 + 0.5 * Math.sin(t * st.speed + st.phase));
         ctx.globalAlpha = a;
-        ctx.fillStyle = rgbCss(mixRgb(p.text, p.accent, 0.1));
+        ctx.fillStyle = rgbCss(mixRgb(p.text, p.tint, 0.1));
         ctx.beginPath();
         ctx.arc(st.x, st.y, st.r, 0, Math.PI * 2);
         ctx.fill();

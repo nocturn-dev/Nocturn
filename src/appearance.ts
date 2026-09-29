@@ -301,6 +301,51 @@ export function rgbCss(c: Rgb): string {
   return `rgb(${c[0]}, ${c[1]}, ${c[2]})`;
 }
 
+/** RGB → HSL (h 0-360, s/l 0-1) */
+export function rgbToHsl(c: Rgb): [number, number, number] {
+  const r = c[0] / 255;
+  const g = c[1] / 255;
+  const b = c[2] / 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const l = (max + min) / 2;
+  if (max === min) return [0, 0, l];
+  const d = max - min;
+  const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+  let h: number;
+  if (max === r) h = ((g - b) / d + (g < b ? 6 : 0)) * 60;
+  else if (max === g) h = ((b - r) / d + 2) * 60;
+  else h = ((r - g) / d + 4) * 60;
+  return [h, s, l];
+}
+
+/** HSL → RGB */
+export function hslToRgb(h: number, s: number, l: number): Rgb {
+  const f = (n: number) => {
+    const k = (n + h / 30) % 12;
+    const a = s * Math.min(l, 1 - l);
+    return Math.round(255 * (l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1))));
+  };
+  return [f(0), f(8), f(4)];
+}
+
+/**
+ * Оттенок ambient-сцен из палитры СТИЛЯ: hue берётся у поверхностей
+ * (deep/bg), насыщенность форсируется — «Шторм» даёт холодный синий рендер,
+ * espresso тёплый, carbon остаётся нейтральным. Акцент сознательно не
+ * участвует в окрашивании: дефолтный терракотовый акцент на синем стиле
+ * давал коричневый рендер (фидбек 29.09). Фолбэк для нейтральных
+ * поверхностей — hue акцента, если он сам не нейтральный.
+ */
+export function sceneTint(deep: Rgb, bg: Rgb, accent: Rgb): Rgb {
+  const base = mixRgb(deep, bg, 0.5);
+  const [, surfS, surfL] = rgbToHsl(base);
+  if (surfS >= 0.06) return hslToRgb(rgbToHsl(base)[0], 0.45, clamp(surfL, 0.12, 0.22));
+  const [accH, accS] = rgbToHsl(accent);
+  if (accS >= 0.12) return hslToRgb(accH, 0.45, 0.16);
+  return base;
+}
+
 /** Живое значение токена темы как Rgb: инлайн-переопределения Official и
  *  производные акценты applyAppearance применяет до любого чтения */
 export function cssVarColor(name: string, fallback: string): Rgb {
@@ -310,12 +355,13 @@ export function cssVarColor(name: string, fallback: string): Rgb {
 }
 
 /** Дефолт ambient-градиента из живой темы (сцена gradient без явно
- *  выбранных пользователем цветов): раньше был зашитый синий, не менявшийся
- *  ни при какой теме. Единая точка для слоя и инпутов конструктора */
+ *  выбранных пользователем цветов): оттенок стиля поверх deep, не зашитый
+ *  синий. Единая точка для слоя и инпутов конструктора */
 export function ambientGradientDefaults(): { from: string; to: string } {
   const deep = cssVarColor("--halo-deep", "#060606");
   const accent = cssVarColor("--halo-accent", "#d97757");
-  return { from: rgbCss(mixRgb(deep, accent, 0.38)), to: rgbCss(deep) };
+  const tint = sceneTint(deep, cssVarColor("--halo-bg", "#0a0a0a"), accent);
+  return { from: rgbCss(mixRgb(tint, deep, 0.25)), to: rgbCss(deep) };
 }
 
 /**

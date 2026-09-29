@@ -71,6 +71,7 @@ import CompareModal from "./components/CompareModal";
 import KnowledgeModal from "./components/KnowledgeModal";
 import BrowserPanel from "./components/BrowserPanel";
 import Toasts from "./components/Toast";
+import DownloadProgress from "./components/DownloadProgress";
 import { isDue, loadAutomations, nextRunAfter, saveAutomations, VAULT_REPORT_SUFFIX } from "./automations";
 import { checkForUpdate } from "./api";
 import SearchModal from "./components/SearchModal";
@@ -2437,6 +2438,8 @@ export default function App() {
         />
       )}
       <Toasts items={toasts} />
+      {/* Скачивание моделей (whisper / voice wake): тематизированное окно */}
+      <DownloadProgress />
       {onboardingOpen && splashDone && (
         <Onboarding
           theme={theme}
