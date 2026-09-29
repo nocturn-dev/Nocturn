@@ -77,6 +77,9 @@ export const ru = {
     "sidebar.expand": "Показать сайдбар",
     // Заметки (vault)
     "projects.add": "Новый проект",
+    "projects.addProject": "Новый проект",
+    "projects.addFolder": "Открыть папку…",
+    "projects.addFile": "Открыть файл…",
     "projects.namePh": "Название проекта",
     "notes.section": "Заметки",
     "notes.new": "Новая заметка",

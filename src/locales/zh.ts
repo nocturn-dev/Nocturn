@@ -80,6 +80,9 @@ export const zh = {
     "sidebar.expand": "展开侧边栏",
     // Заметки (vault)
     "projects.add": "新建项目",
+    "projects.addProject": "新建项目",
+    "projects.addFolder": "打开文件夹…",
+    "projects.addFile": "打开文件…",
     "projects.namePh": "项目名称",
     "notes.section": "笔记",
     "notes.new": "新建笔记",

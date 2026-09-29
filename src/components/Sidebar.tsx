@@ -1,7 +1,7 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import type { Project, Session } from "../types";
 import WindowControls from "./WindowControls";
-import { pickFolder, listDir, gitStatus, checkpointList, checkpointRestore, checkpointDelete, type CheckpointMeta, type FileEntry, type NoteInfo } from "../api";
+import { pickFolder, pickAnyFile, listDir, gitStatus, checkpointList, checkpointRestore, checkpointDelete, type CheckpointMeta, type FileEntry, type NoteInfo } from "../api";
 import { normalizePath } from "../diff";
 import { copyText } from "../clipboard";
 import { ACCENT_PRESETS } from "../appearance";
@@ -32,7 +32,8 @@ interface SidebarProps {
   onOpenNote: (file: string) => void;
   onNewNote: () => void;
   onNoteMenu: (file: string, x: number, y: number) => void;
-  onAddProject: (name: string) => void;
+  /** Добавить проект: имя + опциональный корень (папка/файл-варианты «+») */
+  onAddProject: (name: string, root?: string) => void;
   onProjectMenu: (id: string, x: number, y: number) => void;
   onOpenGraph: () => void;
   /** Клик по бренду — свернуть сайдбар */
@@ -121,6 +122,25 @@ export default function Sidebar({
   const [groupBy, setGroupBy] = useState<"flat" | "project">(() =>
     localStorage.getItem("haloui-sidebar-group") === "flat" ? "flat" : "project",
   );
+  // Меню «+»: проект / файл / папка
+  const [addMenuOpen, setAddMenuOpen] = useState(false);
+  /** Базовое имя пути: C:\HaloUI → «HaloUI», C:\proj\app.ts → «app.ts» */
+  const baseName = (p: string) => p.split(/[\\/]/).filter(Boolean).pop() ?? p;
+  /** Родительский каталог файла (корень проекта, открытого из файла) */
+  const parentDir = (p: string) => {
+    const i = Math.max(p.lastIndexOf("\\"), p.lastIndexOf("/"));
+    return i > 0 ? p.slice(0, i) : p;
+  };
+  /** «+» → Папка: проект с корнем в выбранной папке, имя = имя папки */
+  const addFromPicker = async (kind: "folder" | "file") => {
+    if (kind === "folder") {
+      const root = await pickFolder();
+      if (root) onAddProject(baseName(root), root);
+      return;
+    }
+    const file = await pickAnyFile();
+    if (file) onAddProject(baseName(file), parentDir(file));
+  };
   const changeGroupBy = (v: "flat" | "project") => {
     setGroupBy(v);
     localStorage.setItem("haloui-sidebar-group", v);
@@ -463,22 +483,61 @@ export default function Sidebar({
           )
         ) : groupBy === "project" ? (
           <div className="space-y-3">
-            {/* Секция проектов: скрывается стрелкой (как в референсе) */}
+            {/* Секция проектов: ТОЛЬКО проекты со своими диалогами — сессии
+                без проекта живут во вкладке «Задачи» (фидбек 29.09) */}
             {!projectsCollapsed && (
               <div>
-                <div className="flex items-center gap-1 px-2 pb-1">
+                <div className="relative flex items-center gap-1 px-2 pb-1">
                   <HeaderLabel
                     textKey="sidebar.projects"
                     color={headerColor}
                     onPick={changeHeaderColor}
                   />
                   <button
-                    onClick={() => setAddingProject(true)}
+                    onClick={() => setAddMenuOpen((v) => !v)}
                     title={t("projects.add")}
-                    className="rounded p-0.5 text-halo-muted transition-colors hover:text-halo-text"
+                    className="cursor-pointer rounded p-0.5 text-halo-muted transition-colors hover:text-halo-text"
                   >
                     <PlusIcon />
                   </button>
+                  {/* Меню добавления: проект / файл / папку (фидбек 29.09) */}
+                  {addMenuOpen && (
+                    <>
+                      <div
+                        className="fixed inset-0 z-40"
+                        onClick={() => setAddMenuOpen(false)}
+                      />
+                      <div className="absolute right-1 top-7 z-50 w-44 rounded-lg border border-halo-line bg-halo-raised py-1 shadow-xl">
+                        <button
+                          onClick={() => {
+                            setAddMenuOpen(false);
+                            setAddingProject(true);
+                          }}
+                          className="w-full px-3 py-1.5 text-left text-xs text-halo-text transition-colors hover:bg-halo-hover"
+                        >
+                          {t("projects.addProject")}
+                        </button>
+                        <button
+                          onClick={() => {
+                            setAddMenuOpen(false);
+                            void addFromPicker("folder");
+                          }}
+                          className="w-full px-3 py-1.5 text-left text-xs text-halo-text transition-colors hover:bg-halo-hover"
+                        >
+                          {t("projects.addFolder")}
+                        </button>
+                        <button
+                          onClick={() => {
+                            setAddMenuOpen(false);
+                            void addFromPicker("file");
+                          }}
+                          className="w-full px-3 py-1.5 text-left text-xs text-halo-text transition-colors hover:bg-halo-hover"
+                        >
+                          {t("projects.addFile")}
+                        </button>
+                      </div>
+                    </>
+                  )}
                 </div>
                 {addingProject && (
                   <div className="mb-2">
@@ -519,7 +578,7 @@ export default function Sidebar({
                             onProjectMenu(project.id, e.clientX, e.clientY);
                           }}
                           title={selected ? t("sidebar.showAll") : t("sidebar.showProject", { name: project.name })}
-                          className={`flex w-full items-center gap-1.5 rounded-md px-2 pb-1 text-left text-sm transition-colors ${
+                          className={`flex w-full cursor-pointer items-center gap-1.5 rounded-md px-2 pb-1 text-left text-sm transition-colors ${
                             selected
                               ? "text-halo-text"
                               : "text-halo-muted/70 hover:text-halo-text"
@@ -553,28 +612,8 @@ export default function Sidebar({
                 </div>
               </div>
             )}
-            {/* Задачи без проекта — всегда на виду */}
-            <div>
-              <div className="px-2 pb-1">
-                <HeaderLabel
-                  textKey="sidebar.tasks"
-                  color={headerColor}
-                  onPick={changeHeaderColor}
-                />
-              </div>
-              {projectGroups.filter((g) => !g.project).length === 0 ? (
-                <p className="px-2 py-1 text-xs text-halo-muted/70">
-                  {t("sidebar.tasksEmpty")}
-                </p>
-              ) : (
-                <ul className="space-y-0.5">
-                  {projectGroups
-                    .filter((g) => !g.project)
-                    .flatMap((g) => g.items)
-                    .map(sessionRow)}
-                </ul>
-              )}
-            </div>
+            {/* Сессии без проекта — только во вкладке «Задачи»; во вкладке
+                «Проекты» их намеренно нет (фидбек 29.09) */}
           </div>
         ) : (
           sorted.length === 0 ? (
