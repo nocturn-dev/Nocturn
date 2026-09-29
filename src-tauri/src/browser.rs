@@ -25,6 +25,7 @@ const VIEWPORT_W: u32 = 1280;
 const VIEWPORT_H: u32 = 800;
 const SCREENSHOT_QUALITY: u8 = 70; // jpeg — компромисс размер/качество для vision
 const READ_TEXT_LIMIT: usize = 20_000; // текст страницы в ответе инструмента
+const SNAPSHOT_TEXT_LIMIT: usize = 24_000; // снапшот интерактивных элементов
 const NAV_TIMEOUT: Duration = Duration::from_secs(20);
 const WS_READ_TIMEOUT: Duration = Duration::from_secs(120);
 
@@ -678,6 +679,127 @@ impl BrowserConnection {
 }
 
 // ---------------------------------------------------------------------------
+// Accessibility-снапшот и ref-реестр (ZCode-стиль: действия по стабильным
+// ссылкам на элементы вместо координат)
+// ---------------------------------------------------------------------------
+
+/// Страница-side реестр: stable refs (e1, e2, ...) → элементы. Реестр живёт в
+/// контексте страницы между вызовами инструментов; умершие элементы вычищаются
+/// при каждом снапшоте. Пробрасывается в открытые shadow roots.
+const REF_REGISTRY_JS: &str = r#"
+(() => {
+  if (!window.__nocturnRefs) {
+    window.__nocturnRefs = new Map();
+    window.__nocturnByEl = new WeakMap();
+    window.__nocturnSeq = 0;
+  }
+  const MELS = ['INPUT','TEXTAREA','SELECT'];
+  const roles = 'button,link,checkbox,radio,tab,menuitem,option,switch,textbox,searchbox,combobox,slider,progressbar';
+  const interactive = (el) => {
+    const tag = el.tagName;
+    if (MELS.includes(tag)) return el.type !== 'hidden';
+    if (tag === 'BUTTON' || tag === 'A' || tag === 'SELECT' || tag === 'TEXTAREA' || tag === 'SUMMARY') return true;
+    const role = el.getAttribute('role');
+    if (role && (',' + roles + ',').includes(',' + role + ',')) return true;
+    return el.hasAttribute('onclick') || el.hasAttribute('tabindex') || el.isContentEditable;
+  };
+  const visible = (el) => {
+    const r = el.getBoundingClientRect();
+    if (r.width < 2 || r.height < 2) return false;
+    const st = getComputedStyle(el);
+    return st.visibility !== 'hidden' && st.display !== 'none';
+  };
+  const nameOf = (el) => {
+    const aria = el.getAttribute('aria-label');
+    if (aria) return aria.slice(0, 90);
+    if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
+      const lbl = el.labels && el.labels[0];
+      if (lbl) return lbl.innerText.trim().slice(0, 90);
+      const ph = el.getAttribute('placeholder');
+      if (ph) return ph.slice(0, 90);
+    }
+    if (el.tagName === 'A') return (el.innerText || el.getAttribute('href') || '').trim().slice(0, 90);
+    return (el.innerText || el.value || '').trim().slice(0, 90);
+  };
+  // Чистка умерших ссылок
+  for (const [ref, el] of Array.from(window.__nocturnRefs)) {
+    if (!document.contains(el)) {
+      window.__nocturnRefs.delete(ref);
+    }
+  }
+  const collect = (root, out) => {
+    const list = root.querySelectorAll('button, a[href], input, select, textarea, summary, [role], [onclick], [tabindex], [contenteditable]');
+    for (const el of list) {
+      if (out.length >= 400) return;
+      if (!interactive(el) || !visible(el)) continue;
+      let ref = window.__nocturnByEl.get(el);
+      if (!ref || !window.__nocturnRefs.has(ref)) {
+        window.__nocturnSeq += 1;
+        ref = 'e' + window.__nocturnSeq;
+        window.__nocturnByEl.set(el, ref);
+      }
+      window.__nocturnRefs.set(ref, el);
+      const r = el.getBoundingClientRect();
+      const item = { ref: ref, tag: tagOf(el), name: nameOf(el),
+        x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height),
+        vp: r.top >= 0 && r.bottom <= (window.innerHeight || 800) };
+      if (MELS.includes(el.tagName)) {
+        item.type = el.type || 'text';
+        if (el.value) item.value = String(el.value).slice(0, 60);
+        if (el.disabled) item.disabled = true;
+        if (el.checked !== undefined) item.checked = !!el.checked;
+      } else if (el.tagName === 'A' && el.href) {
+        item.href = el.href.slice(0, 80);
+      }
+      if (el.getAttribute('role')) item.role = el.getAttribute('role');
+      out.push(item);
+    }
+    // Открытые shadow roots — проброс (закрытые недоступны из JS в принципе)
+    for (const el of root.querySelectorAll('*')) {
+      if (el.shadowRoot) collect(el.shadowRoot, out);
+    }
+  };
+  const tagOf = (el) => el.tagName.toLowerCase() + (el.id ? '#' + el.id : '');
+  const out = [];
+  collect(document, out);
+  return JSON.stringify({ url: location.href, title: document.title, count: out.length, elements: out });
+})()"#;
+
+/// Резолв ref'а в центр элемента (со scrollIntoView). Возвращает JSON
+/// {x, y, desc} либо текст ошибки — координаты нужны для ДОВЕРЕННЫХ
+/// Input.dispatchMouseEvent (el.click() — синтетика, её не видят многие
+/// обработчики и она не двигает фокус как настоящий клик)
+const REF_CENTER_JS_TEMPLATE: &str = r#"
+(() => {
+  const el = window.__nocturnRefs && window.__nocturnRefs.get('__REF__');
+  if (!el) return JSON.stringify({ error: 'ref __REF__ not found — take a new browser_snapshot' });
+  el.scrollIntoView({ block: 'center', behavior: 'instant' });
+  const r = el.getBoundingClientRect();
+  const x = Math.round(r.x + r.width / 2);
+  const y = Math.round(r.y + r.height / 2);
+  const d = el.tagName.toLowerCase() + (el.id ? '#' + el.id : '') +
+    (el.innerText ? ' «' + el.innerText.trim().slice(0, 60) + '»' : '');
+  return JSON.stringify({ x: x, y: y, desc: d });
+})()"#;
+
+/// Фокус элемента по ref'у + позиционирование каретки. select=1 — выделить
+/// всё содержимое (для замены через Input.insertText), иначе каретка в конец
+const REF_FOCUS_JS_TEMPLATE: &str = r#"
+(() => {
+  const el = window.__nocturnRefs && window.__nocturnRefs.get('__REF__');
+  if (!el) return JSON.stringify({ error: 'ref __REF__ not found — take a new browser_snapshot' });
+  el.scrollIntoView({ block: 'center', behavior: 'instant' });
+  if (el.focus) el.focus();
+  if (el.setSelectionRange) {
+    try {
+      const end = el.value ? el.value.length : 0;
+      el.setSelectionRange(__SELECT__, end);
+    } catch (e) {}
+  }
+  return JSON.stringify({ focused: el.tagName.toLowerCase() });
+})()"#;
+
+// ---------------------------------------------------------------------------
 // Инструменты агента browser_*
 // ---------------------------------------------------------------------------
 
@@ -688,7 +810,7 @@ pub fn browser_tool_schemas() -> Value {
             "type": "function",
             "function": {
                 "name": "browser_navigate",
-                "description": "Open a URL in the managed headless browser. Waits for page load. Returns page title, URL and readiness.",
+                "description": "Open a URL in the managed headless browser. Waits for page load. Returns page title, URL and readiness. After navigation call browser_snapshot to list interactive elements with stable refs.",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -709,8 +831,16 @@ pub fn browser_tool_schemas() -> Value {
         {
             "type": "function",
             "function": {
+                "name": "browser_snapshot",
+                "description": "Capture an accessibility snapshot of the current page: every interactive element (buttons, links, inputs, selects) with a stable ref (e1, e2, ...), tag, accessible name, position, checked/disabled state. Prefer refs for all actions: click with {\"ref\": \"e12\"} instead of coordinates — refs survive layout shifts. Take a new snapshot after page navigation or significant DOM changes.",
+                "parameters": { "type": "object", "properties": {} }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
                 "name": "browser_screenshot",
-                "description": "Take a JPEG screenshot of the viewport (1280x800). Returns an image you can see. Click coordinates must be taken from the last screenshot.",
+                "description": "Take a JPEG screenshot of the viewport (1280x800). Returns an image you can see. Prefer browser_snapshot refs for actions; screenshot coordinates are the fallback.",
                 "parameters": { "type": "object", "properties": {} }
             }
         },
@@ -718,14 +848,14 @@ pub fn browser_tool_schemas() -> Value {
             "type": "function",
             "function": {
                 "name": "browser_click",
-                "description": "Click at the given viewport coordinates (CSS pixels, same coordinate system as the screenshot). Returns the clicked element description.",
+                "description": "Click an element. Preferred: pass \"ref\" from browser_snapshot (trusted browser click on the element's center, survives layout shifts). Fallback: viewport coordinates (CSS pixels, same system as the screenshot).",
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "x": { "type": "integer", "description": "X coordinate" },
-                        "y": { "type": "integer", "description": "Y coordinate" }
-                    },
-                    "required": ["x", "y"]
+                        "ref": { "type": "string", "description": "Element ref from browser_snapshot, e.g. \"e12\"" },
+                        "x": { "type": "integer", "description": "X coordinate (fallback when no ref)" },
+                        "y": { "type": "integer", "description": "Y coordinate (fallback when no ref)" }
+                    }
                 }
             }
         },
@@ -733,11 +863,13 @@ pub fn browser_tool_schemas() -> Value {
             "type": "function",
             "function": {
                 "name": "browser_type",
-                "description": "Optionally click at coordinates, type text into the focused element, and optionally press Enter.",
+                "description": "Type text into an element. Preferred: pass \"ref\" from browser_snapshot — the element is focused and its content replaced (set replace=false to append). Fallback: optional coordinates to click first. submit=true presses Enter after typing.",
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "text": { "type": "string", "description": "Text to type" },
+                        "ref": { "type": "string", "description": "Element ref from browser_snapshot (input/textarea/contenteditable)" },
+                        "replace": { "type": "boolean", "description": "Replace existing content (default true when ref is used)" },
                         "x": { "type": "integer", "description": "Optional X coordinate to click first" },
                         "y": { "type": "integer", "description": "Optional Y coordinate to click first" },
                         "submit": { "type": "boolean", "description": "Press Enter after typing" }
@@ -906,6 +1038,34 @@ pub fn execute_on(conn: &BrowserConnection, name: &str, args: &Value) -> Result<
             .to_string())
         }
         "browser_click" => {
+            // Вариант по ref'у из снапшота: резолвим центр элемента и кликаем
+            // ДОВЕРЕННЫМИ CDP-событиями (el.click() — синтетика: не видит
+            // hover-меню, не переносит фокус как настоящий клик)
+            if let Some(r) = args.get("ref").and_then(|v| v.as_str()) {
+                let resolve = REF_CENTER_JS_TEMPLATE.replace("__REF__", r);
+                let resolved = conn.evaluate(&resolve)?;
+                let parsed: Value = serde_json::from_str(resolved.as_str().unwrap_or("{}"))
+                    .map_err(|e| format!("ref resolve: {e}"))?;
+                if let Some(err) = parsed.get("error").and_then(|e| e.as_str()) {
+                    return Err(err.to_string());
+                }
+                let (x, y) = (
+                    parsed.get("x").and_then(|v| v.as_i64()).unwrap_or(0),
+                    parsed.get("y").and_then(|v| v.as_i64()).unwrap_or(0),
+                );
+                let desc = parsed
+                    .get("desc")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("element")
+                    .to_string();
+                for t in ["mousePressed", "mouseReleased"] {
+                    conn.request(
+                        "Input.dispatchMouseEvent",
+                        json!({ "type": t, "x": x, "y": y, "button": "left", "clickCount": 1 }),
+                    )?;
+                }
+                return Ok(format!("clicked by ref {r}: {desc} (at {x},{y})"));
+            }
             let (x, y) = (arg_int(args, "x")?, arg_int(args, "y")?);
             let desc = conn.evaluate(&format!(
                 "(() => {{ const el = document.elementFromPoint({x},{y}); \
@@ -918,7 +1078,22 @@ pub fn execute_on(conn: &BrowserConnection, name: &str, args: &Value) -> Result<
         }
         "browser_type" => {
             let text = arg_str(args, "text")?;
-            if let (Some(x), Some(y)) = (arg_int_opt(args, "x"), arg_int_opt(args, "y")) {
+            // Вариант по ref'у: фокус + (замена содержимого) + доверенный ввод
+            if let Some(r) = args.get("ref").and_then(|v| v.as_str()) {
+                let select = args
+                    .get("replace")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(true);
+                let focus_js = REF_FOCUS_JS_TEMPLATE
+                    .replace("__REF__", r)
+                    .replace("__SELECT__", if select { "0" } else { "-1" });
+                let focused = conn.evaluate(&focus_js)?;
+                let parsed: Value = serde_json::from_str(focused.as_str().unwrap_or("{}"))
+                    .map_err(|e| format!("ref focus: {e}"))?;
+                if let Some(err) = parsed.get("error").and_then(|e| e.as_str()) {
+                    return Err(err.to_string());
+                }
+            } else if let (Some(x), Some(y)) = (arg_int_opt(args, "x"), arg_int_opt(args, "y")) {
                 conn.evaluate(&format!(
                     "(() => {{ const el = document.elementFromPoint({x},{y}); \
                      if (!el) return 'no element at point'; el.click(); \
@@ -940,6 +1115,18 @@ pub fn execute_on(conn: &BrowserConnection, name: &str, args: &Value) -> Result<
                 )?;
             }
             Ok(format!("typed {}", text.len()))
+        }
+        "browser_snapshot" => {
+            let raw = conn.evaluate(REF_REGISTRY_JS)?;
+            let mut text = raw.as_str().unwrap_or("{}").to_string();
+            // Потолок ответа: сотни интерактивных элементов * строка описания.
+            // Ответ — ЧИСТЫЙ JSON: текстовая обёртка с подсказкой содержала
+            // свою «{» и ломала парсинг (гайд living в описании инструмента)
+            if text.len() > SNAPSHOT_TEXT_LIMIT {
+                crate::truncate_at_char_boundary(&mut text, SNAPSHOT_TEXT_LIMIT);
+                text.push_str("\"}...[truncated]");
+            }
+            Ok(text)
         }
         "browser_scroll" => {
             let dy = arg_int(args, "dy")?;
@@ -976,7 +1163,7 @@ mod tests {
     fn browser_schemas_valid() {
         let v = browser_tool_schemas();
         let arr = v.as_array().expect("schemas must be an array");
-        assert_eq!(arr.len(), 7);
+        assert_eq!(arr.len(), 8);
         for schema in arr {
             assert_eq!(schema["type"], "function");
             let name = schema["function"]["name"].as_str().unwrap();
@@ -1084,8 +1271,11 @@ mod tests {
                         }
                     }
                 }
-                // Кириллица — строго UTF-8, поэтому charset в Content-Type
+                // Кириллица — строго UTF-8, поэтому charset в Content-Type.
+                // Инпут с oninput → e2e проверяет type-by-ref (доверенный
+                // Input.insertText должен зажечь input-событие)
                 let body = "<html><title>HaloUI Test</title><h1>Привет</h1>\
+                            <input id='q' placeholder='поиск' oninput='document.title=\"typed:\"+this.value'>\
                             <button onclick='document.title=\"clicked\"'>go</button></html>";
                 let len = body.len();
                 let resp = format!(
@@ -1152,6 +1342,47 @@ mod tests {
         let click = execute_on(&conn, "browser_click", &json!({ "x": 20, "y": 160 }))
             .expect("click must succeed");
         assert!(click.contains("clicked") || click.contains("no element"));
+
+        // ── Snapshot + действия по ref'ам (a11y-снапшот) ──
+        let snap = execute_on(&conn, "browser_snapshot", &json!({}))
+            .expect("snapshot must succeed");
+        let snap_v: Value =
+            serde_json::from_str(snap.trim_end()).expect("snapshot json must parse");
+        let elements = snap_v["elements"].as_array().expect("elements array");
+        assert!(!elements.is_empty(), "snapshot must list interactive elements");
+        assert!(elements[0]["ref"].as_str().unwrap().starts_with('e'));
+        let ref_of = |pred: &dyn Fn(&Value) -> bool| -> String {
+            elements
+                .iter()
+                .find(|e| pred(e))
+                .and_then(|e| e["ref"].as_str())
+                .expect("element must exist in snapshot")
+                .to_string()
+        };
+        // type-by-ref: доверенный insertText должен зажечь input-событие
+        let input_ref = ref_of(&|e| e["type"].as_str() == Some("text"));
+        let typed = execute_on(
+            &conn,
+            "browser_type",
+            &json!({ "ref": input_ref, "text": "тест" }),
+        )
+        .expect("type by ref must succeed");
+        assert!(typed.contains("typed"));
+        let title_after_type = conn.evaluate("document.title").expect("evaluate title");
+        assert!(
+            title_after_type.as_str() == Some("typed:тест"),
+            "input event must update title, got: {title_after_type}"
+        );
+        // click-by-ref: доверенные mousePressed/Released по центру элемента
+        let button_ref = ref_of(&|e| e["name"].as_str() == Some("go"));
+        let clicked = execute_on(&conn, "browser_click", &json!({ "ref": button_ref }))
+            .expect("click by ref must succeed");
+        assert!(clicked.contains("clicked by ref"), "got: {clicked}");
+        let title_after_click = conn.evaluate("document.title").expect("evaluate title");
+        assert!(
+            title_after_click.as_str() == Some("clicked"),
+            "trusted click must run onclick, got: {title_after_click}"
+        );
 
         // В execute_on нет ветки browser_close — гасим реестр напрямую,
         // как делает продакшн-путь в lib.rs
