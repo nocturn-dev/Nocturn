@@ -113,11 +113,10 @@ export default function Sidebar({
   // FIX: инлайн-ввод тега вместо window.prompt — в Tauri WebView prompt
   // недоступен, и быстрая расстановка тегов молча не работала
   const [taggingId, setTaggingId] = useState<string | null>(null);
-  // Группировка списка задач: плоский / по проектам (запоминается)
+  // Группировка списка задач: плоский / по проектам (запоминается).
+  // Дефолт — по проектам (ZCode-вид: проект → его диалоги), 29.09
   const [groupBy, setGroupBy] = useState<"flat" | "project">(() =>
-    localStorage.getItem("haloui-sidebar-group") === "project"
-      ? "project"
-      : "flat",
+    localStorage.getItem("haloui-sidebar-group") === "flat" ? "flat" : "project",
   );
   const changeGroupBy = (v: "flat" | "project") => {
     setGroupBy(v);
