@@ -120,6 +120,8 @@ export interface Session {
 export interface Project {
   id: string;
   name: string;
+  /** Папка проекта: в <root>/.nocturn хранятся сессии проекта (ZCode-стиль) */
+  root?: string;
   /** Привязанный профиль API: новые чаты проекта наследуют его */
   profileId?: string;
   /** Акцент проекта (кастомизация «акцент проекта», opt-in) */

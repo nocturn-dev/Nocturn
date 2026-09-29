@@ -10,8 +10,10 @@ import {
 } from "react";
 import {
   chatExportWrite,
+  loadProjectSessions,
   loadSessions,
   pickSaveFile,
+  saveProjectSessions,
   saveSessions,
 } from "../api";
 import { useLang } from "../locales";
@@ -71,9 +73,17 @@ export function useSessions(opts: {
   archiveRetention: number;
   setUsageLog: Dispatch<SetStateAction<UsageEvent[]>>;
   streamingActiveRef: RefObject<boolean>;
+  /** Проекты с папками: сессии проекта хранятся в <root>/.nocturn */
+  projectsRef: RefObject<{ id: string; root?: string }[]>;
 }) {
-  const { addToast, autoArchive, archiveRetention, setUsageLog, streamingActiveRef } =
-    opts;
+  const {
+    addToast,
+    autoArchive,
+    archiveRetention,
+    setUsageLog,
+    streamingActiveRef,
+    projectsRef,
+  } = opts;
   const { t } = useLang();
 
   // Демо-чаты не создаём: список стартует пустым, задачи — только те,
@@ -97,94 +107,118 @@ export function useSessions(opts: {
   }, [activeSession]);
 
   /** Первичная загрузка истории: merge с локально созданными, авто-архив,
-   *  бэкфилл журнала использования. Вызывается один раз из старта App */
+   *  бэкфилл журнала использования. Вызывается один раз из старта App.
+   *  Партиции: глобальный sessions.json + <root>/.nocturn/sessions.json
+   *  каждого проекта с папкой (проектный файл переопределяет глобальный —
+   *  так мигрируют легаси-сессии проектов из глобала) */
   const loadHistory = useCallback(() => {
-    const historyReady = loadSessions()
-      .then((data) => {
-        if (data) {
-          try {
-            const raw: unknown = JSON.parse(data);
-            // Диск не доверяем: битые записи выкидываем, частичные чиним —
-            // дальше по коду инварианты (messages массив, content строка)
-            // считаются выполненными
-            const parsed = Array.isArray(raw)
-              ? raw.map(sanitizeSession).filter((s): s is Session => s !== null)
-              : [];
-            if (parsed.length > 0) {
-              // Авто-архив при старте: старые задачи (кроме закреплённых) — в архив
-              if (autoArchive) {
-                const cutoff = Date.now() - archiveRetention * 86_400_000;
-                const staleIds = new Set(
-                  parsed
-                    .filter(
-                      (s) =>
-                        !s.archived &&
-                        !s.pinned &&
-                        (s.updatedAt ?? s.createdAt) < cutoff,
-                    )
-                    .map((s) => s.id),
-                );
-                if (staleIds.size > 0) {
-                  setSessions((prev) => {
-                    // C4: сессии, созданные пользователем, пока история
-                    // читалась с диска, не должны затираться снапшотом
-                    const diskIds = new Set(parsed.map((s) => s.id));
-                    const localOnly = prev.filter((s) => !diskIds.has(s.id));
-                    return [
-                      ...localOnly,
-                      ...parsed.map((s) =>
-                        staleIds.has(s.id) ? { ...s, archived: true } : s,
-                      ),
-                    ];
-                  });
-                  addToast(t("main.archivedN", { n: staleIds.size }));
-                  return;
-                }
-              }
+    const historyReady = (async () => {
+      const globalData = await loadSessions().catch(() => null);
+      const parsed: Session[] = [];
+      if (globalData) {
+        try {
+          const raw: unknown = JSON.parse(globalData);
+          const parsedGlobal = Array.isArray(raw)
+            ? raw.map(sanitizeSession).filter((s): s is Session => s !== null)
+            : [];
+          parsed.push(...parsedGlobal);
+        } catch {
+          // повреждённый глобальный файл — начинаем глобальную часть с чистого
+        }
+      }
+      // Проектные партиции: файл проекта переопределяет глобальные записи
+      // с тем же id (миграция легаси: глобал → папка проекта при первом сейве)
+      for (const p of projectsRef.current) {
+        if (!p.root) continue;
+        const data = await loadProjectSessions(p.root).catch(() => null);
+        if (!data) continue;
+        try {
+          const raw: unknown = JSON.parse(data);
+          const parsedP = Array.isArray(raw)
+            ? raw.map(sanitizeSession).filter((s): s is Session => s !== null)
+            : [];
+          for (const s of parsedP) {
+            const idx = parsed.findIndex((x) => x.id === s.id);
+            if (idx >= 0) parsed[idx] = s;
+            else parsed.push(s);
+          }
+        } catch {
+          // повреждённая партиция проекта — пропускаем её
+        }
+      }
+      {
+        if (parsed.length > 0) {
+          // Авто-архив при старте: старые задачи (кроме закреплённых) — в архив
+          if (autoArchive) {
+            const cutoff = Date.now() - archiveRetention * 86_400_000;
+            const staleIds = new Set(
+              parsed
+                .filter(
+                  (s) =>
+                    !s.archived &&
+                    !s.pinned &&
+                    (s.updatedAt ?? s.createdAt) < cutoff,
+                )
+                .map((s) => s.id),
+            );
+            if (staleIds.size > 0) {
               setSessions((prev) => {
-                // C4: merge, не замена — за время холодного чтения диска
-                // (антивирус, медленный SSD) пользователь успевал создать
-                // задачу, и setSessions(parsed) терял её навсегда
+                // C4: сессии, созданные пользователем, пока история
+                // читалась с диска, не должны затираться снапшотом
                 const diskIds = new Set(parsed.map((s) => s.id));
                 const localOnly = prev.filter((s) => !diskIds.has(s.id));
-                return localOnly.length > 0 ? [...localOnly, ...parsed] : parsed;
+                return [
+                  ...localOnly,
+                  ...parsed.map((s) =>
+                    staleIds.has(s.id) ? { ...s, archived: true } : s,
+                  ),
+                ];
               });
-              // Бэкфилл журнала использования из старой истории
-              // (без дат сообщений — относим расход ко дню создания задачи)
-              if (
-                !localStorage.getItem("haloui-usage-backfill") &&
-                !localStorage.getItem("haloui-usage")
-              ) {
-                const backfill: UsageEvent[] = [];
-                for (const s of parsed) {
-                  const day = dayKeyLocal(new Date(s.createdAt));
-                  for (const m of s.messages) {
-                    if (m.role === "assistant" && m.usage) {
-                      backfill.push({
-                        day,
-                        prompt: m.usage.prompt,
-                        completion: m.usage.completion,
-                        model: m.model ?? "?",
-                        workedMs: m.workedMs ?? 0,
-                      });
-                    }
-                  }
+              addToast(t("main.archivedN", { n: staleIds.size }));
+              // Ранний выход из async-функции: пометка «история готова»
+              // обязана проставиться и здесь, иначе автосейв не включится
+              historyLoadedRef.current = true;
+              return;
+            }
+          }
+          setSessions((prev) => {
+            // C4: merge, не замена — за время холодного чтения диска
+            // (антивирус, медленный SSD) пользователь успевал создать
+            // задачу, и setSessions(parsed) терял её навсегда
+            const diskIds = new Set(parsed.map((s) => s.id));
+            const localOnly = prev.filter((s) => !diskIds.has(s.id));
+            return localOnly.length > 0 ? [...localOnly, ...parsed] : parsed;
+          });
+          // Бэкфилл журнала использования из старой истории
+          // (без дат сообщений — относим расход ко дню создания задачи)
+          if (
+            !localStorage.getItem("haloui-usage-backfill") &&
+            !localStorage.getItem("haloui-usage")
+          ) {
+            const backfill: UsageEvent[] = [];
+            for (const s of parsed) {
+              const day = dayKeyLocal(new Date(s.createdAt));
+              for (const m of s.messages) {
+                if (m.role === "assistant" && m.usage) {
+                  backfill.push({
+                    day,
+                    prompt: m.usage.prompt,
+                    completion: m.usage.completion,
+                    model: m.model ?? "?",
+                    workedMs: m.workedMs ?? 0,
+                  });
                 }
-                if (backfill.length > 0) setUsageLog(backfill);
-                localStorage.setItem("haloui-usage-backfill", "1");
               }
             }
-          } catch {
-            // повреждённая история — начинаем с чистого листа
+            if (backfill.length > 0) setUsageLog(backfill);
+            localStorage.setItem("haloui-usage-backfill", "1");
           }
         }
-      })
-      .catch(() => {})
-      .finally(() => {
-        historyLoadedRef.current = true;
-      });
+      }
+      historyLoadedRef.current = true;
+    })();
     return historyReady;
-  }, [autoArchive, archiveRetention, addToast, t, setUsageLog]);
+  }, [autoArchive, archiveRetention, addToast, t, setUsageLog, projectsRef]);
 
   // Автосохранение истории.
   // FIX [perf]: раньше трейлинг-дебаунс 400мс перезапускался каждой дельтой
@@ -208,9 +242,11 @@ export function useSessions(opts: {
     // мог лечь более старый снапшот
     const saveQueue = { p: Promise.resolve() };
     let failStreak = 0;
-    const enqueueSave = (payload: string) => {
+    // Танк (thunk): партиции строкифицируются в момент исполнения, а не
+    // постановки — между flush'ами стор продолжает меняться
+    const enqueueSave = (thunk: () => Promise<void>) => {
       saveQueue.p = saveQueue.p
-        .then(() => saveSessions(payload))
+        .then(thunk)
         .then(() => {
           failStreak = 0;
         })
@@ -222,11 +258,34 @@ export function useSessions(opts: {
           if (failStreak === 3) addToast(t("error.saveFailed"));
         });
     };
+    /** Партиции стора: сессии проектов с папкой — в <root>/.nocturn,
+     *  остальные — в глобальный sessions.json */
+    const enqueuePartitionedSave = () => {
+      const list = sessionsRef.current;
+      const globalList: Session[] = [];
+      const byRoot = new Map<string, Session[]>();
+      for (const s of list) {
+        const root = s.projectId
+          ? projectsRef.current.find((p) => p.id === s.projectId)?.root
+          : undefined;
+        if (root) {
+          const arr = byRoot.get(root) ?? [];
+          arr.push(s);
+          byRoot.set(root, arr);
+        } else {
+          globalList.push(s);
+        }
+      }
+      enqueueSave(() => saveSessions(JSON.stringify(globalList)));
+      for (const [root, items] of byRoot) {
+        enqueueSave(() => saveProjectSessions(root, JSON.stringify(items)));
+      }
+    };
     const flush = () => {
       if (!sessionsDirtyRef.current) return;
       if (streamingActiveRef.current) return;
       sessionsDirtyRef.current = false;
-      enqueueSave(JSON.stringify(sessionsRef.current));
+      enqueuePartitionedSave();
     };
     // A15: 10 с вместо 3 с — stringify всего стора (с base64-вложениями,
     // теперь сжатыми) на каждый тик давал периодические фризы; окно потери
@@ -241,7 +300,7 @@ export function useSessions(opts: {
       const wasStreaming = streamingActiveRef.current;
       streamingActiveRef.current = false;
       if (wasStreaming) {
-        enqueueSave(JSON.stringify(sessionsRef.current));
+        enqueuePartitionedSave();
       } else {
         flush();
       }

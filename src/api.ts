@@ -441,6 +441,19 @@ export async function saveSessions(data: string): Promise<void> {
   return invoke("save_sessions", { data });
 }
 
+/** Сессии проекта: читаются из <root>/.nocturn/sessions.json (ZCode-стиль —
+ *  данные проекта живут в папке проекта). Нет хранилища — null */
+export async function loadProjectSessions(root: string): Promise<string | null> {
+  if (!inTauri) return null;
+  return invoke<string | null>("load_project_sessions", { root });
+}
+
+/** Сессии проекта: атомарная запись в <root>/.nocturn/sessions.json */
+export async function saveProjectSessions(root: string, data: string): Promise<void> {
+  if (!inTauri) return;
+  return invoke("save_project_sessions", { root, data });
+}
+
 // ---------- M4.2: файловый менеджер ----------
 
 export interface FileEntry {

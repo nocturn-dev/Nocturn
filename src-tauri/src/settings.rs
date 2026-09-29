@@ -905,6 +905,10 @@ pub struct ProjectRec {
     /// Акцент проекта (кастомизация «акцент проекта»)
     #[serde(default)]
     pub accent: Option<String>,
+    /// Папка проекта: в <root>/.nocturn живут сессии проекта (фидбек 29.09,
+    /// ZCode-стиль). serde default — старые projects.json без root валидны
+    #[serde(default)]
+    pub root: Option<String>,
 }
 
 /// Хранилище проектов — отдельный файл projects.json

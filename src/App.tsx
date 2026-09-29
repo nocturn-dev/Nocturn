@@ -45,6 +45,7 @@ import {
   quickentryStatus,
   factoryReset,
   dictationTranscribe,
+  pickFolder,
 } from "./api";
 import { stopSpeaking, speak } from "./tts";
 import { VoiceWake, stripWakeWord, type WakeHandle } from "./voice/wake";
@@ -118,6 +119,12 @@ export default function App() {
   // ниже при старте). Демо-проекты не создаём: список стартует пустым
   // и наполняется только вручную («+» во вкладке «Проекты»)
   const [projects, setProjects] = useState<Project[]>([]);
+  // Зеркало проектов для хуков с реф-доступом (партиции сейва сессий
+  // в useSessions читают корни проектов асинхронно)
+  const projectsRef = useRef<Project[]>(projects);
+  useEffect(() => {
+    projectsRef.current = projects;
+  }, [projects]);
   const projectsLoadedRef = useRef(false);
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -400,6 +407,7 @@ export default function App() {
     archiveRetention,
     setUsageLog,
     streamingActiveRef,
+    projectsRef,
   });
 
   // Домен «Подключение к ИИ»: настройки, профили, шифрование, статус соединения
@@ -1677,11 +1685,29 @@ export default function App() {
     if (activeId === id) setActiveId(null);
   };
 
+  // Новый проект: сразу выбирается ПАПКА — в <root>/.nocturn будут жить
+  // сессии проекта (ZCode-стиль). Отмена выбора = проект без папки
+  // (папку можно назначить позже через контекст-меню проекта)
   const handleAddProject = (name: string) => {
-    setProjects((prev) => [
-      ...prev,
-      { id: `p-${crypto.randomUUID().slice(0, 8)}`, name },
-    ]);
+    void pickFolder().then((root) => {
+      setProjects((prev) => [
+        ...prev,
+        {
+          id: `p-${crypto.randomUUID().slice(0, 8)}`,
+          name,
+          ...(root ? { root } : {}),
+        },
+      ]);
+    });
+  };
+
+  // Назначить/сменить папку существующего проекта (контекст-меню проекта)
+  const handleProjectFolder = (id: string) => {
+    void pickFolder().then((root) => {
+      if (!root) return;
+      setProjects((prev) => prev.map((p) => (p.id === id ? { ...p, root } : p)));
+      addToast(t("menu.projectFolderSet", { s: root }));
+    });
   };
 
   const handleRenameProject = (id: string, name: string) => {
@@ -1930,6 +1956,12 @@ export default function App() {
           onSelect: () => handleProjectAccent(menuProject.id),
         },
         {
+          label: menuProject.root
+            ? t("menu.projectFolderChange")
+            : t("menu.projectFolder"),
+          onSelect: () => handleProjectFolder(menuProject.id),
+        },
+        {
           label: confirmingDelete ? t("menu.deleteConfirm") : t("menu.delete"),
           danger: true,
           keepOpen: !confirmingDelete,
@@ -2100,6 +2132,7 @@ export default function App() {
         onDeleteSession={handleDelete}
         onArchiveSession={handleArchiveSession}
         onTagSession={handleTagSession}
+        onTogglePin={handleTogglePin}
         onRenameCommit={handleRenameCommit}
         onRenameCancel={() => setRenamingId(null)}
         onAddProject={handleAddProject}
