@@ -1004,6 +1004,48 @@ pub fn save_sessions(app: tauri::AppHandle, data: String) -> Result<(), String> 
     crate::fsutil::atomic_write(&path, data.as_bytes())
 }
 
+/// Хранилище проекта в его папке: <root>/.nocturn. root — выбранная
+/// пользователем папка проекта; sensitive-path гард закрывает системные
+/// локации. create=false (чтение) не создаёт папку на диске
+fn project_store_dir(root: &str, create: bool) -> Result<std::path::PathBuf, String> {
+    let root = root.trim();
+    if root.is_empty() {
+        return Err("project root is empty".into());
+    }
+    crate::settings::rejects_sensitive_path(root)?;
+    let dir = std::path::Path::new(root).join(".nocturn");
+    if create {
+        fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    } else if !dir.is_dir() {
+        return Err("project store does not exist".into());
+    }
+    Ok(dir)
+}
+
+/// Сессии проекта: читаются из <root>/.nocturn/sessions.json (ZCode-стиль —
+/// данные проекта живут в папке проекта). Нет файла — None
+#[tauri::command(async)]
+pub fn load_project_sessions(root: String) -> Result<Option<String>, String> {
+    let dir = match project_store_dir(&root, false) {
+        Ok(d) => d,
+        Err(_) => return Ok(None), // нет папки — нет и хранилища
+    };
+    let path = dir.join("sessions.json");
+    if !path.exists() {
+        return Ok(None);
+    }
+    fs::read_to_string(&path)
+        .map(Some)
+        .map_err(|e| e.to_string())
+}
+
+/// Сессии проекта: атомарная запись в <root>/.nocturn/sessions.json
+#[tauri::command(async)]
+pub fn save_project_sessions(root: String, data: String) -> Result<(), String> {
+    let dir = project_store_dir(&root, true)?;
+    crate::fsutil::atomic_write(&dir.join("sessions.json"), data.as_bytes())
+}
+
 /// Обои чата: разрешить вебвью читать выбранное изображение через
 /// asset-протокол (по образцу ambient_video_register)
 // (async): Path::exists() на отвалившемся сетевом диске висит до SMB-таймаута —

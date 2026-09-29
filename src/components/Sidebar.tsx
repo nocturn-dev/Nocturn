@@ -48,6 +48,8 @@ interface SidebarProps {
   onDeleteSession: (id: string) => void;
   onArchiveSession: (id: string, archived: boolean) => void;
   onTagSession: (id: string, tag?: string) => void;
+  /** Закрепить/открепить чат (быстрая кнопка на строке; pinned — сверху) */
+  onTogglePin: (id: string) => void;
   onRenameCommit: (id: string, title: string) => void;
   onRenameCancel: () => void;
   onSelectProject: (id: string | null) => void;
@@ -91,6 +93,7 @@ export default function Sidebar({
   onDeleteSession,
   onArchiveSession,
   onTagSession,
+  onTogglePin,
   onRenameCommit,
   onRenameCancel,
   onSelectProject,
@@ -225,8 +228,25 @@ export default function Sidebar({
           <span className="shrink-0 text-[11px] tabular-nums text-halo-muted/50 group-hover/row:hidden">
             {relTime(s.createdAt, lang)}
           </span>
-          {/* Быстрые действия — только на ховере */}
+          {/* Быстрые действия — только на ховере. Закрепление — первое:
+              pinned-строки всплывают наверх списка (и в проектах, и в задачах) */}
           <span className="hidden shrink-0 items-center gap-0.5 group-hover/row:flex">
+            <span
+              role="button"
+              tabIndex={0}
+              onClick={(e) => {
+                e.stopPropagation();
+                onTogglePin(s.id);
+              }}
+              title={s.pinned ? t("menu.unpin") : t("menu.pin")}
+              className={`rounded p-0.5 transition-colors hover:text-halo-text ${
+                s.pinned
+                  ? "text-halo-accent"
+                  : "text-halo-muted opacity-0 group-hover/row:opacity-100"
+              }`}
+            >
+              <PinIcon />
+            </span>
             {s.archived ? (
               <span
                 role="button"

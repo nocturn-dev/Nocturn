@@ -228,6 +228,8 @@ pub fn run() {
             chat::chat_abort,
             chat::detect_ollama,
             tooling::load_sessions,
+            tooling::load_project_sessions,
+            tooling::save_project_sessions,
             tooling::save_sessions,
             tooling::ambient_video_register,
             tooling::run_tool,
