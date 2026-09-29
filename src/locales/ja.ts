@@ -80,6 +80,9 @@ export const ja = {
     "sidebar.expand": "サイドバーを表示",
     // Заметки (vault)
     "projects.add": "新規プロジェクト",
+    "projects.addProject": "新規プロジェクト",
+    "projects.addFolder": "フォルダを開く…",
+    "projects.addFile": "ファイルを開く…",
     "projects.namePh": "プロジェクト名",
     "notes.section": "ノート",
     "notes.new": "新規ノート",

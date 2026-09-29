@@ -78,6 +78,9 @@ export const en = {
     "sidebar.expand": "Show sidebar",
     // Notes (vault)
     "projects.add": "New project",
+    "projects.addProject": "New project",
+    "projects.addFolder": "Open folder…",
+    "projects.addFile": "Open file…",
     "projects.namePh": "Project name",
     "notes.section": "Notes",
     "notes.new": "New note",

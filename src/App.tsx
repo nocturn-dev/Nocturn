@@ -1685,17 +1685,23 @@ export default function App() {
     if (activeId === id) setActiveId(null);
   };
 
-  // Новый проект: сразу выбирается ПАПКА — в <root>/.nocturn будут жить
-  // сессии проекта (ZCode-стиль). Отмена выбора = проект без папки
-  // (папку можно назначить позже через контекст-меню проекта)
-  const handleAddProject = (name: string) => {
-    void pickFolder().then((root) => {
+  // Новый проект: root приходит из вариантов «+» (папка/файл); без root —
+  // открываем выбор папки. В <root>/.nocturn будут жить сессии проекта
+  const handleAddProject = (name: string, root?: string) => {
+    if (root) {
+      setProjects((prev) => [
+        ...prev,
+        { id: `p-${crypto.randomUUID().slice(0, 8)}`, name, root },
+      ]);
+      return;
+    }
+    void pickFolder().then((picked) => {
       setProjects((prev) => [
         ...prev,
         {
           id: `p-${crypto.randomUUID().slice(0, 8)}`,
           name,
-          ...(root ? { root } : {}),
+          ...(picked ? { root: picked } : {}),
         },
       ]);
     });

@@ -488,6 +488,15 @@ export async function ambientRegisterVideo(path: string): Promise<void> {
   return invoke("ambient_video_register", { path });
 }
 
+/** Диалог выбора произвольного файла (открытие файла как проекта).
+ *  null — пользователь отменил */
+export async function pickAnyFile(): Promise<string | null> {
+  if (!inTauri) return null;
+  const { open } = await import("@tauri-apps/plugin-dialog");
+  const picked = await open({ multiple: false });
+  return typeof picked === "string" ? picked : null;
+}
+
 export async function pickFolder(): Promise<string | null> {
   if (!inTauri) {
     throw new Error("Выбор папки работает в нативном приложении (npm run tauri dev)");
