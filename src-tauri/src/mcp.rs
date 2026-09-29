@@ -18,7 +18,7 @@ use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// Описание MCP-сервера в конфиге (mcp.json в папке настроек).
 /// Формат совместим с claude_desktop_config.json по полям command/args/env.
@@ -89,6 +89,47 @@ const WRITE_TIMEOUT: Duration = Duration::from_secs(10);
 /// Карта ожидающих JSON-RPC запросов: id → одноразовый канал ответа
 type PendingMap = Arc<Mutex<HashMap<u64, Sender<Result<Value, String>>>>>;
 
+/// Транспортная ошибка (процесс умер, EPIPE, сеть упала) — пул может
+/// переподключиться и повторить вызов. Ошибки самих инструментов (isError,
+/// таймаут долгого метода) транспортом НЕ считаются: повтор мог бы задвоить
+/// побочные эффекты вызова
+pub fn is_transport_err(e: &str) -> bool {
+    e.starts_with("mcp transport:")
+}
+
+/// Моменты последней транспортной ошибки по серверам: backoff против спама
+/// перезапусками упавшего сервера (одна попытка реконнекта в 5 с)
+static TRANSPORT_FAILS: std::sync::LazyLock<Mutex<HashMap<String, Instant>>> =
+    std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
+
+const RECONNECT_BACKOFF: Duration = Duration::from_secs(5);
+
+/// Заметить транспортную ошибку сервера (вызывается из retry-пути пула)
+pub fn note_transport_fail(server: &str) {
+    if let Ok(mut map) = TRANSPORT_FAILS.lock() {
+        map.insert(server.to_string(), Instant::now());
+    }
+}
+
+/// Backoff: недавно уже пробовали переподключиться — сейчас не стоит
+fn in_reconnect_backoff(server: &str) -> bool {
+    TRANSPORT_FAILS
+        .lock()
+        .map(|m| {
+            m.get(server)
+                .map(|t| t.elapsed() < RECONNECT_BACKOFF)
+                .unwrap_or(false)
+        })
+        .unwrap_or(false)
+}
+
+/// Успешное соединение сбрасывает backoff сервера
+fn clear_transport_fail(server: &str) {
+    if let Ok(mut map) = TRANSPORT_FAILS.lock() {
+        map.remove(server);
+    }
+}
+
 /// Живое соединение с одним MCP-сервером.
 pub struct McpConnection {
     pub server: String,
@@ -150,6 +191,16 @@ fn spawn_via_cmd(cfg: &McpServerConfig) -> std::io::Result<Child> {
 }
 
 impl McpConnection {
+    /// Мёртв ли серверный процесс (крэш/выход). try_wait — неблокирующий
+    fn is_dead(&self) -> bool {
+        self.child
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .try_wait()
+            .map(|s| s.is_some())
+            .unwrap_or(true)
+    }
+
     /// Запуск процесса сервера + рукопожатие.
     /// Windows: CreateProcess не исполняет .cmd/.bat (npx, uvx — это .cmd),
     /// а канонические MCP-конфиги пишут "command": "npx" — при фейле прямого
@@ -338,6 +389,10 @@ impl McpConnection {
         params: Value,
         timeout: Duration,
     ) -> Result<Value, String> {
+        // Мёртвый процесс: честная транспортная ошибка сразу, а не таймаут
+        if self.is_dead() {
+            return Err("mcp transport: server process is not alive".into());
+        }
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let (tx, rx) = mpsc::channel();
         self.pending.lock().unwrap_or_else(|p| p.into_inner()).insert(id, tx);
@@ -349,13 +404,15 @@ impl McpConnection {
             "params": params
         })) {
             self.pending.lock().unwrap_or_else(|p| p.into_inner()).remove(&id);
-            return Err(format!("write failed: {e}"));
+            return Err(format!("mcp transport: write failed: {e}"));
         }
 
         match rx.recv_timeout(timeout) {
             Ok(res) => res,
             Err(_) => {
                 self.pending.lock().unwrap_or_else(|p| p.into_inner()).remove(&id);
+                // Таймаут ответа БЕЗ префикса: сервер жив, но метод долгий —
+                // повтор вызова мог бы задвоить побочные эффекты
                 Err(format!(
                     "timeout after {}s (server did not respond to {method})",
                     timeout.as_secs()
@@ -385,13 +442,13 @@ impl McpConnection {
             let _ = tx.send(res.map_err(|e| e.to_string()));
         });
         match rx.recv_timeout(WRITE_TIMEOUT) {
-            Ok(res) => res,
+            Ok(res) => res.map_err(|e| format!("mcp transport: write failed: {e}")),
             Err(_) => {
                 // Соединение мертво: гасим процесс — заблокированный писатель
                 // получит EPIPE и поток завершится, а не утечёт навсегда
                 self.kill();
                 Err(format!(
-                    "write to server stdin timed out after {}s — server stopped reading, connection killed",
+                    "mcp transport: write to server stdin timed out after {}s — server stopped reading, connection killed",
                     WRITE_TIMEOUT.as_secs()
                 ))
             }
@@ -639,7 +696,7 @@ impl RemoteConnection {
         let resp = tokio::time::timeout(timeout, req.send())
             .await
             .map_err(|_| format!("timeout after {}s (remote MCP did not respond)", timeout.as_secs()))?
-            .map_err(|e| format!("remote MCP request failed: {e}"))?;
+            .map_err(|e| format!("mcp transport: remote MCP request failed: {e}"))?;
         if let Some(sid) = resp
             .headers()
             .get("mcp-session-id")
@@ -651,7 +708,7 @@ impl RemoteConnection {
         let text = resp
             .text()
             .await
-            .map_err(|e| format!("failed to read remote MCP response: {e}"))?;
+            .map_err(|e| format!("mcp transport: failed to read remote MCP response: {e}"))?;
         if !status.is_success() {
             // 202 Accepted на уведомления — не ошибка (некоторые серверы шлют 202)
             if status.as_u16() == 202 {
@@ -867,8 +924,12 @@ pub fn mcp_save_servers(
 }
 
 /// Подключить сервер: рукопожатие + tools/list. Повторный вызов для живого
-/// соединения просто возвращает его инструменты.
-/// Тело — в spawn_blocking: рукопожатие держит воркер десятки секунд.
+/// соединения просто возвращает его инструменты. Тело — в spawn_blocking:
+/// рукопожатие держит воркер десятки секунд.
+/// ЕДИНАЯ точка подключения для всех путей (ручной connect, автоконнект,
+/// connect-on-demand из вызова инстру). Сервер не подключён — подключаем;
+/// уже подключён — возвращаем живой хендл; recently failed — честный отказ
+/// (backoff против спама перезапусками упавшего сервера)
 #[tauri::command(async)]
 pub async fn mcp_connect(
     app: tauri::AppHandle,
@@ -876,8 +937,30 @@ pub async fn mcp_connect(
     name: String,
 ) -> Result<Vec<McpToolInfo>, String> {
     let registry = registry.0.clone();
-    // Транспорт решаем до dispatch: удалённый сервер ходит async напрямую,
-    // локальный процесс — в spawn_blocking (рукопожатие до десятков секунд)
+    ensure_connected(app, registry, name).await.map(|h| h.tools_clone())
+}
+
+pub async fn ensure_connected(
+    app: tauri::AppHandle,
+    registry: Arc<Mutex<HashMap<String, Arc<McpHandle>>>>,
+    name: String,
+) -> Result<Arc<McpHandle>, String> {
+    // Уже подключён — живой хендл
+    if let Some(existing) = registry
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .get(&name)
+    {
+        return Ok(Arc::clone(existing));
+    }
+    // Backoff: упавший сервер не рестартуем чаще раза в 5 с
+    if in_reconnect_backoff(&name) {
+        return Err(format!(
+            "mcp transport: server \"{name}\" recently failed — retry in a few seconds"
+        ));
+    }
+    note_transport_fail(&name);
+
     let cfg = load_servers(&app)?
         .into_iter()
         .find(|s| s.name == name)
@@ -886,59 +969,33 @@ pub async fn mcp_connect(
         return Err(format!("MCP server \"{name}\" is disabled"));
     }
     if is_remote(&cfg) {
-        if let Some(existing) = registry
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .get(&name)
-        {
-            return Ok(existing.tools_clone());
-        }
         let handle = RemoteConnection::connect(&cfg).await?;
         let mut map = registry.lock().unwrap_or_else(|p| p.into_inner());
+        // Двойная проверка: параллельный коннект мог вставить первым —
+        // лишний хендл гасим, чужой возвращаем
         if let Some(existing) = map.get(&name) {
-            return Ok(existing.tools_clone());
+            handle.kill();
+            return Ok(Arc::clone(existing));
         }
-        let tools = handle.tools_clone();
-        map.insert(name, handle);
-        return Ok(tools);
+        clear_transport_fail(&name);
+        map.insert(name.clone(), Arc::clone(&handle));
+        return Ok(handle);
     }
-    tauri::async_runtime::spawn_blocking(move || mcp_connect_impl(app, registry, name))
-        .await
-        .map_err(|e| format!("join error: {e}"))?
-}
-
-fn mcp_connect_impl(
-    app: tauri::AppHandle,
-    registry: Arc<Mutex<HashMap<String, Arc<McpHandle>>>>,
-    name: String,
-) -> Result<Vec<McpToolInfo>, String> {
-    if let Some(conn) = registry
-        .lock()
-        .unwrap_or_else(|p| p.into_inner())
-        .get(&name)
-    {
-        return Ok(conn.tools_clone());
-    }
-    let cfg = load_servers(&app)?
-        .into_iter()
-        .find(|s| s.name == name)
-        .ok_or_else(|| format!("MCP server \"{name}\" is not configured"))?;
-    if !cfg.enabled {
-        return Err(format!("MCP server \"{name}\" is disabled"));
-    }
-    let conn = McpConnection::connect(&cfg)?;
-    let handle = Arc::new(McpHandle::Stdio(conn));
+    // stdio: рукопожатие до десятков секунд — spawn_blocking
+    let handle =
+        tauri::async_runtime::spawn_blocking(move || McpConnection::connect(&cfg))
+            .await
+            .map_err(|e| format!("join error: {e}"))?
+            .map(McpHandle::Stdio)
+            .map(Arc::new)?;
     let mut map = registry.lock().unwrap_or_else(|p| p.into_inner());
-    // Двойная проверка: параллельный mcp_autoconnect/mcp_connect мог вставить
-    // соединение, пока мы соединялись. Лишний процесс гасим, чужой возвращаем —
-    // иначе второй insert перезаписал бы живое соединение
     if let Some(existing) = map.get(&name) {
         handle.kill();
-        return Ok(existing.tools_clone());
+        return Ok(Arc::clone(existing));
     }
-    let tools = handle.tools_clone();
-    map.insert(name, handle);
-    Ok(tools)
+    clear_transport_fail(&name);
+    map.insert(name.clone(), Arc::clone(&handle));
+    Ok(handle)
 }
 
 /// Отключить сервер и завершить его процесс
