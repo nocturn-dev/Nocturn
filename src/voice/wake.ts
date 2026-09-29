@@ -94,6 +94,8 @@ export class VoiceWake {
   private suspended = false;
 
   private ctx: AudioContext | null = null;
+  /** Фактическая частота сэмплирования контекста (может отличаться от 16 к) */
+  private ctxRate = SAMPLE_RATE;
   private stream: MediaStream | null = null;
   private node: ScriptProcessorNode | null = null;
 
@@ -207,9 +209,13 @@ export class VoiceWake {
         return;
       }
       const ctx = new AudioContext({ sampleRate: SAMPLE_RATE });
+      // Запрошенные 16 кГц драйвер/устройство могут подменить (48 к и пр.) —
+      // фиксируем фактическую частоту и ресемпллируем чанки вручную
+      this.ctxRate = ctx.sampleRate;
       const src = ctx.createMediaStreamSource(stream);
       const node = ctx.createScriptProcessor(4096, 1, 1);
-      node.onaudioprocess = (e) => this.onAudio(new Float32Array(e.inputBuffer.getChannelData(0)));
+      node.onaudioprocess = (e) =>
+        this.onAudio(new Float32Array(e.inputBuffer.getChannelData(0)));
       src.connect(node);
       const mute = ctx.createGain();
       mute.gain.value = 0;
@@ -255,7 +261,10 @@ export class VoiceWake {
     this.setState("suspended");
   }
 
-  private onAudio(chunk: F32): void {
+  private onAudio(rawChunk: F32): void {
+    // Фактическая частота контекста может не совпасть с 16 кГц — приводим
+    const chunk =
+      this.ctxRate === SAMPLE_RATE ? rawChunk : resampleTo16k(rawChunk, this.ctxRate);
     if (this.stopped || this.state === "suspended" || micBusy()) return;
 
     // Pre-roll копится всегда
@@ -291,28 +300,32 @@ export class VoiceWake {
 
     this.melStream.push(chunk);
     this.melStreamLen += chunk.length;
-    if (this.melStreamLen < MEL_WIN) return;
-    // Склейка буфера: берём первое окно 1792, остаток (включая 512-хвост
-    // перекрытия — контекст следующего блока, мел без центр-паддинга:
-    // n_fft 512, hop 160) ждёт следующего захода.
-    // В инференс уходит int16-масштаб: [-1;1] → ±32767
-    const all = new Float32Array(this.melStreamLen);
-    let off = 0;
-    for (const piece of this.melStream) {
-      all.set(piece, off);
-      off += piece.length;
+    // Дренируем ВСЕ полные окна, а не одно на чанк: аудиопроцессор отдаёт
+    // 4096 сэмплов раз в 256 мс, блок потребляет 1280 — одиночная обработка
+    // копила отставание без предела (детектор «молчал» и запаздывал минутами)
+    while (this.melStreamLen >= MEL_WIN) {
+      // Склейка буфера: берём первое окно 1792, остаток (включая 512-хвост
+      // перекрытия — контекст следующего блока, мел без центр-паддинга:
+      // n_fft 512, hop 160) ждёт следующего захода.
+      // В инференс уходит int16-масштаб: [-1;1] → ±32767
+      const all = new Float32Array(this.melStreamLen);
+      let off = 0;
+      for (const piece of this.melStream) {
+        all.set(piece, off);
+        off += piece.length;
+      }
+      const win = new Float32Array(MEL_WIN);
+      for (let i = 0; i < MEL_WIN; i++) {
+        win[i] = (all[i] ?? 0) * 32767;
+      }
+      const rest = all.subarray(HOP);
+      this.melStream = [Float32Array.from(rest)];
+      this.melStreamLen = rest.length;
+      // Сериализация: чанки приходят чаще, чем выполняется WASM
+      this.chain = this.chain
+        .then(() => this.processBlock(win))
+        .catch(() => {});
     }
-    const win = new Float32Array(MEL_WIN);
-    for (let i = 0; i < MEL_WIN; i++) {
-      win[i] = (all[i] ?? 0) * 32767;
-    }
-    const rest = all.subarray(HOP);
-    this.melStream = [Float32Array.from(rest)];
-    this.melStreamLen = rest.length;
-    // Сериализация: чанки приходят чаще, чем выполняется WASM
-    this.chain = this.chain
-      .then(() => this.processBlock(win))
-      .catch(() => {});
   }
 
   private async processBlock(win: F32): Promise<void> {
@@ -393,6 +406,22 @@ function rmsOf(chunk: F32): number {
   let sum = 0;
   for (let i = 0; i < chunk.length; i++) sum += (chunk[i] ?? 0) * (chunk[i] ?? 0);
   return Math.sqrt(sum / Math.max(1, chunk.length));
+}
+
+/** Линейный ресемпл чанка к 16 кГц: на случай, если AudioContext открылся
+ *  на иной частоте (драйвер/устройство) — модели обучены строго на 16 кГц */
+function resampleTo16k(input: F32, from: number): F32 {
+  const outLen = Math.max(1, Math.round((input.length * SAMPLE_RATE) / from));
+  const out = new Float32Array(outLen);
+  for (let i = 0; i < outLen; i++) {
+    const src = (i * from) / SAMPLE_RATE;
+    const i0 = Math.floor(src);
+    const frac = src - i0;
+    const a = input[i0] ?? 0;
+    const b = input[i0 + 1] ?? a;
+    out[i] = a + (b - a) * frac;
+  }
+  return out;
 }
 
 /** Срезать активационную фразу с начала транскрипта («Hey Jarvis, …» → «…»).
