@@ -474,32 +474,57 @@ function fullClaudeCss(a: Appearance): string {
   const monoFont = a.fullClaudeMonoFont
     ? `${a.fullClaudeMonoFont}, ui-monospace, Menlo, Consolas, "Liberation Mono", monospace`
     : 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace';
+  // Чат-ответы серифом — фирменный приём Claude (user sans / assistant serif,
+  // ср. data-font-атрибуты claude.ai). Тумблер темы возвращает системный sans
+  const serifChat = (a.fullClaudeSerif ?? true)
+    ? [
+        "html.full-claude .markdown {",
+        '  font-family: Georgia, Charter, "Iowan Old Style", "Palatino Linotype", serif;',
+        "  line-height: 1.7;",
+        "}",
+      ]
+    : [];
   return [
-    ":root.full-claude {",
-    "  --halo-bg: #1a1a1a !important;",
-    "  --halo-deep: #212121 !important;",
-    "  --halo-surface: #1f1f23 !important;",
-    "  --halo-raised: #26262b !important;",
-    "  --halo-line: rgba(255, 255, 255, 0.07) !important;",
-    "  --halo-text: #e3e3e3 !important;",
-    "  --halo-muted: #a19b95 !important;",
-    "  --halo-hover: rgba(255, 255, 255, 0.05) !important;",
-    "  --halo-hover-strong: rgba(255, 255, 255, 0.08) !important;",
-    "  --halo-code-bg: #1f1f23 !important;",
-    "  --halo-code-text: #e3e3e3 !important;",
-    "  --halo-accent: #d97757 !important;",
-    "  --halo-accent-deep: #bd5d3a !important;",
-    "  --halo-on-accent: #ffffff !important;",
-    "  --halo-blur: 14px !important;",
-    `  --halo-radius-scale: ${r} !important;`,
-    "  --halo-msg-scale: 1 !important;",
-    "  --halo-density: 1 !important;",
-    "  --halo-content-width: 48rem !important;",
-    `  --halo-font-ui: ${uiFont} !important;`,
-    `  --halo-font-mono: ${monoFont} !important;`,
-    "  color-scheme: dark;",
-    "}",
-  ].join("\n");
+    [
+      ":root.full-claude {",
+      "  --halo-bg: #1a1a1a !important;",
+      "  --halo-deep: #212121 !important;",
+      "  --halo-surface: #1f1f23 !important;",
+      "  --halo-raised: #26262b !important;",
+      "  --halo-line: rgba(255, 255, 255, 0.07) !important;",
+      "  --halo-text: #e3e3e3 !important;",
+      "  --halo-muted: #a19b95 !important;",
+      "  --halo-hover: rgba(255, 255, 255, 0.05) !important;",
+      "  --halo-hover-strong: rgba(255, 255, 255, 0.08) !important;",
+      "  --halo-code-bg: #1f1f23 !important;",
+      "  --halo-code-text: #e3e3e3 !important;",
+      "  --halo-accent: #d97757 !important;",
+      "  --halo-accent-deep: #bd5d3a !important;",
+      "  --halo-on-accent: #ffffff !important;",
+      "  --halo-blur: 14px !important;",
+      `  --halo-radius-scale: ${r} !important;`,
+      "  --halo-msg-scale: 1 !important;",
+      "  --halo-density: 1 !important;",
+      "  --halo-content-width: 48rem !important;",
+      `  --halo-font-ui: ${uiFont} !important;`,
+      `  --halo-font-mono: ${monoFont} !important;`,
+      "  color-scheme: dark;",
+      "}",
+    ],
+    ...serifChat,
+    // Inline-код: розовато-красный текст на тёмной подложке-чипе (ТЗ);
+    // блоки кода — графит с тонкой рамкой и скруглением 8px по ТЗ,
+    // базовое 0.75rem (12px) для карточек Claude слишком круглое
+    [
+      "html.full-claude .markdown code:not(pre code) {",
+      "  background: rgba(255, 255, 255, 0.06);",
+      "  color: #ec8f85;",
+      "}",
+      "html.full-claude .markdown pre {",
+      "  border-radius: 0.5rem;",
+      "}",
+    ],
+  ].flat().join("\n");
 }
 
 /** Применяем кастомизацию к <html>; theme нужен дляrem-масштаба (не конфликтует) */
