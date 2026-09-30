@@ -650,6 +650,29 @@ html.motion-reduced body::before {
   font-family: var(--font-mono);
 }
 
+/* ---------- Claude-чтение (кастомизация, «Чтение»): глобальные тумблеры.
+   Классы на html ставит applyAppearance и только вне жёстких тем —
+   у Full Claude свои одноимённые настройки в своём теге ----------
+   Serif-ответы: Georgia-стек + межстрочный, как у Claude (user sans /
+   assistant serif) */
+html.serif-chat .markdown {
+  font-family: Georgia, Charter, "Iowan Old Style", "Palatino Linotype", serif;
+  line-height: 1.7;
+}
+/* Inline-код как у Claude: чип 5-12% белого/чёрного + красноватый ink.
+   Ink из живых токенов: dark = cds-red-200 #f4abab, light = cds-red-600
+   #8e2626; нейтральная подложка — чтобы жило на любой палитре */
+html.inline-code-claude .markdown code:not(pre code) {
+  background: rgba(255, 255, 255, 0.07);
+  border: 0.5px solid rgba(255, 255, 255, 0.18);
+  color: #f4abab;
+}
+html.light.inline-code-claude .markdown code:not(pre code) {
+  background: rgba(0, 0, 0, 0.05);
+  border: 0.5px solid rgba(0, 0, 0, 0.12);
+  color: #8e2626;
+}
+
 /* ---------- Плотность и ширина ленты сообщений (кастомизация).
    Дефолты = прежний дизайн: gap-5 (1.25rem) и max-w-3xl (48rem).
    Правила без слоя — осознанно сильнее Tailwind-утилит на контейнере. ---------- */

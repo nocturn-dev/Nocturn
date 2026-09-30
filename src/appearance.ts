@@ -72,6 +72,14 @@ export interface Appearance {
   fullClaudeUiFont: string;
   /** Моно внутри темы (пусто = системный стек) */
   fullClaudeMonoFont: string;
+  /** Шрифт ответов серифом (Georgia-стек, как у Claude) — глобальный тумблер;
+   *  в жёстких темах не действует (у Full Claude свой fullClaudeSerif) */
+  serifChat?: boolean;
+  /** Inline-код в стиле Claude: тёплый чип с красноватым ink (red-200/600) */
+  inlineCodeClaude?: boolean;
+  /** Цвет знака N (hex); пусто — фирменный градиент циан→синий.
+   *  Вне палитрового каскада: действует и в жёстких темах (как data-mark) */
+  markColor?: string;
   /** Motion/Reduced: принудительно заглушить анимации интерфейса
    *  (поверх системной prefers-reduced-motion) */
   reduceMotion?: boolean;
@@ -153,6 +161,9 @@ export const DEFAULT_APPEARANCE: Appearance = {
   fullClaudeRadius: 1,
   fullClaudeUiFont: "",
   fullClaudeMonoFont: "",
+  serifChat: false,
+  inlineCodeClaude: false,
+  markColor: "",
   /** Motion/Reduced: принудительно заглушить анимации интерфейса
    *  (поверх системной prefers-reduced-motion) */
   reduceMotion: false,
@@ -237,6 +248,10 @@ export function loadAppearance(): Appearance {
       fullClaudeUiFont: typeof p.fullClaudeUiFont === "string" ? p.fullClaudeUiFont : "",
       fullClaudeMonoFont:
         typeof p.fullClaudeMonoFont === "string" ? p.fullClaudeMonoFont : "",
+      serifChat: p.serifChat ?? DEFAULT_APPEARANCE.serifChat,
+      inlineCodeClaude:
+        p.inlineCodeClaude ?? DEFAULT_APPEARANCE.inlineCodeClaude,
+      markColor: typeof p.markColor === "string" ? p.markColor : "",
       ambient: p.ambient ?? DEFAULT_APPEARANCE.ambient,
       ambientScene: isAmbientScene(p.ambientScene) ? p.ambientScene : "glow",
       ambientVideo: typeof p.ambientVideo === "string" ? p.ambientVideo : "",
@@ -640,6 +655,28 @@ export function applyAppearance(a: Appearance) {
   }
   // Вариант знака: NocturnMark переключается через CSS
   root.dataset.mark = a.markStyle;
+  // Цвет знака N: вне палитрового каскада — действует во всех темах
+  // (как data-mark). Пусто = фирменный градиент из дефолтов компонента
+  if (a.markColor) {
+    const rgb = parseHexColor(a.markColor);
+    if (rgb) {
+      root.style.setProperty(
+        "--halo-mark-from",
+        rgbCss(mixRgb(rgb, [255, 255, 255] as Rgb, 0.35)),
+      );
+      root.style.setProperty("--halo-mark-to", a.markColor);
+    }
+  } else {
+    root.style.removeProperty("--halo-mark-from");
+    root.style.removeProperty("--halo-mark-to");
+  }
+  // Claude-чтение (глобально): serif-ответы и inline-код как у Claude.
+  // Классы исключают жёсткие темы — у Full Claude свои одноимённые тумблеры
+  root.classList.toggle("serif-chat", (a.serifChat ?? false) && !a.fullClaude && !a.official);
+  root.classList.toggle(
+    "inline-code-claude",
+    (a.inlineCodeClaude ?? false) && !a.fullClaude && !a.official,
+  );
   root.style.fontSize = `${a.scale}%`;
   root.classList.toggle("sidebar-glass", a.sidebarGlass);
   if (a.style === "claude") root.removeAttribute("data-style");

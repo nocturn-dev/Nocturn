@@ -184,7 +184,9 @@ function RunRound({
       )}
 
       {round.content && (
-        <div className="markdown mt-2 text-sm leading-relaxed text-halo-text">
+        /* Мягкая подложка под текстом раунда: на «голом» фоне ленты текст
+           сливался с ambient/шагами (фидбек владельца) */
+        <div className="markdown mt-2 rounded-lg border border-halo-line/40 bg-halo-surface/40 px-3.5 py-2.5 text-sm leading-relaxed text-halo-text">
           <ReactMarkdown
             remarkPlugins={MD_PLUGINS}
             rehypePlugins={

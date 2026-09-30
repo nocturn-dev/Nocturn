@@ -45,6 +45,10 @@ const SHELL_LABELS: Record<"powershell" | "cmd" | "gitbash", string> = {
   gitbash: "Git Bash",
 };
 
+/** Пресеты цвета знака N (Кастомизация → Брендинг); пусто = фирменный
+ *  градиент. Терракота — фирменный акцент, ivory — монохромный вариант */
+const MARK_COLOR_PRESETS = ["#d97757", "#f0efec", "#38c7ee", "#a78bfa", "#4ade80", "#f4abab"];
+
 export function ThemeSection({
   theme,
   glass,
@@ -1178,6 +1182,23 @@ export function ThemeSection({
             onChange={(v) => onAppearanceChange({ ...appearance, showMsgTime: v })}
           />
         </div>
+        {/* Claude-чтение: фичи из Full Claude, портированные в глобальные */}
+        <div className="mt-2 border-t border-halo-line pt-1">
+          <ToggleRow
+            label={t("themes.serifChat")}
+            desc={t("themes.serifChatHint")}
+            on={appearance.serifChat ?? false}
+            onChange={(v) => onAppearanceChange({ ...appearance, serifChat: v })}
+          />
+        </div>
+        <div className="mt-1">
+          <ToggleRow
+            label={t("themes.inlineClaude")}
+            desc={t("themes.inlineClaudeHint")}
+            on={appearance.inlineCodeClaude ?? false}
+            onChange={(v) => onAppearanceChange({ ...appearance, inlineCodeClaude: v })}
+          />
+        </div>
       </div>
 
         </>
@@ -1353,10 +1374,9 @@ export function ThemeSection({
       </>
       )}
 
-      {!hardTheme && (
-        <>
       <p className="mb-2 mt-6 text-[0.625rem] font-semibold uppercase tracking-[0.14em] text-halo-muted/60">{t("themes.gBranding")}</p>
-      {/* Знак приложения: новая широкая N или классическая */}
+      {/* Знак приложения: стиль и цвет. Виден всегда — знак вне палитрового
+          каскада (как data-mark), цвет действует и в жёстких темах */}
       <div className="mt-2.5 flex items-center gap-3 rounded-xl border border-halo-line px-3.5 py-3">
         <div className="min-w-0 flex-1">
           <p className="whitespace-nowrap text-sm text-halo-text">
@@ -1382,6 +1402,57 @@ export function ThemeSection({
           ))}
         </div>
       </div>
+
+      {/* Цвет знака N: пресеты + свой цвет; пустой выбор = фирменный
+          градиент. Действует во всех темах, включая жёсткие */}
+      <div className="mt-2.5 rounded-xl border border-halo-line p-2.5">
+        <p className="px-0.5 text-sm text-halo-text">{t("themes.markColor")}</p>
+        <p className="mt-0.5 px-0.5 text-[0.625rem] leading-relaxed text-halo-muted/60">
+          {t("themes.markColorHint")}
+        </p>
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <button
+            onClick={() => onAppearanceChange({ ...appearance, markColor: "" })}
+            title={t("themes.markReset")}
+            className={`flex size-7 items-center justify-center rounded-full border-2 transition-transform hover:scale-110 ${
+              (appearance.markColor ?? "") === ""
+                ? "border-halo-text"
+                : "border-transparent"
+            }`}
+            style={{ background: "linear-gradient(135deg, #38C7EE, #254EE1)" }}
+          />
+          {MARK_COLOR_PRESETS.map((hex) => (
+            <button
+              key={hex}
+              onClick={() => onAppearanceChange({ ...appearance, markColor: hex })}
+              title={hex}
+              className={`size-7 rounded-full border-2 transition-transform hover:scale-110 ${
+                (appearance.markColor ?? "").toLowerCase() === hex.toLowerCase()
+                  ? "border-halo-text"
+                  : "border-transparent"
+              }`}
+              style={{ background: hex }}
+            />
+          ))}
+          <label
+            className="ml-1 flex cursor-pointer items-center gap-2 rounded-full border border-halo-line px-2.5 py-1 text-xs text-halo-muted transition-colors hover:text-halo-text"
+            title={t("themes.accentCustom")}
+          >
+            <input
+              type="color"
+              value={appearance.markColor || "#d97757"}
+              onChange={(e) =>
+                onAppearanceChange({ ...appearance, markColor: e.target.value })
+              }
+              className="size-4 cursor-pointer rounded border-0 bg-transparent p-0"
+            />
+            {t("themes.accentCustom")}
+          </label>
+        </div>
+      </div>
+
+      {!hardTheme && (
+        <>
       {/* Своё приветствие: текст на пустом экране чата вместо стандартного */}
       <div className="mt-2.5 rounded-xl border border-halo-line px-3.5 py-3">
         <p className="text-sm text-halo-text">{t("settings.customGreeting")}</p>
@@ -1422,7 +1493,10 @@ export function ThemeSection({
       </>
       )}
 
-      {/* Обои чата: картинка за лентой, opt-in */}
+      {!hardTheme && (
+      <>
+      {/* Обои чата: картинка за лентой, opt-in. В жёстких темах скрыты —
+          темы держат монолитные заливки */}
       <div className="mt-4 rounded-xl border border-halo-line px-3.5 py-3">
         <p className="text-sm text-halo-text">{t("themes.wallpaper")}</p>
         <p className="mt-0.5 text-xs leading-relaxed text-halo-muted">
@@ -1445,6 +1519,8 @@ export function ThemeSection({
           )}
         </div>
       </div>
+      </>
+      )}
 
       {/* Ambient-фон: сцены или своё видео. Независим от темы — виден
           и в Halo, и в Official; на стриме ставится на паузу. В Full Claude

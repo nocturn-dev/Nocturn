@@ -70,6 +70,11 @@ export function parseProfile(raw: unknown): ThemeProfile | null {
       fullClaudeUiFont: typeof a.fullClaudeUiFont === "string" ? a.fullClaudeUiFont : "",
       fullClaudeMonoFont:
         typeof a.fullClaudeMonoFont === "string" ? a.fullClaudeMonoFont : "",
+      // Глобальные Claude-чтение и брендинг: иначе применение профиля
+      // молча сбрасывало бы serif/inline-код и цвет знака
+      serifChat: a.serifChat === true,
+      inlineCodeClaude: a.inlineCodeClaude === true,
+      markColor: typeof a.markColor === "string" ? a.markColor : "",
       reduceMotion: a.reduceMotion === true,
       motionScale: typeof a.motionScale === 'number' ? a.motionScale : 1,
       ambient: a.ambient === true,
