@@ -31,13 +31,15 @@ export default function NocturnMark({ size = 16 }: { size?: number }) {
       className="nocturn-mark"
     >
       <defs>
+        {/* Цвет знака переопределяется кастомизацией (--halo-mark-from/-to,
+            Кастомизация → Брендинг); пусто — фирменный градиент циан → синий */}
         <linearGradient id={boldId} x1="0" y1="1" x2="1" y2="0">
-          <stop offset="0" stopColor="#38C7EE" />
-          <stop offset="1" stopColor="#254EE1" />
+          <stop offset="0" stopColor="var(--halo-mark-from, #38C7EE)" />
+          <stop offset="1" stopColor="var(--halo-mark-to, #254EE1)" />
         </linearGradient>
         <linearGradient id={classicId} x1="0" y1="1" x2="1" y2="0">
-          <stop offset="0" stopColor="#38C7EE" />
-          <stop offset="1" stopColor="#254EE1" />
+          <stop offset="0" stopColor="var(--halo-mark-from, #38C7EE)" />
+          <stop offset="1" stopColor="var(--halo-mark-to, #254EE1)" />
         </linearGradient>
         {/* Маска порезов: чёрные полосы вырезают штрих насквозь */}
         <mask id={`${boldId}-mask`} maskUnits="userSpaceOnUse" x="0" y="0" width="24" height="24">

@@ -102,7 +102,7 @@ export function StepAccordion({
           >
             <button
               onClick={() => toggle(s.id)}
-              className={`flex w-full items-center gap-2 px-2 py-1.5 text-left text-[0.6875rem] transition-colors hover:bg-halo-hover/40 ${
+              className={`flex w-full items-center gap-2 px-2 py-1.5 text-left text-[0.75rem] transition-colors hover:bg-halo-hover/40 ${
                 flat ? "rounded-lg" : ""
               }`}
             >
