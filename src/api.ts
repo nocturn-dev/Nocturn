@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { isSeqGap } from "./hooks/streamBuffer";
 
 /** Сохранённый профиль ключа: связка «ключ + провайдер + модель» для быстрого
     переключения. Живёт внутри ApiSettings (settings.json). */
@@ -311,12 +312,14 @@ export async function chatStream(opts: {
       на бэкенде. Раньше адаптер выбирался поиском "api.anthropic.com" в
       Base URL — прокси с таким путём получал чужой формат авторизации */
   provider?: string;
-  onDelta: (delta: string) => void;
-  onThought: (thought: string) => void;
-  onUsage: (usage: ChatUsage) => void;
-  onToolCalls?: (calls: ToolCallInfo[]) => void;
+  onDelta: (delta: string, seq?: number) => void;
+  onThought: (thought: string, seq?: number) => void;
+  /** Барьер (ZCode-паттерн, блок 12): событие-финал — обработчик обязан
+   *  дренировать батч-буфер дельт до обработки барьера */
+  onUsage: (usage: ChatUsage, barrier?: boolean, seq?: number) => void;
+  onToolCalls?: (calls: ToolCallInfo[], barrier?: boolean, seq?: number) => void;
   /** Закрытый thinking-блок Anthropic: подпись + redacted для возврата в историю */
-  onThinkingBlock?: (block: { thinking: string; signature: string; redacted: string[] }) => void;
+  onThinkingBlock?: (block: { thinking: string; signature: string; redacted: string[] }, seq?: number) => void;
 }): Promise<void> {
   if (!inTauri) {
     throw new Error("Чат работает в нативном приложении (npm run tauri dev)");
@@ -327,15 +330,31 @@ export async function chatStream(opts: {
   // 3-й/4-й listen терял unlisten-функции первых двух: вечная утечка слушателей
   // на каждый неудавшийся send.
   const offs: Array<() => void> = [];
+  // Гэп-детект: seq идёт сквозь все каналы потока; пропуск в DEV — сигнал
+  // потерянного события (в релизе молча, чтобы не шуметь)
+  let lastSeq = -1;
+  const checkSeq = (seq?: number) => {
+    if (seq === undefined) return;
+    if (isSeqGap(lastSeq, seq)) {
+      if (import.meta.env.DEV) {
+        console.warn(`[feed] seq gap: ${lastSeq} -> ${seq}`);
+      }
+    }
+    lastSeq = seq;
+  };
   try {
     offs.push(
       ...(await Promise.all([
-        listen<{ requestId: string; delta: string }>("chat-chunk", (e) => {
-          if (e.payload.requestId === opts.requestId) opts.onDelta(e.payload.delta);
-        }),
-        listen<{ requestId: string; thought: string }>("chat-thought", (e) => {
+        listen<{ requestId: string; delta: string; seq?: number }>("chat-chunk", (e) => {
           if (e.payload.requestId === opts.requestId) {
-            opts.onThought(e.payload.thought);
+            checkSeq(e.payload.seq);
+            opts.onDelta(e.payload.delta, e.payload.seq);
+          }
+        }),
+        listen<{ requestId: string; thought: string; seq?: number }>("chat-thought", (e) => {
+          if (e.payload.requestId === opts.requestId) {
+            checkSeq(e.payload.seq);
+            opts.onThought(e.payload.thought, e.payload.seq);
           }
         }),
         listen<{
@@ -343,20 +362,28 @@ export async function chatStream(opts: {
           promptTokens: number;
           completionTokens: number;
           totalTokens: number;
+          barrier?: boolean;
+          seq?: number;
         }>("chat-usage", (e) => {
           if (e.payload.requestId === opts.requestId) {
-            opts.onUsage({
-              prompt: e.payload.promptTokens,
-              completion: e.payload.completionTokens,
-              total: e.payload.totalTokens,
-            });
+            checkSeq(e.payload.seq);
+            opts.onUsage(
+              {
+                prompt: e.payload.promptTokens,
+                completion: e.payload.completionTokens,
+                total: e.payload.totalTokens,
+              },
+              e.payload.barrier,
+              e.payload.seq,
+            );
           }
         }),
-        listen<{ requestId: string; calls: ToolCallInfo[] }>(
+        listen<{ requestId: string; calls: ToolCallInfo[]; barrier?: boolean; seq?: number }>(
           "chat-tool-calls",
           (e) => {
             if (e.payload.requestId === opts.requestId) {
-              opts.onToolCalls?.(e.payload.calls);
+              checkSeq(e.payload.seq);
+              opts.onToolCalls?.(e.payload.calls, e.payload.barrier, e.payload.seq);
             }
           },
         ),
@@ -365,9 +392,11 @@ export async function chatStream(opts: {
           thinking: string;
           signature: string;
           redacted: string[];
+          seq?: number;
         }>("chat-thinking", (e) => {
           if (e.payload.requestId === opts.requestId) {
-            opts.onThinkingBlock?.(e.payload);
+            checkSeq(e.payload.seq);
+            opts.onThinkingBlock?.(e.payload, e.payload.seq);
           }
         }),
       ])),

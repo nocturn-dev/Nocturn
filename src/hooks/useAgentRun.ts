@@ -175,24 +175,24 @@ export function useAgentRun(deps: AgentRunDeps) {
       let received = false;
       const wrapped = {
         ...opts,
-        onDelta: (d: string) => {
+        onDelta: (d: string, seq?: number) => {
           received = true;
-          opts.onDelta(d);
+          opts.onDelta(d, seq);
         },
-        onThought: (th: string) => {
+        onThought: (th: string, seq?: number) => {
           received = true;
-          opts.onThought(th);
+          opts.onThought(th, seq);
         },
         // FIX: usage означает «провайдер уже насчитал токены за попытку» —
         // ретрай после него двойно считал токены в Hard-Limit и журнале
-        onUsage: (u: ChatUsage) => {
+        onUsage: (u: ChatUsage, barrier?: boolean, seq?: number) => {
           received = true;
-          opts.onUsage(u);
+          opts.onUsage(u, barrier, seq);
         },
         // FIX: tool_calls тоже часть частично-оплаченного ответа — не ретраим
-        onToolCalls: (c: ToolCallInfo[]) => {
+        onToolCalls: (c: ToolCallInfo[], barrier?: boolean, seq?: number) => {
           received = true;
-          opts.onToolCalls?.(c);
+          opts.onToolCalls?.(c, barrier, seq);
         },
       };
       // Stop/Hard Limit могли сработать ещё до старта стрима (пока собирался
@@ -1124,7 +1124,9 @@ export function useAgentRun(deps: AgentRunDeps) {
             appendTo(assistantId, "", thought);
           },
           onUsage: (usage) => {
-            gotAny = true;
+            // Барьер: usage — финал сообщения; pending-дельты дренируем
+            // до обработки, чтобы usage не обогнал финальный текст
+            flushDeltas();
             usageAcc.prompt += usage.prompt;
             usageAcc.completion += usage.completion;
             checkHardLimit();
@@ -1260,6 +1262,8 @@ export function useAgentRun(deps: AgentRunDeps) {
             appendTo(assistantId, "", thought);
           },
           onThinkingBlock: (block) => {
+            // Барьер: дельты мысли обязаны попасть в стор до закрытого блока
+            flushDeltas();
             thinkingHolder.block = block;
             // Подпись/redacted thinking-блока Anthropic: без них блок
             // нельзя вернуть в историю на следующем шаге цикла
@@ -1283,6 +1287,9 @@ export function useAgentRun(deps: AgentRunDeps) {
             );
           },
           onUsage: (usage) => {
+            // Барьер: usage закрывает раунд — дельты дренируем до обработки,
+            // иначе финальный текст раунда догоняет после usage
+            flushDeltas();
             usageAcc.prompt += usage.prompt;
             usageAcc.completion += usage.completion;
             checkHardLimit();

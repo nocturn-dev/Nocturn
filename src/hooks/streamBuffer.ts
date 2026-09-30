@@ -71,3 +71,13 @@ export function applyMainDeltas<M extends MessageLike>(
     };
   });
 }
+
+/**
+ * Гэп в порядковых номерах событий потока (ZCode-паттерн, блок 12): seq
+ * проставляет бекенд, пропуск означает потерянное событие между каналами
+ * или от другого источника (будущие фоновые прогоны). seq до первого
+ * события неизвестен — не гэп.
+ */
+export function isSeqGap(last: number, next: number): boolean {
+  return last >= 0 && next > last + 1;
+}
