@@ -453,8 +453,27 @@ function officialCss(oled: boolean, contrast: boolean): string {
 }
 
 /**
+ * Палитра Full Claude в одном месте: генератор CSS и витрина-превью читают
+ * одни и те же значения. Сняты пипеткой с референса владельца (скрин Claude
+ * Desktop, тёмная тема): основной фон #151515, сайдбар ТЕМНЕЕ фона (#111111),
+ * пузырь/композер #202020–#212121, текст тёплый белый.
+ */
+export const FULL_CLAUDE_PALETTE = {
+  bg: "#151515",
+  deep: "#111111",
+  surface: "#202020",
+  raised: "#212121",
+  line: "rgba(255, 255, 255, 0.07)",
+  text: "#e8e6e1",
+  muted: "#a19b95",
+  accent: "#d97757",
+  accentDeep: "#bd5d3a",
+  codeBg: "#1a1a1c",
+} as const;
+
+/**
  * Палитра и базовые блоки темы Full Claude — реплика Claude Desktop:
- * ультра-тёмный тёплый уголь, графитовые карточки с холодным отливом,
+ * ультра-тёмный уголь, графитовые карточки с едва холодным отливом,
  * терракотовый акцент, мягкие полупрозрачные границы. Всегда тёмная.
  *
  * Механика — точная копия officialCss: отдельный тег <style id=
@@ -487,19 +506,19 @@ function fullClaudeCss(a: Appearance): string {
   return [
     [
       ":root.full-claude {",
-      "  --halo-bg: #1a1a1a !important;",
-      "  --halo-deep: #212121 !important;",
-      "  --halo-surface: #1f1f23 !important;",
-      "  --halo-raised: #26262b !important;",
-      "  --halo-line: rgba(255, 255, 255, 0.07) !important;",
-      "  --halo-text: #e3e3e3 !important;",
-      "  --halo-muted: #a19b95 !important;",
+      `  --halo-bg: ${FULL_CLAUDE_PALETTE.bg} !important;`,
+      `  --halo-deep: ${FULL_CLAUDE_PALETTE.deep} !important;`,
+      `  --halo-surface: ${FULL_CLAUDE_PALETTE.surface} !important;`,
+      `  --halo-raised: ${FULL_CLAUDE_PALETTE.raised} !important;`,
+      `  --halo-line: ${FULL_CLAUDE_PALETTE.line} !important;`,
+      `  --halo-text: ${FULL_CLAUDE_PALETTE.text} !important;`,
+      `  --halo-muted: ${FULL_CLAUDE_PALETTE.muted} !important;`,
       "  --halo-hover: rgba(255, 255, 255, 0.05) !important;",
       "  --halo-hover-strong: rgba(255, 255, 255, 0.08) !important;",
-      "  --halo-code-bg: #1f1f23 !important;",
-      "  --halo-code-text: #e3e3e3 !important;",
-      "  --halo-accent: #d97757 !important;",
-      "  --halo-accent-deep: #bd5d3a !important;",
+      `  --halo-code-bg: ${FULL_CLAUDE_PALETTE.codeBg} !important;`,
+      `  --halo-code-text: ${FULL_CLAUDE_PALETTE.text} !important;`,
+      `  --halo-accent: ${FULL_CLAUDE_PALETTE.accent} !important;`,
+      `  --halo-accent-deep: ${FULL_CLAUDE_PALETTE.accentDeep} !important;`,
       "  --halo-on-accent: #ffffff !important;",
       "  --halo-blur: 14px !important;",
       `  --halo-radius-scale: ${r} !important;`,
@@ -522,6 +541,21 @@ function fullClaudeCss(a: Appearance): string {
       "}",
       "html.full-claude .markdown pre {",
       "  border-radius: 0.5rem;",
+      "}",
+    ],
+    // Поверхности «наполнения»: в Nocturn сайдбар и модалки делят
+    // --halo-deep, а в референсе сайдбар темнее фона, модалки — светлее.
+    // deep остаётся сайдбару (aside.bg-halo-deep), модалки/панели
+    // (glass-pane, правые панели с shadow-2xl) приподнимаются до surface
+    [
+      "html.full-claude:not(.glass) .glass-pane {",
+      `  background: ${FULL_CLAUDE_PALETTE.surface};`,
+      "}",
+      "html.full-claude.glass .glass-pane {",
+      `  background: color-mix(in srgb, ${FULL_CLAUDE_PALETTE.surface} 70%, transparent);`,
+      "}",
+      "html.full-claude .bg-halo-deep.shadow-2xl {",
+      `  background: ${FULL_CLAUDE_PALETTE.surface};`,
       "}",
     ],
   ].flat().join("\n");
