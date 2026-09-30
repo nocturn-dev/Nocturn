@@ -71,8 +71,9 @@ function codeText(node: unknown): string {
 /** Блок кода из ответа модели: hover-кнопки «копировать» и «сохранить
     как файл» (fs_write в выбранный пользователем путь — ручное действие
     и есть согласие; пермишены агента здесь не участвуют). Для ```html —
-    кнопка «Предпросмотр»: HTML уезжает в панель Artifacts (sandbox-iframe) */
-function CodeBlock({
+    кнопка «Предпросмотр»: HTML уезжает в панель Artifacts (sandbox-iframe).
+    Экспорт: RunCard (лента хода в стиле ZCode) рендерит тот же блок */
+export function CodeBlock({
   node: _node,
   children,
   onPreview,

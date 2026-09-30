@@ -24,6 +24,7 @@ import type { UserCommand } from "../api";
 import { BUILTIN_COMMANDS } from "../commands";
 import { AskClosedCard, AskPanel } from "./cards/AskUserCard";
 import { AssistantCard } from "./cards/AssistantCard";
+import { RunCard } from "./cards/RunCard";
 import { ChangedFilesCard } from "./cards/ChangedFilesCard";
 import { ConfirmCard } from "./cards/ConfirmCard";
 import { ContextRing } from "./cards/ContextRing";
@@ -42,8 +43,9 @@ import { CHART_COLORS } from "../chartColors";
 /** Стабильная пустая лента результатов tool-вызовов: `?? []` в рендере
  *  создавал новый массив на каждую пересборку ленты и пробивал поверхностное
  *  сравнение memo AssistantCard — исторические карточки без инструментов
- *  ре-рендерились (с ре-парсом markdown) на каждый флеш стрима */
-const EMPTY_RESULTS: { id: string; content: string }[] = [];
+ *  ре-рендерились (с ре-парсом markdown) на каждый флеш стрима.
+ *  Убрано вместе с per-round рендером: результаты теперь всегда есть
+ *  у владельца (resultsOf), пустой фолбэк больше не нужен */
 
 interface ChatAreaProps {
   session: Session | null;
@@ -697,6 +699,9 @@ export default function ChatArea({
     toolMsgsOf: Map<string, Message[]>;
     /** Шаги каждого раунда для аккордеона (Edit/Terminal/Explore/Asked) */
     roundSteps: Map<string, StepRow[]>;
+    /** Вызовы по id tool-сообщения (для SubagentCard в RunCard);
+     *  в кэше derived — стабильные ссылки для memo */
+    callOf: Map<string, ToolCallInfo | undefined>;
     results: { id: string; content: string }[];
     resultsOf: Map<string, { id: string; content: string }[]>;
     writesFiles: ChangedFile[];
@@ -774,11 +779,17 @@ export default function ChatArea({
       for (const a of assistants) {
         roundSteps.set(a.id, buildStepRows([a], toolMsgsOf.get(a.id) ?? []));
       }
+      // Вызовы по id tool-сообщения — для шапок субагентных карточек
+      const callOf = new Map<string, ToolCallInfo | undefined>();
+      for (const m of toolMsgs) {
+        callOf.set(m.id, m.toolCallId ? callById.get(m.toolCallId) : undefined);
+      }
       const derived: TurnDerived = {
         assistants,
         toolMsgs,
         toolMsgsOf,
         roundSteps,
+        callOf,
         results,
         resultsOf,
         writesFiles: [...writes.values()],
@@ -1318,9 +1329,10 @@ export default function ChatArea({
                 const assistants = derived.assistants;
 
                 if (groupTurns) {
-                  // —— Ход по РАУНДАМ (фидбек 29.09): мысль раунда → её
-                  // вызовы → следующий раунд, хронологически как в референсе,
-                  // а не все мысли одним блоком + вызовы в конце ——
+                  // —— Ход ОДНОЙ плоской лентой в стиле ZCode (фидбек 30.09):
+                  // шапка с таймером, строки «Размышления · N с» → текст →
+                  // шаги хронологически, usage один раз в конце. Без карточек
+                  // на каждый раунд — они и дублировали шапки/мысли ——
                   if (assistants.length > 0) {
                     const rounds = assistants.filter(
                       (a) =>
@@ -1333,46 +1345,38 @@ export default function ChatArea({
                       lastTurnMerged = true;
                     }
                     const renderedSubs = new Set<string>();
-                    for (const a of rounds) {
+                    if (rounds.length > 0) {
                       nodes.push(
-                        <AssistantCard
-                          key={`round-${a.id}`}
-                          mid={a.id}
-                          message={a}
-                          model={a.model ?? model}
-                          results={derived.resultsOf.get(a.id) ?? EMPTY_RESULTS}
-                          steps={derived.roundSteps.get(a.id) ?? []}
-                          hint={
-                            ti === turns.length - 1 && a === rounds[rounds.length - 1]
-                              ? activity
-                              : null
+                        <RunCard
+                          key={`run-${turnUser?.id ?? ti}`}
+                          runKey={turnUser?.id ?? `run-${ti}`}
+                          rounds={rounds}
+                          stepsOf={derived.roundSteps}
+                          toolMsgsOf={derived.toolMsgsOf}
+                          callOf={derived.callOf}
+                          subRuns={subRuns}
+                          model={
+                            rounds[rounds.length - 1]?.model ?? model
                           }
-                          glassEffect={msgGlass}
+                          hint={
+                            ti === turns.length - 1 ? activity : null
+                          }
+                          isStreaming={rounds.some((a) => a.id === streamingMsgId)}
+                          streamingMsgId={streamingMsgId}
                           showMsgTime={showMsgTime}
-                          isStreaming={a.id === streamingMsgId}
                           smooth={streamSmooth}
-                          highlightLive={highlightLive}
                           printSpeed={printSpeed}
+                          highlightLive={highlightLive}
                           showReasoning={showReasoning}
                           caret={streamCaret}
                           onPreviewArtifact={openArtifact}
                         />,
                       );
-                      // Субагентные tool-сообщения раунда — живыми карточками
-                      for (const m of derived.toolMsgsOf.get(a.id) ?? []) {
-                        if (m.toolName !== "subagent_run") continue;
-                        renderedSubs.add(m.id);
-                        nodes.push(
-                          <SubagentCard
-                            key={`sub-${m.id}`}
-                            mid={m.id}
-                            call={
-                              m.toolCallId ? callById.get(m.toolCallId) : undefined
-                            }
-                            content={m.content}
-                            run={subRuns?.[m.toolCallId ?? ""]}
-                          />,
-                        );
+                      for (const a of rounds) {
+                        for (const m of derived.toolMsgsOf.get(a.id) ?? []) {
+                          if (m.toolName !== "subagent_run") continue;
+                          renderedSubs.add(m.id);
+                        }
                       }
                     }
                     // Субагенты-сироты (владелец не найден) — не теряем

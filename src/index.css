@@ -794,17 +794,9 @@ html.sidebar-glass aside {
   -webkit-backdrop-filter: blur(calc(var(--halo-blur, 14px) * 1.6)) saturate(1.35);
   box-shadow: inset -1px 0 0 color-mix(in srgb, var(--halo-line, #3d3c38) 80%, transparent);
 }
-/* D13: при активном ambient-canvas (30 fps позади стекла) blur()
-   пересчитывает фон КАЖДЫЙ кадр — постоянный композитинг жжёт GPU.
-   App ставит html.ambient-paused на время стрима. Правило стоит ПОСЛЕ
-   html.glass И html.sidebar-glass (равная специфичность — побеждает
-   позднее): раньше стекло сайдбара его перебивало, и оптимизация
-   не работала для самого тяжёлого blur'а */
-html.ambient-paused aside,
-html.ambient-paused .glass-pane {
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
-}
+/* D13 (отменено решением владельца): пауза ambient на время стрима
+   («интерфейс залагал») убрана — фон живёт всегда, GPU-цена принята.
+   Бывшие правила html.ambient-paused удалены вместе с классом */
 
 /* C5: WebKitGTK < 2.40 отбрасывает color-mix декларацию целиком — «стекло»
    исчезало бесследно. Деградация: непрозрачные панели вместо молчаливой
@@ -1012,9 +1004,6 @@ html.ambient:not([data-ambient-scene]) body::before {
 @keyframes ambient-drift {
   from { transform: translate3d(-2%, -1.5%, 0) scale(1); }
   to { transform: translate3d(2%, 2%, 0) scale(1.06); }
-}
-html.ambient.ambient-paused body::before {
-  animation-play-state: paused;
 }
 @media (prefers-reduced-motion: reduce) {
   html.ambient body::before { animation: none; }

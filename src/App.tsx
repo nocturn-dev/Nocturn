@@ -1035,12 +1035,6 @@ export default function App() {
     [queuedMsgs],
   );
 
-  // Ambient-фон: во время стрима анимация на паузе — батарея и FPS важнее
-  // (эффект здесь, ниже деструктуризации streamingId)
-  useEffect(() => {
-    document.documentElement.classList.toggle("ambient-paused", streamingId !== null);
-  }, [streamingId]);
-
   // Обои: класс на html — CSS делает сайдбар/чат чуть прозрачными,
   // чтобы фон уходил за сайдбар (раньше обои обрывались на его границе).
   // Full Claude обои игнорирует — чистые монолитные заливки
@@ -2111,7 +2105,11 @@ export default function App() {
             scene={appearance.ambientScene}
             videoPath={appearance.ambientVideo}
             density={appearance.ambientDensity}
-            paused={streamingId !== null || appearance.reduceMotion === true}
+            // Ambient живой всегда (решение владельца): во время прогона
+            // агента не замирает — «плавает» как в Claude Desktop.
+            // Пауза только по reduce-motion и в свёрнутом/скрытом окне
+            // (hasFocus внутри слоя); GPU-цена принята
+            paused={appearance.reduceMotion === true}
             gradFrom={appearance.ambientGradFrom}
             gradTo={appearance.ambientGradTo}
             gradAngle={appearance.ambientGradAngle}
