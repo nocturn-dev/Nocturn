@@ -64,8 +64,6 @@ export interface Appearance {
   /** Настройки самой Full Claude — действуют только внутри темы */
   /** Чат-ответы серифом (Georgia-стек, как у Claude) — дефолт on */
   fullClaudeSerif: boolean;
-  /** Едва заметное звёздное небо вместо чистых заливок — дефолт off */
-  fullClaudeStars: boolean;
   /** Стекло внутри темы (глобальный тумблер стекла игнорируется) — off */
   fullClaudeGlass: boolean;
   /** Масштаб скруглений внутри темы (дефолт 1 = 6–8px по ТЗ) */
@@ -151,7 +149,6 @@ export const DEFAULT_APPEARANCE: Appearance = {
   officialMonoCode: false,
   fullClaude: false,
   fullClaudeSerif: true,
-  fullClaudeStars: false,
   fullClaudeGlass: false,
   fullClaudeRadius: 1,
   fullClaudeUiFont: "",
@@ -231,7 +228,6 @@ export function loadAppearance(): Appearance {
       officialMonoCode: p.officialMonoCode ?? DEFAULT_APPEARANCE.officialMonoCode,
       fullClaude: p.fullClaude ?? DEFAULT_APPEARANCE.fullClaude,
       fullClaudeSerif: p.fullClaudeSerif ?? DEFAULT_APPEARANCE.fullClaudeSerif,
-      fullClaudeStars: p.fullClaudeStars ?? DEFAULT_APPEARANCE.fullClaudeStars,
       fullClaudeGlass: p.fullClaudeGlass ?? DEFAULT_APPEARANCE.fullClaudeGlass,
       fullClaudeRadius: clamp(
         p.fullClaudeRadius ?? DEFAULT_APPEARANCE.fullClaudeRadius,
@@ -531,16 +527,28 @@ function fullClaudeCss(a: Appearance): string {
       "}",
     ],
     ...serifChat,
-    // Inline-код: розовато-красный текст на тёмной подложке-чипе (ТЗ);
-    // блоки кода — графит с тонкой рамкой и скруглением 8px по ТЗ,
+    // Inline-код у Claude — БЕЗ заливки чипа (сэмплы с референса дали ровно
+    // фон страницы внутри «чипа»): только лососёво-красный моно-текст.
+    // Блоки кода — графит с тонкой рамкой и скруглением 8px по ТЗ,
     // базовое 0.75rem (12px) для карточек Claude слишком круглое
     [
       "html.full-claude .markdown code:not(pre code) {",
-      "  background: rgba(255, 255, 255, 0.06);",
-      "  color: #ec8f85;",
+      "  background: transparent;",
+      "  color: #ec7e7e;",
       "}",
       "html.full-claude .markdown pre {",
       "  border-radius: 0.5rem;",
+      "}",
+    ],
+    // Заголовки секций сайдбара (Файлы/Заметки/Проекты): пользовательский
+    // header-color применяется инлайном — нейтрализуем его в теме (!important
+    // бьёт инлайн), цвета как у Claude — приглушённый серый без окраски
+    [
+      "html.full-claude aside .uppercase {",
+      "  color: rgba(161, 155, 149, 0.55) !important;",
+      "}",
+      "html.full-claude aside .uppercase:hover {",
+      "  color: var(--halo-text) !important;",
       "}",
     ],
     // Поверхности «наполнения»: в Nocturn сайдбар и модалки делят
@@ -669,21 +677,17 @@ export function applyAppearance(a: Appearance) {
     fullClaudeTag?.remove();
   }
 
-  // Ambient: глобальные сцены при Full Claude не действуют (чистые заливки);
-  // свой тумблер темы включает сцену stars, приглушённую до ~15% яркости
-  const fcStars = a.fullClaude && (a.fullClaudeStars ?? false);
-  const ambientOn = (a.ambient && !a.fullClaude) || fcStars;
+  // Ambient: при Full Claude не действует ВООБЩЕ (ни глобальный тумблер,
+  // ни сцены, ни канвас-слой — тот загейчен в App) — чистые монолитные
+  // заливки. Звёздное небо из темы убрано по решению владельца
+  const ambientOn = a.ambient && !a.fullClaude;
   root.classList.toggle("ambient", ambientOn);
-  if (fcStars) {
-    root.setAttribute("data-ambient-scene", "stars");
-    root.style.setProperty("--ambient-alpha", "0.15");
-  } else if (a.ambient && !a.fullClaude && a.ambientScene !== "glow") {
+  if (ambientOn && a.ambientScene !== "glow") {
     root.setAttribute("data-ambient-scene", a.ambientScene);
-    root.style.setProperty("--ambient-alpha", String(a.ambientBrightness));
   } else {
     root.removeAttribute("data-ambient-scene");
-    root.style.setProperty("--ambient-alpha", String(a.ambientBrightness));
   }
+  root.style.setProperty("--ambient-alpha", String(a.ambientBrightness));
   root.setAttribute("data-ambient-render", a.ambientRender);
   // Motion/Reduced: класс глушит анимации CSS-правилами в index.css;
   // canvas-сцены AmbientLayer ставятся на паузу через App (prop paused)

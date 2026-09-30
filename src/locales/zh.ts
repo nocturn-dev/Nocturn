@@ -1013,8 +1013,6 @@ export const zh = {
     "themes.fcSettings": "Full Claude 设置",
     "themes.fcSerif": "衬线回复字体",
     "themes.fcSerifDesc": "助手回复使用衬线字体，如同 Claude Desktop。关闭——系统无衬线。",
-    "themes.fcStars": "隐约星野",
-    "themes.fcStarsDesc": "炭黑底色上一层极淡的氛围场景。关闭——纯净的整体填充。",
     "themes.fcGlass": "玻璃效果",
     "themes.fcGlassDesc": "主题内面板半透明并模糊。关闭——实色填充；全局玻璃开关在主题内无效。",
     "themes.fcRadius": "圆角",

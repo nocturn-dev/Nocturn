@@ -582,14 +582,6 @@ export function ThemeSection({
           </div>
           <div className="mt-1.5">
             <ToggleRow
-              label={t("themes.fcStars")}
-              desc={t("themes.fcStarsDesc")}
-              on={appearance.fullClaudeStars ?? false}
-              onChange={(v) => onAppearanceChange({ ...appearance, fullClaudeStars: v })}
-            />
-          </div>
-          <div className="mt-1.5">
-            <ToggleRow
               label={t("themes.fcGlass")}
               desc={t("themes.fcGlassDesc")}
               on={appearance.fullClaudeGlass ?? false}
@@ -1455,7 +1447,10 @@ export function ThemeSection({
       </div>
 
       {/* Ambient-фон: сцены или своё видео. Независим от темы — виден
-          и в Halo, и в Official; на стриме ставится на паузу */}
+          и в Halo, и в Official; на стриме ставится на паузу. В Full Claude
+          скрыт и не действует — тема держит чистые монолитные заливки */}
+      {!appearance.fullClaude && (
+        <>
       <div className="mt-2.5 flex items-center justify-between rounded-xl border border-halo-line px-3.5 py-3">
         <div className="min-w-0 pr-3">
           <p className="text-sm text-halo-text">{t("themes.ambient")}</p>
@@ -1666,6 +1661,8 @@ export function ThemeSection({
             </p>
           )}
         </div>
+      )}
+        </>
       )}
 
       <p className="mb-2 mt-6 text-[0.625rem] font-semibold uppercase tracking-[0.14em] text-halo-muted/60">{t("themes.gTerminal")}</p>

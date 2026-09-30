@@ -987,8 +987,6 @@ export const en = {
     "themes.fcSettings": "Full Claude settings",
     "themes.fcSerif": "Serif responses",
     "themes.fcSerifDesc": "Serif stack for assistant replies, like Claude Desktop. Off — system sans.",
-    "themes.fcStars": "Subtle starfield",
-    "themes.fcStarsDesc": "A faint ambient scene over the charcoal base. Off — clean solid fills.",
     "themes.fcGlass": "Glass",
     "themes.fcGlassDesc": "Translucent blurred panels inside the theme. Off — solid fills; the global glass toggle has no effect here.",
     "themes.fcRadius": "Corner radius",

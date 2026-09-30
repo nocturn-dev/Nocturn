@@ -999,8 +999,6 @@ export const ru = {
     "themes.fcSettings": "Настройки Full Claude",
     "themes.fcSerif": "Шрифт ответов: с засечками",
     "themes.fcSerifDesc": "Serif-стек для ответов ассистента, как в Claude Desktop. Выключено — системный гротеск.",
-    "themes.fcStars": "Едва заметное звёздное небо",
-    "themes.fcStarsDesc": "Приглушённая ambient-сцена поверх угольного фона. Выключено — чистые монолитные заливки.",
     "themes.fcGlass": "Стекло",
     "themes.fcGlassDesc": "Полупрозрачные панели с блюром внутри темы. Выключено — плотные заливки; глобальный тумблер стекла в теме не действует.",
     "themes.fcRadius": "Скругления",
