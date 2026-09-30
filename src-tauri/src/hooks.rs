@@ -154,11 +154,17 @@ pub fn matches(hook: &Hook, event: &str, tool: &str) -> bool {
         .contains(&hook.matcher.to_lowercase())
 }
 
-/// Запустить один хук: stdin = payload JSON, stdout/stderr собираются.
-fn exec(hook: &Hook, payload: &serde_json::Value) -> HookOutcome {
-    exec_with_abort(hook, payload, None)
+/// Подготовить payload к запуску хуков: одна глубокая копия с усечением
+/// длинных строк на ВСЁ событие. Раньше копия делалась в exec_with_abort —
+/// заново под каждый совпавший хук.
+fn prepare_payload(payload: &serde_json::Value) -> serde_json::Value {
+    let mut prepared = payload.clone();
+    truncate_long_strings(&mut prepared);
+    prepared
 }
 
+/// Запустить один хук: stdin = payload JSON (уже усечённый), stdout/stderr
+/// собираются.
 fn exec_with_abort(
     hook: &Hook,
     payload: &serde_json::Value,
@@ -195,10 +201,9 @@ fn exec_with_abort(
     #[cfg(windows)]
     cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW: без чёрного окна
 
-    // Ограничиваем payload: хук не должен получать мегабайты результата
-    // fs_read — иначе write_all может блокироваться на заполненном пайпе.
-    let mut payload = payload.clone();
-    truncate_long_strings(&mut payload);
+    // Payload приходит уже усечённым (prepare_payload у вызывающего): хук не
+    // должен получать мегабайты результата fs_read — иначе write_all может
+    // блокироваться на заполненном пайпе
     let payload_bytes = payload.to_string().into_bytes();
 
     // Запуск, stdin-писатель, параллельное чтение пайпов и таймаут с kill —
@@ -274,7 +279,7 @@ fn truncate_long_strings(v: &mut serde_json::Value) {
 
 /// Запустить конкретный хук без учёта enabled/матчера (кнопка «Тест»)
 pub fn run_event_on(hook: &Hook, payload: &serde_json::Value) -> HookOutcome {
-    exec(hook, payload)
+    exec_with_abort(hook, &prepare_payload(payload), None)
 }
 
 /// Прогнать все хуки события. Возвращает исходы только совпавших хуков.
@@ -296,10 +301,13 @@ pub fn run_event_with_abort(
     abort: Option<&std::sync::atomic::AtomicBool>,
 ) -> Vec<HookOutcome> {
     let file = load(dir);
+    // Одна копия с усечением на всё событие: мегабайтный результат fs_read
+    // раньше клонировался заново под каждый совпавший хук
+    let prepared = prepare_payload(payload);
     file.hooks
         .iter()
         .filter(|h| matches(h, event, tool))
-        .map(|h| exec_with_abort(h, payload, abort))
+        .map(|h| exec_with_abort(h, &prepared, abort))
         .collect()
 }
 

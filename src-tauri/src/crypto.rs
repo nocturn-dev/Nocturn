@@ -10,7 +10,7 @@ use aes_gcm::{Aes256Gcm, KeyInit, Nonce};
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use rand::RngCore;
 use std::sync::Mutex;
-use zeroize::Zeroizing;
+use zeroize::{Zeroize, Zeroizing};
 
 const PREFIX: &str = "enc:v1:";
 const KEY_LEN: usize = 32; // AES-256
@@ -130,8 +130,10 @@ pub fn encrypt_with(key: &[u8], plain: &str) -> Result<String, String> {
 }
 
 /// Расшифровать строку с префиксом. None — не зашифровано или заперто.
-/// Ключ читается по месту (borrow) — без копий в heap
-pub fn decrypt(stored: &str) -> Option<String> {
+/// Ключ читается по месту (borrow) — без копий в heap. Plaintext обёрнут
+/// в Zeroizing: секрет затирается при drop, а не остаётся в освободившейся
+/// heap-памяти (см. политику в шапке модуля)
+pub fn decrypt(stored: &str) -> Option<Zeroizing<String>> {
     if vault_idle_expired() {
         clear_key();
     }
@@ -145,7 +147,7 @@ pub fn decrypt(stored: &str) -> Option<String> {
 }
 
 /// То же с явным ключом (миграция PBKDF2 → Argon2id)
-pub fn decrypt_with(key: &[u8], stored: &str) -> Option<String> {
+pub fn decrypt_with(key: &[u8], stored: &str) -> Option<Zeroizing<String>> {
     let blob = B64.decode(stored.strip_prefix(PREFIX)?).ok()?;
     if blob.len() <= 12 {
         return None;
@@ -154,7 +156,17 @@ pub fn decrypt_with(key: &[u8], stored: &str) -> Option<String> {
     let pt = cipher
         .decrypt(Nonce::from_slice(&blob[..12]), &blob[12..])
         .ok()?;
-    String::from_utf8(pt).ok()
+    // Zeroizing: расшифрованный plaintext — секрет, затираем при drop, а не
+    // оставляем в освободившейся heap-памяти
+    match String::from_utf8(pt) {
+        Ok(s) => Some(Zeroizing::new(s)),
+        Err(e) => {
+            // Битый UTF-8 — тот же секрет: затираем байты до отбрасывания
+            let mut bytes = e.into_bytes();
+            bytes.zeroize();
+            None
+        }
+    }
 }
 
 /// Зашифровано ли поле (есть ли префикс)
@@ -245,7 +257,10 @@ mod tests {
         let enc = encrypt(secret).expect("encrypt");
         assert!(is_encrypted(&enc));
         assert_ne!(enc, secret);
-        assert_eq!(decrypt(&enc).as_deref(), Some(secret));
+        assert_eq!(
+            decrypt(&enc).as_deref().map(String::as_str),
+            Some(secret)
+        );
         // неверный ключ → не расшифровывается
         set_key(derive_key("другой-пароль", b"salt-salt-salt-sa"));
         assert!(decrypt(&enc).is_none());
@@ -285,7 +300,10 @@ mod tests {
         // Полнееценный раунд трип на argon2-ключе
         set_key(a1.clone());
         let enc = encrypt("sk-secret").expect("encrypt");
-        assert_eq!(decrypt(&enc).as_deref(), Some("sk-secret"));
+        assert_eq!(
+            decrypt(&enc).as_deref().map(String::as_str),
+            Some("sk-secret")
+        );
         // Ключ от другой соли не расшифровывает
         set_key(b);
         assert!(decrypt(&enc).is_none());

@@ -102,7 +102,21 @@ pub struct DictationStatus {
 }
 
 #[tauri::command(async)]
-pub fn dictation_status(app: tauri::AppHandle) -> DictationStatus {
+pub async fn dictation_status(app: tauri::AppHandle) -> DictationStatus {
+    // Запуск пробы where/which (до 5 с таймаут) + метаданные модели —
+    // в blocking-пул, а не на воркер tokio со стримами (класс crypto_status)
+    tauri::async_runtime::spawn_blocking(move || dictation_status_impl(app))
+        .await
+        .unwrap_or_else(|_| DictationStatus {
+            cli_found: false,
+            cli_path: None,
+            model_exists: false,
+            model_bytes: 0,
+            downloading: DOWNLOADING.load(Ordering::Relaxed),
+        })
+}
+
+fn dictation_status_impl(app: tauri::AppHandle) -> DictationStatus {
     let cfg = config(&app);
     let model = model_file(&app, cfg.model_path.as_deref());
     let (exists, bytes) = std::fs::metadata(&model)
@@ -251,7 +265,7 @@ fn transcribe_impl(app: &tauri::AppHandle, audio_base64: String) -> Result<Strin
     wav.extend_from_slice(&(pcm.len() as u32).to_le_bytes());
     wav.extend_from_slice(&pcm);
 
-    let wav_path = std::env::temp_dir().join(format!("nocturn-dictation-{}.wav", crate::fsutil::uuid_v4_short()));
+    let wav_path = std::env::temp_dir().join(format!("nocturn-dictation-{}.wav", crate::fsutil::rand_hex8()));
     fs::write(&wav_path, &wav).map_err(|e| e.to_string())?;
 
     let mut cmd = std::process::Command::new(&cli);

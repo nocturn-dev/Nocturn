@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use crate::settings::ApiSettings;
+use zeroize::Zeroizing;
 
 // ---------------------------------------------------------------------------
 // Конфигурация (вкладка «Генерация изображений» в настройках)
@@ -175,7 +176,9 @@ pub async fn generate(
         crate::crypto::decrypt(&api_key_raw)
             .ok_or("vault is locked: enter the master password to use the image API key")?
     } else {
-        api_key_raw
+        // Единый тип с веткой расшифровки: plaintext живёт в Zeroizing,
+        // пока уходит в заголовок запроса
+        Zeroizing::new(api_key_raw)
     };
     let url = format!("{base}/images/generations");
     let client = crate::network::shared_client(std::time::Duration::from_secs(15))
@@ -257,12 +260,24 @@ pub async fn generate(
 
     let dir = data_dir.join("images");
     fs::create_dir_all(&dir).map_err(|e| format!("cannot create images dir: {e}"))?;
-    // uuid вместо миллисекундного штампа: два вызова в одну миллисекунду
+    // rand_hex8 вместо миллисекундного штампа: два вызова в одну миллисекунду
     // раньше тихо перезаписывали результат друг друга
-    let ext = if bytes.starts_with(&[0xFF, 0xD8]) { "jpg" } else { "png" };
+    // Формат по сигнатуре: провайдер может отдать webp/gif — раньше всё
+    // не-JPEG звалось .png, и asset-протокол отдавал контент не тем типом
+    let ext = if bytes.starts_with(&[0xFF, 0xD8]) {
+        "jpg"
+    } else if bytes.starts_with(&[0x89, b'P', b'N', b'G']) {
+        "png"
+    } else if bytes.len() > 12 && bytes.starts_with(b"RIFF") && &bytes[8..12] == b"WEBP" {
+        "webp"
+    } else if bytes.starts_with(b"GIF8") {
+        "gif"
+    } else {
+        "png"
+    };
     let path: PathBuf = dir.join(format!(
         "img-{}.{}",
-        crate::fsutil::uuid_v4_short(),
+        crate::fsutil::rand_hex8(),
         ext
     ));
     fs::write(&path, &bytes).map_err(|e| format!("cannot save image: {e}"))?;

@@ -136,7 +136,10 @@ impl BrowserRegistry {
     }
 
     pub fn kill_all(&self) {
-        if let Some(conn) = self.0.lock().unwrap_or_else(|p| p.into_inner()).take() {
+        // Лок держим только на take(): kill() ждёт завершения процесса,
+        // и под локом реестра он стопорил get_or_launch и browser-view
+        let conn = self.0.lock().unwrap_or_else(|p| p.into_inner()).take();
+        if let Some(conn) = conn {
             conn.kill();
         }
     }
@@ -161,15 +164,23 @@ fn find_browser_executable() -> Option<String> {
             return Some(p);
         }
     }
-    const CANDIDATES: &[&str] = &[
-        r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
-        r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
-        r"C:\Program Files\Google\Chrome\Application\chrome.exe",
-        r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
-    ];
-    for c in CANDIDATES {
-        if std::path::Path::new(c).exists() {
-            return Some(c.to_string());
+    // %ProgramFiles% вместо литералов «C:\Program Files»: системный том
+    // не обязан быть «C:» (pty.rs решает так же через env). Блок под
+    // cfg(windows): на Unix эти литералы — мёртвые exists()-проверки
+    #[cfg(windows)]
+    {
+        let pf = std::env::var("ProgramFiles").unwrap_or_else(|_| r"C:\Program Files".into());
+        let pf86 = std::env::var("ProgramFiles(x86)").unwrap_or_else(|_| format!(r"{pf} (x86)"));
+        let candidates = [
+            format!(r"{pf86}\Microsoft\Edge\Application\msedge.exe"),
+            format!(r"{pf}\Microsoft\Edge\Application\msedge.exe"),
+            format!(r"{pf}\Google\Chrome\Application\chrome.exe"),
+            format!(r"{pf86}\Google\Chrome\Application\chrome.exe"),
+        ];
+        for c in &candidates {
+            if std::path::Path::new(c).exists() {
+                return Some(c.clone());
+            }
         }
     }
     // Chrome «только для меня» живёт не в Program Files, а в профиле
@@ -359,11 +370,11 @@ impl BrowserConnection {
             // Уникальный профиль на запуск: общий каталог заставляет Edge/Chrome
             // молча пересылать новый процесс уже запущенному экземпляру
             // (single-instance) — CDP-порт тогда вообще не открывается.
-            // uuid вместо порта в имени: на общем /tmp предсказуемое имя
+            // rand_hex8 вместо порта в имени: на общем /tmp предсказуемое имя
             // позволяло squatting/симлинк-атаку на каталог профиля
             let profile = std::env::temp_dir().join(format!(
                 "haloui-browser-{}",
-                crate::fsutil::uuid_v4_short()
+                crate::fsutil::rand_hex8()
             ));
             let port_arg = format!("--remote-debugging-port={port}");
             let profile_arg = format!("--user-data-dir={}", profile.display());
@@ -388,6 +399,13 @@ impl BrowserConnection {
                 // Без этого браузер сидит в группе приложения, tree-kill
                 // промахивался (ESRCH) — конвенция проекта (colibri.rs, mcp.rs)
                 command.process_group(0);
+            }
+            #[cfg(windows)]
+            {
+                use std::os::windows::process::CommandExt;
+                // CREATE_NO_WINDOW: консольная обёртка из GUI-процесса
+                // мигала окном (тот же фикс, что в mcp.rs/colibri.rs/hooks.rs)
+                command.creation_flags(0x0800_0000);
             }
             let child = command
                 .spawn()
@@ -799,6 +817,70 @@ const REF_FOCUS_JS_TEMPLATE: &str = r#"
   return JSON.stringify({ focused: el.tagName.toLowerCase() });
 })()"#;
 
+/// ref из снапшота — строго `e<число>` (его генерирует REF_REGISTRY_JS).
+/// Валидация ДО подстановки в JS-шаблон: ref приходит от модели, а модель
+/// управляется содержимым страницы — сырая подстановка в JS-литерал была
+/// исполнением произвольного кода в origin страницы
+fn valid_ref(r: &str) -> bool {
+    match r.strip_prefix('e') {
+        Some(n) => !n.is_empty() && n.len() <= 6 && n.bytes().all(|b| b.is_ascii_digit()),
+        None => false,
+    }
+}
+
+/// Обрезка снапшота с сохранением ВАЛИДНОГО JSON: элементы отрезаются с
+/// конца по фактическому размеру сериализации, ставится маркер truncated.
+/// Байтовый срез + аппенд литерала `"}` ломали JSON на вложенных объектах
+/// и экранированных кавычках. Не-JSON отдаётся усечённым как есть:
+/// контракт «чистый JSON» держится на REF_REGISTRY_JS, здесь страховка
+fn truncate_snapshot_json(raw: &str, limit: usize) -> String {
+    let Ok(mut value) = serde_json::from_str::<serde_json::Value>(raw) else {
+        return raw.chars().take(limit).collect();
+    };
+    let Some(obj) = value.as_object_mut() else {
+        return raw.chars().take(limit).collect();
+    };
+    let removed = obj.remove("elements");
+    let Some(mut elements) = removed.as_ref().and_then(|v| v.as_array()).cloned() else {
+        // Массива нет — нечего резать, возвращаем объект как был
+        if let Some(orig) = removed {
+            obj.insert("elements".into(), orig);
+        }
+        return serde_json::to_string(obj).unwrap_or_else(|_| "{}".into());
+    };
+    // Скелет: объект с пустым массивом элементов — постоянная часть ответа.
+    // Сериализуем саму map: obj держит &mut value, второй borrow корня нельзя
+    obj.insert("elements".into(), serde_json::Value::Array(Vec::new()));
+    obj.insert("truncated".into(), serde_json::Value::Bool(true));
+    let skeleton_len = serde_json::to_string(obj)
+        .map(|s| s.len())
+        .unwrap_or(usize::MAX);
+    if skeleton_len + 16 >= limit {
+        // Скелет сам не влезает (гигантский url/title) — отдаём маркер
+        return serde_json::json!({ "truncated": true }).to_string();
+    }
+    let budget = limit - skeleton_len - 16;
+    // +1 на запятую между элементами — хвостовая запятая не пишется,
+    // лёгкий перезакуп даёт запас, а не недобор
+    let sizes: Vec<usize> = elements
+        .iter()
+        .map(|e| serde_json::to_string(e).map(|s| s.len() + 1).unwrap_or(usize::MAX))
+        .collect();
+    let mut kept = 0usize;
+    let mut used = 0usize;
+    for &sz in &sizes {
+        if used + sz > budget {
+            break;
+        }
+        used += sz;
+        kept += 1;
+    }
+    elements.truncate(kept);
+    obj.insert("dropped".into(), serde_json::json!(sizes.len() - kept));
+    obj.insert("elements".into(), serde_json::Value::Array(elements));
+    serde_json::to_string(obj).unwrap_or_else(|_| "{}".into())
+}
+
 // ---------------------------------------------------------------------------
 // Инструменты агента browser_*
 // ---------------------------------------------------------------------------
@@ -1042,6 +1124,9 @@ pub fn execute_on(conn: &BrowserConnection, name: &str, args: &Value) -> Result<
             // ДОВЕРЕННЫМИ CDP-событиями (el.click() — синтетика: не видит
             // hover-меню, не переносит фокус как настоящий клик)
             if let Some(r) = args.get("ref").and_then(|v| v.as_str()) {
+                if !valid_ref(r) {
+                    return Err("invalid ref — take a new browser_snapshot".into());
+                }
                 let resolve = REF_CENTER_JS_TEMPLATE.replace("__REF__", r);
                 let resolved = conn.evaluate(&resolve)?;
                 let parsed: Value = serde_json::from_str(resolved.as_str().unwrap_or("{}"))
@@ -1080,6 +1165,9 @@ pub fn execute_on(conn: &BrowserConnection, name: &str, args: &Value) -> Result<
             let text = arg_str(args, "text")?;
             // Вариант по ref'у: фокус + (замена содержимого) + доверенный ввод
             if let Some(r) = args.get("ref").and_then(|v| v.as_str()) {
+                if !valid_ref(r) {
+                    return Err("invalid ref — take a new browser_snapshot".into());
+                }
                 let select = args
                     .get("replace")
                     .and_then(|v| v.as_bool())
@@ -1120,11 +1208,10 @@ pub fn execute_on(conn: &BrowserConnection, name: &str, args: &Value) -> Result<
             let raw = conn.evaluate(REF_REGISTRY_JS)?;
             let mut text = raw.as_str().unwrap_or("{}").to_string();
             // Потолок ответа: сотни интерактивных элементов * строка описания.
-            // Ответ — ЧИСТЫЙ JSON: текстовая обёртка с подсказкой содержала
-            // свою «{» и ломала парсинг (гайд living в описании инструмента)
+            // Ответ — ЧИСТЫЙ JSON: обрезка с сохранением валидного JSON,
+            // а не байтовый срез с аппендом литерала `"}` (см. helper ниже)
             if text.len() > SNAPSHOT_TEXT_LIMIT {
-                crate::truncate_at_char_boundary(&mut text, SNAPSHOT_TEXT_LIMIT);
-                text.push_str("\"}...[truncated]");
+                text = truncate_snapshot_json(&text, SNAPSHOT_TEXT_LIMIT);
             }
             Ok(text)
         }
@@ -1158,6 +1245,47 @@ fn arg_int_opt(args: &Value, key: &str) -> Option<i64> {
 mod tests {
     use super::*;
     use std::sync::atomic::AtomicBool;
+
+    #[test]
+    fn ref_validation_strict_format() {
+        assert!(valid_ref("e12"));
+        assert!(valid_ref("e0"));
+        assert!(!valid_ref("e1'); alert(document.cookie); ('"));
+        assert!(!valid_ref("__REF__"));
+        assert!(!valid_ref("x12"));
+        assert!(!valid_ref("e"));
+        assert!(!valid_ref("e99999999"));
+        assert!(!valid_ref(""));
+    }
+
+    #[test]
+    fn snapshot_truncation_keeps_valid_json() {
+        let mut elements = Vec::new();
+        for i in 0..500 {
+            elements.push(serde_json::json!({
+                "ref": format!("e{i}"),
+                "name": format!("button {i} with \"quoted\" text"),
+                "x": i,
+                "y": i
+            }));
+        }
+        let raw = serde_json::json!({
+            "url": "https://example.test/",
+            "title": "t",
+            "count": 500,
+            "elements": elements
+        })
+        .to_string();
+        let out = truncate_snapshot_json(&raw, 4096);
+        let parsed: serde_json::Value = serde_json::from_str(&out)
+            .expect("truncated snapshot must stay valid JSON");
+        assert_eq!(parsed["truncated"], serde_json::json!(true));
+        assert!(out.len() <= 4096, "output {} over limit", out.len());
+        assert!(
+            parsed["elements"].as_array().is_some_and(|a| !a.is_empty()),
+            "truncation must keep a usable prefix of elements"
+        );
+    }
 
     #[test]
     fn browser_schemas_valid() {

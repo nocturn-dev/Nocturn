@@ -45,7 +45,7 @@ struct KbCar {
     created: u64,
 }
 
-/// Каталог базы с валидацией id: id генерируется бекендом (uuid_v4_short),
+/// Каталог базы с валидацией id: id генерируется бекендом (rand_hex8),
 /// но приходит с фронта — путь не должен собираться из произвольных строк
 fn kb_dir(app: &tauri::AppHandle, id: &str) -> Result<PathBuf, String> {
     if id.is_empty() || id.len() > 32 || !id.chars().all(|c| c.is_ascii_alphanumeric()) {
@@ -197,7 +197,7 @@ pub async fn kb_create(app: tauri::AppHandle, name: String) -> Result<String, St
         return Err("invalid knowledge base name".into());
     }
     tauri::async_runtime::spawn_blocking(move || {
-        let id = crate::fsutil::uuid_v4_short();
+        let id = crate::fsutil::rand_hex8();
         let dir = kb_dir(&app, &id)?;
         std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
         let car = KbCar {

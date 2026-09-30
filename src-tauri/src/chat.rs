@@ -336,7 +336,14 @@ pub async fn chat_stream(
         flag: flag.clone(),
     };
 
+    // Тело OpenAI-запроса мутируется при ретрае без stream_options; в
+    // Anthropic-ветке остаётся None и не читается (короткое замыкание
+    // `!anthropic &&` ниже) — отсюда allow на мёртвый стартовый None
+    #[allow(unused_assignments)]
     let mut body_json: Option<serde_json::Value> = None;
+    // Символы сериализованного тела для оценки промпта: заполняется в
+    // обеих ветках до любого чтения
+    let mut prompt_chars: usize;
     let mut resp = if anthropic {
         let body = build_anthropic_body(
             &model,
@@ -344,11 +351,17 @@ pub async fn chat_stream(
             tools.as_ref().filter(|t| !t.is_null()),
             reasoning_effort.as_deref(),
         );
+        // Оценка промпта раньше была только у OpenAI-пути: у Anthropic
+        // она молча уезжала нулём
+        let payload = serde_json::to_string(&body)
+            .map_err(|e| format!("failed to serialize body: {e}"))?;
+        prompt_chars = payload.chars().count();
         client
             .post(format!("{base}/messages"))
             .header("x-api-key", api_key.trim())
             .header("anthropic-version", "2023-06-01")
-            .json(&body)
+            .header(reqwest::header::CONTENT_TYPE, "application/json")
+            .body(payload)
             .send()
             .await
             .map_err(|e| format!("failed to connect: {e}"))?
@@ -374,10 +387,14 @@ pub async fn chat_stream(
         let Some(built) = body_json.as_ref() else {
             return Err("internal: request body missing".into());
         };
+        let payload = serde_json::to_string(built)
+            .map_err(|e| format!("failed to serialize body: {e}"))?;
+        prompt_chars = payload.chars().count();
         client
             .post(format!("{base}/chat/completions"))
             .bearer_auth(api_key.trim())
-            .json(built)
+            .header(reqwest::header::CONTENT_TYPE, "application/json")
+            .body(payload)
             .send()
             .await
             .map_err(|e| format!("failed to connect: {e}"))?
@@ -397,10 +414,14 @@ pub async fn chat_stream(
             let Some(rebuilt) = body_json.as_ref() else {
                 return Err("internal: request body missing".into());
             };
+            let payload = serde_json::to_string(rebuilt)
+                .map_err(|e| format!("failed to serialize body: {e}"))?;
+            prompt_chars = payload.chars().count();
             resp = client
                 .post(format!("{base}/chat/completions"))
                 .bearer_auth(api_key.trim())
-                .json(rebuilt)
+                .header(reqwest::header::CONTENT_TYPE, "application/json")
+                .body(payload)
                 .send()
                 .await
                 .map_err(|e| format!("failed to connect: {e}"))?;
@@ -517,10 +538,7 @@ pub async fn chat_stream(
     // усреднение для смешанного en/ru текста; для статистики активности
     // точность достаточная, Hard Limit тоже получает сигнал)
     if !saw_usage && completion_chars > 0 {
-        let prompt_est = body_json
-            .as_ref()
-            .map(|b| b.to_string().chars().count() / 4)
-            .unwrap_or(0);
+        let prompt_est = prompt_chars / 4;
         let completion_est = completion_chars / 4;
         if prompt_est + completion_est > 0 {
             sink(FeedEvent::Usage {

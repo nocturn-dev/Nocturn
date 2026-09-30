@@ -641,11 +641,9 @@ fn fs_grep(dir: &Path, query: &str, max_results: usize) -> Result<String, String
             "No matches.".to_string()
         });
     }
-    let mut res = out.join("
-");
+    let mut res = out.join("\n");
     if truncated {
-        res.push_str(&format!("
-...[scan limit {MAX_FILES} files reached]"));
+        res.push_str(&format!("\n...[scan limit {MAX_FILES} files reached]"));
     }
     Ok(res)
 }

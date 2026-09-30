@@ -40,6 +40,8 @@ pub async fn git_status(path: String) -> Result<Vec<GitEntry>, String> {
 /// не должна съедать контекст каждой отправки
 #[tauri::command(async)]
 pub fn project_rules_read(root: String) -> Result<Option<String>, String> {
+    // Путь с фронтенда — общий гардал системных локаций (модель settings.rs)
+    crate::settings::rejects_sensitive_path(&root)?;
     let root = std::path::PathBuf::from(root.trim());
     if !root.is_dir() {
         return Ok(None);
@@ -55,6 +57,10 @@ pub fn project_rules_read(root: String) -> Result<Option<String>, String> {
 }
 
 fn git_status_impl(path: String) -> Result<Vec<GitEntry>, String> {
+    // Путь с фронтенда — общий гардал системных локаций (модель settings.rs):
+    // git status исполняет core.fsmonitor-хелперы из конфига репозитория,
+    // произвольный cwd из вебвью это эксплуатирует
+    crate::settings::rejects_sensitive_path(&path)?;
     // core.quotepath=false: не-ASCII пути (кириллица, CJK) отдаются как есть —
     // раньше октальные эскейпы "\320\277..." показывали мусор в подсветке.
     // Таймаут через proc::run_command_opts: git на сетевом диске/FUSE
@@ -284,6 +290,9 @@ pub async fn git_autocommit(root: String, message: String) -> Result<bool, Strin
 }
 
 fn git_autocommit_impl(root: String, message: String) -> Result<bool, String> {
+    // Путь с фронтенда — общий гардал системных локаций (модель settings.rs):
+    // git add/commit в произвольном cwd из вебвью недопустим
+    crate::settings::rejects_sensitive_path(&root)?;
     if !std::path::Path::new(&root).is_dir() {
         return Ok(false);
     }
@@ -324,6 +333,8 @@ fn checkpoint_save_impl(
     path: String,
     label: String,
 ) -> Result<CheckpointMeta, String> {
+    // Путь с фронтенда — общий гардал системных локаций (модель settings.rs)
+    crate::settings::rejects_sensitive_path(&path)?;
     let root = PathBuf::from(&path);
     if !root.is_dir() {
         return Err(format!("not a directory: {path}"));
@@ -411,6 +422,8 @@ pub async fn checkpoint_list(
 }
 
 fn checkpoint_list_impl(app: tauri::AppHandle, path: String) -> Result<Vec<CheckpointMeta>, String> {
+    // Путь с фронтенда — общий гардал системных локаций (модель settings.rs)
+    crate::settings::rejects_sensitive_path(&path)?;
     let dir = checkpoints_dir(&app, &path)?;
     let mut out: Vec<CheckpointMeta> = Vec::new();
     let rd = fs::read_dir(&dir).map_err(|e| e.to_string())?;
@@ -497,6 +510,10 @@ fn checkpoint_restore_impl(
     path: String,
     id: String,
 ) -> Result<usize, String> {
+    // Путь с фронтенда — общий гардал системных локаций (модель settings.rs):
+    // restore пишет файлы в корень проекта, блок-листа системных путей
+    // здесь не было
+    crate::settings::rejects_sensitive_path(&path)?;
     if !cp_id_ok(&id) {
         return Err("bad checkpoint id".into());
     }
@@ -574,6 +591,8 @@ pub async fn checkpoint_files(
     id: String,
 ) -> Result<Vec<CheckpointFileState>, String> {
     tauri::async_runtime::spawn_blocking(move || {
+        // Путь с фронтенда — общий гардал системных локаций (модель settings.rs)
+        crate::settings::rejects_sensitive_path(&path)?;
         if !cp_id_ok(&id) {
             return Err("bad checkpoint id".into());
         }
@@ -621,6 +640,8 @@ pub async fn checkpoint_files(
 
 #[tauri::command(async)]
 pub fn checkpoint_delete(app: tauri::AppHandle, path: String, id: String) -> Result<(), String> {
+    // Путь с фронтенда — общий гардал системных локаций (модель settings.rs)
+    crate::settings::rejects_sensitive_path(&path)?;
     if !cp_id_ok(&id) {
         return Err("bad checkpoint id".into());
     }
@@ -637,7 +658,17 @@ pub fn checkpoint_delete(app: tauri::AppHandle, path: String, id: String) -> Res
 /// сначала собираем и сортируем ВСЁ, и только потом обрезаем до лимита —
 /// иначе отсечение было бы произвольным подмножеством (часть папок терялась).
 #[tauri::command(async)]
-pub fn list_dir(path: String) -> Result<Vec<FileEntry>, String> {
+pub async fn list_dir(path: String) -> Result<Vec<FileEntry>, String> {
+    // Путь с фронтенда — общий гардал системных локаций (модель settings.rs)
+    crate::settings::rejects_sensitive_path(&path)?;
+    // read_dir больших каталогов (node_modules, сетевые диски) — в
+    // blocking-пул, а не на воркер tokio со стримами (класс crypto_status)
+    tauri::async_runtime::spawn_blocking(move || list_dir_impl(path))
+        .await
+        .map_err(|e| format!("list dir task failed: {e}"))?
+}
+
+fn list_dir_impl(path: String) -> Result<Vec<FileEntry>, String> {
     let dir = std::path::Path::new(&path);
     if !dir.is_dir() {
         return Err(format!("not a directory: {path}"));
@@ -687,7 +718,7 @@ mod list_dir_tests {
         for n in ["zz_dir", "aa_dir", "mm_dir"] {
             fs::create_dir(dir.join(n)).unwrap();
         }
-        let res = list_dir(dir.to_string_lossy().to_string()).unwrap();
+        let res = list_dir_impl(dir.to_string_lossy().to_string()).unwrap();
         let names: Vec<&str> = res.iter().map(|e| e.name.as_str()).collect();
         assert_eq!(
             names,
@@ -707,8 +738,8 @@ mod list_dir_tests {
         for i in 0..700 {
             fs::write(dir.join(format!("file{:04}.txt", i)), "x").unwrap();
         }
-        let first = list_dir(dir.to_string_lossy().to_string()).unwrap();
-        let second = list_dir(dir.to_string_lossy().to_string()).unwrap();
+        let first = list_dir_impl(dir.to_string_lossy().to_string()).unwrap();
+        let second = list_dir_impl(dir.to_string_lossy().to_string()).unwrap();
         assert_eq!(first.len(), LIST_DIR_LIMIT);
         // Результат детерминирован независимо от порядка read_dir
         assert_eq!(
@@ -728,7 +759,7 @@ mod list_dir_tests {
         let dir = tmp_dir("rej");
         let file = dir.join("f.txt");
         fs::write(&file, "x").unwrap();
-        let res = list_dir(file.to_string_lossy().to_string());
+        let res = list_dir_impl(file.to_string_lossy().to_string());
         assert!(res.is_err());
         let _ = fs::remove_dir_all(&dir);
     }

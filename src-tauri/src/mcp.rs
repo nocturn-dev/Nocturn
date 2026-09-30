@@ -804,7 +804,13 @@ impl McpHandle {
 
 impl McpRegistry {
     pub fn kill_all(&self) {
-        for (_, conn) in self.0.lock().unwrap_or_else(|p| p.into_inner()).drain() {
+        // Коннекты забираем из-под лока и убиваем снаружи: kill ждёт
+        // завершения процесса, и под локом реестра он тормозил вызовы
+        let conns: Vec<_> = {
+            let mut guard = self.0.lock().unwrap_or_else(|p| p.into_inner());
+            guard.drain().map(|(_, conn)| conn).collect()
+        };
+        for conn in conns {
             conn.kill();
         }
     }

@@ -4,6 +4,7 @@
 //! браузер ходит по системным настройкам. Настройки читаются из network.json.
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::sync::Mutex;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -105,10 +106,16 @@ pub fn apply(builder: reqwest::ClientBuilder) -> Result<reqwest::ClientBuilder, 
 /// Разделяемые HTTP-клиенты: reqwest::Client спроектирован переиспользуемым
 /// (keep-alive, пул соединений, TLS-сессии), а строился на каждый запрос —
 /// каждый ход чата и каждый tools/call remote-MCP платил TCP+TLS-handshake
-/// заново. Ключ кэша — фингерпринт сетевого конфига (прокси/no_proxy/CA +
-/// connect-таймаут): смена настроек через set_config автоматически даёт
-/// новый клиент на следующем запросе, явной инвалидации не нужно.
-static CLIENT_CACHE: Mutex<Option<(String, reqwest::Client)>> = Mutex::new(None);
+/// заново. Кэш — карта по фингерпринту сетевого конфига (прокси/no_proxy/CA +
+/// connect-таймаут): однослотовый кэш в смешанном прогоне (чат 30 с против
+/// remote-MCP/imagegen 15 с) промахивался на каждый вызов и пересобирал
+/// клиента — handshake вместо keep-alive, от чего кэш и спасает. Смена
+/// настроек через set_config автоматически даёт новый клиент на следующем
+/// запросе, явной инвалидации не нужно. Потолок мал: фингерпринтов реально
+/// пара (два таймаута × текущий сетевой конфиг), свип при переполнении —
+/// страховка от гипотетического разрастания.
+static CLIENT_CACHE: Mutex<Option<HashMap<String, reqwest::Client>>> = Mutex::new(None);
+const CLIENT_CACHE_CAP: usize = 8;
 
 pub fn shared_client(connect_timeout: std::time::Duration) -> Result<reqwest::Client, String> {
     let cfg = config();
@@ -131,19 +138,23 @@ pub fn shared_client(connect_timeout: std::time::Duration) -> Result<reqwest::Cl
         "{connect_timeout:?}|{}|{}|{ca_fp:?}",
         cfg.proxy, cfg.no_proxy
     );
-    if let Some((cached_fp, client)) = CLIENT_CACHE
+    if let Some(client) = CLIENT_CACHE
         .lock()
         .unwrap_or_else(|p| p.into_inner())
         .as_ref()
+        .and_then(|cache| cache.get(&fp))
     {
-        if *cached_fp == fp {
-            return Ok(client.clone());
-        }
+        return Ok(client.clone());
     }
     let client = apply(reqwest::Client::builder().connect_timeout(connect_timeout))?
         .build()
         .map_err(|e| format!("failed to build http client: {e}"))?;
-    *CLIENT_CACHE.lock().unwrap_or_else(|p| p.into_inner()) = Some((fp, client.clone()));
+    let mut guard = CLIENT_CACHE.lock().unwrap_or_else(|p| p.into_inner());
+    let cache = guard.get_or_insert_with(HashMap::new);
+    if cache.len() >= CLIENT_CACHE_CAP {
+        cache.clear();
+    }
+    cache.insert(fp, client.clone());
     Ok(client)
 }
 

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
+    <!-- TCC: без описания использования getUserMedia({audio}) в бандле
+         отклоняется системой (диктовка, wake word), в ряде сценариев
+         с abort'ом процесса. Мерджится в генерируемый Info.plist через
+         bundle &gt; macOS &gt; infoPlist в tauri.conf.json -->
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Nocturn uses the microphone for voice dictation and wake word detection.</string>
+  </dict>
+</plist>
