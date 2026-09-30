@@ -53,10 +53,10 @@ function ChangedFilesCardBase({
         <span className="text-xs font-medium text-halo-text">
           {t("agent.filesChanged", { n: files.length })}
         </span>
-        <span className="text-[10px] font-medium text-emerald-400">
+        <span className="text-[0.625rem] font-medium text-emerald-400">
           +{total.added}
         </span>
-        <span className="text-[10px] font-medium text-red-400">
+        <span className="text-[0.625rem] font-medium text-red-400">
           −{total.removed}
         </span>
         {onReview && (
@@ -65,7 +65,7 @@ function ChangedFilesCardBase({
               e.stopPropagation();
               onReview();
             }}
-            className="ml-auto flex shrink-0 items-center gap-1 rounded-md border border-halo-line px-2 py-0.5 text-[10px] text-halo-muted transition-colors hover:border-halo-accent/50 hover:text-halo-text"
+            className="ml-auto flex shrink-0 items-center gap-1 rounded-md border border-halo-line px-2 py-0.5 text-[0.625rem] text-halo-muted transition-colors hover:border-halo-accent/50 hover:text-halo-text"
           >
             Review ↗
           </button>
@@ -95,14 +95,14 @@ function ChangedFilesCardBase({
                     className="flex min-w-0 flex-1 items-center gap-2 text-left"
                   >
                     {/* Нумерация как в Codex: 1. файл путь/ +a −d */}
-                    <span className="w-4 shrink-0 text-right text-[10px] tabular-nums text-halo-muted/60">
+                    <span className="w-4 shrink-0 text-right text-[0.625rem] tabular-nums text-halo-muted/60">
                       {i + 1}.
                     </span>
                     <span className="text-halo-muted">
                       <ChevronDownIcon className={expanded ? "" : "-rotate-90"} />
                     </span>
                     <span
-                      className={`truncate font-mono text-[11px] ${
+                      className={`truncate font-mono text-[0.6875rem] ${
                         isUndone
                           ? "text-halo-muted/60 line-through"
                           : "text-halo-text"
@@ -113,19 +113,19 @@ function ChangedFilesCardBase({
                       <span className="text-halo-muted/60"> {dir}</span>
                     </span>
                     {f.created && !isUndone && (
-                      <span className="shrink-0 rounded bg-emerald-400/15 px-1.5 py-0.5 text-[9px] font-medium text-emerald-400">
+                      <span className="shrink-0 rounded bg-emerald-400/15 px-1.5 py-0.5 text-[0.5625rem] font-medium text-emerald-400">
                         {t("agent.diffCreated")}
                       </span>
                     )}
-                    <span className="shrink-0 text-[10px] text-emerald-400">
+                    <span className="shrink-0 text-[0.625rem] text-emerald-400">
                       +{st.added}
                     </span>
-                    <span className="shrink-0 text-[10px] text-red-400">
+                    <span className="shrink-0 text-[0.625rem] text-red-400">
                       −{st.removed}
                     </span>
                   </button>
                   {isUndone ? (
-                    <span className="shrink-0 text-[10px] text-halo-muted/70">
+                    <span className="shrink-0 text-[0.625rem] text-halo-muted/70">
                       ↩ {t("agent.undone")}
                     </span>
                   ) : (
@@ -133,7 +133,7 @@ function ChangedFilesCardBase({
                       <button
                         onClick={() => undo(f)}
                         title={t("agent.undo")}
-                        className="shrink-0 rounded-md p-1 text-[11px] text-halo-muted transition-colors hover:bg-halo-hover hover:text-halo-text"
+                        className="shrink-0 rounded-md p-1 text-[0.6875rem] text-halo-muted transition-colors hover:bg-halo-hover hover:text-halo-text"
                       >
                         ↩
                       </button>

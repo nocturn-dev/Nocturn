@@ -241,11 +241,11 @@ export default function Sidebar({
           <span className="min-w-0 flex-1 truncate">{s.title}</span>
           {/* Тег-метка чата */}
           {s.tag && (
-            <span className="shrink-0 rounded border border-halo-line px-1 py-px text-[10px] text-halo-muted">
+            <span className="shrink-0 rounded border border-halo-line px-1 py-px text-[0.625rem] text-halo-muted">
               {s.tag}
             </span>
           )}
-          <span className="shrink-0 text-[11px] tabular-nums text-halo-muted/50 group-hover/row:hidden">
+          <span className="shrink-0 text-[0.6875rem] tabular-nums text-halo-muted/50 group-hover/row:hidden">
             {relTime(s.createdAt, lang)}
           </span>
           {/* Быстрые действия — только на ховере. Закрепление — первое:
@@ -366,7 +366,7 @@ export default function Sidebar({
           <span className="text-halo-accent">
             <BrandMark />
           </span>
-          <span className="text-[15px] font-semibold tracking-wide">Nocturn</span>
+          <span className="text-[0.9375rem] font-semibold tracking-wide">Nocturn</span>
         </button>
         <span data-tauri-drag-region className="h-full flex-1" />
         {showWindowControls && <WindowControls />}
@@ -382,7 +382,7 @@ export default function Sidebar({
             <PlusIcon />
           </span>
           <span className="flex-1 text-left">{t("sidebar.newTask")}</span>
-          <kbd className="text-[11px] tracking-wide text-halo-muted/60">
+          <kbd className="text-[0.6875rem] tracking-wide text-halo-muted/60">
             Ctrl+N
           </kbd>
         </button>
@@ -394,7 +394,7 @@ export default function Sidebar({
             <SearchIcon />
           </span>
           <span className="flex-1 text-left">{t("sidebar.search")}</span>
-          <kbd className="text-[11px] tracking-wide text-halo-muted/60">
+          <kbd className="text-[0.6875rem] tracking-wide text-halo-muted/60">
             Ctrl+K
           </kbd>
         </button>
@@ -433,7 +433,7 @@ export default function Sidebar({
                 : "border-transparent text-halo-muted/70 hover:text-halo-text"
             }`}
           >
-            <span className="text-[10px] font-semibold">#</span>
+            <span className="text-[0.625rem] font-semibold">#</span>
             {t("sidebar.tasks")}
           </button>
           <button
@@ -586,7 +586,7 @@ export default function Sidebar({
                         >
                           <span className={`size-1.5 shrink-0 rounded-full ${PROJECT_DOTS[projects.indexOf(project) % PROJECT_DOTS.length]}`} />
                           <span className="min-w-0 flex-1 truncate">{project.name}</span>
-                          <span className="text-[11px] text-halo-muted/50">{items.length}</span>
+                          <span className="text-[0.6875rem] text-halo-muted/50">{items.length}</span>
                         </button>
                         <ul className="ml-1 space-y-0.5 border-l border-halo-line/70 pl-1.5">
                           {shown.map(sessionRow)}
@@ -633,7 +633,7 @@ export default function Sidebar({
             <button
               onClick={() => setFilesOpen((v) => !v)}
               style={headerColor ? { color: headerColor } : undefined}
-              className="flex flex-1 items-center gap-1.5 text-[11px] font-medium uppercase tracking-[0.14em] text-halo-muted/50 transition-colors hover:text-halo-text"
+              className="flex flex-1 items-center gap-1.5 text-[0.6875rem] font-medium uppercase tracking-[0.14em] text-halo-muted/50 transition-colors hover:text-halo-text"
             >
               <ChevronSmallIcon className={filesOpen ? "" : "-rotate-90"} />
               {t("files.section")}
@@ -817,14 +817,14 @@ function Checkpoints({ root }: { root: string }) {
 
   return (
     <div className="mb-2 ml-3 border-l border-halo-line pl-3">
-      <p className="py-1 text-[11px] font-medium uppercase tracking-[0.14em] text-halo-muted/50">
+      <p className="py-1 text-[0.6875rem] font-medium uppercase tracking-[0.14em] text-halo-muted/50">
         {t("cp.title")}
       </p>
       {items.length === 0 && (
-        <p className="py-1 text-[11px] text-halo-muted/70">{t("cp.empty")}</p>
+        <p className="py-1 text-[0.6875rem] text-halo-muted/70">{t("cp.empty")}</p>
       )}
       {status && (
-        <p className="py-1 text-[11px] text-emerald-400">{status}</p>
+        <p className="py-1 text-[0.6875rem] text-emerald-400">{status}</p>
       )}
       <ul>
         {items.map((cp) => (
@@ -833,7 +833,7 @@ function Checkpoints({ root }: { root: string }) {
               <p className="truncate text-xs text-halo-text" title={cp.label || undefined}>
                 {cp.label || t("cp.unlabeled")}
               </p>
-              <p className="text-[10px] text-halo-muted/70">
+              <p className="text-[0.625rem] text-halo-muted/70">
                 {new Date(cp.ts).toLocaleString(lang === "ru" ? "ru-RU" : "en-US", {
                   day: "2-digit",
                   month: "2-digit",
@@ -885,7 +885,7 @@ function HeaderLabel({
         onClick={() => setOpen((v) => !v)}
         title={t("sidebar.headerColorTitle")}
         style={color ? { color } : undefined}
-        className={`text-[11px] font-medium uppercase tracking-[0.14em] transition-colors ${
+        className={`text-[0.6875rem] font-medium uppercase tracking-[0.14em] transition-colors ${
           color ? "hover:opacity-80" : "text-halo-muted/50 hover:text-halo-text"
         }`}
       >
@@ -918,7 +918,7 @@ function ColorPalette({
   return (
     <div className="anim-pop absolute left-0 top-6 z-40 w-44 rounded-lg border border-halo-line bg-halo-deep p-2 shadow-xl">
       <div className="mb-2 flex items-center justify-between">
-        <p className="text-[10px] uppercase tracking-wider text-halo-muted/70">
+        <p className="text-[0.625rem] uppercase tracking-wider text-halo-muted/70">
           {t("sidebar.headerColorTitle")}
         </p>
         <button
@@ -951,7 +951,7 @@ function ColorPalette({
         />
         <button
           onClick={() => onPick("")}
-          className="flex-1 rounded-md border border-halo-line px-2 py-1 text-[10px] text-halo-muted transition-colors hover:text-halo-text"
+          className="flex-1 rounded-md border border-halo-line px-2 py-1 text-[0.625rem] text-halo-muted transition-colors hover:text-halo-text"
         >
           {t("sidebar.headerColorReset")}
         </button>
@@ -1133,18 +1133,18 @@ const FileTree = memo(function FileTree({
     const entries = cache.get(path);
     if (!entries || entries === "error" || entries === "loading") {
       return entries === "error" ? (
-        <p className="py-1 text-[11px] text-red-400/80" style={{ paddingLeft: depth * 14 + 30 }}>
+        <p className="py-1 text-[0.6875rem] text-red-400/80" style={{ paddingLeft: depth * 14 + 30 }}>
           {t("files.error")}
         </p>
       ) : (
-        <p className="py-1 text-[11px] text-halo-muted/60" style={{ paddingLeft: depth * 14 + 30 }}>
+        <p className="py-1 text-[0.6875rem] text-halo-muted/60" style={{ paddingLeft: depth * 14 + 30 }}>
           …
         </p>
       );
     }
     if (entries.length === 0) {
       return (
-        <p className="py-1 text-[11px] text-halo-muted/60" style={{ paddingLeft: depth * 14 + 30 }}>
+        <p className="py-1 text-[0.6875rem] text-halo-muted/60" style={{ paddingLeft: depth * 14 + 30 }}>
           {t("files.empty")}
         </p>
       );
@@ -1215,7 +1215,7 @@ const FileTree = memo(function FileTree({
               />
             )}
             {!e.is_dir && !isModified && e.size > 0 && (
-              <span className="ml-auto shrink-0 text-[10px] text-halo-muted/50">
+              <span className="ml-auto shrink-0 text-[0.625rem] text-halo-muted/50">
                 {formatSize(e.size, lang)}
               </span>
             )}

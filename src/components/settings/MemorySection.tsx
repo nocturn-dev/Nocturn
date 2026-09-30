@@ -113,7 +113,7 @@ export function MemorySection({
                 className="group flex items-start gap-2 rounded-lg px-2 py-1.5 text-xs text-halo-text transition-colors hover:bg-halo-hover"
               >
                 <span className="min-w-0 flex-1 break-words leading-relaxed">{f.text}</span>
-                <span className="shrink-0 text-[10px] tabular-nums text-halo-muted/60">
+                <span className="shrink-0 text-[0.625rem] tabular-nums text-halo-muted/60">
                   {new Date(f.ts).toLocaleDateString()}
                 </span>
                 <button
@@ -151,7 +151,7 @@ export function MemorySection({
             +
           </button>
         </div>
-        <p className="mt-2 text-[11px] leading-relaxed text-halo-muted/70">
+        <p className="mt-2 text-[0.6875rem] leading-relaxed text-halo-muted/70">
           {t("memory.factsHint")}
         </p>
       </div>

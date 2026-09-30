@@ -59,7 +59,7 @@ export default function Splash({
 
   return (
     <div
-      className={`fixed inset-0 z-[100] flex flex-col items-center justify-center ${
+      className={`fixed inset-0 z-[var(--halo-z-splash)] flex flex-col items-center justify-center ${
         fading ? "pointer-events-none opacity-0" : "opacity-100"
       }`}
       style={{

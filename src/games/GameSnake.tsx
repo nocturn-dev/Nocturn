@@ -86,7 +86,10 @@ export default function GameSnake() {
       if (d) {
         e.preventDefault();
         e.stopPropagation();
-        const last = queuedRef.current.at(-1) ?? dirRef.current;
+        // at(-1) — Safari 15.0–15.3 и старые WebKitGTK без метода: пол
+        // сборки safari15 синтаксический, рантайм-методы он не полифиллит
+        const q = queuedRef.current;
+        const last = q[q.length - 1] ?? dirRef.current;
         // Разворот на 180° запрещён
         if (last.x + d.x !== 0 || last.y + d.y !== 0) {
           if (queuedRef.current.length < 2) queuedRef.current.push(d);
@@ -165,11 +168,11 @@ export default function GameSnake() {
 
     let stepMs = 150;
     const tick = () => {
-      if (queuedRef.current.length > 0) {
-        const d = queuedRef.current.shift()!;
+      const queued = queuedRef.current.shift();
+      if (queued) {
         // Разворот на 180° запрещён относительно текущего направления
-        if (dirRef.current.x + d.x !== 0 || dirRef.current.y + d.y !== 0) {
-          dirRef.current = d;
+        if (dirRef.current.x + queued.x !== 0 || dirRef.current.y + queued.y !== 0) {
+          dirRef.current = queued;
         }
       }
       const head = snakeRef.current[0];
@@ -253,7 +256,7 @@ export default function GameSnake() {
           </div>
         )}
       </div>
-      <p className="mt-2 text-[11px] text-halo-muted/60">WASD / ↑↓←→ · {t("game.spacePause")}</p>
+      <p className="mt-2 text-[0.6875rem] text-halo-muted/60">WASD / ↑↓←→ · {t("game.spacePause")}</p>
     </div>
   );
 }

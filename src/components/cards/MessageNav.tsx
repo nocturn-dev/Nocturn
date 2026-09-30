@@ -105,8 +105,10 @@ export const MessageNav = memo(function MessageNav({
             style={{ animationDelay: `${i * 40}ms` }}
           >
             {/* Засечка */}
+            {/* width — не в дефолтном transition-property Tailwind: без
+                явного перехода w-3↔w-4 щёлкает мгновенно */}
             <span
-              className={`h-[3px] rounded-full transition duration-200 ${
+              className={`h-[3px] rounded-full transition-[width,background-color] duration-200 ${
                 isActive
                   ? "w-4 bg-halo-accent"
                   : "w-3 bg-halo-muted/50 group-hover:w-4 group-hover:bg-halo-muted"
@@ -118,11 +120,11 @@ export const MessageNav = memo(function MessageNav({
             >
               <span className="mb-1 flex items-center gap-1.5">
                 {m.role === "user" ? (
-                  <span className="text-[10px] font-semibold uppercase tracking-wider text-halo-muted">
+                  <span className="text-[0.625rem] font-semibold uppercase tracking-wider text-halo-muted">
                     {label}
                   </span>
                 ) : (
-                  <span className="text-[10px] font-semibold uppercase tracking-wider text-halo-accent/80">
+                  <span className="text-[0.625rem] font-semibold uppercase tracking-wider text-halo-accent/80">
                     {label}
                   </span>
                 )}

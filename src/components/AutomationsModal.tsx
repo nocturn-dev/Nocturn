@@ -394,7 +394,7 @@ export default function AutomationsModal({
           <div className="flex-1">
             <p className="text-sm text-halo-muted">{t("auto.keepAwake")}</p>
             {!isWindows() && (
-              <p className="text-[10px] leading-relaxed text-halo-muted/60">
+              <p className="text-[0.625rem] leading-relaxed text-halo-muted/60">
                 {t("auto.keepAwakeUnsupported")}
               </p>
             )}

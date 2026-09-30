@@ -240,13 +240,13 @@ export default function PluginsSection({
               <span className="shrink-0 text-sm font-medium text-halo-text">
                 {p.name}
               </span>
-              <span className="shrink-0 text-[10px] text-halo-muted/60">
+              <span className="shrink-0 text-[0.625rem] text-halo-muted/60">
                 v{p.version}
               </span>
               <span className="min-w-0 flex-1 truncate text-xs text-halo-muted">
                 {p.description}
               </span>
-              <span className="shrink-0 text-[10px] text-halo-muted/60">
+              <span className="shrink-0 text-[0.625rem] text-halo-muted/60">
                 {(p.commands?.length ?? 0) + (p.skills?.length ?? 0) + (p.roles?.length ?? 0)}
               </span>
               <button
@@ -257,7 +257,7 @@ export default function PluginsSection({
                     ),
                   )
                 }
-                className={`shrink-0 rounded-md border px-2 py-0.5 text-[10px] transition-colors ${
+                className={`shrink-0 rounded-md border px-2 py-0.5 text-[0.625rem] transition-colors ${
                   p.enabled
                     ? "border-emerald-400/40 text-emerald-400"
                     : "border-halo-line text-halo-muted hover:text-halo-text"
@@ -277,7 +277,7 @@ export default function PluginsSection({
         ))}
       </div>
 
-      <p className="mt-3 text-[10px] leading-relaxed text-halo-muted/60">
+      <p className="mt-3 text-[0.625rem] leading-relaxed text-halo-muted/60">
         {t("plug.hint")}
       </p>
 

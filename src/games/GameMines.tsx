@@ -167,7 +167,7 @@ export default function GameMines() {
   return (
     <div className="flex flex-col items-center">
       {best !== null && (
-        <p className="mb-2 text-[11px] text-halo-muted/70">
+        <p className="mb-2 text-[0.6875rem] text-halo-muted/70">
           {t("game.record", { n: `${best}s` })}
         </p>
       )}
@@ -205,7 +205,7 @@ export default function GameMines() {
             <span>{state === "won" ? t("game.win") : t("game.over")}</span>
             <button
               onClick={reset}
-              className="rounded-md border border-halo-line px-2.5 py-1 text-[11px] text-halo-muted transition-colors hover:text-halo-text"
+              className="rounded-md border border-halo-line px-2.5 py-1 text-[0.6875rem] text-halo-muted transition-colors hover:text-halo-text"
             >
               {t("game.restart")}
             </button>
@@ -221,7 +221,7 @@ export default function GameMines() {
               key={i}
               onClick={() => click(i)}
               onContextMenu={(e) => flag(e, i)}
-              className={`flex size-9 items-center justify-center text-[13px] font-bold leading-none ${
+              className={`flex size-9 items-center justify-center text-[0.8125rem] font-bold leading-none ${
                 cell.revealed
                   ? cell.mine
                     ? "bg-red-400/30 text-red-300"
@@ -249,7 +249,7 @@ export default function GameMines() {
           ))}
         </div>
       </div>
-      <p className="mt-2 text-[11px] text-halo-muted/60">{t("game.minesFlagHint")}</p>
+      <p className="mt-2 text-[0.6875rem] text-halo-muted/60">{t("game.minesFlagHint")}</p>
     </div>
   );
 }

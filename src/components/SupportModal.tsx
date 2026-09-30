@@ -6,6 +6,7 @@
 
 import { useState } from "react";
 import { useLang } from "../locales";
+import { copyText } from "../clipboard";
 
 /** Данные кошельков владельца. Адреса сверены с QR-кодами кошелька */
 const SECTIONS: {
@@ -59,21 +60,21 @@ export default function SupportModal({ onClose }: { onClose: () => void }) {
   // чтобы с телефона было удобно отсканировать
   const [zoom, setZoom] = useState<{ name: string; qr: string } | null>(null);
   const copy = (address: string) => {
-    void navigator.clipboard
-      .writeText(address)
-      .then(() => {
-        setCopied(address);
-        window.setTimeout(
-          () => setCopied((cur) => (cur === address ? null : cur)),
-          1600,
-        );
-      })
-      .catch(() => {});
+    // copyText — единый путь с фолбэком WebKitGTK (clipboard.ts): прямой
+    // navigator.clipboard на движках без clipboard API кидал синхронный
+    // TypeError ещё до построения промиса, и .catch его не ловил
+    void copyText(address).then(() => {
+      setCopied(address);
+      window.setTimeout(
+        () => setCopied((cur) => (cur === address ? null : cur)),
+        1600,
+      );
+    });
   };
 
   return (
     <div
-      className="anim-fade fixed inset-0 z-[80] flex items-center justify-center overflow-y-auto bg-black/50 p-4 backdrop-blur-sm"
+      className="anim-fade fixed inset-0 z-[var(--halo-z-modal)] flex items-center justify-center overflow-y-auto bg-black/50 p-4 backdrop-blur-sm"
       onClick={onClose}
     >
       <div
@@ -105,7 +106,7 @@ export default function SupportModal({ onClose }: { onClose: () => void }) {
 
         {SECTIONS.map((section) => (
           <div key={section.titleKey} className="mt-4">
-            <p className="text-[11px] font-medium uppercase tracking-wider text-halo-muted/70">
+            <p className="text-[0.6875rem] font-medium uppercase tracking-wider text-halo-muted/70">
               {t(section.titleKey)}
             </p>
             <div className="mt-2 flex flex-col gap-2">
@@ -125,14 +126,14 @@ export default function SupportModal({ onClose }: { onClose: () => void }) {
                   <div className="min-w-0 flex-1">
                     <p className="text-xs font-medium text-halo-text">{w.name}</p>
                     {w.note && (
-                      <p className="mt-0.5 text-[10px] leading-snug text-halo-muted/80">
+                      <p className="mt-0.5 text-[0.625rem] leading-snug text-halo-muted/80">
                         {t(w.note)}
                       </p>
                     )}
                     <button
                       onClick={() => copy(w.address)}
                       title={w.address}
-                      className={`mt-1 w-full truncate rounded-md border px-1.5 py-1 text-left font-mono text-[10px] transition-colors ${
+                      className={`mt-1 w-full truncate rounded-md border px-1.5 py-1 text-left font-mono text-[0.625rem] transition-colors ${
                         copied === w.address
                           ? "border-emerald-400/50 bg-emerald-400/10 text-emerald-400"
                           : "border-halo-line/70 bg-halo-deep/60 text-halo-muted hover:border-halo-accent/40 hover:text-halo-text"
@@ -153,7 +154,7 @@ export default function SupportModal({ onClose }: { onClose: () => void }) {
             с телефона; клик мимо картинки закрывает */}
         {zoom && (
           <div
-            className="anim-fade fixed inset-0 z-[90] flex flex-col items-center justify-center gap-4 bg-black/80 p-6 backdrop-blur-sm"
+            className="anim-fade fixed inset-0 z-[var(--halo-z-modal-top)] flex flex-col items-center justify-center gap-4 bg-black/80 p-6 backdrop-blur-sm"
             onClick={() => setZoom(null)}
           >
             <img
@@ -163,7 +164,7 @@ export default function SupportModal({ onClose }: { onClose: () => void }) {
               className="w-[min(70vw,min(70vh,560px))] rounded-2xl bg-white shadow-2xl"
             />
             <p className="text-sm font-medium text-white">{zoom.name}</p>
-            <p className="text-[11px] text-white/60">
+            <p className="text-[0.6875rem] text-white/60">
               {t("support.zoomClose")}
             </p>
           </div>

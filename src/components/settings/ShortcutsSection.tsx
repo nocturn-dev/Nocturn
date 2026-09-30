@@ -167,7 +167,7 @@ export function ShortcutsSection({
                 key={cs.id}
                 className="flex items-center gap-3 rounded-lg border border-halo-line bg-halo-surface/50 px-3 py-2"
               >
-                <code className="shrink-0 rounded bg-halo-muted/10 px-1.5 py-0.5 font-mono text-[11px] text-halo-accent">
+                <code className="shrink-0 rounded bg-halo-muted/10 px-1.5 py-0.5 font-mono text-[0.6875rem] text-halo-accent">
                   /{cs.command.replace(/^\//, "").split(/\s+/)[0]}
                 </code>
                 <span className="min-w-0 flex-1 truncate text-xs text-halo-muted">
@@ -191,7 +191,7 @@ export function ShortcutsSection({
           <div className="mt-2 space-y-2.5 rounded-xl border border-halo-line p-3">
             <div className="grid grid-cols-2 gap-2">
               <div>
-                <label className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-halo-muted/70">
+                <label className="mb-1 block text-[0.625rem] font-medium uppercase tracking-wide text-halo-muted/70">
                   {t("sc.cmdLabel")}
                 </label>
               <Dropdown
@@ -208,7 +208,7 @@ export function ShortcutsSection({
               />
               </div>
               <div>
-                <label className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-halo-muted/70">
+                <label className="mb-1 block text-[0.625rem] font-medium uppercase tracking-wide text-halo-muted/70">
                   {t("sc.argLabel")}
                 </label>
                 <input
@@ -222,12 +222,12 @@ export function ShortcutsSection({
               </div>
             </div>
             <div>
-              <label className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-halo-muted/70">
+              <label className="mb-1 block text-[0.625rem] font-medium uppercase tracking-wide text-halo-muted/70">
                 {t("sc.comboLabel")}
               </label>
               <div className="flex items-center gap-2">
                 {comboButton("@new", customCombo)}
-                <span className="text-[11px] text-halo-muted/70">{t("sc.comboHint")}</span>
+                <span className="text-[0.6875rem] text-halo-muted/70">{t("sc.comboHint")}</span>
               </div>
             </div>
             <div className="flex justify-end gap-2">
@@ -254,7 +254,7 @@ export function ShortcutsSection({
           {t("sc.conflict", { combo: conflict })}
         </p>
       )}
-      <p className="mt-3 text-[10px] leading-relaxed text-halo-muted/60">
+      <p className="mt-3 text-[0.625rem] leading-relaxed text-halo-muted/60">
         {t("sc.hint")}
       </p>
     </div>

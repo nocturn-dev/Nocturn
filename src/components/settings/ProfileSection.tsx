@@ -23,7 +23,7 @@ function ShareToggle({
     <button
       onClick={() => onChange(!on)}
       title={label}
-      className={`shrink-0 rounded-md border px-2 py-0.5 text-[10px] transition-colors ${
+      className={`shrink-0 rounded-md border px-2 py-0.5 text-[0.625rem] transition-colors ${
         on
           ? "border-halo-accent/50 bg-halo-accent/10 text-halo-accent"
           : "border-halo-line text-halo-muted/70 hover:text-halo-text"
@@ -145,7 +145,7 @@ export function ProfileSection() {
               className="w-full rounded-lg border border-halo-line bg-halo-surface px-3 py-1.5 text-sm text-halo-text outline-none transition-colors placeholder:text-halo-muted/60 focus:border-halo-accent/60"
             />
             <div className="mt-1.5 flex items-center justify-end gap-2">
-              <span className="min-w-0 text-[10px] leading-tight text-halo-muted/60">
+              <span className="min-w-0 text-[0.625rem] leading-tight text-halo-muted/60">
                 {t("profile.avatarHint")}
               </span>
               <ShareToggle
@@ -167,7 +167,7 @@ export function ProfileSection() {
           />
         </div>
         {avatarErr && (
-          <p className="mt-1.5 text-[11px] text-red-400">{t("profile.avatarErr")}</p>
+          <p className="mt-1.5 text-[0.6875rem] text-red-400">{t("profile.avatarErr")}</p>
         )}
       </div>
 
@@ -324,7 +324,7 @@ export function ProfileSection() {
       </div>
 
       {/* Прозрачность */}
-      <p className="mt-3 text-[11px] leading-relaxed text-halo-muted/70">
+      <p className="mt-3 text-[0.6875rem] leading-relaxed text-halo-muted/70">
         {t("profile.privacy")}
       </p>
     </div>

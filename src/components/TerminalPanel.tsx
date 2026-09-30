@@ -884,7 +884,7 @@ function ModeTab({
   return (
     <button
       onClick={onClick}
-      className={`flex items-center gap-1.5 rounded-md px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider transition-colors ${
+      className={`flex items-center gap-1.5 rounded-md px-2 py-0.5 text-[0.625rem] font-medium uppercase tracking-wider transition-colors ${
         active
           ? "bg-halo-accent/15 text-halo-accent"
           : "text-halo-muted hover:bg-halo-hover hover:text-halo-text"

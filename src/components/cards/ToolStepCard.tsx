@@ -122,15 +122,15 @@ function ToolStepCardBase({
         <span className={statusColor}>
           <ToolIcon />
         </span>
-        <span className="font-mono text-[11px] font-semibold text-halo-text">
+        <span className="font-mono text-[0.6875rem] font-semibold text-halo-text">
           {name || t("agent.result")}
         </span>
         {summary && (
-          <span className="max-w-72 truncate font-mono text-[10px] text-halo-muted">
+          <span className="max-w-72 truncate font-mono text-[0.625rem] text-halo-muted">
             {summary}
           </span>
         )}
-        <span className={`shrink-0 text-[10px] ${statusColor}`}>{statusLabel}</span>
+        <span className={`shrink-0 text-[0.625rem] ${statusColor}`}>{statusLabel}</span>
         <ChevronDownIcon className={open ? "" : "-rotate-90"} />
       </button>
 
@@ -147,18 +147,18 @@ function ToolStepCardBase({
           {write && diff ? (
             <>
               <div className="mb-1.5 flex items-center gap-2">
-                <span className="font-mono text-[10px] text-halo-muted">
+                <span className="font-mono text-[0.625rem] text-halo-muted">
                   {write.path}
                 </span>
                 {write.created && (
-                  <span className="rounded bg-emerald-400/15 px-1.5 py-0.5 text-[9px] font-medium text-emerald-400">
+                  <span className="rounded bg-emerald-400/15 px-1.5 py-0.5 text-[0.5625rem] font-medium text-emerald-400">
                     {t("agent.diffCreated")}
                   </span>
                 )}
-                <span className="text-[10px] text-emerald-400">
+                <span className="text-[0.625rem] text-emerald-400">
                   {t("agent.diffLinesAdded", { n: added })}
                 </span>
-                <span className="text-[10px] text-red-400">
+                <span className="text-[0.625rem] text-red-400">
                   {t("agent.diffLinesRemoved", { n: removed })}
                 </span>
               </div>
@@ -166,12 +166,12 @@ function ToolStepCardBase({
             </>
           ) : name === "shell_run" ? (
             <div>
-              <pre className="scroll-slim max-h-64 overflow-auto whitespace-pre-wrap break-all rounded-lg border border-halo-line/60 bg-halo-deep/60 px-3 py-2 font-mono text-[11px] leading-relaxed text-halo-text">
+              <pre className="scroll-slim max-h-64 overflow-auto whitespace-pre-wrap break-all rounded-lg border border-halo-line/60 bg-halo-deep/60 px-3 py-2 font-mono text-[0.6875rem] leading-relaxed text-halo-text">
                 {content}
               </pre>
             </div>
           ) : (
-            <pre className="scroll-slim max-h-64 overflow-auto whitespace-pre-wrap break-all rounded-lg border border-halo-line/60 bg-halo-deep/60 px-3 py-2 font-mono text-[11px] leading-relaxed text-halo-muted">
+            <pre className="scroll-slim max-h-64 overflow-auto whitespace-pre-wrap break-all rounded-lg border border-halo-line/60 bg-halo-deep/60 px-3 py-2 font-mono text-[0.6875rem] leading-relaxed text-halo-muted">
               {content}
             </pre>
           )}

@@ -17,7 +17,7 @@ import {
 } from "./diff";
 import { DiffPanel, type DiffPanelFile } from "./components/DiffPanel";
 import { PlanSidePanel } from "./components/PlanSidePanel";
-import { checkpointFiles } from "./api";
+import { checkpointFiles, windowToggleFullscreen } from "./api";
 import {
   firstConfirm,
 } from "./interactions";
@@ -50,7 +50,7 @@ import {
 import { stopSpeaking, speak } from "./tts";
 import { VoiceWake, stripWakeWord, type WakeHandle } from "./voice/wake";
 import VoicePill, { type VoicePhase } from "./components/VoicePill";
-import { invoke, convertFileSrc } from "@tauri-apps/api/core";
+import { convertFileSrc } from "@tauri-apps/api/core";
 import { useApiSettings } from "./hooks/useApiSettings";
 import { useSessions } from "./hooks/useSessions";
 import {
@@ -1383,7 +1383,7 @@ export default function App() {
         setSidebarCollapsed((v) => !v);
         break;
       case "toggle_fullscreen":
-        void invoke("window_toggle_fullscreen").catch(() => {});
+        void windowToggleFullscreen().catch(() => {});
         break;
       case "toggle_zen":
         // Медитативный режим: весь GUI скрыт, остаётся только ambient/фон.
@@ -2412,8 +2412,9 @@ export default function App() {
         settingsLarge={settingsLarge}
         browserPanel={browserAutoPanel}
         onBrowserPanelChange={(v) => {
+          // useBoolPref сам персистит значение в своём эффекте: ручной
+          // setItem здесь был вторым путём записи того же ключа
           setBrowserAutoPanel(v);
-          localStorage.setItem("haloui-browser-panel", v ? "1" : "0");
         }}
         binds={binds}
         customShortcuts={customShortcuts}

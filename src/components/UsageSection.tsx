@@ -4,9 +4,11 @@ import { dayKeyLocal } from "../time";
 import { useLang, type TFn } from "../locales";
 import { shortModelName } from "./ProviderIcon";
 import { usageColorsLoad, usageColorsSave } from "../api";
+import { CHART_BLUE_RGB, CHART_COLORS } from "../chartColors";
 
-/** Цвета моделей в графиках: дефолт по хэшу имени — стабилен между запусками */
-const MODEL_COLORS = ["#4c8dd9", "#4cbf7a", "#d9a44c", "#c76fd1", "#d96570", "#5bbfc9"];
+/** Цвета моделей в графиках: дефолт по хэшу имени — стабилен между запусками.
+ *  Палитра — единый источник (chartColors.ts) */
+const MODEL_COLORS = CHART_COLORS;
 const DAY = 86_400_000;
 
 function hashString(s: string): number {
@@ -213,7 +215,7 @@ export default function UsageSection({
     if (v <= 0) return "var(--halo-line)";
     const lvl = Math.min(4, Math.ceil((Math.log2(v / max + 1) / 2) * 4));
     const alphas = [0.25, 0.45, 0.65, 0.85, 1];
-    return `rgba(76, 141, 217, ${alphas[lvl]})`;
+    return `rgba(${CHART_BLUE_RGB}, ${alphas[lvl]})`;
   };
 
   const card = "rounded-xl border border-halo-line bg-halo-surface/50 p-4";
@@ -244,7 +246,7 @@ export default function UsageSection({
             className={`px-3 text-center ${i > 0 ? "border-l border-halo-line/60" : ""}`}
           >
             <p className="text-base font-semibold text-halo-text">{v}</p>
-            <p className="mt-0.5 text-[10px] text-halo-muted">{label}</p>
+            <p className="mt-0.5 text-[0.625rem] text-halo-muted">{label}</p>
           </div>
         ))}
       </div>
@@ -258,7 +260,7 @@ export default function UsageSection({
               <button
                 key={m}
                 onClick={() => setMode(m)}
-                className={`rounded-md px-2.5 py-0.5 text-[11px] transition-colors ${
+                className={`rounded-md px-2.5 py-0.5 text-[0.6875rem] transition-colors ${
                   mode === m ? "bg-halo-hover-strong text-halo-text" : "text-halo-muted hover:text-halo-text"
                 }`}
               >
@@ -279,7 +281,7 @@ export default function UsageSection({
               <button
                 key={r}
                 onClick={() => setRange(r)}
-                className={`rounded-md px-2.5 py-0.5 text-[11px] transition-colors ${
+                className={`rounded-md px-2.5 py-0.5 text-[0.6875rem] transition-colors ${
                   range === r ? "bg-halo-hover-strong text-halo-text" : "text-halo-muted hover:text-halo-text"
                 }`}
               >
@@ -325,7 +327,7 @@ export default function UsageSection({
                       {((m.tokens / Math.max(1, data.total)) * 100).toFixed(1)}%
                     </span>
                   </div>
-                  <p className="ml-4 text-[10px] text-halo-muted/70">{fmtTokens(m.tokens)} {t("usage.tokens")}</p>
+                  <p className="ml-4 text-[0.625rem] text-halo-muted/70">{fmtTokens(m.tokens)} {t("usage.tokens")}</p>
                 </div>
               ))}
             </div>
@@ -414,7 +416,7 @@ function Heatmap({
           return (
             <span
               key={i}
-              className="absolute text-[9px] text-halo-muted/70"
+              className="absolute text-[0.5625rem] text-halo-muted/70"
               style={{ left: `${(i / 52) * 100}%` }}
             >
               {monthLabel(head.date)}
@@ -466,7 +468,7 @@ function TrendChart({
     <div>
       <div className="mb-2 flex flex-wrap gap-4">
         {series.map((s) => (
-          <span key={s.model} className="flex items-center gap-1.5 text-[11px] text-halo-muted">
+          <span key={s.model} className="flex items-center gap-1.5 text-[0.6875rem] text-halo-muted">
             <span className="size-2 rounded-full" style={{ background: s.color }} />
             {s.model}
           </span>
@@ -511,7 +513,7 @@ function TrendChart({
           />
         ))}
       </svg>
-      <div className="mt-1 flex justify-between text-[9px] text-halo-muted/70">
+      <div className="mt-1 flex justify-between text-[0.5625rem] text-halo-muted/70">
         {days
           .filter((_, i) => i % Math.ceil(days.length / 8) === 0)
           .map((d) => (
@@ -564,7 +566,7 @@ function Donut({
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">
         <span className="text-base font-semibold text-halo-text">{fmtTokens(total)}</span>
-        <span className="text-[10px] text-halo-muted">tokens</span>
+        <span className="text-[0.625rem] text-halo-muted">tokens</span>
       </div>
     </div>
   );

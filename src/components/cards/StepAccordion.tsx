@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { diffLines } from "../../diff";
 import type { StepRow } from "../../agent/steps";
+import { useLang, type MsgKey } from "../../locales";
 import { DiffView } from "./DiffView";
 
 /**
@@ -10,11 +11,11 @@ import { DiffView } from "./DiffView";
  * в AssistantCard; subagent_run — живые карточки SubagentCard.
  */
 
-const KIND_LABEL: Record<StepRow["kind"], string> = {
-  edit: "Edit",
-  terminal: "Terminal",
-  explore: "Explore",
-  asked: "Asked",
+const KIND_LABEL: Record<StepRow["kind"], MsgKey> = {
+  edit: "steps.kindEdit",
+  terminal: "steps.kindTerminal",
+  explore: "steps.kindExplore",
+  asked: "steps.kindAsked",
 };
 
 const KIND_COLOR: Record<StepRow["kind"], string> = {
@@ -66,6 +67,7 @@ function KindIcon({ kind }: { kind: StepRow["kind"] }) {
 }
 
 export function StepAccordion({ steps }: { steps: StepRow[] }) {
+  const { t } = useLang();
   const [open, setOpen] = useState<Set<string>>(new Set());
   const toggle = (id: string) =>
     setOpen((prev) => {
@@ -88,30 +90,30 @@ export function StepAccordion({ steps }: { steps: StepRow[] }) {
           >
             <button
               onClick={() => toggle(s.id)}
-              className="flex w-full items-center gap-2 px-2 py-1.5 text-left text-[11px] transition-colors hover:bg-halo-hover/40"
+              className="flex w-full items-center gap-2 px-2 py-1.5 text-left text-[0.6875rem] transition-colors hover:bg-halo-hover/40"
             >
               <span className={`shrink-0 ${KIND_COLOR[s.kind]}`}>
                 <KindIcon kind={s.kind} />
               </span>
               <span className="w-14 shrink-0 font-medium text-halo-muted">
-                {KIND_LABEL[s.kind]}
+                {t(KIND_LABEL[s.kind])}
               </span>
               <span className="min-w-0 flex-1 truncate font-mono text-halo-text/90">
                 {s.label}
               </span>
               {s.detail && (
-                <span className="shrink-0 font-mono text-[10px] text-halo-muted/80">
+                <span className="shrink-0 font-mono text-[0.625rem] text-halo-muted/80">
                   {s.detail}
                 </span>
               )}
               {s.stats && (
-                <span className="shrink-0 font-mono text-[10px]">
+                <span className="shrink-0 font-mono text-[0.625rem]">
                   <span className="text-emerald-400">+{s.stats.added}</span>{" "}
                   <span className="text-red-400">−{s.stats.removed}</span>
                 </span>
               )}
               {s.failed && (
-                <span className="shrink-0 text-[10px] text-red-400">
+                <span className="shrink-0 text-[0.625rem] text-red-400">
                   {s.failed === "denied"
                     ? "denied"
                     : s.failed === "exit"
@@ -148,12 +150,12 @@ export function StepAccordion({ steps }: { steps: StepRow[] }) {
               </div>
             )}
             {isOpen && s.output && (
-              <pre className="mx-2 mb-2 max-h-48 overflow-auto whitespace-pre-wrap rounded-md border border-halo-line/40 bg-halo-raised/30 px-2.5 py-2 font-mono text-[10px] leading-relaxed text-halo-muted scroll-slim">
+              <pre className="mx-2 mb-2 max-h-48 overflow-auto whitespace-pre-wrap rounded-md border border-halo-line/40 bg-halo-raised/30 px-2.5 py-2 font-mono text-[0.625rem] leading-relaxed text-halo-muted scroll-slim">
                 {s.output}
               </pre>
             )}
             {isOpen && s.question && (
-              <div className="mx-2 mb-2 space-y-1 rounded-md border border-halo-line/40 bg-halo-raised/30 px-2.5 py-2 text-[11px] leading-relaxed">
+              <div className="mx-2 mb-2 space-y-1 rounded-md border border-halo-line/40 bg-halo-raised/30 px-2.5 py-2 text-[0.6875rem] leading-relaxed">
                 <p className="whitespace-pre-wrap text-halo-text">{s.question}</p>
                 {s.answer && (
                   <p className="whitespace-pre-wrap border-t border-halo-line/40 pt-1 text-halo-muted">

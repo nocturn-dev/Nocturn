@@ -313,7 +313,7 @@ export function ThemeSection({
     // Компактная ширина по центру: контент не липнет к краям большого окна
     <div className="mx-auto max-w-2xl">
 
-      <p className="mb-2 mt-6 text-[10px] font-semibold uppercase tracking-[0.14em] text-halo-muted/60">{t("themes.gPresets")}</p>
+      <p className="mb-2 mt-6 text-[0.625rem] font-semibold uppercase tracking-[0.14em] text-halo-muted/60">{t("themes.gPresets")}</p>
 
       {/* Профили внешнего вида: переключение пресета одним кликом */}
       <div className="mb-4 rounded-xl border border-halo-line px-3.5 py-3">
@@ -384,7 +384,7 @@ export function ThemeSection({
                 <button
                   onClick={() => void exportThemeProfile(pr)}
                   title={t("themes.profileExport")}
-                  className="absolute right-5 top-1/2 -translate-y-1/2 rounded px-0.5 text-[10px] leading-none text-halo-muted/70 transition-colors hover:text-halo-accent"
+                  className="absolute right-5 top-1/2 -translate-y-1/2 rounded px-0.5 text-[0.625rem] leading-none text-halo-muted/70 transition-colors hover:text-halo-accent"
                 >
                   ↓
                 </button>
@@ -393,7 +393,7 @@ export function ThemeSection({
                     onThemeProfilesChange(themeProfiles.filter((x) => x.id !== pr.id))
                   }
                   title={t("themes.profileDelete")}
-                  className="absolute right-1 top-1/2 -translate-y-1/2 rounded px-0.5 text-[10px] leading-none text-halo-muted/70 transition-colors hover:text-red-400"
+                  className="absolute right-1 top-1/2 -translate-y-1/2 rounded px-0.5 text-[0.625rem] leading-none text-halo-muted/70 transition-colors hover:text-red-400"
                 >
                   ✕
                 </button>
@@ -521,6 +521,7 @@ export function ThemeSection({
           bg={STYLE_PALETTES.claude.dark.bg}
           panel={STYLE_PALETTES.claude.dark.deep}
           text={STYLE_PALETTES.claude.dark.text}
+          accent={appearance.accent}
         />
         <ThemeCard
           name={t("themes.light")}
@@ -529,6 +530,7 @@ export function ThemeSection({
           bg={STYLE_PALETTES.claude.light.bg}
           panel={STYLE_PALETTES.claude.light.deep}
           text={STYLE_PALETTES.claude.light.text}
+          accent={appearance.accent}
         />
       </div>
 
@@ -596,7 +598,7 @@ export function ThemeSection({
         )}
       </div>
 
-      <p className="mb-2 mt-6 text-[10px] font-semibold uppercase tracking-[0.14em] text-halo-muted/60">{t("themes.gPalette")}</p>
+      <p className="mb-2 mt-6 text-[0.625rem] font-semibold uppercase tracking-[0.14em] text-halo-muted/60">{t("themes.gPalette")}</p>
 
       {/* Стиль тёмной темы: выпадающий список с живым превью выбранного */}
       <div className="mb-2 mt-4 flex items-center justify-between gap-3">
@@ -610,7 +612,7 @@ export function ThemeSection({
                 style={{ background: preview.bg }}
                 aria-hidden
               >
-                <span className="text-[22px] leading-none" style={{ color: preview.text, opacity: 0.6 }}>
+                <span className="text-[1.375rem] leading-none" style={{ color: preview.text, opacity: 0.6 }}>
                   <StylePattern id={appearance.style} />
                 </span>
               </span>
@@ -812,13 +814,13 @@ export function ThemeSection({
 
 
 
-      <p className="mb-2 mt-6 text-[10px] font-semibold uppercase tracking-[0.14em] text-halo-muted/60">{t("themes.gGeometry")}</p>
+      <p className="mb-2 mt-6 text-[0.625rem] font-semibold uppercase tracking-[0.14em] text-halo-muted/60">{t("themes.gGeometry")}</p>
 
       {/* Масштаб интерфейса */}
       <div className="mt-4 flex items-center gap-3 rounded-xl border border-halo-line px-3.5 py-3">
         <div className="shrink-0">
           <p className="whitespace-nowrap text-sm text-halo-text">{t("themes.scale")}</p>
-          <p className="text-[10px] text-halo-muted/60">{t("themes.scaleHint")}</p>
+          <p className="text-[0.625rem] text-halo-muted/60">{t("themes.scaleHint")}</p>
         </div>
         <input
           type="range"
@@ -836,7 +838,7 @@ export function ThemeSection({
       <div className="mt-2.5 flex items-center gap-3 rounded-xl border border-halo-line px-3.5 py-3">
         <div className="shrink-0">
           <p className="whitespace-nowrap text-sm text-halo-text">{t("themes.radius")}</p>
-          <p className="text-[10px] text-halo-muted/60">{t("themes.radiusHint")}</p>
+          <p className="text-[0.625rem] text-halo-muted/60">{t("themes.radiusHint")}</p>
         </div>
         <input
           type="range"
@@ -926,7 +928,7 @@ export function ThemeSection({
         <div className="mt-2.5 flex items-center gap-3">
           <div className="w-40 shrink-0">
             <p className="whitespace-nowrap text-sm text-halo-text">{t("themes.msgScale")}</p>
-            <p className="text-[10px] leading-tight text-halo-muted/60">{t("themes.msgScaleHint")}</p>
+            <p className="text-[0.625rem] leading-tight text-halo-muted/60">{t("themes.msgScaleHint")}</p>
           </div>
           <input
             type="range"
@@ -945,7 +947,7 @@ export function ThemeSection({
         <div className="mt-2.5 flex items-center gap-3">
           <div className="w-40 shrink-0">
             <p className="whitespace-nowrap text-sm text-halo-text">{t("themes.density")}</p>
-            <p className="text-[10px] leading-tight text-halo-muted/60">{t("themes.densityHint")}</p>
+            <p className="text-[0.625rem] leading-tight text-halo-muted/60">{t("themes.densityHint")}</p>
           </div>
           <input
             type="range"
@@ -964,7 +966,7 @@ export function ThemeSection({
         <div className="mt-2.5 flex items-center gap-3">
           <div className="w-40 shrink-0">
             <p className="whitespace-nowrap text-sm text-halo-text">{t("themes.contentWidth")}</p>
-            <p className="text-[10px] leading-tight text-halo-muted/60">{t("themes.contentWidthHint")}</p>
+            <p className="text-[0.625rem] leading-tight text-halo-muted/60">{t("themes.contentWidthHint")}</p>
           </div>
           <input
             type="range"
@@ -988,7 +990,7 @@ export function ThemeSection({
         </div>
       </div>
 
-      <p className="mb-2 mt-6 text-[10px] font-semibold uppercase tracking-[0.14em] text-halo-muted/60">{t("themes.gEffects")}</p>
+      <p className="mb-2 mt-6 text-[0.625rem] font-semibold uppercase tracking-[0.14em] text-halo-muted/60">{t("themes.gEffects")}</p>
 
       {!appearance.official && (
       <>
@@ -1020,7 +1022,7 @@ export function ThemeSection({
             <p className="whitespace-nowrap text-sm text-halo-text">
               {t("themes.glassBlur")}
             </p>
-            <p className="text-[10px] text-halo-muted/60">{t("themes.glassBlurHint")}</p>
+            <p className="text-[0.625rem] text-halo-muted/60">{t("themes.glassBlurHint")}</p>
           </div>
           <input
             type="range"
@@ -1120,7 +1122,7 @@ export function ThemeSection({
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
             <p className="text-sm text-halo-text">{t("themes.codeTheme")}</p>
-            <p className="mt-0.5 text-[10px] leading-relaxed text-halo-muted/60">
+            <p className="mt-0.5 text-[0.625rem] leading-relaxed text-halo-muted/60">
               {t("themes.codePickHint")}
             </p>
           </div>
@@ -1159,7 +1161,7 @@ export function ThemeSection({
         </div>
       </div>
 
-      <p className="mb-2 mt-6 text-[10px] font-semibold uppercase tracking-[0.14em] text-halo-muted/60">{t("themes.gBranding")}</p>
+      <p className="mb-2 mt-6 text-[0.625rem] font-semibold uppercase tracking-[0.14em] text-halo-muted/60">{t("themes.gBranding")}</p>
 
       {!appearance.official && (
         <>
@@ -1169,7 +1171,7 @@ export function ThemeSection({
           <p className="whitespace-nowrap text-sm text-halo-text">
             {t("themes.markStyle")}
           </p>
-          <p className="text-[10px] leading-relaxed text-halo-muted/60">
+          <p className="text-[0.625rem] leading-relaxed text-halo-muted/60">
             {t("themes.markStyleHint")}
           </p>
         </div>
@@ -1338,7 +1340,7 @@ export function ThemeSection({
                 </button>
               ))}
             </div>
-            <p className="mt-1.5 text-[10px] leading-relaxed text-halo-muted/70">
+            <p className="mt-1.5 text-[0.625rem] leading-relaxed text-halo-muted/70">
               {t("themes.ambientRenderHint")}
             </p>
           </div>
@@ -1453,21 +1455,21 @@ export function ThemeSection({
               >
                 {t("themes.ambientVideoPick")}
               </button>
-              <span className="min-w-0 truncate font-mono text-[10px] text-halo-muted">
+              <span className="min-w-0 truncate font-mono text-[0.625rem] text-halo-muted">
                 {appearance.ambientVideo.split(/[\\/]/).pop() ||
                   t("themes.ambientVideoNone")}
               </span>
             </div>
           )}
           {appearance.ambientScene === "video" && (
-            <p className="text-[10px] leading-relaxed text-halo-muted/70">
+            <p className="text-[0.625rem] leading-relaxed text-halo-muted/70">
               {t("themes.ambientVideoHint")}
             </p>
           )}
         </div>
       )}
 
-      <p className="mb-2 mt-6 text-[10px] font-semibold uppercase tracking-[0.14em] text-halo-muted/60">{t("themes.gTerminal")}</p>
+      <p className="mb-2 mt-6 text-[0.625rem] font-semibold uppercase tracking-[0.14em] text-halo-muted/60">{t("themes.gTerminal")}</p>
 
       {/* Оболочка терминала */}
       <div className="mt-2.5 flex items-center gap-3 rounded-xl border border-halo-line px-3.5 py-3">
@@ -1475,7 +1477,7 @@ export function ThemeSection({
           <p className="whitespace-nowrap text-sm text-halo-text">
             {t("themes.termShell")}
           </p>
-          <p className="text-[10px] leading-relaxed text-halo-muted/60">
+          <p className="text-[0.625rem] leading-relaxed text-halo-muted/60">
             {isWindows() ? t("themes.termShellHint") : t("themes.termShellHintUnix")}
           </p>
         </div>
@@ -1503,7 +1505,7 @@ export function ThemeSection({
       <div className="mt-2.5 flex items-center gap-3 rounded-xl border border-halo-line px-3.5 py-3">
         <div className="shrink-0">
           <p className="whitespace-nowrap text-sm text-halo-text">{t("themes.termFont")}</p>
-          <p className="text-[10px] text-halo-muted/60">{t("themes.termFontHint")}</p>
+          <p className="text-[0.625rem] text-halo-muted/60">{t("themes.termFontHint")}</p>
         </div>
         <input
           type="range"
@@ -1523,7 +1525,7 @@ export function ThemeSection({
       <div className="mt-2.5 flex items-center justify-between gap-3 rounded-xl border border-halo-line px-3.5 py-3">
         <div className="shrink-0">
           <p className="whitespace-nowrap text-sm text-halo-text">{t("themes.termPalette")}</p>
-          <p className="text-[10px] text-halo-muted/60">{t("themes.termPaletteHint")}</p>
+          <p className="text-[0.625rem] text-halo-muted/60">{t("themes.termPaletteHint")}</p>
         </div>
         <Dropdown
           value={appearance.termPalette ?? "default"}
@@ -1540,7 +1542,7 @@ export function ThemeSection({
       <div className="mt-2.5 flex items-center gap-3 rounded-xl border border-halo-line px-3.5 py-3">
         <div className="shrink-0">
           <p className="whitespace-nowrap text-sm text-halo-text">{t("themes.termOpacity")}</p>
-          <p className="text-[10px] text-halo-muted/60">{t("themes.termOpacityHint")}</p>
+          <p className="text-[0.625rem] text-halo-muted/60">{t("themes.termOpacityHint")}</p>
         </div>
         <input
           type="range"
@@ -1560,7 +1562,7 @@ export function ThemeSection({
       <div className="mt-2.5 flex items-center gap-3 rounded-xl border border-halo-line px-3.5 py-3">
         <div className="shrink-0">
           <p className="whitespace-nowrap text-sm text-halo-text">{t("themes.termBlur")}</p>
-          <p className="text-[10px] text-halo-muted/60">{t("themes.termBlurHint")}</p>
+          <p className="text-[0.625rem] text-halo-muted/60">{t("themes.termBlurHint")}</p>
         </div>
         <input
           type="range"
@@ -1574,7 +1576,7 @@ export function ThemeSection({
         <span className="w-12 shrink-0 text-right text-xs text-halo-muted">{appearance.termBlur ?? 0}px</span>
       </div>
 
-      <p className="mb-2 mt-6 text-[10px] font-semibold uppercase tracking-[0.14em] text-halo-muted/60">{t("themes.gAdvanced")}</p>
+      <p className="mb-2 mt-6 text-[0.625rem] font-semibold uppercase tracking-[0.14em] text-halo-muted/60">{t("themes.gAdvanced")}</p>
 
       {/* Пользовательский CSS: textarea -> <style>, только локальный UI */}
       <div className="mt-2.5 rounded-xl border border-halo-line px-3.5 py-3">
@@ -1591,10 +1593,10 @@ export function ThemeSection({
           spellCheck={false}
           rows={5}
           placeholder={':root { --halo-accent: #7c4dff; }'}
-          className="scroll-slim mt-2 min-h-24 w-full rounded-lg border border-halo-line bg-halo-surface px-2.5 py-2 font-mono text-[11px] leading-relaxed text-halo-text outline-none transition-colors placeholder:text-halo-muted/40 focus:border-halo-accent/60"
+          className="scroll-slim mt-2 min-h-24 w-full rounded-lg border border-halo-line bg-halo-surface px-2.5 py-2 font-mono text-[0.6875rem] leading-relaxed text-halo-text outline-none transition-colors placeholder:text-halo-muted/40 focus:border-halo-accent/60"
         />
         <div className="mt-1.5 flex items-center justify-between">
-          <span className="text-[10px] text-halo-muted/50">CSS · auto-save</span>
+          <span className="text-[0.625rem] text-halo-muted/50">CSS · auto-save</span>
           <button
             onClick={() => {
               setUserCss("");
@@ -1681,7 +1683,7 @@ function CodeThemeSwatch({ id }: { id: string }) {
   if (!theme) return null;
   const { kw, str, addBg, delBg } = codeThemeColors(theme.css);
   return (
-    <span className="shrink-0 overflow-hidden rounded font-mono text-[9px] leading-[1.5]">
+    <span className="shrink-0 overflow-hidden rounded font-mono text-[0.5625rem] leading-[1.5]">
       <span className="block px-1.5" style={{ background: delBg }}>
         <span style={{ color: kw }}>- </span>
         <span style={{ color: str }}>"old"</span>
@@ -1701,6 +1703,7 @@ export function ThemeCard({
   bg,
   panel,
   text,
+  accent,
 }: {
   name: string;
   selected: boolean;
@@ -1708,6 +1711,7 @@ export function ThemeCard({
   bg: string;
   panel: string;
   text: string;
+  accent: string;
 }) {
   return (
     <button
@@ -1727,7 +1731,7 @@ export function ThemeCard({
         <div className="flex-1 space-y-1.5">
           <div className="h-1.5 w-4/5 rounded" style={{ background: text, opacity: 0.75 }} />
           <div className="h-1.5 w-3/5 rounded" style={{ background: text, opacity: 0.35 }} />
-          <div className="mt-2 h-4 w-2/5 rounded-md" style={{ background: "#d97757" }} />
+          <div className="mt-2 h-4 w-2/5 rounded-md" style={{ background: accent }} />
         </div>
       </div>
       <div className="mt-2 flex items-center justify-between px-0.5">

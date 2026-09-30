@@ -39,7 +39,7 @@ exports[`chat cards snapshots > AssistantCard: markdown + usage, вне стри
         </span>
       </span>
       <span
-        class="max-w-44 truncate text-[11px] font-semibold text-halo-text/90"
+        class="max-w-44 truncate text-[0.6875rem] font-semibold text-halo-text/90"
       >
         glm-5.3-flash
       </span>
@@ -61,7 +61,7 @@ exports[`chat cards snapshots > AssistantCard: markdown + usage, вне стри
     </p>
   </div>
   <div
-    class="mt-2 flex items-center gap-3 border-t border-halo-line/50 pt-2 text-[10px] text-halo-muted/70"
+    class="mt-2 flex items-center gap-3 border-t border-halo-line/50 pt-2 text-[0.625rem] text-halo-muted/70"
   >
     <span
       title="Prompt tokens"
@@ -83,7 +83,7 @@ exports[`chat cards snapshots > AssistantCard: markdown + usage, вне стри
     </span>
   </div>
   <p
-    class="mt-1.5 text-[10px] italic text-halo-muted/50"
+    class="mt-1.5 text-[0.625rem] italic text-halo-muted/50"
   >
     This response is AI-generated, for reference only.
   </p>
@@ -129,7 +129,7 @@ exports[`chat cards snapshots > AssistantCard: с thinking-блоком 1`] = `
         </span>
       </span>
       <span
-        class="max-w-44 truncate text-[11px] font-semibold text-halo-text/90"
+        class="max-w-44 truncate text-[0.6875rem] font-semibold text-halo-text/90"
       >
         claude-sonnet
       </span>
@@ -142,7 +142,7 @@ exports[`chat cards snapshots > AssistantCard: с thinking-блоком 1`] = `
       class="flex items-center gap-2"
     >
       <button
-        class="flex items-center gap-1 text-[11px] font-medium text-halo-muted transition-colors hover:text-halo-text"
+        class="flex items-center gap-1 text-[0.6875rem] font-medium text-halo-muted transition-colors hover:text-halo-text"
       >
         <svg
           class="transition-transform duration-200 "
@@ -176,7 +176,7 @@ exports[`chat cards snapshots > AssistantCard: с thinking-блоком 1`] = `
     </p>
   </div>
   <p
-    class="mt-1.5 text-[10px] italic text-halo-muted/50"
+    class="mt-1.5 text-[0.625rem] italic text-halo-muted/50"
   >
     This response is AI-generated, for reference only.
   </p>
@@ -210,12 +210,12 @@ exports[`chat cards snapshots > ToolStepCard: denied 1`] = `
       </svg>
     </span>
     <span
-      class="font-mono text-[11px] font-semibold text-halo-text"
+      class="font-mono text-[0.6875rem] font-semibold text-halo-text"
     >
       fs_write
     </span>
     <span
-      class="shrink-0 text-[10px] text-red-400"
+      class="shrink-0 text-[0.625rem] text-red-400"
     >
       Denied by user
     </span>
@@ -265,17 +265,17 @@ exports[`chat cards snapshots > ToolStepCard: shell_run с выводом 1`] = 
       </svg>
     </span>
     <span
-      class="font-mono text-[11px] font-semibold text-halo-text"
+      class="font-mono text-[0.6875rem] font-semibold text-halo-text"
     >
       shell_run
     </span>
     <span
-      class="max-w-72 truncate font-mono text-[10px] text-halo-muted"
+      class="max-w-72 truncate font-mono text-[0.625rem] text-halo-muted"
     >
       {"cmd":"ls"}
     </span>
     <span
-      class="shrink-0 text-[10px] text-halo-muted"
+      class="shrink-0 text-[0.625rem] text-halo-muted"
     >
       Result
     </span>

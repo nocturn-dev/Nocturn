@@ -19,6 +19,10 @@ export interface FontPreset {
 export const UI_FONT_PRESETS: FontPreset[] = [
   { label: "Segoe UI Variable", stack: '"Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI"' },
   { label: "Segoe UI", stack: '"Segoe UI"' },
+  // macOS: системный San Francisco — селектор шрифтов не должен врать
+  // на двух платформах из трёх
+  { label: "SF Pro (macOS)", stack: '"SF Pro Text", "SF Pro Display", -apple-system, system-ui' },
+  { label: "System UI", stack: "system-ui" },
   { label: "Inter", stack: "Inter" },
   { label: "Georgia (serif)", stack: "Georgia, serif" },
   { label: "Verdana", stack: "Verdana" },
@@ -31,8 +35,11 @@ export const MONO_FONT_PRESETS: FontPreset[] = [
   { label: "Cascadia Code", stack: '"Cascadia Code"' },
   { label: "JetBrains Mono", stack: '"JetBrains Mono"' },
   { label: "Fira Code", stack: '"Fira Code"' },
-  { label: "Iosevka", stack: "Iosevka" },
+  { label: "Iosevka", stack: '"Iosevka"' },
   { label: "Consolas", stack: "Consolas" },
+  // macOS / Linux: системные и дистрибутивные моно-шрифты
+  { label: "SF Mono / Menlo (macOS)", stack: '"SF Mono", Menlo, Monaco' },
+  { label: "Ubuntu Mono / DejaVu (Linux)", stack: '"Ubuntu Mono", "DejaVu Sans Mono", "Liberation Mono"' },
 ];
 
 const registered = new Set<string>();

@@ -64,7 +64,7 @@ export default function ContextMenu({ x, y, items, onClose }: ContextMenuProps) 
                 item.onSelect();
                 if (!item.keepOpen) onClose();
               }}
-              className={`w-full px-3.5 py-1.5 text-left text-[13px] transition-colors ${
+              className={`w-full px-3.5 py-1.5 text-left text-[0.8125rem] transition-colors ${
                 item.danger
                   ? "text-red-400 hover:bg-red-500/10"
                   : "text-halo-text hover:bg-white/5"

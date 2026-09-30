@@ -103,7 +103,7 @@ export function ContextRing({
               </span>
             </span>
           </p>
-          <p className="text-[10px] text-halo-muted/60">{t("ctx.hint")}</p>
+          <p className="text-[0.625rem] text-halo-muted/60">{t("ctx.hint")}</p>
         </div>
       )}
     </div>

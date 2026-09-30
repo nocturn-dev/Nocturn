@@ -19,10 +19,10 @@ export function PlanPanel({ plan }: { plan: PlanTask[] }) {
         >
           <ChevronDownIcon className={collapsed ? "-rotate-90" : ""} />
         </button>
-        <span className="text-[12px] font-medium text-halo-text">
+        <span className="text-[0.75rem] font-medium text-halo-text">
           {t("plan.progress")}
         </span>
-        <span className="ml-auto rounded-full bg-halo-surface/70 px-1.5 py-0.5 font-mono text-[10px] text-halo-muted">
+        <span className="ml-auto rounded-full bg-halo-surface/70 px-1.5 py-0.5 font-mono text-[0.625rem] text-halo-muted">
           {done}/{plan.length}
         </span>
       </div>
@@ -44,7 +44,7 @@ export function PlanPanel({ plan }: { plan: PlanTask[] }) {
                 )}
               </span>
               <span
-                className={`text-[12px] leading-snug ${
+                className={`text-[0.75rem] leading-snug ${
                   task.status === "done"
                     ? "text-halo-muted line-through"
                     : "text-halo-text"

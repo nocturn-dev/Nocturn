@@ -123,7 +123,7 @@ function CodeBlock({
           <button
             onClick={() => onPreview?.(text())}
             title={t("cp.preview")}
-            className="rounded-md border border-halo-line bg-halo-deep/80 px-1.5 py-0.5 text-[10px] text-halo-muted transition-colors hover:text-halo-text"
+            className="rounded-md border border-halo-line bg-halo-deep/80 px-1.5 py-0.5 text-[0.625rem] text-halo-muted transition-colors hover:text-halo-text"
           >
             ▶
           </button>
@@ -131,14 +131,14 @@ function CodeBlock({
         <button
           onClick={copy}
           title={t("cp.copy")}
-          className="rounded-md border border-halo-line bg-halo-deep/80 px-1.5 py-0.5 text-[10px] text-halo-muted transition-colors hover:text-halo-text"
+          className="rounded-md border border-halo-line bg-halo-deep/80 px-1.5 py-0.5 text-[0.625rem] text-halo-muted transition-colors hover:text-halo-text"
         >
           {copied ? "✓" : "📋"}
         </button>
         <button
           onClick={apply}
           title={t("cp.apply")}
-          className="rounded-md border border-halo-line bg-halo-deep/80 px-1.5 py-0.5 text-[10px] text-halo-muted transition-colors hover:text-halo-text"
+          className="rounded-md border border-halo-line bg-halo-deep/80 px-1.5 py-0.5 text-[0.625rem] text-halo-muted transition-colors hover:text-halo-text"
         >
           {applied ? "✓" : "💾"}
         </button>
@@ -302,7 +302,7 @@ function AssistantCardBase({
       <div className="mb-1 flex items-center gap-2.5 pr-6">
         <span className="flex items-center gap-1.5">
           <ProviderIcon modelId={model} size={16} />
-          <span className="max-w-44 truncate text-[11px] font-semibold text-halo-text/90">
+          <span className="max-w-44 truncate text-[0.6875rem] font-semibold text-halo-text/90">
             {shortModelName(model)}
           </span>
         </span>
@@ -310,13 +310,13 @@ function AssistantCardBase({
         {message.switchedTo && (
           <span
             title={t("card.switchedTo", { model: message.switchedTo })}
-            className="shrink-0 rounded bg-amber-400/15 px-1.5 py-0.5 text-[9px] font-medium text-amber-400"
+            className="shrink-0 rounded bg-amber-400/15 px-1.5 py-0.5 text-[0.5625rem] font-medium text-amber-400"
           >
             ⇄ {shortModelName(message.switchedTo)}
           </span>
         )}
         {showMsgTime && message.ts != null && (
-          <span className="text-[11px] tabular-nums text-halo-muted/70">
+          <span className="text-[0.6875rem] tabular-nums text-halo-muted/70">
             {new Date(message.ts).toLocaleTimeString([], {
               hour: "2-digit",
               minute: "2-digit",
@@ -324,7 +324,7 @@ function AssistantCardBase({
           </span>
         )}
         {message.workedMs != null && (
-          <span className="text-[11px] text-halo-muted/70">
+          <span className="text-[0.6875rem] text-halo-muted/70">
             {/* FIX: «Worked for» было непереведённым English, а десятичная
                 запятая форсилась для всех локалей; ключ chat.worked уже
                 существовал во всех четырёх словарях — используем его */}
@@ -336,7 +336,7 @@ function AssistantCardBase({
           </span>
         )}
         {isStreaming && (
-          <span className="ml-auto flex items-center gap-1.5 text-[10px] text-halo-accent/90">
+          <span className="ml-auto flex items-center gap-1.5 text-[0.625rem] text-halo-accent/90">
             <span className="typing-dot size-1 rounded-full bg-halo-accent" />
             {/* Фейковые фазы («Планирование/Генерация кода») удалены:
                 живой статус хода приходит через hint из движка */}
@@ -366,7 +366,7 @@ function AssistantCardBase({
 
       {/* Живой статус хода: агенты думают/исполняют инструменты — показываем внутри */}
       {hint && !isStreaming && (
-        <div className="mb-1.5 flex items-center gap-1.5 text-[11px] text-halo-muted">
+        <div className="mb-1.5 flex items-center gap-1.5 text-[0.6875rem] text-halo-muted">
           <span className="typing-dot size-1 rounded-full bg-halo-accent" />
           {hint}
         </div>
@@ -377,7 +377,7 @@ function AssistantCardBase({
           <div className="flex items-center gap-2">
             <button
               onClick={() => setOpenThought((v) => !v)}
-              className="flex items-center gap-1 text-[11px] font-medium text-halo-muted transition-colors hover:text-halo-text"
+              className="flex items-center gap-1 text-[0.6875rem] font-medium text-halo-muted transition-colors hover:text-halo-text"
             >
               <ChevronDownIcon
                 className={openThought ? "" : "-rotate-90"}
@@ -386,7 +386,7 @@ function AssistantCardBase({
               {t("chat.thought")}
             </button>
             {isStreaming && (
-              <span className="flex items-center gap-1 text-[10px] text-halo-muted/70">
+              <span className="flex items-center gap-1 text-[0.625rem] text-halo-muted/70">
                 <span className="typing-dot size-1 rounded-full bg-halo-muted" />
               </span>
             )}
@@ -413,10 +413,10 @@ function AssistantCardBase({
               <span className="text-sky-400">
                 {tc.name === "subagent_run" ? <SubagentIcon /> : <ToolIcon />}
               </span>
-              <span className="font-mono text-[11px] text-halo-text">
+              <span className="font-mono text-[0.6875rem] text-halo-text">
                 {tc.name}
               </span>
-              <span className="max-w-64 truncate font-mono text-[10px] text-halo-muted">
+              <span className="max-w-64 truncate font-mono text-[0.625rem] text-halo-muted">
                 {summarizeArguments(tc.name, tc.arguments)}
               </span>
             </div>
@@ -453,7 +453,7 @@ function AssistantCardBase({
       )}
 
       {message.usage && (
-        <div className="mt-2 flex items-center gap-3 border-t border-halo-line/50 pt-2 text-[10px] text-halo-muted/70">
+        <div className="mt-2 flex items-center gap-3 border-t border-halo-line/50 pt-2 text-[0.625rem] text-halo-muted/70">
           <span title={t("tokens.up")}>
             ↑ {fmtInt(message.usage.prompt, lang)}
           </span>
@@ -468,7 +468,7 @@ function AssistantCardBase({
 
       {/* Дисклеймер: ответ сгенерирован моделью */}
       {message.role === "assistant" && message.content.trim() !== "" && (
-        <p className="mt-1.5 text-[10px] italic text-halo-muted/50">
+        <p className="mt-1.5 text-[0.625rem] italic text-halo-muted/50">
           {t("chat.aiDisclaimer")}
         </p>
       )}

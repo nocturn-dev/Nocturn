@@ -316,7 +316,7 @@ export default function Game2048() {
           )}
         </div>
       </div>
-      <p className="mt-2 text-[11px] text-halo-muted/60">WASD / ↑↓←→ / свайп</p>
+      <p className="mt-2 text-[0.6875rem] text-halo-muted/60">WASD / ↑↓←→ / свайп</p>
     </div>
   );
 }

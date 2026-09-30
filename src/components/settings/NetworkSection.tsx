@@ -60,7 +60,7 @@ export function NetworkSection() {
             {t("network.save")}
           </button>
           {savedField === key && (
-            <span className="text-[10px] text-emerald-400">
+            <span className="text-[0.625rem] text-emerald-400">
               {t("network.saved")}
             </span>
           )}

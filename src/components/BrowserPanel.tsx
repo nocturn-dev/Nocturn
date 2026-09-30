@@ -92,13 +92,13 @@ export default function BrowserPanel({ open, onClose }: BrowserPanelProps) {
           readOnly
           value={url}
           placeholder={t("browserPanel.noPage")}
-          className="min-w-0 flex-1 truncate rounded-lg border border-halo-line bg-halo-surface px-2.5 py-1.5 font-mono text-[11px] text-halo-muted outline-none"
+          className="min-w-0 flex-1 truncate rounded-lg border border-halo-line bg-halo-surface px-2.5 py-1.5 font-mono text-[0.6875rem] text-halo-muted outline-none"
         />
         <select
           value={size}
           onChange={(e) => applySize(parseInt(e.target.value, 10))}
           title={t("browserPanel.size")}
-          className="shrink-0 rounded-lg border border-halo-line bg-halo-surface px-1.5 py-1.5 text-[11px] text-halo-muted outline-none"
+          className="shrink-0 rounded-lg border border-halo-line bg-halo-surface px-1.5 py-1.5 text-[0.6875rem] text-halo-muted outline-none"
         >
           {SIZES.map((s, i) => (
             <option key={s.label} value={i}>
@@ -134,7 +134,7 @@ export default function BrowserPanel({ open, onClose }: BrowserPanelProps) {
 
       {/* Подпись */}
       <div className="shrink-0 border-t border-halo-line px-3 py-1.5">
-        <p className="text-[10px] text-halo-muted/60">{t("browserPanel.note")}</p>
+        <p className="text-[0.625rem] text-halo-muted/60">{t("browserPanel.note")}</p>
       </div>
     </div>
   );

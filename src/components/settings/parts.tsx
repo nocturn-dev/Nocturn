@@ -237,7 +237,7 @@ export function Dropdown({
         className="flex w-full items-center justify-between gap-2 rounded-lg border border-halo-line bg-halo-surface px-3 py-2 text-left text-xs text-halo-text outline-none transition-colors hover:border-halo-muted/50"
       >
         <span className="min-w-0 truncate">{current?.label ?? ""}</span>
-        <span className={`shrink-0 text-[10px] text-halo-muted transition-transform ${open ? "rotate-180" : ""}`}>
+        <span className={`shrink-0 text-[0.625rem] text-halo-muted transition-transform ${open ? "rotate-180" : ""}`}>
           ▼
         </span>
       </button>

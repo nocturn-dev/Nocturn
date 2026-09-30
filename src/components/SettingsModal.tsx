@@ -354,7 +354,11 @@ export default function SettingsModal({
   // Зеркало для Escape-хендлера: апдейтеры setState обязаны быть чистыми —
   // StrictMode зовёт их дважды, и onClose дёргался по два раза
   const restGameRef = useRef<GameId | null>(restGame);
-  restGameRef.current = restGame;
+  // Синхронизация зеркала через эффект — как в App/ChatArea/AmbientLayer:
+  // запись ref в теле рендера — антипаттерн (React Compiler)
+  useEffect(() => {
+    restGameRef.current = restGame;
+  }, [restGame]);
   const [searchQ, setSearchQ] = useState("");
   const [searchScope, setSearchScope] = useState<"all" | "custom">("all");
   // Окно «Поддержать проект»: адреса + QR кошельков
@@ -560,7 +564,7 @@ export default function SettingsModal({
                 <button
                   key={id}
                   onClick={() => setSearchScope(id)}
-                  className={`rounded-md border px-2 py-0.5 text-[10px] transition-colors ${
+                  className={`rounded-md border px-2 py-0.5 text-[0.625rem] transition-colors ${
                     searchScope === id
                       ? "border-halo-accent/50 bg-halo-accent/10 text-halo-accent"
                       : "border-halo-line text-halo-muted hover:text-halo-text"
@@ -587,7 +591,7 @@ export default function SettingsModal({
                   className="mb-0.5 flex w-full flex-col rounded-md px-2.5 py-1.5 text-left transition-colors hover:bg-halo-hover"
                 >
                   <span className="truncate text-xs text-halo-text">{r.label}</span>
-                  <span className="truncate text-[10px] text-halo-muted/60">{r.sectionTitle}</span>
+                  <span className="truncate text-[0.625rem] text-halo-muted/60">{r.sectionTitle}</span>
                 </button>
               ))}
             </div>
@@ -595,7 +599,7 @@ export default function SettingsModal({
           <nav className="scroll-slim min-h-0 flex-1 space-y-3 overflow-y-auto pr-0.5">
             {NAV.map((g) => (
               <div key={g.group}>
-                <p className="mb-1 px-2.5 text-[10px] font-medium uppercase tracking-wider text-halo-muted/50">
+                <p className="mb-1 px-2.5 text-[0.625rem] font-medium uppercase tracking-wider text-halo-muted/50">
                   {t(g.group)}
                 </p>
                 <div className="space-y-0.5">

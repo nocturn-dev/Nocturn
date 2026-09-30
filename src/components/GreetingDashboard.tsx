@@ -121,7 +121,7 @@ export default function GreetingDashboard({
       {/* Незавершённые задачи: клик открывает сессию */}
       {recent.length > 0 && (
         <div className="mt-5 w-full text-left">
-          <p className="mb-1.5 px-1 text-[11px] font-medium uppercase tracking-wider text-halo-muted/60">
+          <p className="mb-1.5 px-1 text-[0.6875rem] font-medium uppercase tracking-wider text-halo-muted/60">
             {t("greet.tasks")}
           </p>
           <div className="flex flex-col gap-1">
@@ -135,7 +135,7 @@ export default function GreetingDashboard({
                 <span className="min-w-0 flex-1 truncate text-xs text-halo-muted">
                   {s.title}
                 </span>
-                <span className="shrink-0 text-[10px] tabular-nums text-halo-muted/50">
+                <span className="shrink-0 text-[0.625rem] tabular-nums text-halo-muted/50">
                   {s.messages.length}
                 </span>
               </button>

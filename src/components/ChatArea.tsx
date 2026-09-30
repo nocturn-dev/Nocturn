@@ -37,6 +37,13 @@ import { ErrorBoundary } from "./ErrorBoundary";
 import { UserCard } from "./cards/UserCard";
 import { ArrowUpIcon, BookIcon, ChevronDownIcon, CorrectIcon, MicIcon, PaperclipIcon, PermModeIcon, QueueIcon, QuoteIcon, RobotIcon, ScalesIcon, ShieldIcon, SlidersIcon, SparkIcon, StopIcon, SystemPromptIcon, TerminalIcon, TrashIcon, WrenchIcon, XSmallIcon } from "./cards/icons";
 import { fmtInt, fmtK } from "./cards/util";
+import { CHART_COLORS } from "../chartColors";
+
+/** Стабильная пустая лента результатов tool-вызовов: `?? []` в рендере
+ *  создавал новый массив на каждую пересборку ленты и пробивал поверхностное
+ *  сравнение memo AssistantCard — исторические карточки без инструментов
+ *  ре-рендерились (с ре-парсом markdown) на каждый флеш стрима */
+const EMPTY_RESULTS: { id: string; content: string }[] = [];
 
 interface ChatAreaProps {
   session: Session | null;
@@ -788,22 +795,22 @@ export default function ChatArea({
       {
         label: "ctx.messages",
         tokens: Math.max(msgs - contextEstimate.prompt - (toolsTokens?.sys ?? 0) - (toolsTokens?.mcp ?? 0), 0),
-        color: "#4c8dd9",
+        color: CHART_COLORS[0],
       },
       {
         label: "ctx.sysTools",
         tokens: toolsTokens?.sys ?? 0,
-        color: "#4c8dd9",
+        color: CHART_COLORS[0],
       },
       {
         label: "ctx.mcpTools",
         tokens: toolsTokens?.mcp ?? 0,
-        color: "#4c8dd9",
+        color: CHART_COLORS[0],
       },
       {
         label: "ctx.sysPrompt",
         tokens: contextEstimate.prompt,
-        color: "#4c8dd9",
+        color: CHART_COLORS[0],
       },
     ];
     return rows;
@@ -1041,6 +1048,13 @@ export default function ChatArea({
   }, [messages, typing, scrollFollow]);
 
   const autoGrow = (el: HTMLTextAreaElement) => {
+    // Быстрый путь (набор текста): контент уже переполняет поле — растим без
+    // сброса в auto. Сброс нужен только для обнаружения усадки (удаление):
+    // это write→read→write с форсированным reflow на каждый ввод символа
+    if (el.scrollHeight > el.clientHeight) {
+      el.style.height = `${Math.min(el.scrollHeight, 176)}px`;
+      return;
+    }
     el.style.height = "auto";
     el.style.height = `${Math.min(el.scrollHeight, 176)}px`;
   };
@@ -1199,7 +1213,7 @@ export default function ChatArea({
                     <button
                       key="session-changes-open"
                       onClick={() => setSessionChangesOpen(true)}
-                      className="mx-auto my-1 rounded-full border border-halo-line px-3 py-1 text-[11px] text-halo-muted transition-colors hover:border-halo-accent/50 hover:text-halo-text"
+                      className="mx-auto my-1 rounded-full border border-halo-line px-3 py-1 text-[0.6875rem] text-halo-muted transition-colors hover:border-halo-accent/50 hover:text-halo-text"
                     >
                       {t("changes.task", { n: sessionWrites.length })}
                     </button>,
@@ -1212,7 +1226,7 @@ export default function ChatArea({
                   <button
                     key="show-old-turns"
                     onClick={() => setShowOldTurns(true)}
-                    className="mx-auto my-1 rounded-full border border-halo-line px-3 py-1 text-[11px] text-halo-muted transition-colors hover:border-halo-accent/50 hover:text-halo-text"
+                    className="mx-auto my-1 rounded-full border border-halo-line px-3 py-1 text-[0.6875rem] text-halo-muted transition-colors hover:border-halo-accent/50 hover:text-halo-text"
                   >
                     {t("chat.showOldTurns", { n: visibleFrom })}
                   </button>,
@@ -1266,7 +1280,7 @@ export default function ChatArea({
                           mid={a.id}
                           message={a}
                           model={a.model ?? model}
-                          results={derived.resultsOf.get(a.id) ?? []}
+                          results={derived.resultsOf.get(a.id) ?? EMPTY_RESULTS}
                           steps={derived.roundSteps.get(a.id) ?? []}
                           hint={
                             ti === turns.length - 1 && a === rounds[rounds.length - 1]
@@ -1484,7 +1498,7 @@ export default function ChatArea({
           <span
             data-tauri-drag-region
             title={`${t("tokens.up")}: ${fmtInt(totals.up, lang)} · ${t("tokens.down")}: ${fmtInt(totals.down, lang)} · ${t("tokens.total")}: ${fmtInt(totals.all, lang)}`}
-            className="mr-2 shrink-0 text-[10px] text-halo-muted/70"
+            className="mr-2 shrink-0 text-[0.625rem] text-halo-muted/70"
           >
             <span className="text-halo-muted">↑{fmtK(totals.up, lang)}</span>{" "}
             <span className="text-halo-muted">↓{fmtK(totals.down, lang)}</span>{" "}
@@ -1598,7 +1612,7 @@ export default function ChatArea({
 
               <button
                 onClick={onToggleStarter}
-                className="mt-7 rounded-md px-2 py-1 text-[11px] text-halo-muted/60 transition-colors hover:text-halo-muted"
+                className="mt-7 rounded-md px-2 py-1 text-[0.6875rem] text-halo-muted/60 transition-colors hover:text-halo-muted"
               >
                 {hideStarter ? t("chat.showStarter") : t("chat.hideStarter")}
               </button>
@@ -1668,7 +1682,7 @@ export default function ChatArea({
             {/* Палитра скилов (&) */}
             {skillActive && skillMatches.length > 0 && (
               <div className="scroll-slim absolute bottom-full left-0 right-0 z-20 mb-2 max-h-64 overflow-y-auto rounded-xl border border-halo-line bg-halo-deep/95 p-1.5 shadow-xl backdrop-blur">
-                <p className="px-2 pb-1 text-[10px] uppercase tracking-wider text-halo-muted/60">
+                <p className="px-2 pb-1 text-[0.625rem] uppercase tracking-wider text-halo-muted/60">
                   {t("skills.palette")}
                 </p>
                 {skillMatches.map((s, i) => (
@@ -1700,7 +1714,7 @@ export default function ChatArea({
               <div className="scroll-slim absolute bottom-full left-0 right-0 z-20 mb-2 max-h-64 overflow-y-auto rounded-xl border border-halo-line bg-halo-deep/95 p-1.5 shadow-xl backdrop-blur">
                 {slash.command && slash.suggestions.length > 0 ? (
                   <div>
-                    <p className="px-2 pb-1 text-[10px] uppercase tracking-wider text-halo-muted/60">
+                    <p className="px-2 pb-1 text-[0.625rem] uppercase tracking-wider text-halo-muted/60">
                       /{slash.command.name} · {slash.command.argHint ?? t("cmd.args")}
                     </p>
                     {slash.suggestions.map((sug, i) => (
@@ -1752,7 +1766,7 @@ export default function ChatArea({
             {/* Очередь сообщений: уйдут агенту после текущего ответа */}
             {queued.length > 0 && (
               <div className="mb-2 space-y-1.5">
-                <p className="px-1 text-[11px] font-medium uppercase tracking-wider text-halo-muted/70">
+                <p className="px-1 text-[0.6875rem] font-medium uppercase tracking-wider text-halo-muted/70">
                   {t("composer.queued")}
                 </p>
                 {queued.map((q) => (
@@ -1977,7 +1991,7 @@ export default function ChatArea({
                       onClick={() => setPermOpen(false)}
                     />
                     <div className="anim-pop absolute bottom-full left-0 z-30 mb-2 w-64 rounded-xl border border-halo-line bg-halo-deep/95 p-1.5 shadow-xl backdrop-blur">
-                      <p className="px-2 pb-1 text-[10px] uppercase tracking-wider text-halo-muted/60">
+                      <p className="px-2 pb-1 text-[0.625rem] uppercase tracking-wider text-halo-muted/60">
                         {t("perms.title")}
                       </p>
                       {(
@@ -2013,7 +2027,7 @@ export default function ChatArea({
                             <span className="block text-xs font-medium text-halo-text">
                               {t(`perms.${m}`)}
                             </span>
-                            <span className="block text-[11px] leading-snug text-halo-muted">
+                            <span className="block text-[0.6875rem] leading-snug text-halo-muted">
                               {t(`perms.${m}Desc`)}
                             </span>
                           </span>
@@ -2045,10 +2059,10 @@ export default function ChatArea({
                       onClick={() => setToolsOpen(false)}
                     />
                     <div className="scroll-slim anim-pop absolute bottom-full left-0 z-30 mb-2 max-h-80 w-64 overflow-y-auto rounded-xl border border-halo-line bg-halo-deep/95 p-1.5 shadow-xl backdrop-blur">
-                      <p className="px-2 pb-1 text-[10px] uppercase tracking-wider text-halo-muted/60">
+                      <p className="px-2 pb-1 text-[0.625rem] uppercase tracking-wider text-halo-muted/60">
                         {t("tools.title")}
                       </p>
-                      <p className="px-2 pb-1.5 text-[11px] leading-snug text-halo-muted">
+                      <p className="px-2 pb-1.5 text-[0.6875rem] leading-snug text-halo-muted">
                         {t("tools.hint")}
                       </p>
                       {toolNames === null ? (
@@ -2108,8 +2122,8 @@ export default function ChatArea({
                   {model ? brandName(model) : t("chat.modelNotSet")}
                 </span>
                 {isLocal && (
-                  <span className="rounded bg-emerald-400/15 px-1.5 py-0.5 text-[9px] font-medium text-emerald-400">
-                    local
+                  <span className="rounded bg-emerald-400/15 px-1.5 py-0.5 text-[0.5625rem] font-medium text-emerald-400">
+                    {t("chat.modelLocal")}
                   </span>
                 )}
                 <ChevronDownIcon />
@@ -2135,7 +2149,7 @@ export default function ChatArea({
                     }`}
                   >
                     <RobotIcon />
-                    <span className="text-[10px] tabular-nums">
+                    <span className="text-[0.625rem] tabular-nums">
                       {Object.values(subRuns ?? {}).filter((r) => r.report === null).length ||
                         Object.keys(subRuns ?? {}).length}
                     </span>
@@ -2147,7 +2161,7 @@ export default function ChatArea({
                         onClick={() => setSubOpen(false)}
                       />
                       <div className="anim-pop absolute bottom-full right-0 z-30 mb-2 w-80 rounded-xl border border-halo-line bg-halo-deep/95 p-1.5 shadow-xl backdrop-blur">
-                        <p className="px-2 pb-1 text-[10px] uppercase tracking-wider text-halo-muted/60">
+                        <p className="px-2 pb-1 text-[0.625rem] uppercase tracking-wider text-halo-muted/60">
                           {t("sub.monitor")}
                         </p>
                         {Object.entries(subRuns ?? {}).map(([id, r]) => (
@@ -2167,7 +2181,7 @@ export default function ChatArea({
                                 {r.roleName}
                               </p>
                               {r.task && (
-                                <p className="truncate text-[11px] text-halo-muted/70">
+                                <p className="truncate text-[0.6875rem] text-halo-muted/70">
                                   {r.task}
                                 </p>
                               )}

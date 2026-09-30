@@ -130,7 +130,7 @@ export default function SearchModal({
             placeholder={t("search.placeholder")}
             className="flex-1 bg-transparent text-sm text-halo-text outline-none placeholder:text-halo-muted"
           />
-          <kbd className="rounded border border-halo-line px-1.5 py-0.5 text-[10px] text-halo-muted">
+          <kbd className="rounded border border-halo-line px-1.5 py-0.5 text-[0.625rem] text-halo-muted">
             Esc
           </kbd>
         </div>
@@ -149,7 +149,10 @@ export default function SearchModal({
                   ? s.messages.find((m) =>
                       m.content.toLowerCase().includes(q.split(/\s+/)[0] ?? ""),
                     )
-                  : undefined) ?? s.messages.at(-1);
+                  : undefined) ??
+                // Без .at(-1): Safari 15.0–15.3 и старые WebKitGTK не знают
+                // метода, а пол сборки safari15 рантайм не полифиллит
+                s.messages[s.messages.length - 1];
               const snippet = hit?.content.replace(/\s+/g, " ").slice(0, 90);
               return (
                 <button

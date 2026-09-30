@@ -87,7 +87,7 @@ export function AgentSection({
                 </span>
                 <button
                   onClick={() => onSessionChange(entry.id, [])}
-                  className="shrink-0 rounded-md border border-halo-line px-2 py-0.5 text-[10px] text-halo-muted transition-colors hover:border-red-400/50 hover:text-red-400"
+                  className="shrink-0 rounded-md border border-halo-line px-2 py-0.5 text-[0.625rem] text-halo-muted transition-colors hover:border-red-400/50 hover:text-red-400"
                 >
                   {t("agent.allowlistClear")}
                 </button>
@@ -98,7 +98,7 @@ export function AgentSection({
                     key={`${i}-${c}`}
                     className="flex items-start gap-2 rounded-md bg-halo-surface/60 px-2.5 py-1.5"
                   >
-                    <code className="scroll-slim min-w-0 flex-1 break-all font-mono text-[11px] leading-relaxed text-halo-muted">
+                    <code className="scroll-slim min-w-0 flex-1 break-all font-mono text-[0.6875rem] leading-relaxed text-halo-muted">
                       {c}
                     </code>
                     <button

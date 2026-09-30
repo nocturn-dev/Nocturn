@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useLang } from "../../locales";
+import { useLang, type MsgKey } from "../../locales";
 import Game2048 from "../../games/Game2048";
 import GameMines from "../../games/GameMines";
 import GameSnake from "../../games/GameSnake";
@@ -19,7 +19,7 @@ function Preview2048() {
       {cells.map((v) => (
         <div
           key={v}
-          className="flex aspect-square items-center justify-center rounded-md bg-halo-accent/15 text-[10px] font-semibold text-halo-muted"
+          className="flex aspect-square items-center justify-center rounded-md bg-halo-accent/15 text-[0.625rem] font-semibold text-halo-muted"
           style={{ opacity: 0.35 + (v / 512) * 0.65 }}
         >
           {v}
@@ -35,7 +35,7 @@ function PreviewMines() {
       {["1", "🚩", "", "2", "", "3", "1", "", "💣", "2", "", "1", "", "1", "", ""].map((c, i) => (
         <div
           key={i}
-          className="flex aspect-square items-center justify-center rounded-md bg-halo-surface/70 text-[11px] text-halo-muted"
+          className="flex aspect-square items-center justify-center rounded-md bg-halo-surface/70 text-[0.6875rem] text-halo-muted"
         >
           {c}
         </div>
@@ -73,7 +73,12 @@ const PREVIEWS: Record<GameId, React.ReactNode> = {
   snake: <PreviewSnake />,
 };
 
-const TITLES: Record<GameId, string> = { "2048": "2048", mines: "Сапёр", snake: "Змейка" };
+// Названия игр — через локали: русские «Сапёр»/«Змейка» не должны
+// показываться при en/zh/ja. 2048 — универсальное имя, мимо словаря
+const TITLE_KEYS: Record<Exclude<GameId, "2048">, MsgKey> = {
+  mines: "games.mines",
+  snake: "games.snake",
+};
 
 function bestOf(game: GameId): string {
   const raw = localStorage.getItem(`haloui-game-${game}`);
@@ -129,8 +134,10 @@ export function RestSection({
               {PREVIEWS[id]}
             </div>
             <div className="p-3">
-              <p className="text-sm font-medium text-halo-text">{TITLES[id]}</p>
-              <p className="mt-0.5 text-[11px] text-halo-muted">
+              <p className="text-sm font-medium text-halo-text">
+                {id === "2048" ? "2048" : t(TITLE_KEYS[id])}
+              </p>
+              <p className="mt-0.5 text-[0.6875rem] text-halo-muted">
                 {t("game.record", { n: bestOf(id) })}
               </p>
               <button

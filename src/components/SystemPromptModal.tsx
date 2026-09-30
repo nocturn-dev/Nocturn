@@ -82,7 +82,7 @@ export default function SystemPromptModal({
             </button>
           )}
           <span className="flex-1" />
-          <span className="text-[10px] text-halo-muted/60">
+          <span className="text-[0.625rem] text-halo-muted/60">
             {t("sysprompt.ctrlEnter")}
           </span>
           <button
