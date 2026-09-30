@@ -705,12 +705,17 @@ fn expand_by_borders(
 }
 
 /// Одноразовый сдвиг на 1px и обратно: перерисовка вебвью и панели задач
-/// после смены maximized-состояния
+/// после смены maximized-состояния. Пауза между сдвигами живёт в отдельном
+/// потоке: sleep на потоке event loop замораживал окно на кадр при каждом
+/// возврате фокуса (класс «sleep в UI-потоке»)
 fn nudge_window(w: &tauri::WebviewWindow) {
     let Ok(pos) = w.outer_position() else { return };
     let _ = w.set_position(tauri::PhysicalPosition::new(pos.x + 1, pos.y));
-    std::thread::sleep(std::time::Duration::from_millis(16));
-    let _ = w.set_position(pos);
+    let w = w.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(16));
+        let _ = w.set_position(pos);
+    });
 }
 
 /// Quick Entry у верхнего центра монитора под курсором. Окно без декораций,

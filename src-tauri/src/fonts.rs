@@ -81,8 +81,16 @@ fn sanitize_name(raw: &str) -> String {
 }
 
 #[tauri::command(async)]
-pub fn font_import(app: tauri::AppHandle, src: String) -> Result<CustomFont, String> {
+pub async fn font_import(app: tauri::AppHandle, src: String) -> Result<CustomFont, String> {
     crate::settings::rejects_sensitive_path(&src)?;
+    // Чтение до 20 МБ + запись файла и манифеста — в blocking-пул,
+    // а не на воркер tokio со стримами (класс crypto_status)
+    tauri::async_runtime::spawn_blocking(move || font_import_impl(app, src))
+        .await
+        .map_err(|e| format!("font import task failed: {e}"))?
+}
+
+fn font_import_impl(app: tauri::AppHandle, src: String) -> Result<CustomFont, String> {
     let src_path = PathBuf::from(&src);
     if src_path
         .components()
@@ -107,9 +115,9 @@ pub fn font_import(app: tauri::AppHandle, src: String) -> Result<CustomFont, Str
     }
     let bytes = fs::read(&src_path).map_err(|e| e.to_string())?;
     let dir = fonts_dir(&app)?;
-    // fsutil::uuid_v4_short — единственный источник коротких id: дубль здесь
+    // fsutil::rand_hex8 — единственный источник коротких id: дубль здесь
     // жил своей жизнью и расползался независимо от канонического
-    let id = crate::fsutil::uuid_v4_short();
+    let id = crate::fsutil::rand_hex8();
     let family = format!("NocturnFont-{id}");
     let file_name = format!("font-{id}.{ext}");
     fs::write(dir.join(&file_name), &bytes).map_err(|e| e.to_string())?;

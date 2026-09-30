@@ -35,8 +35,14 @@ pub struct PtyRegistry(pub Mutex<HashMap<String, Arc<PtySession>>>);
 impl PtyRegistry {
     /// Гасим все сессии при выходе приложения — иначе возможен осиротевший PowerShell
     pub fn kill_all(&self) {
-        let map = self.0.lock().unwrap_or_else(|p| p.into_inner());
-        for s in map.values() {
+        // Arc-сессии клонируем из-под лока и гасим снаружи: kill+wait
+        // блокируются на процессе, под локом реестра они тормозили
+        // открытие новых сессий
+        let sessions: Vec<_> = {
+            let map = self.0.lock().unwrap_or_else(|p| p.into_inner());
+            map.values().cloned().collect()
+        };
+        for s in sessions {
             // FIX: убиваем через отдельный child-лок — без ожидания io.
             // wait() reap'ит процесс: на Unix без него shell оставался зомби
             // до выхода приложения

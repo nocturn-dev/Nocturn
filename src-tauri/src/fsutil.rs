@@ -65,9 +65,10 @@ pub fn read_capped_string(path: &Path, limit: usize) -> Result<String, String> {
     fs::read_to_string(path).map_err(|e| format!("cannot read {}: {e}", path.display()))
 }
 
-/// 8 hex-символов из случайных байтов — короткое уникальное имя файла/профиля.
-/// Раньше дублировалась в browser.rs и imagegen.rs
-pub(crate) fn uuid_v4_short() -> String {
+/// 8 hex-символов из случайных байтов (32 бита энтропии) — короткое имя
+/// файла/профиля. Имя не «uuid»: это не UUIDv4 (122 бита), уникальность —
+/// в пределах каталога на 2^32. Раньше дублировалась в browser.rs и imagegen.rs
+pub(crate) fn rand_hex8() -> String {
     let b: [u8; 4] = rand::random();
     b.iter().map(|x| format!("{x:02x}")).collect()
 }

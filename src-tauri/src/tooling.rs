@@ -344,8 +344,8 @@ pub async fn execute_tool_inner(
         })
         .await
         .map_err(|e| format!("tool task failed: {e}"))??;
-        // args уже Value — раньше уходил в строку и парсился обратно
-        let args = args.clone();
+        // args переезжает в поток по владению: ветка завершается return,
+        // глубокая копия Value на каждый browser-вызов была лишней
         let work = tauri::async_runtime::spawn_blocking(move || {
             browser::execute_on(&conn, &name, &args)
         });
@@ -541,7 +541,8 @@ pub fn imagegen_get_config() -> imagegen::ImageGenConfig {
     // для отображения в настройках расшифровываем, если хранилище открыто
     if crypto::is_encrypted(&cfg.api_key) {
         if let Some(plain) = crypto::decrypt(&cfg.api_key) {
-            cfg.api_key = plain;
+            // Граница serde (поле конфига — String): копия здесь неизбежна
+            cfg.api_key = plain.to_string();
         }
     }
     cfg
@@ -572,7 +573,8 @@ pub fn websearch_get_config() -> websearch::WebSearchConfig {
     // Ключ Brave шифруется на диске как ключи провайдеров (см. imagegen)
     if crypto::is_encrypted(&cfg.brave_key) {
         if let Some(plain) = crypto::decrypt(&cfg.brave_key) {
-            cfg.brave_key = plain;
+            // Граница serde (поле конфига — String): копия здесь неизбежна
+            cfg.brave_key = plain.to_string();
         }
     }
     cfg
@@ -623,8 +625,16 @@ pub fn sound_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 /// Импорт своей мелодии: копия в appdata/sounds/custom.<ext>,
 /// возвращает "имя файла|расширение" для отображения
 #[tauri::command(async)]
-pub fn sound_import(app: tauri::AppHandle, src: String) -> Result<String, String> {
+pub async fn sound_import(app: tauri::AppHandle, src: String) -> Result<String, String> {
     rejects_sensitive_path(&src)?;
+    // Чтение до 5 МБ + перезапись каталога звуков — в blocking-пул,
+    // а не на воркере tokio со стримами (класс crypto_status)
+    tauri::async_runtime::spawn_blocking(move || sound_import_impl(app, src))
+        .await
+        .map_err(|e| format!("sound import task failed: {e}"))?
+}
+
+fn sound_import_impl(app: tauri::AppHandle, src: String) -> Result<String, String> {
     let src_path = PathBuf::from(&src);
     // Обход каталогов через «..» запрещён — путь должен указывать на файл напрямую
     if src_path
@@ -663,7 +673,14 @@ pub fn sound_import(app: tauri::AppHandle, src: String) -> Result<String, String
 
 /// Своя мелодия как data URL (для WebAudio/Audio). None — не импортирована
 #[tauri::command(async)]
-pub fn sound_data(app: tauri::AppHandle) -> Result<Option<String>, String> {
+pub async fn sound_data(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    // Чтение файла мелодии + base64 — в blocking-пул (класс crypto_status)
+    tauri::async_runtime::spawn_blocking(move || sound_data_impl(app))
+        .await
+        .map_err(|e| format!("sound data task failed: {e}"))?
+}
+
+fn sound_data_impl(app: tauri::AppHandle) -> Result<Option<String>, String> {
     let dir = sound_path(&app)?;
     for e in fs::read_dir(&dir).map_err(|e| e.to_string())?.flatten() {
         let name = e.file_name().to_string_lossy().to_string();
@@ -1035,12 +1052,19 @@ pub fn load_sessions(app: tauri::AppHandle) -> Result<Option<String>, String> {
 }
 
 #[tauri::command(async)]
-pub fn save_sessions(app: tauri::AppHandle, data: String) -> Result<(), String> {
-    let path = config_file(&app, "sessions.json")?;
-    if let Some(dir) = path.parent() {
-        fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-    }
-    crate::fsutil::atomic_write(&path, data.as_bytes())
+pub async fn save_sessions(app: tauri::AppHandle, data: String) -> Result<(), String> {
+    // Автосейв после каждого сообщения: запись многометрового sessions.json
+    // на воркере tokio вставала поперёк SSE-стримов — в blocking-пул
+    // (класс crypto_status)
+    tauri::async_runtime::spawn_blocking(move || {
+        let path = config_file(&app, "sessions.json")?;
+        if let Some(dir) = path.parent() {
+            fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+        }
+        crate::fsutil::atomic_write(&path, data.as_bytes())
+    })
+    .await
+    .map_err(|e| format!("sessions save task failed: {e}"))?
 }
 
 /// Хранилище проекта в его папке: <root>/.nocturn. root — выбранная

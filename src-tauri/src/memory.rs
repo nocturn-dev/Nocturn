@@ -68,7 +68,7 @@ pub(crate) fn add_fact(path: &Path, raw_text: &str) -> Result<String, String> {
         true
     } else {
         store.facts.push(MemoryFact {
-            id: format!("m-{}", crate::fsutil::uuid_v4_short()),
+            id: format!("m-{}", crate::fsutil::rand_hex8()),
             text,
             ts: now,
         });

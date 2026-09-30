@@ -50,6 +50,9 @@
     "targets": "all",
     "createUpdaterArtifacts": true,
     "category": "Development",
+    "macOS": {
+      "infoPlist": "./macos-info.plist"
+    },
     "shortDescription": "Nocturn — универсальный ИИ-клиент (BYOK)",
     "longDescription": "Nocturn — локальный ИИ-клиент BYOK: чат с любыми провайдерами, агентные инструменты (файлы, shell, браузер, Computer Use), MCP-серверы, субагенты, заметки-хранилище и автоматизации. Ключи хранятся локально и могут быть зашифрованы.",
     "icon": [

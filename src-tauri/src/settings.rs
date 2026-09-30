@@ -384,15 +384,10 @@ pub async fn crypto_reset(app: tauri::AppHandle, confirm: String) -> Result<(), 
             fs::remove_file(&meta).map_err(|e| e.to_string())?;
         }
         // Чистим зашифрованные поля — восстановить их без пароля невозможно
-        for (path, _fields) in [
-            (
-                config_file(&app, "settings.json")?,
-                vec!["api_key".to_string()],
-            ),
-            (
-                config_file(&app, "profiles.json")?,
-                vec!["api_key".to_string()],
-            ),
+        // (какое поле чистит каждая ветка — в if/else ниже)
+        for path in [
+            config_file(&app, "settings.json")?,
+            config_file(&app, "profiles.json")?,
         ] {
             if !path.exists() {
                 continue;
@@ -725,7 +720,13 @@ fn strip_verbatim(p: &str) -> &str {
 /// слэш-чувствительна
 #[cfg(windows)]
 fn norm_path(p: &std::path::Path) -> String {
-    strip_verbatim(&p.to_string_lossy()).to_lowercase()
+    // Слэши приводим к «\», как rejects_sensitive_path: путь с «/» и
+    // несуществующим родителем иначе уходил мимо лексического сравнения
+    // (граница компонента — MAIN_SEPARATOR), гардал пропускал запись во
+    // вложенный каталог конфигов, а atomic_write её создавал
+    strip_verbatim(&p.to_string_lossy())
+        .to_lowercase()
+        .replace('/', "\\")
 }
 #[cfg(not(windows))]
 fn norm_path(p: &std::path::Path) -> String {
@@ -818,10 +819,16 @@ pub fn chat_export_write(
 /// пользователя читается в вебвью осознанно — это и есть фича импорта
 /// (та же модель у plugin_read и kb_add_document)
 #[tauri::command(async)]
-pub fn settings_import_read(path: String) -> Result<serde_json::Value, String> {
+pub async fn settings_import_read(path: String) -> Result<serde_json::Value, String> {
     rejects_sensitive_path(&path)?;
-    let data = crate::fsutil::read_capped_string(std::path::Path::new(&path), 0)?;
-    serde_json::from_str(&data).map_err(|e| format!("import file corrupted: {e}"))
+    // Чтение до 32 МБ + парс — в blocking-пул: на воркере tokio это
+    // вставало поперёк SSE-стримов (класс crypto_status)
+    tauri::async_runtime::spawn_blocking(move || {
+        let data = crate::fsutil::read_capped_string(std::path::Path::new(&path), 0)?;
+        serde_json::from_str(&data).map_err(|e| format!("import file corrupted: {e}"))
+    })
+    .await
+    .map_err(|e| format!("import read task failed: {e}"))?
 }
 
 /// Тумблер шифрования: перезаписывает settings.json и profiles.json,
@@ -845,9 +852,11 @@ pub fn set_key_encryption(app: tauri::AppHandle, enable: bool) -> Result<(), Str
                 // FIX: раньше decrypt → None (заблокированное хранилище /
                 // сменившийся пароль) тихо писал на диск ПУСТОЙ ключ — потеря.
                 // Теперь команда падает, файл остаётся нетронутым.
-                crypto::decrypt(&key).ok_or(
-                    "stored API key cannot be decrypted (vault is locked or password changed) — unlock the vault first",
-                )?
+                crypto::decrypt(&key)
+                    .map(|plain| plain.to_string())
+                    .ok_or(
+                        "stored API key cannot be decrypted (vault is locked or password changed) — unlock the vault first",
+                    )?
             } else {
                 key
             };
@@ -875,9 +884,11 @@ pub fn set_key_encryption(app: tauri::AppHandle, enable: bool) -> Result<(), Str
                         crypto::encrypt(&key)?
                     } else if !enable && crypto::is_encrypted(&key) {
                         // FIX: то же, что и для settings.json — без тихой потери ключа
-                        crypto::decrypt(&key).ok_or(
-                            "stored API key cannot be decrypted (vault is locked or password changed) — unlock the vault first",
-                        )?
+                        crypto::decrypt(&key)
+                            .map(|plain| plain.to_string())
+                            .ok_or(
+                                "stored API key cannot be decrypted (vault is locked or password changed) — unlock the vault first",
+                            )?
                     } else {
                         key
                     };
@@ -947,7 +958,9 @@ pub(crate) fn config_file(app: &tauri::AppHandle, name: &str) -> Result<std::pat
 /// запросы без ключа с загадочным 401 от провайдера.
 pub fn decrypt_stored_key(stored: &str) -> Result<String, String> {
     match crypto::decrypt(stored) {
-        Some(plain) => Ok(plain),
+        // Граница serde (поле ApiSettings — String): копия здесь неизбежна,
+        // но plaintext из crypto больше не живёт в heap без Zeroizing
+        Some(plain) => Ok(plain.to_string()),
         None if crypto::has_key() => Err(
             "stored API key cannot be decrypted (master password changed or reset) — re-enter the key"
                 .into(),
@@ -1107,6 +1120,33 @@ mod tests {
                 "must reject: {p}"
             );
         }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn config_dir_comparison_normalizes_forward_slashes() {
+        // Аудит: путь с «/» и несуществующим родителем уходил мимо
+        // лексического сравнения (norm_path не нормализовал слэши) —
+        // гардал пропускал запись во вложенный каталог конфигов,
+        // а atomic_write создавал её
+        let cfg = std::path::Path::new("C:\\Users\\me\\AppData\\Roaming\\com.haloui.app");
+        for target in [
+            "C:/Users/me/AppData/Roaming/com.haloui.app/newdir/x.json",
+            "C:/Users/me/AppData/Roaming/com.haloui.app/hooks.json",
+            "C:\\Users\\me\\AppData\\Roaming\\com.haloui.app\\sub\\x.json",
+        ] {
+            assert!(
+                starts_dir(&norm_path(std::path::Path::new(target)), &norm_path(cfg)),
+                "must detect config dir inside: {target}"
+            );
+        }
+        // Сиблинг по-прежнему не матчится
+        assert!(!starts_dir(
+            &norm_path(std::path::Path::new(
+                "C:/Users/me/AppData/Roaming/com.haloui.app-backup/x.json"
+            )),
+            &norm_path(cfg)
+        ));
     }
 
     #[cfg(windows)]

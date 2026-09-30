@@ -116,7 +116,7 @@ async fn speak_impl(text: String, output: Option<String>) -> Result<(), String> 
 fn render_wav(text: &str) -> Result<std::path::PathBuf, String> {
     let path = std::env::temp_dir().join(format!(
         "nocturn-tts-{}.wav",
-        crate::fsutil::uuid_v4_short()
+        crate::fsutil::rand_hex8()
     ));
     let path_lit = path.display().to_string().replace('\'', "''");
     let text_lit = text.replace('\'', "''");
