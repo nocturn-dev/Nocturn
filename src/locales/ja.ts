@@ -1271,4 +1271,5 @@ export const ja = {
     "steps.kindTerminal": "ターミナル",
     "steps.kindExplore": "調査",
     "steps.kindAsked": "質問",
+    "composer.dropFiles": "ドロップしてファイルを添付",
 } satisfies Record<MsgKey, string>; // D20: полный Record — пропущенный ключ = ошибка компиляции, а не молчаливый фолбэк

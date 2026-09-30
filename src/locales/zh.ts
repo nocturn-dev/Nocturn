@@ -1271,4 +1271,5 @@ export const zh = {
     "steps.kindTerminal": "终端",
     "steps.kindExplore": "浏览",
     "steps.kindAsked": "提问",
+    "composer.dropFiles": "松开以添加附件",
 } satisfies Record<MsgKey, string>; // D20: полный Record — пропущенный ключ = ошибка компиляции, а не молчаливый фолбэк
