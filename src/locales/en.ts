@@ -178,6 +178,8 @@ export const en = {
     "files.copied": "click to copy path",
     "files.modified": "Modified by agent",
     "cp.title": "Checkpoints",
+    "cp.gitJournal": "Checkpoint git journal",
+    "cp.gitJournalHint": "Additionally commit snapshots into Nocturn's own git journal (project history in git objects).",
     "cp.created": "Project checkpoint created — files saved before agent edits",
     "cp.empty": "No snapshots yet — they are created automatically before agent edits",
     "cp.unlabeled": "Untitled",

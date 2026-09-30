@@ -566,13 +566,26 @@ export interface CheckpointMeta {
   label: string;
   files: number;
   bytes: number;
+  /** SHA коммита git-журнала (opt-in режим, блок 12 шаг 4) */
+  git?: string;
 }
 
-/** Снимок файлов проекта; возвращает метаданные созданного чекпоинта */
-export async function checkpointSave(path: string, label: string): Promise<CheckpointMeta | null> {
+/** Снимок файлов проекта; возвращает метаданные созданного чекпоинта.
+ *  useGit — дополнительно записать коммит в git-журнал чекпоинтов
+ *  (отдельный index-dir, ботовый автор); без git или без галочки — снимок
+ *  как обычно */
+export async function checkpointSave(
+  path: string,
+  label: string,
+  useGit?: boolean,
+): Promise<CheckpointMeta | null> {
   if (!inTauri) return null;
   try {
-    return await invoke<CheckpointMeta>("checkpoint_save", { path, label });
+    return await invoke<CheckpointMeta>("checkpoint_save", {
+      path,
+      label,
+      useGit: useGit === true,
+    });
   } catch {
     return null; // нет доступа к папке — пропускаем, не мешая задаче
   }

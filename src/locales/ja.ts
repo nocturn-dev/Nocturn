@@ -180,6 +180,8 @@ export const ja = {
     "files.copied": "クリック — パスをコピー",
     "files.modified": "エージェントが変更",
     "cp.title": "チェックポイント",
+    "cp.gitJournal": "チェックポイントGitジャーナル",
+    "cp.gitJournalHint": "スナップショットをNocturn専用のGitジャーナルにコミット（gitオブジェクトにプロジェクト履歴を保存）。",
     "cp.created": "プロジェクトのチェックポイントを作成 — エージェント編集前のファイルを保存しました",
     "cp.empty": "スナップショットはまだありません — エージェントの編集前に自動作成されます",
     "cp.unlabeled": "無題",

@@ -783,6 +783,16 @@ function Checkpoints({ root }: { root: string }) {
   const [items, setItems] = useState<CheckpointMeta[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
+  // Opt-in git-журнал (блок 12 шаг 4): каждый чекпоинт дополнительно
+  // коммитится в отдельный index-dir ботовым автором
+  const [gitOn, setGitOn] = useState(
+    () => localStorage.getItem("haloui-checkpoints-git") === "1",
+  );
+  const toggleGit = () => {
+    const next = !gitOn;
+    setGitOn(next);
+    localStorage.setItem("haloui-checkpoints-git", next ? "1" : "0");
+  };
 
   const load = () => {
     checkpointList(root).then(setItems).catch(() => setItems([]));
@@ -823,6 +833,28 @@ function Checkpoints({ root }: { root: string }) {
       {items.length === 0 && (
         <p className="py-1 text-[0.6875rem] text-halo-muted/70">{t("cp.empty")}</p>
       )}
+      <button
+        onClick={toggleGit}
+        className="flex w-full items-center justify-between gap-2 rounded-md px-1 py-1 text-left transition-colors hover:bg-halo-hover"
+      >
+        <span className="min-w-0">
+          <span className="block text-[0.6875rem] text-halo-text">{t("cp.gitJournal")}</span>
+          <span className="block text-[0.625rem] leading-snug text-halo-muted/70">
+            {t("cp.gitJournalHint")}
+          </span>
+        </span>
+        <span
+          className={`relative h-4 w-7 shrink-0 rounded-full transition-colors ${
+            gitOn ? "bg-halo-accent" : "bg-halo-line"
+          }`}
+        >
+          <span
+            className={`absolute top-0.5 size-3 rounded-full bg-halo-on-accent transition-all ${
+              gitOn ? "left-3.5" : "left-0.5"
+            }`}
+          />
+        </span>
+      </button>
       {status && (
         <p className="py-1 text-[0.6875rem] text-emerald-400">{status}</p>
       )}
@@ -842,6 +874,14 @@ function Checkpoints({ root }: { root: string }) {
                 })}
                 {" · "}
                 {t("cp.files", { n: cp.files })}
+                {cp.git && (
+                  <>
+                    {" · "}
+                    <span className="font-mono" title="git">
+                      {cp.git.slice(0, 7)}
+                    </span>
+                  </>
+                )}
               </p>
             </div>
             <button

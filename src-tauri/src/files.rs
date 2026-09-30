@@ -155,6 +155,9 @@ pub struct CheckpointMeta {
     pub label: String,
     pub files: usize,
     pub bytes: u64,
+    /// SHA коммита git-журнала (opt-in режим); None — только снапшот
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub git: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -265,6 +268,9 @@ struct CheckpointMetaCar {
     ts: u64,
     label: String,
     files: usize,
+    /// SHA коммита git-журнала (opt-in); serde default — старые сайдкары читаются
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    git: Option<String>,
 }
 
 #[tauri::command(async)]
@@ -272,10 +278,13 @@ pub async fn checkpoint_save(
     app: tauri::AppHandle,
     path: String,
     label: String,
+    use_git: Option<bool>,
 ) -> Result<CheckpointMeta, String> {
-    tauri::async_runtime::spawn_blocking(move || checkpoint_save_impl(app, path, label))
-        .await
-        .map_err(|e| format!("join error: {e}"))?
+    tauri::async_runtime::spawn_blocking(move || {
+        checkpoint_save_impl(app, path, label, use_git.unwrap_or(false))
+    })
+    .await
+    .map_err(|e| format!("join error: {e}"))?
 }
 
 /// Git-автокоммит перед правками прогона (Aider-паттерн): в git-репо
@@ -328,10 +337,128 @@ fn git_autocommit_impl(root: String, message: String) -> Result<bool, String> {
 }
 
 /// Обход дерева + base64 до 25 МБ — секунды работы, только вне tokio-воркера
+/// Git в PATH? Режим чекпоинтов опциональный — отсутствие git не ошибка
+fn git_available() -> bool {
+    let mut cmd = std::process::Command::new("git");
+    cmd.arg("--version");
+    hide_console_window(&mut cmd);
+    cmd.output().map(|o| o.status.success()).unwrap_or(false)
+}
+
+/// Консольного окна нет и для служебного git (Windows); на Unix — no-op
+fn hide_console_window(cmd: &mut std::process::Command) {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    #[cfg(not(windows))]
+    let _ = cmd;
+}
+
+/// Один git-вызов с нашим GIT_DIR/GIT_WORK_TREE; возвращает trimmed stdout.
+/// Синхронный — вызывается только из spawn_blocking
+fn git_run(
+    idx_dir: &Path,
+    root: &Path,
+    args: &[&str],
+    envs: &[(&str, &str)],
+    stdin: Option<&[u8]>,
+) -> Result<String, String> {
+    use std::io::Write;
+    let mut cmd = std::process::Command::new("git");
+    cmd.arg(format!("--git-dir={}", idx_dir.display()))
+        .arg(format!("--work-tree={}", root.display()))
+        .args(args);
+    for (k, v) in envs {
+        cmd.env(k, v);
+    }
+    hide_console_window(&mut cmd);
+    if stdin.is_some() {
+        cmd.stdin(std::process::Stdio::piped());
+    }
+    // spawn() наследует stdio — wait_with_output тогда читает None-хэндлы
+    // и возвращает ПУСТОЙ stdout (write-tree «успешно» возвращал пустоту).
+    // Явные пайпы обязательны
+    cmd.stdout(std::process::Stdio::piped());
+    cmd.stderr(std::process::Stdio::piped());
+    let mut child = cmd.spawn().map_err(|e| format!("git spawn: {e}"))?;
+    if let Some(data) = stdin {
+        if let Some(mut si) = child.stdin.take() {
+            let _ = si.write_all(data);
+        }
+    }
+    let out = child.wait_with_output().map_err(|e| format!("git wait: {e}"))?;
+    if !out.status.success() {
+        return Err(format!(
+            "git {} failed (code {:?}): stderr={} stdout={}",
+            args.first().unwrap_or(&"?"),
+            out.status.code(),
+            String::from_utf8_lossy(&out.stderr),
+            String::from_utf8_lossy(&out.stdout)
+        ));
+    }
+    Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+}
+
+/// Ботовый автор журнала (ZCode-паттерн, блок 12 шаг 4): личные git-конфиги
+/// пользователя не участвуют
+const CP_GIT_AUTHOR: &[(&str, &str)] = &[
+    ("GIT_AUTHOR_NAME", "Nocturn Checkpoint"),
+    ("GIT_AUTHOR_EMAIL", "checkpoint@nocturn.local"),
+    ("GIT_COMMITTER_NAME", "Nocturn Checkpoint"),
+    ("GIT_COMMITTER_EMAIL", "checkpoint@nocturn.local"),
+];
+
+/// Git-журнал чекпоинта: отдельный GIT_DIR (git-index/) РЯДОМ со снапшотами —
+/// пользовательский .git проекта не затрагивается. В коммит попадают ровно
+/// те относительные пути, что записаны в снапшот (те же исключения и капы).
+/// Коммиты сцеплены через HEAD — история проекта в «Контрольной точке».
+fn git_checkpoint_journal(
+    root: &Path,
+    cp_dir: &Path,
+    label: &str,
+    rels: &[String],
+) -> Result<String, String> {
+    let idx = cp_dir.join("git-index");
+    fs::create_dir_all(&idx).map_err(|e| e.to_string())?;
+    git_run(&idx, root, &["init", "--quiet"], &[], None)?;
+    // Пути — через stdin NUL-разделителем: командная строка не раздувается,
+    // пробелы/юникод в путях не требуют кавычек
+    let mut spec = Vec::with_capacity(rels.len() * 32);
+    for r in rels {
+        spec.extend_from_slice(r.replace('\\', "/").as_bytes());
+        spec.push(0);
+    }
+    if !spec.is_empty() {
+        git_run(
+            &idx,
+            root,
+            &["add", "--pathspec-from-file=-", "--pathspec-file-nul", "--"],
+            &[],
+            Some(&spec),
+        )?;
+    }
+    let tree = git_run(&idx, root, &["write-tree"], &[], None)?;
+    let parent = git_run(&idx, root, &["rev-parse", "--verify", "HEAD"], &[], None).ok();
+    let mut args: Vec<&str> = vec!["commit-tree", tree.as_str(), "-m", label];
+    if let Some(ref p) = parent {
+        if !p.is_empty() {
+            args.push("-p");
+            args.push(p.as_str());
+        }
+    }
+    let sha = git_run(&idx, root, &args, CP_GIT_AUTHOR, None)?;
+    let _ = git_run(&idx, root, &["update-ref", "HEAD", sha.as_str()], &[], None);
+    Ok(sha)
+}
+
 fn checkpoint_save_impl(
     app: tauri::AppHandle,
     path: String,
     label: String,
+    use_git: bool,
 ) -> Result<CheckpointMeta, String> {
     // Путь с фронтенда — общий гардал системных локаций (модель settings.rs)
     crate::settings::rejects_sensitive_path(&path)?;
@@ -365,12 +492,20 @@ fn checkpoint_save_impl(
     // .env) не должен быть читаем всеми, а краш не должен рвать файл
     crate::fsutil::atomic_write(&dir.join(format!("{id}.json")), &json)
         .map_err(|e| e.to_string())?;
+    // Git-журнал (opt-in): тихий фолбэк в снапшот-режим — снимок уже записан,
+    // журнал является добавкой, провал не критичен
+    let mut git_sha: Option<String> = None;
+    if use_git && git_available() {
+        let rels: Vec<String> = store.files.iter().map(|f| f.rel.clone()).collect();
+        git_sha = git_checkpoint_journal(&root, &dir, &label, &rels).ok();
+    }
     // Сайдкар — Best-effort: провал не критичен, список упадёт на фолбэк
     // полного парсинга снимка
     let meta = CheckpointMetaCar {
         ts,
         label: label.clone(),
         files: count,
+        git: git_sha.clone(),
     };
     let _ = crate::fsutil::atomic_write(
         &dir.join(format!("{id}.meta.json")),
@@ -408,6 +543,7 @@ fn checkpoint_save_impl(
         label,
         files: count,
         bytes: total,
+        git: git_sha,
     })
 }
 
@@ -437,7 +573,7 @@ fn checkpoint_list_impl(app: tauri::AppHandle, path: String) -> Result<Vec<Check
         // Сайдкар крошечный; полный парс снимка (base64 всех файлов) —
         // только фолбэк для чекпоинтов, сохранённых до его появления
         let meta_path = e.path().with_file_name(format!("{id}.meta.json"));
-        let (ts, label, files, bytes) = match fs::read(&meta_path)
+        let (ts, label, files, bytes, git) = match fs::read(&meta_path)
             .ok()
             .and_then(|b| serde_json::from_slice::<CheckpointMetaCar>(&b).ok())
         {
@@ -448,6 +584,7 @@ fn checkpoint_list_impl(app: tauri::AppHandle, path: String) -> Result<Vec<Check
                 m.label,
                 m.files,
                 fs::metadata(e.path()).map(|d| d.len()).unwrap_or(0),
+                m.git,
             ),
             None => {
                 let Ok(bytes) = fs::read(e.path()) else { continue };
@@ -455,7 +592,7 @@ fn checkpoint_list_impl(app: tauri::AppHandle, path: String) -> Result<Vec<Check
                 let Ok(store) = serde_json::from_slice::<CheckpointStore>(&bytes) else {
                     continue;
                 };
-                (store.ts, store.label, store.files.len(), size)
+                (store.ts, store.label, store.files.len(), size, None)
             }
         };
         out.push(CheckpointMeta {
@@ -464,6 +601,7 @@ fn checkpoint_list_impl(app: tauri::AppHandle, path: String) -> Result<Vec<Check
             label,
             files,
             bytes,
+            git,
         });
     }
     out.sort_by_key(|c| std::cmp::Reverse(c.ts));
@@ -805,4 +943,35 @@ mod git_status_tests {
         assert!(git_status_impl(dir.to_string_lossy().to_string()).is_err());
         let _ = fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn git_checkpoint_journal_commits_and_chains() {
+        if !git_available() {
+            // CI/окружение без git — режим опциональный, тест бессмыслен
+            return;
+        }
+        let tmp = std::env::temp_dir().join(format!("nocturn-cp-git-{}", std::process::id()));
+        let root = tmp.join("proj");
+        let cp = tmp.join("cps");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("a.txt"), "v1").unwrap();
+        let rels = vec!["a.txt".to_string()];
+        let sha1 = git_checkpoint_journal(&root, &cp, "первый", &rels).unwrap();
+        fs::write(root.join("a.txt"), "v2").unwrap();
+        let sha2 = git_checkpoint_journal(&root, &cp, "второй", &rels).unwrap();
+        assert_ne!(sha1, sha2);
+        // Цепочка: HEAD ведёт к двум коммитам журнала
+        let count = git_run(&cp.join("git-index"), &root, &["rev-list", "--count", "HEAD"], &[], None).unwrap();
+        assert_eq!(count, "2");
+        // Пути с пробелами и юникодом проходят через NUL-spec
+        fs::create_dir_all(root.join("sub dir")).unwrap();
+        fs::write(root.join("sub dir").join("файл с пробелом.txt"), "юникод").unwrap();
+        let rels2 = vec!["a.txt".to_string(), "sub dir/файл с пробелом.txt".to_string()];
+        let sha3 = git_checkpoint_journal(&root, &cp, "третий", &rels2).unwrap();
+        assert_ne!(sha2, sha3);
+        let count = git_run(&cp.join("git-index"), &root, &["rev-list", "--count", "HEAD"], &[], None).unwrap();
+        assert_eq!(count, "3");
+        let _ = fs::remove_dir_all(&tmp);
+    }
 }
+
