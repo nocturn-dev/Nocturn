@@ -1274,4 +1274,5 @@ export const ru = {
     "steps.kindTerminal": "Терминал",
     "steps.kindExplore": "Обзор",
     "steps.kindAsked": "Вопросы",
+    "composer.dropFiles": "Отпустите, чтобы прикрепить файлы",
 } as const;

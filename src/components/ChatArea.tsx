@@ -570,6 +570,53 @@ export default function ChatArea({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Drag&drop файлов в чат: ЛЮБОЙ файл → вложение (картинка — превью,
+  // текст/код — RAG-lite). Без preventDefault WebView переходит на файл
+  // по умолчанию — перетаскивание .ts/.rs выглядело как «нельзя».
+  // dragenter/dragleave считаем по глубине: они срабатывают на каждом
+  // потомке, и без счётчика оверлей мигал бы на границах элементов
+  const [dragActive, setDragActive] = useState(false);
+  const dragDepthRef = useRef(0);
+  useEffect(() => {
+    const hasFiles = (e: DragEvent) =>
+      Array.from(e.dataTransfer?.types ?? []).includes("Files");
+    const onDragEnter = (e: DragEvent) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      dragDepthRef.current += 1;
+      setDragActive(true);
+    };
+    const onDragOver = (e: DragEvent) => {
+      // preventDefault на dragover обязателен: без него drop не придёт
+      if (hasFiles(e)) e.preventDefault();
+    };
+    const onDragLeave = (e: DragEvent) => {
+      if (!hasFiles(e)) return;
+      dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+      if (dragDepthRef.current === 0) setDragActive(false);
+    };
+    const onDrop = (e: DragEvent) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      dragDepthRef.current = 0;
+      setDragActive(false);
+      for (const f of Array.from(e.dataTransfer?.files ?? [])) readFile(f);
+      textareaRef.current?.focus();
+    };
+    window.addEventListener("dragenter", onDragEnter);
+    window.addEventListener("dragover", onDragOver);
+    window.addEventListener("dragleave", onDragLeave);
+    window.addEventListener("drop", onDrop);
+    return () => {
+      window.removeEventListener("dragenter", onDragEnter);
+      window.removeEventListener("dragover", onDragOver);
+      window.removeEventListener("dragleave", onDragLeave);
+      window.removeEventListener("drop", onDrop);
+    };
+    // readFile замыкает только стабильные сеттеры — как в paste-эффекте выше
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // `session?.messages ?? []` — новый массив на каждый рендер: он тянул за
   // собой пересчёт ВСЕХ useMemo/useEffect, зависящих от messages (deps
   // меняли идентичность каждый кадр). Мемоизируем саму нормализацию
@@ -1475,6 +1522,17 @@ export default function ChatArea({
   );
   return (
     <section className="relative flex h-full min-w-0 flex-1 flex-col bg-halo-bg">
+      {/* Drag&drop: оверлей на время перетаскивания файлов (поверх всего) */}
+      {dragActive && (
+        <div
+          aria-hidden
+          className="anim-fade pointer-events-none fixed inset-0 z-[var(--halo-z-modal-top)] flex items-center justify-center bg-black/30"
+        >
+          <div className="anim-pop rounded-2xl border border-halo-accent/60 bg-halo-surface/95 px-6 py-4 text-sm font-medium text-halo-text shadow-2xl backdrop-blur-sm">
+            {t("composer.dropFiles")}
+          </div>
+        </div>
+      )}
       {/* Шапка: название задачи и очистка; вся полоса — drag-регион окна */}
       <header
         data-tauri-drag-region
