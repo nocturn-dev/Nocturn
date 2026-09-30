@@ -603,15 +603,28 @@ export default function ChatArea({
       for (const f of Array.from(e.dataTransfer?.files ?? [])) readFile(f);
       textareaRef.current?.focus();
     };
+    // Alt+Tab/потеря фокуса посреди перетаскивания: dragleave может не
+    // прийти — оверлей зависал тёмной вуалью над рабочим окном
+    const resetDrag = () => {
+      dragDepthRef.current = 0;
+      setDragActive(false);
+    };
+    const onVis = () => {
+      if (document.hidden) resetDrag();
+    };
     window.addEventListener("dragenter", onDragEnter);
     window.addEventListener("dragover", onDragOver);
     window.addEventListener("dragleave", onDragLeave);
     window.addEventListener("drop", onDrop);
+    window.addEventListener("blur", resetDrag);
+    document.addEventListener("visibilitychange", onVis);
     return () => {
       window.removeEventListener("dragenter", onDragEnter);
       window.removeEventListener("dragover", onDragOver);
       window.removeEventListener("dragleave", onDragLeave);
       window.removeEventListener("drop", onDrop);
+      window.removeEventListener("blur", resetDrag);
+      document.removeEventListener("visibilitychange", onVis);
     };
     // readFile замыкает только стабильные сеттеры — как в paste-эффекте выше
     // eslint-disable-next-line react-hooks/exhaustive-deps

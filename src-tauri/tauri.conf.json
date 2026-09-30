@@ -21,7 +21,8 @@
         "center": true,
         "decorations": false,
         "shadow": true,
-        "label": "main"
+        "label": "main",
+        "dragDropEnabled": false
       },
       {
         "label": "quickentry",
