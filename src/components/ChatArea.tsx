@@ -1885,6 +1885,45 @@ export default function ChatArea({
                 onAnswer={(ans) => onAskAnswer(pendingAsk.msgId, ans)}
               />
             )}
+            {/* Вложения — квадратные плитки НАД полем ввода (как у Claude):
+                картинка заливает квадрат, документ — квадрат с именем */}
+            {pendingImages.length > 0 && (
+              <div className="anim-fade-up mb-1 flex flex-wrap gap-2 px-1">
+                {pendingImages.map((img, i) => (
+                  <div key={img.id ?? `${img.name}-${i}`} className="group relative">
+                    {img.dataUrl ? (
+                      <img
+                        src={img.dataUrl}
+                        alt={img.name}
+                        title={img.name}
+                        className="size-20 rounded-xl border border-halo-line object-cover"
+                      />
+                    ) : (
+                      <div
+                        title={img.name}
+                        className="flex size-20 flex-col items-center justify-center gap-1 rounded-xl border border-halo-line bg-halo-surface/60 p-1.5"
+                      >
+                        <span className="text-lg text-halo-muted">📄</span>
+                        <span className="w-full truncate text-center text-[0.625rem] text-halo-muted">
+                          {img.name}
+                        </span>
+                      </div>
+                    )}
+                    <button
+                      onClick={() =>
+                        setPendingImages((prev) =>
+                          prev.filter((_, j) => j !== i),
+                        )
+                      }
+                      title={t("chat.removeImage")}
+                      className="absolute -right-1.5 -top-1.5 flex size-5 items-center justify-center rounded-full border border-halo-line bg-halo-deep text-halo-muted shadow-sm transition-colors hover:text-red-400"
+                    >
+                      <XSmallIcon />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
             <div className="flex items-end gap-2">
               <input
                 ref={fileInputRef}
@@ -1973,42 +2012,6 @@ export default function ChatArea({
               <div className="anim-fade-up mx-2 mb-1 flex items-start gap-2 rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-xs leading-relaxed text-amber-300">
                 <span className="mt-0.5">⚠</span>
                 <span>{t("error.vision")}</span>
-              </div>
-            )}
-
-            {/* Превью прикреплённых изображений */}
-            {pendingImages.length > 0 && (
-              <div className="anim-fade-up flex flex-wrap gap-2 px-2 pt-1.5">
-                {pendingImages.map((img, i) => (
-                  <div key={img.id ?? `${img.name}-${i}`} className="group relative">
-                    {img.dataUrl ? (
-                    <img
-                      src={img.dataUrl}
-                      alt={img.name}
-                      className="h-16 w-16 rounded-lg border border-halo-line object-cover"
-                    />
-                    ) : (
-                    <div
-                      title={img.name}
-                      className="flex h-16 max-w-44 items-center gap-1.5 rounded-lg border border-halo-line bg-halo-surface/60 px-2.5 text-left"
-                    >
-                      <span className="shrink-0 text-halo-muted">📄</span>
-                      <span className="min-w-0 truncate text-xs text-halo-text">{img.name}</span>
-                    </div>
-                    )}
-                    <button
-                      onClick={() =>
-                        setPendingImages((prev) =>
-                          prev.filter((_, j) => j !== i),
-                        )
-                      }
-                      title={t("chat.removeImage")}
-                      className="absolute -right-1.5 -top-1.5 flex size-5 items-center justify-center rounded-full border border-halo-line bg-halo-deep text-halo-muted shadow-sm transition-colors hover:text-red-400"
-                    >
-                      <XSmallIcon />
-                    </button>
-                  </div>
-                ))}
               </div>
             )}
 
