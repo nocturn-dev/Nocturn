@@ -450,21 +450,26 @@ function officialCss(oled: boolean, contrast: boolean): string {
 
 /**
  * Палитра Full Claude в одном месте: генератор CSS и витрина-превью читают
- * одни и те же значения. Сняты пипеткой с референса владельца (скрин Claude
- * Desktop, тёмная тема): основной фон #151515, сайдбар ТЕМНЕЕ фона (#111111),
- * пузырь/композер #202020–#212121, текст тёплый белый.
+ * одни и те же значения. Источник — ЖИВОЙ CSS claude.ai (тёмная тема, ramps
+ * cds-gray из shared-styles, снято через Browser Use + пипетку со скрина
+ * владельца): основной фон gray-850 #151515, сайдбар темнее — gray-870
+ * #111111, композер/карточки gray-800 #20201f (тёплый), пузырь = 5% белого
+ * поверх фона ≈ #212121, текст gray-50 #f0efec (тёплый ivory), вторичный
+ * gray-300 #a5a49a. Акцент — фирменный cds-clay #d97757.
  */
 export const FULL_CLAUDE_PALETTE = {
   bg: "#151515",
   deep: "#111111",
-  surface: "#202020",
+  surface: "#20201f",
   raised: "#212121",
-  line: "rgba(255, 255, 255, 0.07)",
-  text: "#e8e6e1",
-  muted: "#a19b95",
+  line: "rgba(255, 255, 255, 0.08)",
+  text: "#f0efec",
+  muted: "#a5a49a",
   accent: "#d97757",
   accentDeep: "#bd5d3a",
-  codeBg: "#1a1a1c",
+  codeBg: "#1b1b1d",
+  /** Inline-код: ink = cds-red-200, подложка = 5% белого (cds-alpha-1) */
+  codeInk: "#f4abab",
 } as const;
 
 /**
@@ -527,14 +532,16 @@ function fullClaudeCss(a: Appearance): string {
       "}",
     ],
     ...serifChat,
-    // Inline-код у Claude — БЕЗ заливки чипа (сэмплы с референса дали ровно
-    // фон страницы внутри «чипа»): только лососёво-красный моно-текст.
-    // Блоки кода — графит с тонкой рамкой и скруглением 8px по ТЗ,
-    // базовое 0.75rem (12px) для карточек Claude слишком круглое
+    // Inline-код — точные токены claude.ai (tiptip p>code): подложка 5%
+    // белого (cds-alpha-1), волосяная рамка 20% (cds-alpha-3), ink
+    // cds-red-200 #f4abab, radius 0.3rem. Блоки кода — графит с тонкой
+    // рамкой и скруглением 8px (базовое 0.75rem для карточек слишком круглое)
     [
       "html.full-claude .markdown code:not(pre code) {",
-      "  background: transparent;",
-      "  color: #ec7e7e;",
+      "  background: rgba(255, 255, 255, 0.05);",
+      "  border: 0.5px solid rgba(255, 255, 255, 0.2);",
+      `  color: ${FULL_CLAUDE_PALETTE.codeInk};`,
+      "  border-radius: 0.3rem;",
       "}",
       "html.full-claude .markdown pre {",
       "  border-radius: 0.5rem;",
@@ -542,10 +549,10 @@ function fullClaudeCss(a: Appearance): string {
     ],
     // Заголовки секций сайдбара (Файлы/Заметки/Проекты): пользовательский
     // header-color применяется инлайном — нейтрализуем его в теме (!important
-    // бьёт инлайн), цвета как у Claude — приглушённый серый без окраски
+    // бьёт инлайн), серый вторичного текста как у Claude (cds-gray-300 @ 55%)
     [
       "html.full-claude aside .uppercase {",
-      "  color: rgba(161, 155, 149, 0.55) !important;",
+      "  color: rgba(165, 164, 154, 0.55) !important;",
       "}",
       "html.full-claude aside .uppercase:hover {",
       "  color: var(--halo-text) !important;",
