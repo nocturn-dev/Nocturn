@@ -1246,4 +1246,15 @@ export const en = {
   "network.caPh": "e.g. C:/certs/root-ca.pem",
   "network.save": "Save",
   "network.saved": "Saved",
+
+  // Audit: UI strings that bypassed the dictionaries
+  "chat.modelLocal": "local",
+  "agent.reviewOpen": "Review ↗",
+  "commands.blankTemplate": "You are …\n\nTask: $ARGUMENTS",
+  "games.mines": "Minesweeper",
+  "games.snake": "Snake",
+  "steps.kindEdit": "Edit",
+  "steps.kindTerminal": "Terminal",
+  "steps.kindExplore": "Explore",
+  "steps.kindAsked": "Asked",
 } satisfies Record<MsgKey, string>; // D20: полный Record — пропущенный ключ = ошибка компиляции, а не молчаливый фолбэк
