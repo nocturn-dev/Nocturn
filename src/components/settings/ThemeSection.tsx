@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useLang, MsgKey } from "../../locales";
 import type { Theme } from "../../types";
-import { ACCENT_PRESETS, ambientGradientDefaults, appearanceTitleStyle, Appearance } from "../../appearance";
+import { ACCENT_PRESETS, ambientGradientDefaults, appearanceTitleStyle, Appearance, FULL_CLAUDE_PALETTE } from "../../appearance";
 import { STYLE_PALETTES } from "../../themeStyles";
 import type { ThemeProfile } from "../../themeProfiles";
 import { dayPeriod } from "../../time";
@@ -491,22 +491,78 @@ export function ThemeSection({
         </button>
       </div>
 
-      {/* Витрина Full Claude: мини-макет в палитре темы (клик — включить).
-          Видна только на выключенной теме — включённая тема и есть превью */}
+      {/* Витрина Full Claude: мини-макет СТРУКТУРЫ Claude Desktop —
+          тёмный сайдбар-полоска, лента с пузырём пользователя и композер.
+          Клик включает тему; на включённой теме скрыта (вся она и есть превью).
+          Цвета — из FULL_CLAUDE_PALETTE, те же, что инжектирует тег темы */}
       {!appearance.fullClaude && (
-        <div className="mt-1.5 mb-4 grid grid-cols-2 gap-3">
-          <ThemeCard
-            name={t("themes.fullClaude")}
-            selected={false}
-            onSelect={() =>
-              onAppearanceChange({ ...appearance, fullClaude: true, official: false })
-            }
-            bg="#1a1a1a"
-            panel="#212121"
-            text="#e3e3e3"
-            accent="#d97757"
-          />
-        </div>
+        <button
+          onClick={() =>
+            onAppearanceChange({ ...appearance, fullClaude: true, official: false })
+          }
+          className="mt-1.5 mb-4 w-full rounded-xl border border-halo-line p-2.5 text-left transition-colors hover:border-halo-muted/50"
+        >
+          <div
+            className="flex h-24 gap-1.5 overflow-hidden rounded-lg border p-0"
+            style={{
+              background: FULL_CLAUDE_PALETTE.bg,
+              borderColor: FULL_CLAUDE_PALETTE.line,
+            }}
+          >
+            {/* Сайдбар: темнее фона, с активным чатом-пилюлей */}
+            <div
+              className="flex w-1/4 flex-col gap-1 rounded-l-lg p-1.5"
+              style={{ background: FULL_CLAUDE_PALETTE.deep }}
+            >
+              <div
+                className="h-1 w-4/5 rounded"
+                style={{ background: FULL_CLAUDE_PALETTE.text, opacity: 0.45 }}
+              />
+              <div
+                className="h-1 w-3/5 rounded"
+                style={{ background: FULL_CLAUDE_PALETTE.text, opacity: 0.25 }}
+              />
+              <div
+                className="mt-1 h-3.5 w-full rounded-md"
+                style={{ background: "rgba(255, 255, 255, 0.1)" }}
+              />
+            </div>
+            {/* Лента: пузырь пользователя справа, строки ответа, композер */}
+            <div className="flex min-w-0 flex-1 flex-col gap-1.5 p-2">
+              <div
+                className="ml-auto h-4 w-2/5 rounded-md"
+                style={{ background: FULL_CLAUDE_PALETTE.raised }}
+              />
+              <div
+                className="h-1.5 w-4/5 rounded"
+                style={{ background: FULL_CLAUDE_PALETTE.text, opacity: 0.6 }}
+              />
+              <div
+                className="h-1.5 w-3/5 rounded"
+                style={{ background: FULL_CLAUDE_PALETTE.text, opacity: 0.3 }}
+              />
+              <div
+                className="mt-auto flex h-4 items-center rounded-md border px-1.5"
+                style={{
+                  background: FULL_CLAUDE_PALETTE.surface,
+                  borderColor: FULL_CLAUDE_PALETTE.line,
+                }}
+              >
+                <div
+                  className="h-1 w-1/3 rounded"
+                  style={{ background: FULL_CLAUDE_PALETTE.text, opacity: 0.25 }}
+                />
+              </div>
+            </div>
+          </div>
+          <div className="mt-2 flex items-center justify-between px-0.5">
+            <span className="text-sm text-halo-text">{t("themes.fullClaudeShort")}</span>
+            <span
+              className="size-2.5 rounded-full"
+              style={{ background: FULL_CLAUDE_PALETTE.accent }}
+            />
+          </div>
+        </button>
       )}
 
       {/* Настройки самой Full Claude: действуют ТОЛЬКО внутри темы.

@@ -1019,6 +1019,7 @@ export const ja = {
     "themes.fcGlassDesc": "テーマ内のパネルを半透明＋ぼかし。オフ——ソリッドな塗り。グローバルのグラス設定はテーマ内では無効。",
     "themes.fcRadius": "角丸",
     "themes.fcRadiusHint": "テーマ内の角丸倍率。グローバルのスライダーは適用されません",
+    "themes.fullClaudeShort": "Full Claude",
     "themes.ambient": "アンビエント背景",
     "themes.ambientDesc": "アクセント色がゆっくりと呼吸するように漂う背景。ストリーミング中はアニメーションを一時停止し、システムの「動作を減らす」設定時は動きません。",
     "themes.ambientScene": "シーン",

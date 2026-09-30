@@ -1019,6 +1019,7 @@ export const zh = {
     "themes.fcGlassDesc": "主题内面板半透明并模糊。关闭——实色填充；全局玻璃开关在主题内无效。",
     "themes.fcRadius": "圆角",
     "themes.fcRadiusHint": "主题内的圆角倍率；全局滑块不生效",
+    "themes.fullClaudeShort": "Full Claude",
     "themes.ambient": "氛围背景",
     "themes.ambientDesc": "缓慢呼吸的强调色光斑。流式输出时动画暂停；系统开启“减弱动态效果”时完全不动。",
     "themes.ambientScene": "场景",

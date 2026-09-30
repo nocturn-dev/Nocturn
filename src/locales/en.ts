@@ -993,6 +993,7 @@ export const en = {
     "themes.fcGlassDesc": "Translucent blurred panels inside the theme. Off — solid fills; the global glass toggle has no effect here.",
     "themes.fcRadius": "Corner radius",
     "themes.fcRadiusHint": "Multiplier inside the theme; the global slider does not apply",
+    "themes.fullClaudeShort": "Full Claude",
     "themes.ambient": "Ambient background",
     "themes.ambientDesc": "Slowly breathing accent glows over the interface. The animation pauses while streaming and never runs with the system reduce-motion setting.",
     "themes.ambientScene": "Scene",
