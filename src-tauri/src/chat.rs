@@ -4,7 +4,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 /// Реестр флагов отмены стримов: requestId → флаг
 pub struct AbortRegistry(pub Mutex<HashMap<String, Arc<AtomicBool>>>);
@@ -665,6 +665,17 @@ mod batcher_tests {
     }
 
     #[test]
+    fn feed_seq_is_monotonic() {
+        // ZCode-паттерн (блок 12): порядок событий потока — общий счётчик.
+        // Relaxed-упорядочение достаточно: строгая последовательность нужна
+        // только в пределах одного потока-эмиттера
+        let a = next_feed_seq();
+        let b = next_feed_seq();
+        let c = next_feed_seq();
+        assert!(a < b && b < c);
+    }
+
+    #[test]
     fn standalone_events_flush_pending_in_order() {
         let out = merged(vec![
             FeedEvent::Content { delta: "a".into() },
@@ -681,6 +692,17 @@ mod batcher_tests {
     }
 }
 
+/// Глобальный монотонный номер событий потока (ZCode-паттерн, блок 12):
+/// события разных каналов (chunk/thought/usage/tool-calls/thinking) и —
+/// в будущем — разных источников (фоновые прогоны) нельзя мержить без
+/// общего порядка. Фронт детектит гэпы (пропуск seq = потерянное событие)
+/// и по barrier-событиям дренирует батч-буфер дельт немедленно.
+static FEED_SEQ: AtomicU64 = AtomicU64::new(0);
+
+pub fn next_feed_seq() -> u64 {
+    FEED_SEQ.fetch_add(1, Ordering::Relaxed)
+}
+
 fn emit_feed_event(
     app: &tauri::AppHandle,
     request_id: &str,
@@ -695,14 +717,14 @@ fn emit_feed_event(
             .emit_to(
                 "main",
                 "chat-chunk",
-                serde_json::json!({ "requestId": request_id, "delta": delta }),
+                serde_json::json!({ "requestId": request_id, "delta": delta, "seq": next_feed_seq() }),
             )
             .map_err(|e| e.to_string()),
         FeedEvent::Thought { delta } => app
             .emit_to(
                 "main",
                 "chat-thought",
-                serde_json::json!({ "requestId": request_id, "thought": delta }),
+                serde_json::json!({ "requestId": request_id, "thought": delta, "seq": next_feed_seq() }),
             )
             .map_err(|e| e.to_string()),
         FeedEvent::Usage { prompt, completion, total } => app
@@ -713,7 +735,11 @@ fn emit_feed_event(
                     "requestId": request_id,
                     "promptTokens": prompt,
                     "completionTokens": completion,
-                    "totalTokens": total
+                    "totalTokens": total,
+                    // Барьер: финальный факт сообщения — фронт обязан
+                    // дренировать буфер дельт ДО обработки
+                    "seq": next_feed_seq(),
+                    "barrier": true
                 }),
             )
             .map_err(|e| e.to_string()),
@@ -721,7 +747,7 @@ fn emit_feed_event(
             .emit_to(
                 "main",
                 "chat-tool-calls",
-                serde_json::json!({ "requestId": request_id, "calls": calls }),
+                serde_json::json!({ "requestId": request_id, "calls": calls, "seq": next_feed_seq(), "barrier": true }),
             )
             .map_err(|e| e.to_string()),
         FeedEvent::ThinkingBlock { thinking, signature, redacted } => app
@@ -732,7 +758,8 @@ fn emit_feed_event(
                     "requestId": request_id,
                     "thinking": thinking,
                     "signature": signature,
-                    "redacted": redacted
+                    "redacted": redacted,
+                    "seq": next_feed_seq()
                 }),
             )
             .map_err(|e| e.to_string()),

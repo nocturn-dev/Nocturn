@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { StreamDeltaBuffer, applyMainDeltas } from "./streamBuffer";
+import { StreamDeltaBuffer, applyMainDeltas, isSeqGap } from "./streamBuffer";
 
 describe("StreamDeltaBuffer", () => {
   it("accumulates deltas per message id", () => {
@@ -67,3 +67,20 @@ describe("applyMainDeltas", () => {
     expect(out[0]!.thought).toBe("t");
   });
 });
+
+describe("isSeqGap", () => {
+  it("последовательные номера — не гэп", () => {
+    expect(isSeqGap(-1, 0)).toBe(false);
+    expect(isSeqGap(0, 1)).toBe(false);
+    expect(isSeqGap(41, 42)).toBe(false);
+  });
+  it("пропуск номера — гэп (потерянное событие)", () => {
+    expect(isSeqGap(41, 43)).toBe(true);
+    expect(isSeqGap(0, 5)).toBe(true);
+  });
+  it("повтор/откат — не гэп (дубликаты каналов не роняем)", () => {
+    expect(isSeqGap(42, 42)).toBe(false);
+    expect(isSeqGap(42, 41)).toBe(false);
+  });
+});
+
