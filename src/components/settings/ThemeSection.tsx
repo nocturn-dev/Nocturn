@@ -491,6 +491,24 @@ export function ThemeSection({
         </button>
       </div>
 
+      {/* Витрина Full Claude: мини-макет в палитре темы (клик — включить).
+          Видна только на выключенной теме — включённая тема и есть превью */}
+      {!appearance.fullClaude && (
+        <div className="mt-1.5 mb-4 grid grid-cols-2 gap-3">
+          <ThemeCard
+            name={t("themes.fullClaude")}
+            selected={false}
+            onSelect={() =>
+              onAppearanceChange({ ...appearance, fullClaude: true, official: false })
+            }
+            bg="#1a1a1a"
+            panel="#212121"
+            text="#e3e3e3"
+            accent="#d97757"
+          />
+        </div>
+      )}
+
       {/* Настройки самой Full Claude: действуют ТОЛЬКО внутри темы.
           Перенесены те глобальные тумблеры, что ложатся на специфику
           Claude (шрифт ответов, стекло, скругления, шрифты), плюс свои */}
