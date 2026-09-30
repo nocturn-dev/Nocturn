@@ -1943,6 +1943,18 @@ export default function ChatArea({
               >
                 <PaperclipIcon />
               </button>
+              <textarea
+                ref={textareaRef}
+                rows={1}
+                value={draft}
+                onChange={(e) => {
+                  setDraft(e.target.value);
+                  autoGrow(e.target);
+                }}
+                onKeyDown={handleKeyDown}
+                placeholder={t("composer.placeholder")}
+                className="composer-field max-h-44 flex-1 resize-none bg-transparent px-2 py-1.5 text-sm leading-relaxed text-halo-text outline-none placeholder:text-halo-muted"
+              />
               <button
                 onClick={() => {
                   // Пока getUserMedia инициализируется — клики игнорируем,
@@ -1963,18 +1975,6 @@ export default function ChatArea({
               >
                 <MicIcon />
               </button>
-              <textarea
-                ref={textareaRef}
-                rows={1}
-                value={draft}
-                onChange={(e) => {
-                  setDraft(e.target.value);
-                  autoGrow(e.target);
-                }}
-                onKeyDown={handleKeyDown}
-                placeholder={t("composer.placeholder")}
-                className="composer-field max-h-44 flex-1 resize-none bg-transparent px-2 py-1.5 text-sm leading-relaxed text-halo-text outline-none placeholder:text-halo-muted"
-              />
               {streamingMsgId ? (
                 <>
                   {/* Поправка агенту на ходу: рядом со Stop, пока есть черновик */}
