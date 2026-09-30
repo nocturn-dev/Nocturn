@@ -491,6 +491,90 @@ export function ThemeSection({
         </button>
       </div>
 
+      {/* Настройки самой Full Claude: действуют ТОЛЬКО внутри темы.
+          Перенесены те глобальные тумблеры, что ложатся на специфику
+          Claude (шрифт ответов, стекло, скругления, шрифты), плюс свои */}
+      {appearance.fullClaude && (
+        <div className="mt-1.5 mb-4 rounded-xl border border-halo-line px-3.5 py-3">
+          <p className="text-xs font-medium text-halo-muted">{t("themes.fcSettings")}</p>
+
+          <div className="mt-1">
+            <ToggleRow
+              label={t("themes.fcSerif")}
+              desc={t("themes.fcSerifDesc")}
+              on={appearance.fullClaudeSerif ?? true}
+              onChange={(v) => onAppearanceChange({ ...appearance, fullClaudeSerif: v })}
+            />
+          </div>
+          <div className="mt-1.5">
+            <ToggleRow
+              label={t("themes.fcStars")}
+              desc={t("themes.fcStarsDesc")}
+              on={appearance.fullClaudeStars ?? false}
+              onChange={(v) => onAppearanceChange({ ...appearance, fullClaudeStars: v })}
+            />
+          </div>
+          <div className="mt-1.5">
+            <ToggleRow
+              label={t("themes.fcGlass")}
+              desc={t("themes.fcGlassDesc")}
+              on={appearance.fullClaudeGlass ?? false}
+              onChange={(v) => onAppearanceChange({ ...appearance, fullClaudeGlass: v })}
+            />
+          </div>
+
+          {/* Скругления внутри темы: глобальный слайдер радиуса не действует */}
+          <div className="mt-2 flex items-center gap-3 rounded-lg px-2.5 py-2">
+            <div className="shrink-0">
+              <p className="whitespace-nowrap text-sm text-halo-text">{t("themes.fcRadius")}</p>
+              <p className="text-[0.625rem] text-halo-muted/60">{t("themes.fcRadiusHint")}</p>
+            </div>
+            <input
+              type="range"
+              min={0.4}
+              max={1.6}
+              step={0.1}
+              value={appearance.fullClaudeRadius ?? 1}
+              onChange={(e) =>
+                onAppearanceChange({ ...appearance, fullClaudeRadius: Number(e.target.value) })
+              }
+              className="min-w-0 flex-1"
+            />
+            <span className="w-12 shrink-0 text-right text-xs text-halo-muted">
+              {(appearance.fullClaudeRadius ?? 1).toFixed(1)}×
+            </span>
+          </div>
+
+          {/* Шрифты внутри темы: системный стек по умолчанию */}
+          <div className="mt-2 flex items-center justify-between gap-3">
+            <span className="shrink-0 text-sm text-halo-text">{t("themes.fontUi")}</span>
+            <Dropdown
+              value={appearance.fullClaudeUiFont ?? ""}
+              options={[
+                { value: "", label: t("themes.fontSystem") },
+                ...UI_FONT_PRESETS.map((f) => ({ value: f.stack, label: f.label })),
+                ...customFonts.map((f) => ({ value: f.family, label: f.name })),
+              ]}
+              onSelect={(v) => onAppearanceChange({ ...appearance, fullClaudeUiFont: v })}
+              className="w-60"
+            />
+          </div>
+          <div className="mt-2 flex items-center justify-between gap-3">
+            <span className="shrink-0 text-sm text-halo-text">{t("themes.fontMono")}</span>
+            <Dropdown
+              value={appearance.fullClaudeMonoFont ?? ""}
+              options={[
+                { value: "", label: t("themes.fontSystem") },
+                ...MONO_FONT_PRESETS.map((f) => ({ value: f.stack, label: f.label })),
+                ...customFonts.map((f) => ({ value: f.family, label: f.name })),
+              ]}
+              onSelect={(v) => onAppearanceChange({ ...appearance, fullClaudeMonoFont: v })}
+              className="w-60"
+            />
+          </div>
+        </div>
+      )}
+
       {/* Настройки самой Official: только то, что относится к ней */}
       {appearance.official && (
         <div className="mt-1.5 mb-4 space-y-1 rounded-xl border border-halo-line px-3.5 py-3">
