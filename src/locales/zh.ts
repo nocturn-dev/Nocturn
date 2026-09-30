@@ -1260,4 +1260,15 @@ export const zh = {
     "docs.keys.title": "快捷键与命令",
     "docs.keys.body":
       "Ctrl+N — 新建任务 · Ctrl+K — 搜索 · Ctrl+V — 粘贴截图 · Enter — 发送，Shift+Enter — 换行。输入框中的斜杠命令：/new /clear /agent /terminal /theme /glass /provider /prompt /note /chain。",
+
+    // Аудит: строки UI, ходившие мимо словарей
+    "chat.modelLocal": "本地",
+    "agent.reviewOpen": "审查 ↗",
+    "commands.blankTemplate": "你是……\n\n任务：$ARGUMENTS",
+    "games.mines": "扫雷",
+    "games.snake": "贪吃蛇",
+    "steps.kindEdit": "编辑",
+    "steps.kindTerminal": "终端",
+    "steps.kindExplore": "浏览",
+    "steps.kindAsked": "提问",
 } satisfies Record<MsgKey, string>; // D20: полный Record — пропущенный ключ = ошибка компиляции, а не молчаливый фолбэк

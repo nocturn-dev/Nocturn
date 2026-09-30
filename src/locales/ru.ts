@@ -1262,4 +1262,16 @@ export const ru = {
     "docs.keys.title": "Горячие клавиши и команды",
     "docs.keys.body":
       "Ctrl+N — новая задача · Ctrl+K — поиск · Ctrl+V — вставить скриншот · Enter — отправить, Shift+Enter — перенос строки. Slash-команды в поле ввода: /new /clear /agent /terminal /theme /glass /provider /prompt /note /chain.",
+
+    // Аудит: строки UI, ходившие мимо словарей (бейдж локальной модели,
+    // кнопка Review, названия игр, категории шагов, шаблон новой команды)
+    "chat.modelLocal": "локально",
+    "agent.reviewOpen": "Ревью ↗",
+    "commands.blankTemplate": "Ты — …\n\nЗадача: $ARGUMENTS",
+    "games.mines": "Сапёр",
+    "games.snake": "Змейка",
+    "steps.kindEdit": "Правки",
+    "steps.kindTerminal": "Терминал",
+    "steps.kindExplore": "Обзор",
+    "steps.kindAsked": "Вопросы",
 } as const;
