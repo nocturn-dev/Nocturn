@@ -73,6 +73,19 @@ function parseHttpCode(raw: string): number | null {
   return m ? Number(m[1]) : null;
 }
 
+/** Хэндл активного прогона: обёртка handleSend по нему гарантированно
+ *  доводит прогон до finalize / освобождения движка при ЛЮБОМ исключении */
+interface RunHandle {
+  requestId: string;
+  finalize: (() => void) | null;
+}
+
+/** Ключ разрешения «всегда для задачи»: имя инструмента + аргументы. Раньше
+ *  хранились одни аргументы — разрешение на один инструмент с `{}` покрывало
+ *  любой другой мутирующий инструмент с теми же аргументами. Имя функции не
+ *  содержит пробелов, поэтому первый пробел однозначно делит ключ */
+const allowKey = (call: ToolCallInfo) => `${call.name} ${call.arguments}`;
+
 export interface AgentRunDeps {
   // FIX [dead-prop]: sessions передавался, но внутри хука не читался
   // ни разу (везде используется sessionsRef) — лишний аргумент на каждый
@@ -182,6 +195,9 @@ export function useAgentRun(deps: AgentRunDeps) {
           opts.onToolCalls?.(c);
         },
       };
+      // Stop/Hard Limit могли сработать ещё до старта стрима (пока собирался
+      // контекст: хуки, память, KB) — не стартуем запрос впустую
+      if (abortedRef.current.has(opts.requestId)) return;
       for (let attempt = 0; ; attempt++) {
         try {
           await chatStream(wrapped);
@@ -196,6 +212,8 @@ export function useAgentRun(deps: AgentRunDeps) {
           ) {
             setActivity(t("activity.retry", { n: attempt + 1 }));
             await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));
+            // Stop нажат во время паузы — новый запрос не стартуем
+            if (abortedRef.current.has(opts.requestId)) return;
             continue;
           }
           // Fallback-модель: только на 429/5xx (сетевые сбои моделью не лечатся),
@@ -218,6 +236,9 @@ export function useAgentRun(deps: AgentRunDeps) {
               // Ошибка фолбэка не информативнее исходной — показываем исходную
             }
           }
+          // Прогон остановлен пользователем/лимитом: обрыв — не ошибка,
+          // карточку ошибки не рисуем (маркер «остановлено» ставит finalize)
+          if (abortedRef.current.has(opts.requestId)) return;
           throw e;
         }
       }
@@ -361,11 +382,38 @@ export function useAgentRun(deps: AgentRunDeps) {
     task: string;
     sessionId: string;
     startedAt: number;
-    status: "running" | "done" | "failed";
+    status: "running" | "done" | "failed" | "cancelled";
     report: string | null;
+    /** requestId прогона-родителя: Stop/лимит гасят только его фоновые задачи */
+    runId: string;
+    /** Собственный флаг отмены: abortedRef чистится finalize'ом родителя,
+     *  а фоновый субагент по замыслу переживает основной прогон */
+    cancelled: boolean;
   }
   const bgRegistryRef = useRef(new Map<string, BgSubTask>());
   const bgCounterRef = useRef(0);
+  /** Отмена фоновых субагентов по прогону и/или задаче (Stop, Hard Limit).
+   *  Без фильтров не вызывать — погасит вообще все */
+  const cancelBgSubagents = useCallback(
+    (filter: { runId?: string; sessionId?: string }) => {
+      for (const b of bgRegistryRef.current.values()) {
+        if (b.status !== "running" || b.cancelled) continue;
+        if (filter.runId !== undefined && b.runId !== filter.runId) continue;
+        if (filter.sessionId !== undefined && b.sessionId !== filter.sessionId)
+          continue;
+        b.cancelled = true;
+        // Убить исполняющийся инструмент/стрим под id прогона (best-effort)
+        void abortChat(b.runId).catch(() => {});
+      }
+    },
+    [],
+  );
+  const stopBackgroundSubagents = useCallback(
+    (sessionId?: string) => {
+      if (sessionId) cancelBgSubagents({ sessionId });
+    },
+    [cancelBgSubagents],
+  );
 
   // План задач агента: живёт в сессии, перезаписывается только plan_update.
   // setSessions — сеттер useState, идентичность стабильна
@@ -388,34 +436,21 @@ export function useAgentRun(deps: AgentRunDeps) {
   // Сообщение в OpenAI-формат (toApiContent/toApiMessage) и сборка истории —
   // чистые функции в agent/history.ts, покрыты тестами
 
-  const handleSend = async (
+  // Тело прогона. Движок к этому моменту уже захвачен обёрткой handleSend
+  // (см. ниже), которая при любом необработанном исключении доводит прогон
+  // до finalize — activeRunRef больше не может «клинить» навечно
+  const sendImpl = async (
+    run: RunHandle,
     raw: string,
-    attachments?: Attachment[],
-    overrideTargetId?: string,
-    quote?: string,
-    /** Редактирование отправленного: контент заменяется, ответы после — срезаются */
-    editMsgId?: string,
+    attachments: Attachment[] | undefined,
+    overrideTargetId: string | undefined,
+    quote: string | undefined,
+    editMsgId: string | undefined,
+    budgetCarry: { prompt: number; completion: number } | undefined,
   ) => {
     const text = raw.trim();
     const images = attachments ?? [];
-    if (!text && images.length === 0) return;
-
-    // Guard от параллельных прогонов: движок однопоточный, второй вызов
-    // (цепочка заметок, таймер автоматизаций, edit-message) перезаписывал
-    // activeRunRef, и finalize первого прогона гасил индикаторы живого
-    // второго. UI-пути (ChatArea) уже маршрутизируют в очередь/поправку —
-    // это защита для остальных точек входа
-    if (activeRunRef.current !== null) {
-      return;
-    }
-
-    // C1: захват движка СРАЗУ (синхронно, до первого await): между guard'ом
-    // и прежним захватом стояли await хуков SessionStart/UserPromptSubmit —
-    // окно гонки, через которое второй send проходил guard и получал два
-    // параллельных прогона
-    const requestId = uid();
-    activeRunRef.current = requestId;
-    runStartedRef.current = true;
+    const requestId = run.requestId;
     // Освобождение движка на путях отказа ниже (валидация, блокировка хуком)
     const releaseRun = () => {
       if (activeRunRef.current === requestId) activeRunRef.current = null;
@@ -476,6 +511,8 @@ export function useAgentRun(deps: AgentRunDeps) {
         permissionMode: src.permissionMode,
         disabledTools: src.disabledTools,
         profileId: src.profileId,
+        // Привязанная база знаний — без неё RAG в ветке молча выключался
+        kbId: src.kbId,
         branchedFrom: { sessionId: src.id, messageId: editMsgId },
       };
       setSessions((prev) => [branch, ...prev]);
@@ -591,13 +628,56 @@ export function useAgentRun(deps: AgentRunDeps) {
     setTyping(true);
     setActivity(t("activity.thinking"));
     const startedAt = Date.now();
-    // Накопитель расхода этой отправки — попадёт в журнал использования
-    const usageAcc = { prompt: 0, completion: 0 };
-    // Hard Limit: на новую задачу — с чистого листа
+    // Накопитель расхода: для звена цепочки очереди стартует с расхода
+    // предыдущих звеньев (budgetCarry) — корректировки одной задачи делят
+    // один бюджет Hard Limit, а не получают его заново на каждое сообщение
+    const usageAcc = {
+      prompt: budgetCarry?.prompt ?? 0,
+      completion: budgetCarry?.completion ?? 0,
+    };
+    // Уже записанное в журнал использования (расход предыдущих звеньев
+    // записан их finalize): пишем только дельту, без двойного учёта
+    let loggedPrompt = usageAcc.prompt;
+    let loggedCompletion = usageAcc.completion;
+    const logUsageDelta = (workedMs: number) => {
+      const prompt = usageAcc.prompt - loggedPrompt;
+      const completion = usageAcc.completion - loggedCompletion;
+      if (prompt + completion <= 0) return;
+      loggedPrompt = usageAcc.prompt;
+      loggedCompletion = usageAcc.completion;
+      setUsageLog((prev) => [
+        ...prev.slice(-4999),
+        {
+          day: dayKeyLocal(new Date()),
+          prompt,
+          completion,
+          model: apiSettings.model,
+          workedMs,
+        },
+      ]);
+    };
+    // Прогон завершён (finalize): фоновые субагенты ещё могут считать токены
+    let runFinished = false;
+    let bgLimitHit = false;
+    // Hard Limit: новая отправка пользователя — с чистого листа
     limitHitRef.current = false;
     // Hard Limit: проверка после каждого usage-события; при превышении — abort задачи.
     // Чистая оценка лимита — evalHardLimit (limits.ts), здесь только побочные эффекты
     const checkHardLimit = () => {
+      if (runFinished) {
+        // Прогон уже завершён, а фоновые субагенты ещё считают токены. Общее
+        // состояние движка (limitHitRef/abortedRef) теперь принадлежит другому
+        // прогону — не трогаем его (раньше requestId навечно оседал в
+        // abortedRef, а limitHitRef глушил лимит уже нового прогона)
+        if (bgLimitHit) return;
+        const lateKey = evalHardLimit(limitsRef.current, usageAcc);
+        if (lateKey) {
+          bgLimitHit = true;
+          cancelBgSubagents({ runId: requestId });
+          addToast(t(lateKey));
+        }
+        return;
+      }
       if (limitHitRef.current) return;
       const hitKey = evalHardLimit(limitsRef.current, usageAcc);
       if (hitKey) {
@@ -606,6 +686,8 @@ export function useAgentRun(deps: AgentRunDeps) {
         // проверяют abortedRef на каждом шаге) + рвём текущий стрим
         abortedRef.current.add(requestId);
         void abortChat(requestId).catch(() => {});
+        // Фоновые субагенты переживают прогон — гасим их отдельным флагом
+        cancelBgSubagents({ runId: requestId });
         addToast(t(hitKey));
       }
     };
@@ -665,7 +747,17 @@ export function useAgentRun(deps: AgentRunDeps) {
     };
     document.addEventListener("visibilitychange", onVisibility);
 
+    let finalized = false;
     const finalize = () => {
+      // Идемпотентно: вызывается и путями цикла, и обёрткой handleSend
+      // при исключении — второй вызов не должен ни дренировать очередь, ни
+      // дважды писать журнал
+      if (finalized) return;
+      finalized = true;
+      runFinished = true;
+      // Прогон остановлен: Stop пользователя или срабатывание Hard Limit
+      // (оба ставят requestId в abortedRef). Читаем ДО чистки ниже
+      const wasAborted = abortedRef.current.has(requestId);
       document.removeEventListener("visibilitychange", onVisibility);
       // Отменить ask-таймер: вопрос разрешён (или прогон умер) — таймер не нужен
       if (askTimerRef.current !== null) {
@@ -736,13 +828,24 @@ export function useAgentRun(deps: AgentRunDeps) {
       }
       // Очередь корректирующих сообщений: первое уходит агенту сразу,
       // его собственный finalize заберёт следующее
-      const next = queuedMsgsRef.current[0];
+      // После Stop или срабатывания лимита очередь НЕ дренируем: иначе
+      // поправка стартовала бы сразу после остановки (и с чистым бюджетом).
+      // Сообщения остаются в очереди — пользователь видит их и решает сам
+      const next = wasAborted ? undefined : queuedMsgsRef.current[0];
       if (next) {
         setQueuedMsgs((prev) => prev.slice(1));
         // Через handleSendRef: замыкание finalize могло устареть
         // (apiSettings с прошлого сообщения), нужна свежая версия;
-        // next.quote — цитата из очереди не должна потеряться
-        void handleSendRef.current?.(next.text, next.attachments, targetId, next.quote);
+        // next.quote — цитата из очереди не должна потеряться;
+        // budgetCarry — звено цепочки делит бюджет Hard Limit с предыдущим
+        void handleSendRef.current?.(
+          next.text,
+          next.attachments,
+          targetId,
+          next.quote,
+          undefined,
+          { prompt: usageAcc.prompt, completion: usageAcc.completion },
+        );
         // C3: handleSend захватывает движок синхронно (до первого await) —
         // если после вызова движок свободен, отправка отказала (guard/валидация),
         // и поправка уже снята с очереди: возвращаем её, не теряем
@@ -757,19 +860,10 @@ export function useAgentRun(deps: AgentRunDeps) {
         notifyMeta(activeSessionRef.current),
         activeSessionRef.current?.title ?? "",
       );
-      if (usageAcc.prompt + usageAcc.completion > 0) {
-        setUsageLog((prev) => [
-          ...prev.slice(-4999),
-          {
-            day: dayKeyLocal(new Date()),
-            prompt: usageAcc.prompt,
-            completion: usageAcc.completion,
-            model: apiSettings.model,
-            workedMs: Date.now() - startedAt,
-          },
-        ]);
-      }
+      logUsageDelta(Date.now() - startedAt);
     };
+    // Обёртка handleSend вызовет finalize при исключении в теле прогона
+    run.finalize = finalize;
 
     const markWorked = (assistantId: string, fromMs: number = startedAt) => {
       const worked = Date.now() - fromMs;
@@ -981,6 +1075,10 @@ export function useAgentRun(deps: AgentRunDeps) {
         ].join(" "),
       });
     }
+
+    // Stop/Hard Limit могли сработать, пока собирался контекст (хуки, память,
+    // KB — всё это await): не стартуем стрим впустую
+    if (abortedRef.current.has(requestId)) return finalize();
 
     // ---------- Одиночный режим: один стрим, без инструментов ----------
     if (!isAgent) {
@@ -1340,7 +1438,15 @@ export function useAgentRun(deps: AgentRunDeps) {
           .reverse()
           .find((m) => m.role === "user");
         const label = (lastUser?.content ?? "").replace(/\s+/g, " ").trim();
-        const cp = await checkpointSave(root, label);
+        // Чекпоинт — страховка, а не условие работы: сбой (диск, права, битый
+        // root) раньше вылетал из handleSend, finalize не вызывался, и движок
+        // клинился навечно. Теперь — тост и работа продолжается
+        let cp: Awaited<ReturnType<typeof checkpointSave>> | null = null;
+        try {
+          cp = await checkpointSave(root, label);
+        } catch (e) {
+          addToast(`checkpoint failed: ${e}`);
+        }
         if (cp) {
           // Запоминаем снимок прогона: источник живого диффа для Review
           // (покрывает и правки мимо fs_write — shell и т.п.)
@@ -1601,7 +1707,11 @@ export function useAgentRun(deps: AgentRunDeps) {
         } catch {
           parsedId = "";
         }
-        const reg = bgRegistryRef.current;
+        // Только субагенты ЭТОЙ задачи: реестр общий на все сессии, и модель
+        // раньше видела (и читала отчёты) чужих фоновых задач
+        const reg = new Map<string, BgSubTask>(
+          [...bgRegistryRef.current].filter(([, b]) => b.sessionId === targetId),
+        );
         if (parsedId) {
           const t = reg.get(parsedId);
           if (!t) {
@@ -1728,7 +1838,17 @@ export function useAgentRun(deps: AgentRunDeps) {
                 startedAt: Date.now(),
                 status: "running",
                 report: null,
+                runId: requestId,
+                cancelled: false,
               });
+              // Реестр не растёт бесконечно: храним последние 50 записей,
+              // вытесняя самые старые завершённые
+              if (bgRegistryRef.current.size > 50) {
+                for (const [k, v] of bgRegistryRef.current) {
+                  if (bgRegistryRef.current.size <= 50) break;
+                  if (v.status !== "running") bgRegistryRef.current.delete(k);
+                }
+              }
               const toolMsgId = uid();
               subContent = `Subagent ${role.name} started in background (id: ${bgId}). Continue your work — the report will be appended to this conversation when it finishes; check progress with subagent_status {"id": "${bgId}"}.`;
               pushMessage({
@@ -1775,18 +1895,22 @@ export function useAgentRun(deps: AgentRunDeps) {
                       checkHardLimit();
                     },
                     effort: effortRef.current,
-                    aborted: () => abortedRef.current.has(requestId),
+                    // abortedRef чистится finalize'ом родителя, а фоновый
+                    // субагент его переживает — поэтому свой флаг entry.cancelled
+                    aborted: () =>
+                      abortedRef.current.has(requestId) || !!entry?.cancelled,
                     runRequestId: requestId,
                     disabledTools: sessionsRef.current
                       .find((s) => s.id === targetId)
                       ?.disabledTools,
                   });
+                  const wasCancelled = !!entry?.cancelled;
                   if (entry) {
-                    entry.status = "done";
+                    entry.status = wasCancelled ? "cancelled" : "done";
                     entry.report = report;
                   }
-                  const content = `[${role.name} • background ${bgId} — completed]\n${report}`;
-                  addToast(t("sub.bgDone", { s: role.name }));
+                  const content = `[${role.name} • background ${bgId} — ${wasCancelled ? "cancelled" : "completed"}]\n${report}`;
+                  if (!wasCancelled) addToast(t("sub.bgDone", { s: role.name }));
                   // Хвостовые дельты перед патчем сообщения
                   flushDeltas();
                   setSessions((prev) =>
@@ -1803,7 +1927,7 @@ export function useAgentRun(deps: AgentRunDeps) {
                   );
                 } catch (e) {
                   if (entry) {
-                    entry.status = "failed";
+                    entry.status = entry.cancelled ? "cancelled" : "failed";
                     entry.report = `error: ${e}`;
                   }
                   setSessions((prev) =>
@@ -1823,9 +1947,12 @@ export function useAgentRun(deps: AgentRunDeps) {
                 }
                 // Локальная история текущего хода: обновить запись, если ход
                 // ещё жив (после finalize массив мёртв — обновление no-op)
+                // Расход, накопленный ПОСЛЕ finalize родителя (его finalize
+                // уже записал журнал), иначе он нигде не учитывался
+                if (runFinished) logUsageDelta(0);
                 const hEntry = history.find((h) => h.tool_call_id === call.id);
                 if (hEntry && entry?.report) {
-                  hEntry.content = `[${role.name} • background ${bgId} — completed]\n${entry.report}`;
+                  hEntry.content = `[${role.name} • background ${bgId} — ${entry.status === "done" ? "completed" : entry.status}]\n${entry.report}`;
                 }
                 const subTimerId = window.setTimeout(() => {
                   subRunTimersRef.current.delete(subTimerId);
@@ -1922,6 +2049,10 @@ ${report}`;
         }
       }
 
+      // Скриншоты шага копим и отдаём модели ПОСЛЕ всех tool-результатов:
+      // user-сообщение между tool-сообщениями рвёт их последовательность,
+      // и OpenAI-совместимые API отвечают 400
+      const shots: string[] = [];
       for (const call of toolCalls) {
         if (abortedRef.current.has(requestId)) return finalize();
         if (call.name === "subagent_run") continue; // уже исполнены выше
@@ -1950,9 +2081,9 @@ ${report}`;
           (call.name.startsWith("computer_") &&
             call.name !== "computer_screenshot");
         const session = sessionsRef.current.find((s) => s.id === targetId);
+        const grantKey = allowKey(call);
         const allowed =
-          mutating &&
-          (session?.allowedCommands?.includes(call.arguments) ?? false);
+          mutating && (session?.allowedCommands?.includes(grantKey) ?? false);
 
         let result: string;
         // FIX: машиный статус результата — раньше "denied" распознавался на
@@ -1986,8 +2117,7 @@ ${report}`;
                     ? {
                         ...s,
                         allowedCommands: [
-                          ...(s.allowedCommands ?? []),
-                          call.arguments,
+                          ...new Set([...(s.allowedCommands ?? []), grantKey]),
                         ],
                       }
                     : s,
@@ -2051,18 +2181,19 @@ ${report}`;
           name: call.name,
           content: toolContent,
         });
-        if (screenshot) {
-          history.push({
-            role: "user",
-            content: [
-              {
-                type: "text",
-                text: "Browser screenshot (click coordinates are taken from this image):",
-              },
-              { type: "image_url", image_url: { url: screenshot.dataUrl } },
-            ],
-          });
-        }
+        if (screenshot) shots.push(screenshot.dataUrl);
+      }
+      if (shots.length > 0) {
+        history.push({
+          role: "user",
+          content: shots.flatMap((dataUrl) => [
+            {
+              type: "text" as const,
+              text: "Browser screenshot (click coordinates are taken from this image):",
+            },
+            { type: "image_url" as const, image_url: { url: dataUrl } },
+          ]),
+        });
       }
     }
 
@@ -2071,13 +2202,94 @@ ${report}`;
     finalize();
   };
 
+  const handleSend = async (
+    raw: string,
+    attachments?: Attachment[],
+    overrideTargetId?: string,
+    quote?: string,
+    /** Редактирование отправленного: контент заменяется, ответы после — срезаются */
+    editMsgId?: string,
+    /** Расход предыдущих звеньев цепочки очереди (общий бюджет Hard Limit) */
+    budgetCarry?: { prompt: number; completion: number },
+  ) => {
+    if (!raw.trim() && (attachments ?? []).length === 0) return;
+
+    // Guard от параллельных прогонов: движок однопоточный, второй вызов
+    // (цепочка заметок, таймер автоматизаций, edit-message) перезаписывал
+    // activeRunRef, и finalize первого прогона гасил индикаторы живого
+    // второго. UI-пути (ChatArea) уже маршрутизируют в очередь/поправку —
+    // это защита для остальных точек входа
+    if (activeRunRef.current !== null) {
+      return;
+    }
+
+    // C1: захват движка СРАЗУ (синхронно, до первого await): между guard'ом
+    // и прежним захватом стояли await хуков SessionStart/UserPromptSubmit —
+    // окно гонки, через которое второй send проходил guard и получал два
+    // параллельных прогона
+    const requestId = uid();
+    activeRunRef.current = requestId;
+    runStartedRef.current = true;
+    const run: RunHandle = { requestId, finalize: null };
+
+    try {
+      await sendImpl(
+        run,
+        raw,
+        attachments,
+        overrideTargetId,
+        quote,
+        editMsgId,
+        budgetCarry,
+      );
+    } catch (e) {
+      // Необработанное исключение в теле прогона (диск, битые данные,
+      // сбой хука/провайдера вне try): раньше finalize не вызывался,
+      // activeRunRef клинился навечно и все следующие отправки молча
+      // отсекались guard'ом. Показываем ошибку и доводим прогон до конца
+      console.error("agent run crashed:", e);
+      const assistantId = streamingRef.current.get(requestId);
+      if (assistantId) setMsgError(assistantId, String(e));
+      else addToast(`${t("err.generic")}: ${e}`);
+      try {
+        run.finalize?.();
+      } catch (e2) {
+        console.error("finalize failed:", e2);
+      }
+    } finally {
+      // Страховочная сеть: finalize не был достигнут (исключение до его
+      // создания) либо упал на полпути. Освобождаем движок и чистим то,
+      // чем прогон владел; чужой (уже стартовавший) прогон не трогаем
+      if (activeRunRef.current === requestId) {
+        activeRunRef.current = null;
+        setTyping(false);
+        setActivity(null);
+        setStreamingId((cur) => (cur === requestId ? null : cur));
+        streamingRef.current.delete(requestId);
+        abortedRef.current.delete(requestId);
+        stoppedRef.current.delete(requestId);
+        streamingTargetRef.current = null;
+        cancelInteractions(requestId);
+      }
+    }
+  };
+
   const handleStop = () => {
-    if (!streamingId) return;
+    if (!streamingId) {
+      // Основной прогон уже завершён, но фоновые субагенты ещё работают —
+      // Stop гасит и их (раньше остановить их было нечем)
+      const sid = activeSessionRef.current?.id;
+      if (sid) cancelBgSubagents({ sessionId: sid });
+      return;
+    }
     if (chainRunning) chainAbortRef.current = true;
     abortedRef.current.add(streamingId);
     // Реальная отмена: Rust поднимает флаг и гасит поток (и исполняющийся
     // инструмент — run_tool регистрирует флаг на время тулл-кола)
     void abortChat(streamingId).catch(() => {});
+    // Фоновые субагенты этого прогона: их abort-флаг — собственный, а
+    // abortedRef чистится finalize'ом родителя (гонка с поллингом)
+    cancelBgSubagents({ runId: streamingId });
     // Если агент ждал подтверждения/ответа — закрываем, цикл завершится
     // (только взаимодействия этого прогона)
     cancelInteractions(streamingId);
@@ -2155,5 +2367,6 @@ ${report}`;
     handleAskAnswer,
     chainAbortRef,
     lastCheckpointRef, // наружу: Review читает снимок прогона для живого диффа
+    stopBackgroundSubagents, // наружу: остановка фоновых субагентов задачи (монитор)
   };
 }
