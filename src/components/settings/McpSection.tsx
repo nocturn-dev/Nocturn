@@ -279,12 +279,12 @@ export function McpSection() {
                 <span className="min-w-0 truncate text-sm font-medium text-halo-text">
                   {s.name}
                 </span>
-                <code className="min-w-0 flex-1 truncate font-mono text-[11px] text-halo-muted">
+                <code className="min-w-0 flex-1 truncate font-mono text-[0.6875rem] text-halo-muted">
                   {s.transport ? `${s.transport} · ${s.url ?? ""}` : `${s.command} ${s.args.join(" ")}`}
                 </code>
                 <button
                   onClick={() => void toggleEnabled(i)}
-                  className={`shrink-0 rounded-md border px-2 py-0.5 text-[10px] transition-colors ${
+                  className={`shrink-0 rounded-md border px-2 py-0.5 text-[0.625rem] transition-colors ${
                     s.enabled
                       ? "border-emerald-400/40 text-emerald-400"
                       : "border-halo-line text-halo-muted hover:text-halo-text"
@@ -296,7 +296,7 @@ export function McpSection() {
                   <button
                     onClick={() => void disconnect(s.name)}
                     disabled={busy === s.name}
-                    className="shrink-0 rounded-md border border-halo-line px-2 py-0.5 text-[10px] text-halo-muted transition-colors hover:bg-halo-hover hover:text-halo-text disabled:opacity-40"
+                    className="shrink-0 rounded-md border border-halo-line px-2 py-0.5 text-[0.625rem] text-halo-muted transition-colors hover:bg-halo-hover hover:text-halo-text disabled:opacity-40"
                   >
                     {t("mcp.disconnect")}
                   </button>
@@ -304,7 +304,7 @@ export function McpSection() {
                   <button
                     onClick={() => void connect(s.name)}
                     disabled={busy === s.name || !s.enabled}
-                    className="shrink-0 rounded-md border border-halo-line px-2 py-0.5 text-[10px] text-halo-muted transition-colors hover:border-halo-accent/50 hover:text-halo-accent disabled:cursor-not-allowed disabled:opacity-40"
+                    className="shrink-0 rounded-md border border-halo-line px-2 py-0.5 text-[0.625rem] text-halo-muted transition-colors hover:border-halo-accent/50 hover:text-halo-accent disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     {busy === s.name ? "…" : t("mcp.connect")}
                   </button>
@@ -324,12 +324,12 @@ export function McpSection() {
                     <span
                       key={tool.name}
                       title={tool.description}
-                      className="rounded bg-halo-muted/10 px-1.5 py-0.5 font-mono text-[10px] text-halo-muted"
+                      className="rounded bg-halo-muted/10 px-1.5 py-0.5 font-mono text-[0.625rem] text-halo-muted"
                     >
                       mcp__{s.name}__{tool.name}
                     </span>
                   ))}
-                  <span className="px-1 text-[10px] text-halo-muted/60">
+                  <span className="px-1 text-[0.625rem] text-halo-muted/60">
                     {st.tools.length} {t("mcp.tools")}
                   </span>
                 </div>
@@ -392,7 +392,7 @@ export function McpSection() {
               rows={2}
               className="w-full resize-y rounded-lg border border-halo-line bg-halo-surface px-3 py-2 font-mono text-xs text-halo-text outline-none transition-colors placeholder:text-halo-muted/60 focus:border-halo-accent/60"
             />
-            <p className="text-[11px] leading-relaxed text-halo-muted/70">{t("mcp.headersHint")}</p>
+            <p className="text-[0.6875rem] leading-relaxed text-halo-muted/70">{t("mcp.headersHint")}</p>
           </>
         ) : (
           <>
@@ -437,7 +437,7 @@ export function McpSection() {
         </button>
         {importOpen && (
           <div className="mt-2 space-y-2">
-            <p className="text-[11px] leading-relaxed text-halo-muted">
+            <p className="text-[0.6875rem] leading-relaxed text-halo-muted">
               {t("mcp.importHint")}
             </p>
             <textarea
@@ -452,7 +452,7 @@ export function McpSection() {
             />
             <div className="flex items-center justify-between gap-2">
               <span
-                className={`text-[11px] ${importMsg?.ok ? "text-emerald-400" : "text-red-400"}`}
+                className={`text-[0.6875rem] ${importMsg?.ok ? "text-emerald-400" : "text-red-400"}`}
               >
                 {importMsg?.text}
               </span>

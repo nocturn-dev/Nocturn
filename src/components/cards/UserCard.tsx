@@ -108,13 +108,13 @@ function UserCardBase({
             className="scroll-slim w-full resize-none rounded-lg border border-halo-accent/50 bg-halo-deep/60 px-2.5 py-2 text-sm leading-relaxed text-halo-text outline-none"
           />
           <div className="mt-1.5 flex items-center justify-between">
-            <span className="text-[10px] text-halo-muted/60">
+            <span className="text-[0.625rem] text-halo-muted/60">
               Enter — {t("card.editSend")} · Esc — {t("card.editCancel")}
             </span>
             <div className="flex gap-1.5">
               <button
                 onClick={() => setEditing(false)}
-                className="rounded-md border border-halo-line px-2 py-1 text-[10px] text-halo-muted transition-colors hover:text-halo-text"
+                className="rounded-md border border-halo-line px-2 py-1 text-[0.625rem] text-halo-muted transition-colors hover:text-halo-text"
               >
                 {t("card.editCancel")}
               </button>
@@ -125,7 +125,7 @@ function UserCardBase({
                   setEditing(false);
                   onEdit?.(mid, text);
                 }}
-                className="rounded-md bg-halo-accent px-2.5 py-1 text-[10px] font-medium text-halo-on-accent transition-colors hover:bg-halo-accent-deep"
+                className="rounded-md bg-halo-accent px-2.5 py-1 text-[0.625rem] font-medium text-halo-on-accent transition-colors hover:bg-halo-accent-deep"
               >
                 {t("card.editSend")}
               </button>
@@ -138,7 +138,7 @@ function UserCardBase({
       {quote && (
         <div className="mb-2 flex items-start gap-2 rounded-lg border-l-2 border-halo-accent bg-halo-deep/50 px-2.5 py-1.5">
           <span className="mt-0.5 shrink-0 text-halo-accent"><QuoteIcon /></span>
-          <p className="line-clamp-3 min-w-0 text-[11px] leading-relaxed text-halo-muted">
+          <p className="line-clamp-3 min-w-0 text-[0.6875rem] leading-relaxed text-halo-muted">
             {quote}
           </p>
         </div>

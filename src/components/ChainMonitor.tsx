@@ -160,13 +160,13 @@ export default function ChainMonitor({ chain, onClose }: ChainMonitorProps) {
                       {agent && (
                         <span
                           title="agent: true"
-                          className="ml-1.5 rounded bg-sky-400/15 px-1 py-0.5 text-[9px] text-sky-400"
+                          className="ml-1.5 rounded bg-sky-400/15 px-1 py-0.5 text-[0.5625rem] text-sky-400"
                         >
                           agent
                         </span>
                       )}
                     </p>
-                    <p className="text-[10px] text-halo-muted/70">
+                    <p className="text-[0.625rem] text-halo-muted/70">
                       {statusLabel(st)}
                     </p>
                   </div>
@@ -185,8 +185,10 @@ export default function ChainMonitor({ chain, onClose }: ChainMonitorProps) {
                       .map((link) => byTitle.get(link.toLowerCase()))
                       .filter((next): next is Note => !!next)
                       .map((next) => {
-                        const j = fileIndex.get(next.file)!;
-                        if (!visible(j)) return null;
+                        // fileIndex заполнен из тех же заметок: guard вместо
+                        // non-null assertion — защита не исчезает при рефакторинге
+                        const j = fileIndex.get(next.file);
+                        if (j === undefined || !visible(j)) return null;
                         const a = pos.get(n.file);
                         const b = pos.get(next.file);
                         if (!a || !b) return null;

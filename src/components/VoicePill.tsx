@@ -27,7 +27,7 @@ export default function VoicePill({ phase }: { phase: VoicePhase }) {
   return (
     <div
       role="status"
-      className="anim-fade-up pointer-events-none fixed left-1/2 top-3 z-[70] -translate-x-1/2"
+      className="anim-fade-up pointer-events-none fixed left-1/2 top-3 z-[var(--halo-z-toast)] -translate-x-1/2"
     >
       <div className="flex items-center gap-2 rounded-full border border-halo-line bg-halo-raised/90 py-1.5 pl-3 pr-4 shadow-lg backdrop-blur-sm">
         <span className={`size-1.5 shrink-0 rounded-full ${DOT[phase]}`} />

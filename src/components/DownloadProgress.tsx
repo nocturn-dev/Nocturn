@@ -68,16 +68,16 @@ export default function DownloadProgress() {
   return (
     <div
       role="status"
-      className="anim-fade-up fixed bottom-4 right-4 z-[70] w-72 rounded-xl border border-halo-line bg-halo-raised/95 p-3.5 shadow-2xl"
+      className="anim-fade-up fixed bottom-4 right-4 z-[var(--halo-z-toast)] w-72 rounded-xl border border-halo-line bg-halo-raised/95 p-3.5 shadow-2xl"
     >
       <p className="text-xs font-medium text-halo-text">{done ? t("dl.done") : t("dl.title")}</p>
-      <p className="mt-0.5 truncate text-[10px] text-halo-muted" title={progress.file}>
+      <p className="mt-0.5 truncate text-[0.625rem] text-halo-muted" title={progress.file}>
         {progress.file}
       </p>
       <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-halo-deep">
         <div className="h-full rounded-full bg-halo-accent" style={{ width: `${pct}%` }} />
       </div>
-      <p className="mt-1 text-right text-[10px] tabular-nums text-halo-muted">
+      <p className="mt-1 text-right text-[0.625rem] tabular-nums text-halo-muted">
         {done ? (
           `${pct}%`
         ) : (

@@ -154,7 +154,7 @@ export function QuickEntry() {
         </div>
         {/* Нижний ряд: подсказка слева, текущая модель справа — как в композере */}
         <div className="flex items-center gap-2 px-1 pt-1">
-          <span className="text-[11px] text-halo-muted/70">{t("quickentry.hint")}</span>
+          <span className="text-[0.6875rem] text-halo-muted/70">{t("quickentry.hint")}</span>
           {model && (
             <span className="ml-auto flex min-w-0 items-center gap-1.5 text-xs text-halo-muted">
               <ProviderIcon modelId={model} size={14} />

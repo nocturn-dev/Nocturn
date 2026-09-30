@@ -107,7 +107,7 @@ export function WebSearchSection() {
                 />
               </div>
             )}
-            <p className="rounded-lg border border-halo-line/60 bg-halo-surface/40 px-2.5 py-2 text-[11px] leading-relaxed text-halo-muted/80">
+            <p className="rounded-lg border border-halo-line/60 bg-halo-surface/40 px-2.5 py-2 text-[0.6875rem] leading-relaxed text-halo-muted/80">
               {t("ws.hint")}
               {saved ? ` ✓` : ""}
             </p>

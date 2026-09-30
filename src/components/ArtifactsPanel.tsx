@@ -36,7 +36,7 @@ export function ArtifactsPanel({
       <div className="flex items-center justify-between gap-3 border-b border-halo-line px-4 py-3">
         <div className="min-w-0">
           <p className="text-sm font-semibold text-halo-text">{t("artifacts.title")}</p>
-          <p className="mt-0.5 truncate text-[11px] text-halo-muted">
+          <p className="mt-0.5 truncate text-[0.6875rem] text-halo-muted">
             {artifact?.title ?? t("artifacts.empty")}
           </p>
         </div>

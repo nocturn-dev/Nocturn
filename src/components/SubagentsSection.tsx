@@ -108,25 +108,25 @@ export default function SubagentsSection({
                   className="rounded-lg border border-halo-line bg-halo-surface/50 px-3 py-2.5"
                 >
                   <div className="flex items-center gap-2">
-                    <code className="shrink-0 rounded bg-halo-muted/10 px-1.5 py-0.5 font-mono text-[11px] text-halo-accent">
+                    <code className="shrink-0 rounded bg-halo-muted/10 px-1.5 py-0.5 font-mono text-[0.6875rem] text-halo-accent">
                       {r.id}
                     </code>
                     <span className="min-w-0 flex-1 truncate text-xs text-halo-muted">
                       {lang === "ru" ? r.desc?.ru ?? "" : r.desc?.en ?? ""}
                     </span>
                     {storedIds.has(r.id) && (
-                      <span className="shrink-0 text-[10px] text-halo-muted/60">
+                      <span className="shrink-0 text-[0.625rem] text-halo-muted/60">
                         {t("sub.edited")}
                       </span>
                     )}
                     {pluginIds?.has(r.id) ? (
-                      <span className="shrink-0 text-[10px] text-halo-muted/50">
+                      <span className="shrink-0 text-[0.625rem] text-halo-muted/50">
                         {t("sub.fromPlugin")}
                       </span>
                     ) : (
                       <button
                         onClick={() => setEditing(isEditing ? null : r.id)}
-                        className="shrink-0 rounded-md border border-halo-line px-2 py-0.5 text-[10px] text-halo-muted transition-colors hover:border-halo-accent/50 hover:text-halo-accent"
+                        className="shrink-0 rounded-md border border-halo-line px-2 py-0.5 text-[0.625rem] text-halo-muted transition-colors hover:border-halo-accent/50 hover:text-halo-accent"
                       >
                         {isEditing ? t("sub.close") : t("sub.edit")}
                       </button>
@@ -165,7 +165,7 @@ export default function SubagentsSection({
                           }
                           placeholder={t("sub.model")}
                           title={t("sub.modelHint")}
-                          className="w-full rounded-lg border border-halo-line bg-halo-surface px-2.5 py-1.5 font-mono text-[11px] text-halo-text outline-none focus:border-halo-accent/60"
+                          className="w-full rounded-lg border border-halo-line bg-halo-surface px-2.5 py-1.5 font-mono text-[0.6875rem] text-halo-text outline-none focus:border-halo-accent/60"
                         />
                         <input
                           type="number"
@@ -197,14 +197,14 @@ export default function SubagentsSection({
                         }}
                         placeholder={t("sub.tools")}
                         title={t("sub.toolsHint")}
-                        className="w-full rounded-lg border border-halo-line bg-halo-surface px-2.5 py-1.5 font-mono text-[11px] text-halo-text outline-none focus:border-halo-accent/60"
+                        className="w-full rounded-lg border border-halo-line bg-halo-surface px-2.5 py-1.5 font-mono text-[0.6875rem] text-halo-text outline-none focus:border-halo-accent/60"
                       />
                       <textarea
                         value={r.systemPrompt}
                         onChange={(e) => updateRole({ ...r, systemPrompt: e.target.value })}
                         rows={4}
                         placeholder={t("sub.prompt")}
-                        className="scroll-slim w-full resize-none rounded-lg border border-halo-line bg-halo-surface px-2.5 py-2 font-mono text-[11px] leading-relaxed text-halo-text outline-none focus:border-halo-accent/60"
+                        className="scroll-slim w-full resize-none rounded-lg border border-halo-line bg-halo-surface px-2.5 py-2 font-mono text-[0.6875rem] leading-relaxed text-halo-text outline-none focus:border-halo-accent/60"
                       />
                     </div>
                   )}

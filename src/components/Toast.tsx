@@ -12,7 +12,7 @@ interface ToastItem {
 export default function Toasts({ items }: { items: ToastItem[] }) {
   if (items.length === 0) return null;
   return (
-    <div className="pointer-events-none fixed right-6 top-14 z-[70] flex flex-col items-end gap-2">
+    <div className="pointer-events-none fixed right-6 top-14 z-[var(--halo-z-toast)] flex flex-col items-end gap-2">
       {items.map((t) => (
         <div
           key={t.id}

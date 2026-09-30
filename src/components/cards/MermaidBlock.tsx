@@ -68,7 +68,7 @@ export function MermaidBlock({ code }: { code: string }) {
     <button
       onClick={onClick}
       title={title}
-      className="absolute right-2 top-2 z-10 rounded-md border border-halo-line bg-halo-deep/80 px-1.5 py-0.5 text-[10px] text-halo-muted opacity-0 transition-opacity group-hover/code:opacity-100 hover:text-halo-text"
+      className="absolute right-2 top-2 z-10 rounded-md border border-halo-line bg-halo-deep/80 px-1.5 py-0.5 text-[0.625rem] text-halo-muted opacity-0 transition-opacity group-hover/code:opacity-100 hover:text-halo-text"
     >
       {label}
     </button>

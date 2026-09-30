@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useDelayedUnmount } from "../motion";
 import { diffLines } from "../diff";
 import { useLang } from "../locales";
@@ -21,6 +21,31 @@ export interface DiffPanelFile {
   created: boolean;
   before: string | null;
   after: string;
+}
+
+/** Развёрнутый дифф одного файла. LCS (Int32-матрица до 1500×1500) —
+ *  тяжёлое: считаем один раз на файл через useMemo, а не на каждый флеш
+ *  стрима — App перерисовывается каждый флеш, а панель открыта именно
+ *  во время прогона */
+function ExpandedDiff({
+  f,
+  onQuote,
+}: {
+  f: DiffPanelFile;
+  onQuote?: (path: string, line: number, text: string) => void;
+}) {
+  const lines = useMemo(() => diffLines(f.before ?? "", f.after), [f.before, f.after]);
+  return (
+    <div className="mb-1 ml-6">
+      <DiffView
+        lines={lines}
+        hasBefore={f.before !== null}
+        onQuoteLine={
+          onQuote ? (line, text) => onQuote(f.path, line, text) : undefined
+        }
+      />
+    </div>
+  );
 }
 
 export function DiffPanel({
@@ -48,7 +73,7 @@ export function DiffPanel({
       <div className="flex items-center justify-between gap-3 border-b border-halo-line px-4 py-3">
         <div className="min-w-0">
           <p className="text-sm font-semibold text-halo-text">Review</p>
-          <p className="mt-0.5 text-[11px] text-halo-muted">
+          <p className="mt-0.5 text-[0.6875rem] text-halo-muted">
             {t("agent.filesChanged", { n: files.length })}{" "}
             <span className="font-medium text-emerald-400">+{total.added}</span>{" "}
             <span className="font-medium text-red-400">−{total.removed}</span>
@@ -75,41 +100,29 @@ export function DiffPanel({
                 onClick={() => setOpenFile(expanded ? null : f.path)}
                 className="flex w-full items-center gap-2 rounded-lg px-1.5 py-1.5 text-left transition-colors hover:bg-halo-hover"
               >
-                <span className="w-5 shrink-0 text-right text-[10px] tabular-nums text-halo-muted/60">
+                <span className="w-5 shrink-0 text-right text-[0.625rem] tabular-nums text-halo-muted/60">
                   {i + 1}.
                 </span>
                 <ChevronDownIcon
                   className={`shrink-0 text-halo-muted ${expanded ? "" : "-rotate-90"}`}
                 />
-                <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-halo-text">
+                <span className="min-w-0 flex-1 truncate font-mono text-[0.6875rem] text-halo-text">
                   {f.base}
                   <span className="text-halo-muted/60"> {f.dir}</span>
                 </span>
                 {f.created && (
-                  <span className="shrink-0 rounded bg-emerald-400/15 px-1.5 py-0.5 text-[9px] font-medium text-emerald-400">
+                  <span className="shrink-0 rounded bg-emerald-400/15 px-1.5 py-0.5 text-[0.5625rem] font-medium text-emerald-400">
                     {t("agent.diffCreated")}
                   </span>
                 )}
-                <span className="shrink-0 font-mono text-[10px] text-emerald-400">
+                <span className="shrink-0 font-mono text-[0.625rem] text-emerald-400">
                   +{f.added}
                 </span>
-                <span className="shrink-0 font-mono text-[10px] text-red-400">
+                <span className="shrink-0 font-mono text-[0.625rem] text-red-400">
                   −{f.removed}
                 </span>
               </button>
-              {expanded && (
-                <div className="mb-1 ml-6">
-                  <DiffView
-                    lines={diffLines(f.before ?? "", f.after)}
-                    hasBefore={f.before !== null}
-                    onQuoteLine={
-                      onQuote
-                        ? (line, text) => onQuote(f.path, line, text)
-                        : undefined
-                    }
-                  />
-                </div>
-              )}
+              {expanded && <ExpandedDiff f={f} onQuote={onQuote} />}
             </div>
           );
         })}

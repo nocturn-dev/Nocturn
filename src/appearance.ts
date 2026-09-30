@@ -426,7 +426,12 @@ export function applyAppearance(a: Appearance) {
     root.style.removeProperty("--halo-font-ui");
   }
   if (a.monoFont) {
-    root.style.setProperty("--halo-font-mono", `${a.monoFont}, ui-monospace, Consolas, monospace`);
+    // Фолбэк кроссплатформенный: Consolas — только Windows, Menlo — macOS,
+    // Liberation Mono — Linux; ui-monospace ловит системный моно везде
+    root.style.setProperty(
+      "--halo-font-mono",
+      `${a.monoFont}, ui-monospace, Menlo, Consolas, "Liberation Mono", monospace`,
+    );
   } else {
     root.style.removeProperty("--halo-font-mono");
   }

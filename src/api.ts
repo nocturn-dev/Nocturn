@@ -1724,3 +1724,22 @@ export async function gitAutocommit(root: string, message: string): Promise<bool
   if (!inTauri) return false;
   return invoke<boolean>("git_autocommit", { root, message });
 }
+
+/** Разворот/восстановление окна: кастомная анимация в Rust — нативный
+ *  maximize для безрамочного окна ломает циклы maximize↔restore (tao#471) */
+export async function windowToggleMaximize(): Promise<void> {
+  if (!inTauri) return;
+  await invoke("window_toggle_maximize");
+}
+
+/** Полный экран (назначаемое действие в «Горячих клавишах») */
+export async function windowToggleFullscreen(): Promise<void> {
+  if (!inTauri) return;
+  await invoke("window_toggle_fullscreen");
+}
+
+/** Скрыть окно в трей (крестик при «сворачивать в трей») */
+export async function hideToTray(): Promise<void> {
+  if (!inTauri) return;
+  await invoke("hide_to_tray");
+}

@@ -6,6 +6,7 @@ import { NOTIFY_SOUNDS, playSound, refreshCustomSound, NotifyPrefs } from "../..
 import { pickSaveFile, pickJsonFile, pickAudioFile, pickCliFile, settingsReadAll, settingsWriteAll, settingsExportWrite, settingsImportRead, soundImport, soundDelete, collectLocal, restoreLocal, autostartIsEnabled, autostartSet, storageStats, storageCleanup, quickentrySetBind, dictationStatus, dictationDownloadModel, dictationSetConfig, voiceStatus, voiceDownloadModels, audioOutputs, type DictationStatus, type VoiceStatus, type StorageStats } from "../../api";
 import type { VoiceSettings } from "../../voice/prefs";
 import { VOICE_MODEL_LABELS } from "../../voice/prefs";
+import { AUDIO_OUTPUT_KEY } from "../../tts";
 import type { WakeModel } from "../../voice/wake";
 import { parseChatGptExport, parseGeminiExport } from "../../external/importChats";
 import type { Session } from "../../types";
@@ -119,7 +120,7 @@ function Group({
 }) {
   return (
     <div className="mt-5">
-      <p className="px-2.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-halo-muted/60">
+      <p className="px-2.5 text-[0.625rem] font-semibold uppercase tracking-[0.14em] text-halo-muted/60">
         {title}
       </p>
       <p className="mb-1 mt-0.5 px-2.5 text-xs leading-relaxed text-halo-muted">{desc}</p>
@@ -411,7 +412,7 @@ export function MainSection({
   // Устройство вывода речи (TTS): список с бекенда, выбор — в localStorage
   // (tts.ts читает его напрямую при каждом speak, паттерн haloui-mic-device)
   const [audioOut, setAudioOut] = useState(
-    () => localStorage.getItem("haloui-audio-output") ?? "",
+    () => localStorage.getItem(AUDIO_OUTPUT_KEY) ?? "",
   );
   const [audioDevices, setAudioDevices] = useState<string[]>([]);
   useEffect(() => {
@@ -654,7 +655,7 @@ export function MainSection({
         onChange={(v) => onVoiceChange({ wake: v })}
       />
       {voice.wake && dictStatus && !dictStatus.cliFound && (
-        <p className="-mt-1 px-3.5 text-[10px] leading-relaxed text-amber-400">
+        <p className="-mt-1 px-3.5 text-[0.625rem] leading-relaxed text-amber-400">
           {t("voice.needCli")}
         </p>
       )}
@@ -733,7 +734,9 @@ export function MainSection({
                   ]}
                   onSelect={(d) => {
                     setAudioOut(d);
-                    localStorage.setItem("haloui-audio-output", d);
+                    // Ключ — из tts.ts: независимые литералы молча
+                    // расходились бы при переименовании
+                    localStorage.setItem(AUDIO_OUTPUT_KEY, d);
                   }}
                   className="w-64"
                 />

@@ -29,7 +29,7 @@ export default function CommandsSection() {
   const startNew = () => {
     setName("");
     setDescription("");
-    setTemplate("Ты — …\n\nЗадача: $ARGUMENTS");
+    setTemplate(t("commands.blankTemplate"));
     setEditing("new");
   };
 
@@ -79,7 +79,7 @@ export default function CommandsSection() {
             className="rounded-lg border border-halo-line bg-halo-surface/50 px-3 py-2.5"
           >
             <div className="flex items-center gap-2">
-              <code className="shrink-0 rounded bg-halo-muted/10 px-1.5 py-0.5 font-mono text-[11px] font-semibold text-halo-accent">
+              <code className="shrink-0 rounded bg-halo-muted/10 px-1.5 py-0.5 font-mono text-[0.6875rem] font-semibold text-halo-accent">
                 /{c.name}
               </code>
               <span className="min-w-0 flex-1 truncate text-xs text-halo-muted">
@@ -87,7 +87,7 @@ export default function CommandsSection() {
               </span>
               <button
                 onClick={() => (editing === i ? setEditing(null) : startEdit(i))}
-                className="shrink-0 rounded-md border border-halo-line px-2 py-0.5 text-[10px] text-halo-muted transition-colors hover:border-halo-accent/50 hover:text-halo-accent"
+                className="shrink-0 rounded-md border border-halo-line px-2 py-0.5 text-[0.625rem] text-halo-muted transition-colors hover:border-halo-accent/50 hover:text-halo-accent"
               >
                 {editing === i ? t("cmds.close") : t("cmds.edit")}
               </button>
@@ -181,14 +181,14 @@ export default function CommandsSection() {
               key={bc.name}
               className="flex items-center gap-2 rounded-lg border border-halo-line/60 bg-halo-surface/30 px-3 py-1.5"
             >
-              <code className={`shrink-0 font-mono text-[11px] ${overridden ? "text-halo-muted/40 line-through" : "text-halo-muted"}`}>
+              <code className={`shrink-0 font-mono text-[0.6875rem] ${overridden ? "text-halo-muted/40 line-through" : "text-halo-muted"}`}>
                 /{bc.name}
               </code>
               <span className="min-w-0 flex-1 truncate text-xs text-halo-muted/70">
                 {bc.description}
               </span>
               {overridden && (
-                <span className="shrink-0 text-[10px] text-halo-muted/50">
+                <span className="shrink-0 text-[0.625rem] text-halo-muted/50">
                   {t("cmds.overridden")}
                 </span>
               )}
@@ -196,7 +196,7 @@ export default function CommandsSection() {
           );
         })}
       </div>
-      <p className="mt-2 text-[10px] leading-relaxed text-halo-muted/60">
+      <p className="mt-2 text-[0.625rem] leading-relaxed text-halo-muted/60">
         {t("cmds.builtinHint")}
       </p>
     </div>
@@ -242,9 +242,9 @@ function FormFields({
         onChange={(e) => onTemplate(e.target.value)}
         rows={5}
         placeholder={t("cmds.template")}
-        className="scroll-slim w-full resize-none rounded-lg border border-halo-line bg-halo-surface px-2.5 py-2 font-mono text-[11px] leading-relaxed text-halo-text outline-none focus:border-halo-accent/60"
+        className="scroll-slim w-full resize-none rounded-lg border border-halo-line bg-halo-surface px-2.5 py-2 font-mono text-[0.6875rem] leading-relaxed text-halo-text outline-none focus:border-halo-accent/60"
       />
-      <p className="text-[10px] leading-relaxed text-halo-muted/70">
+      <p className="text-[0.625rem] leading-relaxed text-halo-muted/70">
         {t("cmds.hint")}
       </p>
     </>

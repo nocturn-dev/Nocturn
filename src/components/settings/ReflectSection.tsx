@@ -3,6 +3,7 @@ import { useLang } from "../../locales";
 import type { Session, UsageEvent } from "../../types";
 import type { ApiSettings } from "../../api";
 import { chatOnce, memoryList, notesList, notesWrite } from "../../api";
+import { copyText } from "../../clipboard";
 import UsageSection from "../UsageSection";
 import { dayKeyLocal } from "../../time";
 import { buildReflect, buildReflectPrompt } from "../../reflect";
@@ -94,12 +95,10 @@ export function ReflectSection({
 
   const copyResult = async () => {
     if (!result) return;
-    try {
-      await navigator.clipboard.writeText(result);
+    // copyText — единый путь с фолбэком WebKitGTK (clipboard.ts)
+    if (await copyText(result)) {
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1500);
-    } catch {
-      // В WebView буфер может быть недоступен — молча
     }
   };
 
@@ -157,7 +156,7 @@ export function ReflectSection({
       <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
         {rows.map((r) => (
           <div key={r.label} className="rounded-xl border border-halo-line px-3 py-2.5">
-            <p className="text-[11px] leading-tight text-halo-muted">{r.label}</p>
+            <p className="text-[0.6875rem] leading-tight text-halo-muted">{r.label}</p>
             <p className="mt-1 text-lg font-semibold tabular-nums text-halo-text">{r.value}</p>
           </div>
         ))}
@@ -174,11 +173,11 @@ export function ReflectSection({
               <li key={s.id} className="flex min-w-0 items-center gap-2 text-xs">
                 <span className="min-w-0 flex-1 truncate text-halo-text">{s.title}</span>
                 {s.inProgress > 0 && (
-                  <span className="shrink-0 rounded bg-halo-accent/10 px-1.5 py-0.5 text-[10px] text-halo-accent">
+                  <span className="shrink-0 rounded bg-halo-accent/10 px-1.5 py-0.5 text-[0.625rem] text-halo-accent">
                     {s.inProgress} {t("reflect.lInProgress")}
                   </span>
                 )}
-                <span className="shrink-0 rounded bg-halo-surface/70 px-1.5 py-0.5 text-[10px] text-halo-muted">
+                <span className="shrink-0 rounded bg-halo-surface/70 px-1.5 py-0.5 text-[0.625rem] text-halo-muted">
                   {s.pending} {t("reflect.lPending")}
                 </span>
               </li>
@@ -241,7 +240,7 @@ export function ReflectSection({
             <p className="whitespace-pre-wrap text-xs leading-relaxed text-halo-text">{result}</p>
           </div>
         )}
-        <p className="mt-2 text-[11px] leading-relaxed text-halo-muted/60">{t("reflect.privacy")}</p>
+        <p className="mt-2 text-[0.6875rem] leading-relaxed text-halo-muted/60">{t("reflect.privacy")}</p>
       </div>
     </div>
   );

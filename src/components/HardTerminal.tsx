@@ -183,12 +183,12 @@ export default function HardTerminal({ cwd, combo }: { cwd?: string; combo: stri
   return (
     <div
       onClick={() => termRef.current?.focus()}
-      className="fixed inset-0 z-[100] flex flex-col"
+      className="fixed inset-0 z-[var(--halo-z-splash)] flex flex-col"
       style={{ background: "var(--halo-deep)" }}
     >
       {/* Тонкая подсказка выхода: тает через 4 секунды */}
       <div
-        className={`pointer-events-none absolute right-4 top-2 z-10 font-mono text-[10px] tracking-wider text-halo-muted transition-opacity duration-700 ${
+        className={`pointer-events-none absolute right-4 top-2 z-10 font-mono text-[0.625rem] tracking-wider text-halo-muted transition-opacity duration-700 ${
           hintVisible ? "opacity-70" : "opacity-0"
         }`}
       >

@@ -41,17 +41,17 @@ function SubagentCardBase({
         {running ? (
           <span className="size-2 shrink-0 animate-pulse rounded-full bg-halo-accent" />
         ) : (
-          <span className="shrink-0 text-[11px] text-emerald-400">✓</span>
+          <span className="shrink-0 text-[0.6875rem] text-emerald-400">✓</span>
         )}
         <span className="shrink-0 text-xs font-medium text-halo-text">
           {t("card.subagent")} · {roleName}
         </span>
         {running && (
-          <span className="shrink-0 text-[10px] text-halo-muted">
+          <span className="shrink-0 text-[0.625rem] text-halo-muted">
             {steps > 0 ? `${steps} ${t("card.subagentSteps")}` : t("card.subagentStarting")}
           </span>
         )}
-        <span className="min-w-0 flex-1 truncate text-[10px] text-halo-muted/60">
+        <span className="min-w-0 flex-1 truncate text-[0.625rem] text-halo-muted/60">
           {task}
         </span>
         <span className={`shrink-0 text-halo-muted transition-transform ${open ? "rotate-90" : ""}`}>
@@ -61,7 +61,7 @@ function SubagentCardBase({
       {open && (
         <div className="space-y-2 border-t border-halo-line px-3 py-2.5">
           {run?.thought && (
-            <pre className="scroll-slim max-h-32 overflow-y-auto whitespace-pre-wrap font-mono text-[10px] leading-relaxed text-halo-muted">
+            <pre className="scroll-slim max-h-32 overflow-y-auto whitespace-pre-wrap font-mono text-[0.625rem] leading-relaxed text-halo-muted">
               {run.thought.slice(-1200)}
             </pre>
           )}
@@ -70,7 +70,7 @@ function SubagentCardBase({
               {run.tools.map((tool, i) => (
                 <code
                   key={i}
-                  className="max-w-full truncate rounded bg-halo-muted/10 px-1.5 py-0.5 font-mono text-[10px] text-halo-muted"
+                  className="max-w-full truncate rounded bg-halo-muted/10 px-1.5 py-0.5 font-mono text-[0.625rem] text-halo-muted"
                 >
                   {tool}
                 </code>

@@ -201,7 +201,7 @@ export default function KnowledgeModal({
                     className="min-w-0 flex-1 text-left"
                   >
                     <span className="block truncate font-medium">{b.name}</span>
-                    <span className="text-[10px] text-halo-muted/70">
+                    <span className="text-[0.625rem] text-halo-muted/70">
                       {b.docs} · {b.chunks} {t("kb.chunksLabel")}
                     </span>
                   </button>
@@ -246,7 +246,7 @@ export default function KnowledgeModal({
                     {t("kb.addDocs")}
                   </button>
                 </div>
-                <p className="mb-1.5 text-[10px] font-medium uppercase tracking-wider text-halo-muted/60">
+                <p className="mb-1.5 text-[0.625rem] font-medium uppercase tracking-wider text-halo-muted/60">
                   {t("kb.docs")}
                 </p>
                 <div className="scroll-slim max-h-80 space-y-1 overflow-y-auto">
@@ -263,7 +263,7 @@ export default function KnowledgeModal({
                       <span className="min-w-0 flex-1 truncate text-halo-text" title={d.path}>
                         {d.title}
                       </span>
-                      <span className="shrink-0 text-[10px] text-halo-muted/70">
+                      <span className="shrink-0 text-[0.625rem] text-halo-muted/70">
                         {d.chunks} {t("kb.chunksLabel")}
                       </span>
                       <button

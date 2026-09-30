@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { ACCENT_PRESETS } from "../appearance";
 import { loadCustomStyles } from "../themeStyles";
 import type { ModelInfo } from "../api";
@@ -59,6 +59,11 @@ export default function QuickSettings({
     { id: "look", label: t("qs.look") },
   ];
 
+  // Кастомные стили: localStorage + JSON.parse + санитизация — раз на
+  // монтирование поповера (условный рендер в ChatArea), а не на каждый его
+  // рендер: поповер перерисовывается вместе с ChatArea на каждый флеш
+  // стрима и keystroke композера
+  const customStyles = useMemo(() => loadCustomStyles(), []);
   const darkStyles: { id: Appearance["style"]; label: string }[] = [
     { id: "claude", label: t("themes.styleClaude") },
     { id: "midnight", label: t("themes.styleMidnight") },
@@ -67,7 +72,7 @@ export default function QuickSettings({
     { id: "storm", label: t("themes.styleStorm") },
     { id: "dusk", label: t("themes.styleDusk") },
     // Конструктор (идея №3): свои стили всегда под рукой во вкладке «Вид»
-    ...loadCustomStyles().map((s) => ({ id: s.id as Appearance["style"], label: s.name })),
+    ...customStyles.map((s) => ({ id: s.id as Appearance["style"], label: s.name })),
   ];
 
   // Reasoning effort: уровни усилия размышлений (off — не отправлять)
@@ -91,7 +96,7 @@ export default function QuickSettings({
             <button
               key={tb.id}
               onClick={() => setTab(tb.id)}
-              className={`flex-1 rounded-md px-2 py-1 text-[11px] font-medium transition-colors ${
+              className={`flex-1 rounded-md px-2 py-1 text-[0.6875rem] font-medium transition-colors ${
                 tab === tb.id
                   ? "bg-halo-accent/15 text-halo-accent"
                   : "text-halo-muted hover:bg-halo-hover hover:text-halo-text"
@@ -125,21 +130,21 @@ export default function QuickSettings({
                   <ProviderIcon modelId={m.id} size={15} />
                   <span className="min-w-0 flex-1 truncate font-mono">{m.id}</span>
                   {m.vision && (
-                    <span className="shrink-0 rounded bg-sky-400/15 px-1 py-0.5 text-[9px] text-sky-400">
+                    <span className="shrink-0 rounded bg-sky-400/15 px-1 py-0.5 text-[0.5625rem] text-sky-400">
                       vision
                     </span>
                   )}
                 </button>
               ))}
               {models.length > 40 && (
-                <p className="px-1 pt-1 text-[10px] text-halo-muted/50">
+                <p className="px-1 pt-1 text-[0.625rem] text-halo-muted/50">
                   {t("qs.moreInSettings")}
                 </p>
               )}
 
               {/* Reasoning effort: усилие размышлений поддерживающих моделей */}
               <div className="pt-2">
-                <p className="mb-1.5 px-0.5 text-[10px] uppercase tracking-wider text-halo-muted/60">
+                <p className="mb-1.5 px-0.5 text-[0.625rem] uppercase tracking-wider text-halo-muted/60">
                   {t("qs.effort")}
                 </p>
                 <div className="flex rounded-lg border border-halo-line p-0.5">
@@ -147,7 +152,7 @@ export default function QuickSettings({
                     <button
                       key={ef.id}
                       onClick={() => onEffortChange(ef.id)}
-                      className={`flex-1 rounded-md px-1.5 py-1 text-[11px] transition-colors ${
+                      className={`flex-1 rounded-md px-1.5 py-1 text-[0.6875rem] transition-colors ${
                         effort === ef.id
                           ? "bg-halo-accent/15 font-medium text-halo-accent"
                           : "text-halo-muted hover:text-halo-text"
@@ -186,7 +191,7 @@ export default function QuickSettings({
             <div className="space-y-3">
               {/* Тема */}
               <div>
-                <p className="mb-1.5 px-0.5 text-[10px] uppercase tracking-wider text-halo-muted/60">
+                <p className="mb-1.5 px-0.5 text-[0.625rem] uppercase tracking-wider text-halo-muted/60">
                   {t("qs.theme")}
                 </p>
                 <div className="grid grid-cols-2 gap-1.5">
@@ -234,7 +239,7 @@ export default function QuickSettings({
 
               {/* Акцентный цвет: 6 пресетов тем + свой */}
               <div>
-                <p className="mb-1.5 px-0.5 text-[10px] uppercase tracking-wider text-halo-muted/60">
+                <p className="mb-1.5 px-0.5 text-[0.625rem] uppercase tracking-wider text-halo-muted/60">
                   {t("themes.accent")}
                 </p>
                 <div className="flex items-center gap-1.5 px-0.5">
@@ -266,10 +271,10 @@ export default function QuickSettings({
               {/* Масштаб */}
               <div>
                 <div className="mb-1 flex items-center justify-between px-0.5">
-                  <p className="text-[10px] uppercase tracking-wider text-halo-muted/60">
+                  <p className="text-[0.625rem] uppercase tracking-wider text-halo-muted/60">
                     {t("themes.scale")}
                   </p>
-                  <span className="text-[10px] text-halo-muted">{appearance.scale}%</span>
+                  <span className="text-[0.625rem] text-halo-muted">{appearance.scale}%</span>
                 </div>
                 <input
                   type="range"
@@ -285,7 +290,7 @@ export default function QuickSettings({
               </div>
 
               {/* Провайдер — короткая ссылка на полный список */}
-              <p className="px-0.5 text-[10px] text-halo-muted/50">
+              <p className="px-0.5 text-[0.625rem] text-halo-muted/50">
                 {t("qs.providerHint")} {PROVIDERS.length} · {t("qs.slashHint")} /provider
               </p>
             </div>

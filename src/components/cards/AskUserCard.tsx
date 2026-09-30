@@ -86,7 +86,7 @@ export function AskPanel({
       {/* Шапка: чип + вопрос одной строкой */}
       <div className="flex items-baseline gap-2">
         {ask.header && (
-          <span className="shrink-0 rounded-md bg-halo-accent/15 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-halo-accent">
+          <span className="shrink-0 rounded-md bg-halo-accent/15 px-2 py-0.5 text-[0.6875rem] font-semibold uppercase tracking-wide text-halo-accent">
             {ask.header}
           </span>
         )}
@@ -158,7 +158,7 @@ export function AskPanel({
 
         {/* Превью выбранной/активной опции (только одиночный выбор) */}
         {preview && (
-          <pre className="max-h-48 w-64 shrink-0 overflow-auto rounded-lg border border-halo-line bg-halo-bg p-2 text-[11px] leading-relaxed text-halo-muted">
+          <pre className="max-h-48 w-64 shrink-0 overflow-auto rounded-lg border border-halo-line bg-halo-bg p-2 text-[0.6875rem] leading-relaxed text-halo-muted">
             {preview}
           </pre>
         )}
@@ -166,7 +166,7 @@ export function AskPanel({
 
       {/* Футер: подсказка + Submit */}
       <div className="mt-1.5 flex items-center justify-between gap-3">
-        <p className="min-w-0 truncate text-[11px] text-halo-muted/60">
+        <p className="min-w-0 truncate text-[0.6875rem] text-halo-muted/60">
           {multi ? t("ask.multiHint") : t("ask.kbdHint")}
         </p>
         <button
@@ -188,7 +188,7 @@ export function AskClosedCard({ ask }: { ask: AskQuestion }) {
     <div className="anim-fade-up mr-auto w-fit max-w-[85%] rounded-xl border border-halo-line bg-halo-surface/50 px-3 py-2">
       <p className="flex flex-wrap items-baseline gap-x-2 text-xs">
         {ask.header && (
-          <span className="text-[11px] font-semibold uppercase tracking-wider text-halo-accent">
+          <span className="text-[0.6875rem] font-semibold uppercase tracking-wider text-halo-accent">
             {ask.header}
           </span>
         )}

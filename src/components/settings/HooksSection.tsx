@@ -174,7 +174,7 @@ export function HooksSection() {
       {/* Готовые пресеты */}
       {hooks.length === 0 && !showAdd && (
         <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-halo-line px-3 py-2.5">
-          <span className="text-[11px] text-halo-muted">{t("hook.presets")}:</span>
+          <span className="text-[0.6875rem] text-halo-muted">{t("hook.presets")}:</span>
           {(
             [
               ["blockDelete", "hook.preset.blockDelete"],
@@ -188,7 +188,7 @@ export function HooksSection() {
             <button
               key={id}
               onClick={() => void addPreset(id)}
-              className="rounded-md border border-halo-line px-2 py-1 text-[11px] text-halo-text transition-colors hover:border-halo-accent/50 hover:bg-halo-hover"
+              className="rounded-md border border-halo-line px-2 py-1 text-[0.6875rem] text-halo-text transition-colors hover:border-halo-accent/50 hover:bg-halo-hover"
             >
               {t(key)}
             </button>
@@ -216,23 +216,23 @@ export function HooksSection() {
               className="rounded-lg border border-halo-line bg-halo-surface/50 px-3 py-2.5"
             >
               <div className="flex items-center gap-2">
-                <span className="shrink-0 rounded bg-halo-muted/10 px-1.5 py-0.5 font-mono text-[10px] text-halo-accent">
+                <span className="shrink-0 rounded bg-halo-muted/10 px-1.5 py-0.5 font-mono text-[0.625rem] text-halo-accent">
                   {eventLabel(h.event)}
                 </span>
                 {h.matcher && (
-                  <code className="shrink-0 font-mono text-[10px] text-halo-muted">
+                  <code className="shrink-0 font-mono text-[0.625rem] text-halo-muted">
                     {h.matcher}
                   </code>
                 )}
-                <code className="min-w-0 flex-1 truncate font-mono text-[11px] text-halo-muted">
+                <code className="min-w-0 flex-1 truncate font-mono text-[0.6875rem] text-halo-muted">
                   {h.command}
                 </code>
-                <span className="shrink-0 text-[10px] text-halo-muted/60">
+                <span className="shrink-0 text-[0.625rem] text-halo-muted/60">
                   {h.timeout}s
                 </span>
                 <button
                   onClick={() => void update(h.id, { enabled: !h.enabled })}
-                  className={`shrink-0 rounded-md border px-2 py-0.5 text-[10px] transition-colors ${
+                  className={`shrink-0 rounded-md border px-2 py-0.5 text-[0.625rem] transition-colors ${
                     h.enabled
                       ? "border-emerald-400/40 text-emerald-400"
                       : "border-halo-line text-halo-muted hover:text-halo-text"
@@ -244,7 +244,7 @@ export function HooksSection() {
                   onClick={() => void runTest(h)}
                   disabled={testBusy === h.id}
                   title={t("hook.test")}
-                  className="shrink-0 rounded-md border border-halo-line px-2 py-0.5 text-[10px] text-halo-muted transition-colors hover:border-halo-accent/50 hover:text-halo-accent disabled:opacity-40"
+                  className="shrink-0 rounded-md border border-halo-line px-2 py-0.5 text-[0.625rem] text-halo-muted transition-colors hover:border-halo-accent/50 hover:text-halo-accent disabled:opacity-40"
                 >
                   {testBusy === h.id ? "…" : t("hook.test")}
                 </button>
@@ -277,7 +277,7 @@ export function HooksSection() {
               />
               {out && (
                 <div
-                  className={`mt-2 space-y-1 rounded-md px-2 py-1.5 font-mono text-[10px] leading-relaxed ${
+                  className={`mt-2 space-y-1 rounded-md px-2 py-1.5 font-mono text-[0.625rem] leading-relaxed ${
                     out.blocked
                       ? "bg-red-400/10 text-red-400"
                       : "bg-emerald-400/10 text-emerald-400"
@@ -324,7 +324,7 @@ export function HooksSection() {
         <div className="mt-4 space-y-3 rounded-xl border border-halo-line p-3">
           <div className="grid grid-cols-[1fr_auto] items-end gap-2">
             <div>
-              <label className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-halo-muted/70">
+              <label className="mb-1 block text-[0.625rem] font-medium uppercase tracking-wide text-halo-muted/70">
                 {t("hook.eventLabel")}
               </label>
               <Dropdown
@@ -335,7 +335,7 @@ export function HooksSection() {
               />
             </div>
             <div className="w-28">
-              <label className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-halo-muted/70">
+              <label className="mb-1 block text-[0.625rem] font-medium uppercase tracking-wide text-halo-muted/70">
                 {t("hook.timeout")}
               </label>
               <input
@@ -349,7 +349,7 @@ export function HooksSection() {
             </div>
           </div>
           <div>
-            <label className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-halo-muted/70">
+            <label className="mb-1 block text-[0.625rem] font-medium uppercase tracking-wide text-halo-muted/70">
               {t("hook.matcherLabel")}
             </label>
             <input
@@ -359,12 +359,12 @@ export function HooksSection() {
               placeholder={t("hook.matcher")}
               className="w-full rounded-lg border border-halo-line bg-halo-surface px-3 py-2 font-mono text-xs text-halo-text outline-none transition-colors placeholder:text-halo-muted/60 focus:border-halo-accent/60"
             />
-            <p className="mt-1 text-[10px] leading-relaxed text-halo-muted/70">
+            <p className="mt-1 text-[0.625rem] leading-relaxed text-halo-muted/70">
               {t("hook.matcherHint")}
             </p>
           </div>
           <div>
-            <label className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-halo-muted/70">
+            <label className="mb-1 block text-[0.625rem] font-medium uppercase tracking-wide text-halo-muted/70">
               {t("hook.commandLabel")}
             </label>
             <input
@@ -375,7 +375,7 @@ export function HooksSection() {
               spellCheck={false}
               className="w-full rounded-lg border border-halo-line bg-halo-surface px-3 py-2 font-mono text-sm text-halo-text outline-none transition-colors placeholder:text-halo-muted/60 focus:border-halo-accent/60"
             />
-            <p className="mt-1 text-[10px] leading-relaxed text-halo-muted/70">{t("hook.hint")}</p>
+            <p className="mt-1 text-[0.625rem] leading-relaxed text-halo-muted/70">{t("hook.hint")}</p>
           </div>
           <div className="flex justify-end gap-2">
             <button

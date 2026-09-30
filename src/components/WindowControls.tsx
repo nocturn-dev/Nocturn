@@ -1,5 +1,5 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { invoke } from "@tauri-apps/api/core";
+import { hideToTray, windowToggleMaximize } from "../api";
 import { useLang } from "../locales";
 
 /**
@@ -43,7 +43,7 @@ export default function WindowControls() {
           // Анимированный разворот/восстановление в рабочую область монитора
           // (Rust). Нативный maximize для безрамочного окна ломает циклы
           // maximize↔restore (чёрные полосы, съехавшая картинка) — tao#471
-          void invoke("window_toggle_maximize").catch(() => void win.toggleMaximize());
+          void windowToggleMaximize().catch(() => void win.toggleMaximize());
         }}
         title={t("win.max")}
         className={`${btn} hover:bg-halo-hover hover:text-halo-text`}
@@ -56,7 +56,7 @@ export default function WindowControls() {
         onClick={() => {
           // «Скрывать в трей»: крестик прячет окно, выход — из меню трея
           if (localStorage.getItem("haloui-close-to-tray") === "1") {
-            void invoke("hide_to_tray").catch(() => win.close());
+            void hideToTray().catch(() => win.close());
           } else {
             void win.close();
           }

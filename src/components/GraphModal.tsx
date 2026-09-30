@@ -393,7 +393,7 @@ export default function GraphModal({ notes, onOpenNote, onClose }: GraphModalPro
           <h2 className="flex-1 text-sm font-semibold text-halo-text">
             {t("notes.graph")}
           </h2>
-          <span className="text-[11px] text-halo-muted/70">
+          <span className="text-[0.6875rem] text-halo-muted/70">
             {nodes.length} · {edges.length}
           </span>
           {/* Раскладка: симуляция / дерево развилок */}
@@ -402,7 +402,7 @@ export default function GraphModal({ notes, onOpenNote, onClose }: GraphModalPro
               <button
                 key={m}
                 onClick={() => setLayout(m)}
-                className={`rounded-md px-2 py-0.5 text-[11px] transition-colors ${
+                className={`rounded-md px-2 py-0.5 text-[0.6875rem] transition-colors ${
                   layout === m
                     ? "bg-halo-hover-strong text-halo-text"
                     : "text-halo-muted hover:text-halo-text"
@@ -506,7 +506,7 @@ export default function GraphModal({ notes, onOpenNote, onClose }: GraphModalPro
         )}
 
         {/* Подсказка */}
-        <div className="shrink-0 border-t border-halo-line px-4 py-1.5 text-center text-[10px] text-halo-muted/60">
+        <div className="shrink-0 border-t border-halo-line px-4 py-1.5 text-center text-[0.625rem] text-halo-muted/60">
           {t("notes.graphHint")}
         </div>
       </div>

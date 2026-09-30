@@ -10,6 +10,11 @@
 import { useEffect, useRef, useState, type ComponentPropsWithoutRef } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+// Модульные константы вместо литералов в JSX: новые массивы на каждый рендер
+// пересоздавали пайплайн ReactMarkdown (антипаттерн, вылеченный в
+// AssistantCard выносом MD_PLUGINS)
+const MD_PLUGINS = [remarkGfm];
+const MD_COMPONENTS = { a: CompareLink };
 import { useDelayedUnmount } from "../motion";
 import {
   abortChat,
@@ -222,7 +227,10 @@ export default function CompareModal({ open, onClose, profiles, current }: Compa
     reqIdsRef.current = reqIds;
 
     for (const tg of chosen) {
-      const rid = ridByKey.get(tg.key)!;
+      // ridByKey заполнен из тех же chosen выше: guard вместо non-null
+      // assertion — при расхождении источников защита не исчезает
+      const rid = ridByKey.get(tg.key);
+      if (!rid) continue;
       const t0 = performance.now();
       let firstDelta = true;
       const messages: ChatMsgParam[] = [{ role: "user", content: clean }];
@@ -308,7 +316,7 @@ export default function CompareModal({ open, onClose, profiles, current }: Compa
               >
                 <ProviderIcon modelId={tg.model} size={13} />
                 <span className="max-w-36 truncate font-medium">{tg.label}</span>
-                <span className="max-w-32 truncate text-[10px] text-halo-muted/70">
+                <span className="max-w-32 truncate text-[0.625rem] text-halo-muted/70">
                   {shortModelName(tg.model)}
                 </span>
               </button>
@@ -358,7 +366,7 @@ export default function CompareModal({ open, onClose, profiles, current }: Compa
           {selected.length === 0 && (
             <span className="text-xs text-halo-muted/70">{t("cmp.empty")}</span>
           )}
-          <span className="ml-auto text-[10px] text-halo-muted/50">Ctrl+Enter</span>
+          <span className="ml-auto text-[0.625rem] text-halo-muted/50">Ctrl+Enter</span>
         </div>
 
         {/* Колонки ответов */}
@@ -378,7 +386,7 @@ export default function CompareModal({ open, onClose, profiles, current }: Compa
                       <span className="truncate text-xs font-semibold text-halo-text">
                         {tg.label}
                       </span>
-                      <span className="truncate text-[10px] text-halo-muted/70">
+                      <span className="truncate text-[0.625rem] text-halo-muted/70">
                         {shortModelName(tg.model)}
                       </span>
                       <span className="ml-auto shrink-0">
@@ -394,8 +402,8 @@ export default function CompareModal({ open, onClose, profiles, current }: Compa
                     <div className="markdown scroll-slim max-h-[46vh] min-h-24 overflow-y-auto px-3 py-2 text-sm leading-relaxed text-halo-text">
                       {lane.text !== "" ? (
                         <ReactMarkdown
-                          remarkPlugins={[remarkGfm]}
-                          components={{ a: CompareLink }}
+                          remarkPlugins={MD_PLUGINS}
+                          components={MD_COMPONENTS}
                         >
                           {lane.text}
                         </ReactMarkdown>
@@ -407,7 +415,7 @@ export default function CompareModal({ open, onClose, profiles, current }: Compa
                         </span>
                       ) : null}
                     </div>
-                    <div className="flex items-center gap-3 border-t border-halo-line/50 px-3 py-1.5 text-[10px] tabular-nums text-halo-muted/70">
+                    <div className="flex items-center gap-3 border-t border-halo-line/50 px-3 py-1.5 text-[0.625rem] tabular-nums text-halo-muted/70">
                       <span title={t("cmp.ttft")}>
                         {t("cmp.ttft")}:{" "}
                         {lane.ttft !== null ? fmtSec(lane.ttft) : "—"}

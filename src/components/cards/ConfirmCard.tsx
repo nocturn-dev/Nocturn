@@ -11,7 +11,7 @@ export function ConfirmCard({
   const { t } = useLang();
   return (
     <div className="anim-fade-up mr-auto w-fit max-w-[85%] rounded-xl border border-amber-400/40 bg-amber-400/10 px-4 py-3 shadow-sm">
-      <p className="text-[11px] font-semibold uppercase tracking-wider text-amber-400">
+      <p className="text-[0.6875rem] font-semibold uppercase tracking-wider text-amber-400">
         {t("agent.confirmTitle")}
       </p>
       <p className="mt-1 text-xs text-halo-muted">{t("agent.confirmDesc")}</p>

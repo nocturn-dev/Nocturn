@@ -208,7 +208,7 @@ export default function NotesModal({
                 }
               }}
               placeholder={t("notes.placeholder")}
-              className="scroll-slim h-full w-full resize-none bg-transparent px-5 py-4 font-mono text-[13px] leading-relaxed text-halo-text outline-none placeholder:text-halo-muted/60"
+              className="scroll-slim h-full w-full resize-none bg-transparent px-5 py-4 font-mono text-[0.8125rem] leading-relaxed text-halo-text outline-none placeholder:text-halo-muted/60"
             />
           )}
         </div>
@@ -241,7 +241,7 @@ export default function NotesModal({
                   if (dirty) onSave(note.file, draft);
                   onOpenNote(l.file);
                 }}
-                className="rounded-full border border-halo-line bg-halo-surface/60 px-2 py-0.5 text-[11px] text-halo-muted transition-colors hover:border-halo-accent/50 hover:text-halo-text"
+                className="rounded-full border border-halo-line bg-halo-surface/60 px-2 py-0.5 text-[0.6875rem] text-halo-muted transition-colors hover:border-halo-accent/50 hover:text-halo-text"
               >
                 → {l.title}
               </button>
@@ -254,14 +254,14 @@ export default function NotesModal({
                   onOpenNote(title);
                 }}
                 title={`${t("notes.dangling")} · ${t("notes.createHint")}`}
-                className="rounded-full border border-dashed border-amber-400/50 px-2 py-0.5 text-[11px] text-amber-400/90 transition-colors hover:border-amber-400 hover:text-amber-300"
+                className="rounded-full border border-dashed border-amber-400/50 px-2 py-0.5 text-[0.6875rem] text-amber-400/90 transition-colors hover:border-amber-400 hover:text-amber-300"
               >
                 → {title}?
               </button>
             ))}
             {backlinks.length > 0 && (
               <span className="ml-auto flex flex-wrap items-center gap-1.5">
-                <span className="text-[10px] uppercase tracking-wider text-halo-muted/60">
+                <span className="text-[0.625rem] uppercase tracking-wider text-halo-muted/60">
                   {t("notes.backlinks")}
                 </span>
                 {backlinks.map((b) => (
@@ -271,7 +271,7 @@ export default function NotesModal({
                       if (dirty) onSave(note.file, draft);
                       onOpenNote(b.file);
                     }}
-                    className="rounded-full border border-halo-line bg-halo-surface/60 px-2 py-0.5 text-[11px] text-halo-muted transition-colors hover:border-halo-accent/50 hover:text-halo-text"
+                    className="rounded-full border border-halo-line bg-halo-surface/60 px-2 py-0.5 text-[0.6875rem] text-halo-muted transition-colors hover:border-halo-accent/50 hover:text-halo-text"
                   >
                     ← {b.title}
                   </button>
@@ -281,7 +281,7 @@ export default function NotesModal({
           </div>
 
           <div className="flex items-center justify-between">
-            <span className="text-[10px] text-halo-muted/60">{t("notes.ctrlEnter")}</span>
+            <span className="text-[0.625rem] text-halo-muted/60">{t("notes.ctrlEnter")}</span>
             <button
               onClick={() => onSave(note.file, draft)}
               disabled={!dirty || saving}
@@ -295,7 +295,7 @@ export default function NotesModal({
 
           {/* Живой граф: соседи, порядок цепочки, backlinks */}
           <aside className="hidden w-64 shrink-0 flex-col border-l border-halo-line md:flex">
-            <p className="border-b border-halo-line/60 px-3 py-2 text-[10px] font-medium uppercase tracking-wider text-halo-muted/60">
+            <p className="border-b border-halo-line/60 px-3 py-2 text-[0.625rem] font-medium uppercase tracking-wider text-halo-muted/60">
               {t("notes.miniGraph")}
             </p>
             <MiniGraph
@@ -436,7 +436,7 @@ function MiniGraph({
           </g>
         ))}
       </svg>
-      <div className="space-y-1 border-t border-halo-line/60 px-3 py-2 text-[10px] text-halo-muted/70">
+      <div className="space-y-1 border-t border-halo-line/60 px-3 py-2 text-[0.625rem] text-halo-muted/70">
         <p><span className="mr-1 inline-block size-2 rounded-full bg-[#5fbe82] align-middle" />{t("notes.mgOut")}</p>
         <p><span className="mr-1 inline-block size-2 rounded-full bg-[#5f87d4] align-middle" />{t("notes.mgBack")}</p>
         <p><span className="mr-1 inline-block size-2 rounded-full border border-dashed border-[#d4aa50] align-middle" />{t("notes.mgDangling")}</p>

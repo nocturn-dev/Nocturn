@@ -35,6 +35,16 @@ import type { Message, PermissionMode, Session, UsageEvent } from "../types";
  * и его рефы рядом.
  */
 
+/** Числовые поля usage/workedMs приходят из рук редактируемого sessions.json:
+ *  строка «5» в prompt раньше доезжала до сумм статистики и делала их NaN —
+ *  теплокарта ломалась, а Hard Limit при сравнении с NaN молча не срабатывал */
+function sanitizeUsage(u: unknown): Message["usage"] | undefined {
+  if (typeof u !== "object" || u === null) return undefined;
+  const o = u as Record<string, unknown>;
+  const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : 0);
+  return { prompt: num(o.prompt), completion: num(o.completion), total: num(o.total) };
+}
+
 /** Сообщение: обязательные id/role/content, остальное переносится как есть.
  *  Инварианты, на которые опирается агентный цикл (m.content.startsWith в
  *  agent/history.ts): повреждённая запись раньше роняла прогон TypeError'ом */
@@ -46,6 +56,9 @@ function sanitizeMessage(raw: unknown): Message | null {
   return {
     ...(m as unknown as Message),
     content: typeof m.content === "string" ? m.content : "",
+    usage: sanitizeUsage(m.usage),
+    workedMs:
+      typeof m.workedMs === "number" && Number.isFinite(m.workedMs) ? m.workedMs : undefined,
   };
 }
 

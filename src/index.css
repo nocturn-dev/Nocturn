@@ -45,6 +45,15 @@ html[data-mark="classic"] .nocturn-mark .mark-bold {
   --halo-hover-strong: rgba(255, 255, 255, 0.085);
   --halo-code-bg: #1a1918;
   --halo-term-font: 11.5px; /* размер шрифта терминала (кастомизация) */
+  /* Z-шкала: объявленная лестница слоёв вместо подбора значений. Raw CSS
+     читает переменные здесь, TSX — утилиты z-[var(--halo-z-*)] */
+  --halo-z-behind: -1; /* ambient-сцена «за интерфейсом» */
+  --halo-z-ambient: 30; /* ambient-слой/сцены поверх контента */
+  --halo-z-toast: 70; /* тосты, voice pill, прогресс загрузки */
+  --halo-z-modal: 80; /* модальные окна поверх контента */
+  --halo-z-modal-top: 90; /* вложенный оверлей внутри модалки (QR-зум) */
+  --halo-z-splash: 100; /* сплэш и HardTerminal */
+  --halo-z-voice: 200; /* индикатор слушающего микрофона — всегда сверху */
   color-scheme: dark;
 }
 
@@ -98,8 +107,11 @@ html.light {
     monospace
   );
   /* Motion-токены: единый ритм анимаций. --motion-scale (0.7/1/1.4) —
-     пользовательский множитель из «Продвинутых настроек»; все длительности
-     считаются calc(... * scale), поэтому пресет двигает всё сразу */
+     пользовательский множитель из «Продвинутых настроек». ВАЖНО: scale
+     двигает входы/выходы и кастомные анимации (anim-*, View Transitions
+     и transition'ы raw CSS через var(--motion-*)); переходы Tailwind-
+     утилитами (duration-150/200/300) остаются литеральными — глобальное
+     перекрытие duration* правилами ломало бы приоритеты каскада */
   --motion-scale: 1;
   --motion-fast: calc(120ms * var(--motion-scale));
   --motion-base: calc(220ms * var(--motion-scale));
@@ -174,13 +186,14 @@ body {
 html.accent-gradient .bg-halo-accent {
   background-image: linear-gradient(135deg, var(--halo-accent), var(--halo-accent-deep));
 }
-html.accent-gradient .bg-halo-accent:hover {
+/* Смена градиента на hover — affordance интерактива: селекторы только для
+   кликабельных элементов. Раньше hover разворачивал градиент на декоративных
+   заливках (typing-dot, полоса прогресса загрузки, сегменты змейки-превью,
+   плитки 2048) при случайном попадании курсора */
+html.accent-gradient button.bg-halo-accent:hover,
+html.accent-gradient a.bg-halo-accent:hover,
+html.accent-gradient [role="button"].bg-halo-accent:hover {
   background-image: linear-gradient(135deg, var(--halo-accent-deep), var(--halo-accent));
-}
-/* Декоративные точки (typing-dot и пр.) — не интерактив: hover-градиент
-   менял их заливку при случайном попадании курсора */
-html.accent-gradient .typing-dot.bg-halo-accent:hover {
-  background-image: none;
 }
 
 /* ---------- Микроанимации ---------- */
@@ -229,6 +242,10 @@ html.accent-gradient .typing-dot.bg-halo-accent:hover {
 }
 .anim-fade-out {
   animation: halo-fade-out var(--motion-fast) var(--ease-exit) both;
+  /* Оверлеи с утилитой backdrop-blur-sm держали blur до самого unmount:
+     как у anim-pop-out — пересчёт снапшота фона в кадрах выхода не нужен */
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 @keyframes halo-fade-out {
   from { opacity: 1; }
@@ -298,7 +315,7 @@ html.voice-listening body::after {
   background: var(--halo-accent);
   opacity: 0.9;
   animation: voice-blink 1.8s ease-in-out infinite;
-  z-index: 200;
+  z-index: var(--halo-z-voice);
   pointer-events: none;
 }
 @keyframes voice-blink {
@@ -759,6 +776,16 @@ html.glass .glass-pane {
   }
 }
 
+/* Выход модалок при активном стекле: .anim-pop-out объявлен выше с
+   backdrop-filter: none, но специфичностью (0,1,0) проигрывает
+   html.glass .glass-pane (0,2,1) — и blur доживал всю exit-анимацию.
+   Правило ниже перевешивает на время выхода */
+html.glass .anim-pop-out,
+html.glass .anim-fade-out {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
 /* Отдельное стекло на сайдбаре (тумблер в «Темах», работает и без общего стекла).
    Фон делаем полупрозрачным — иначе blur не видно сквозь непрозрачный цвет */
 html.sidebar-glass aside {
@@ -805,6 +832,24 @@ html.ambient-paused .glass-pane {
   }
   ::selection {
     background: var(--halo-accent);
+  }
+  /* Opacity-модификаторы var-палитры Tailwind компилирует через color-mix
+     с фолбэком на СПЛОШНОЙ цвет: низкоальфовый акцентный тинт под акцентным
+     текстом становился «акцент на акценте» (аудит: 42 пары /10 /15) —
+     нечитаемо. Деградация: нейтральная поверхность, текст акцента читается.
+     Сильные заливки (/50+) не трогаем — там текст on-accent */
+  .bg-halo-accent\/5,
+  .bg-halo-accent\/10,
+  .bg-halo-accent\/15,
+  .bg-halo-accent\/20,
+  .bg-halo-accent\/30,
+  .bg-halo-accent\/40 {
+    background-color: var(--halo-hover-strong);
+  }
+  /* Пара «тинт + on-accent» (плитки 2048): нейтральная поверхность убьёт
+     белый текст — остаётся сплошной акцент */
+  .bg-halo-accent\/40.text-halo-on-accent {
+    background-color: var(--halo-accent);
   }
   /* «Сцена за интерфейсом» и обои: без фолбэка панели оставались
      непрозрачными и режим молча не работал вовсе */
@@ -865,7 +910,18 @@ input[type="range"]::-webkit-slider-thumb {
   border: 2px solid var(--halo-bg);
   box-shadow: 0 1px 6px rgb(0 0 0 / 45%);
   cursor: grab;
-  transition: transform 0.12s ease;
+  transition: transform var(--motion-fast) ease;
+}
+/* Фокус-кольца выключены решением владельца (см. :focus-visible выше), но
+   у ползунка не было НИКАКОГО индикатора клавиатурного фокуса — ручка
+   подсвечивается только по focus-visible (не по клику) */
+input[type="range"]:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--halo-accent) 45%, transparent);
+}
+@supports not (background: color-mix(in srgb, red, blue)) {
+  input[type="range"]:focus-visible::-webkit-slider-thumb {
+    box-shadow: 0 0 0 3px var(--halo-accent);
+  }
 }
 input[type="range"]::-webkit-slider-thumb:hover {
   transform: scale(1.15);
@@ -917,13 +973,20 @@ input[type="range"]::-webkit-slider-thumb:active {
    Иерархия поверхностей = ступени яркости, цвет остаётся семантикой:
    diff, статусы инструментов, ошибки не обесцвечиваются. */
 
-/* Стекло в монохроме выключаем: чёткая граница вместо размытия */
+/* Стекло в монохроме выключаем: чёткая граница вместо размытия.
+   backdrop-filter гасим тоже — blur под непрозрачным фоном невидим,
+   но движок продолжает каждый кадр снапшотить и фильтровать backdrop
+   (пересекающийся режим Official + «Эффект стекла») */
 html.official .glass-pane {
   background: var(--halo-deep);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 /* Сайдбар-стекло тоже гасится (переменная сильнее класса прозрачности) */
 html.official aside.glass-pane {
   background: var(--halo-deep);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 /* Монохромная подсветка кода: серая шкала вместо синтакс-цветов */
@@ -938,7 +1001,7 @@ html.ambient:not([data-ambient-scene]) body::before {
   content: "";
   position: fixed;
   inset: -20%;
-  z-index: 30;
+  z-index: var(--halo-z-ambient);
   pointer-events: none;
   background:
     radial-gradient(42% 42% at 18% 12%, color-mix(in srgb, var(--halo-accent) 8%, transparent), transparent 70%),
@@ -963,7 +1026,7 @@ html.ambient.ambient-paused body::before {
 .ambient-layer {
   position: fixed;
   inset: 0;
-  z-index: 30;
+  z-index: var(--halo-z-ambient);
   pointer-events: none;
   overflow: hidden;
   opacity: var(--ambient-alpha, 0.7);
@@ -993,9 +1056,6 @@ html.ambient.ambient-paused body::before {
     rgba(0, 0, 0, 0.15)
   );
 }
-.ambient-video {
-  filter: brightness(0.85) saturate(0.95);
-}
 html.light .ambient-layer {
   display: none;
 }
@@ -1003,14 +1063,14 @@ html.light .ambient-layer {
 /* Ambient «за интерфейсом»: слой уходит под контент — сцену видно сквозь
    полупрозрачные панели и в зазорах; оверлей в этом режиме не нужен */
 html[data-ambient-render="behind"] .ambient-layer {
-  z-index: -1;
+  z-index: var(--halo-z-behind);
 }
 html[data-ambient-render="behind"] .ambient-layer::after {
   content: none;
 }
 /* то же для сцены glow (body::before) */
 html[data-ambient-render="behind"]:not([data-ambient-scene]) body::before {
-  z-index: -1;
+  z-index: var(--halo-z-behind);
 }
 /* Фидбек 26.09: в режиме «за интерфейсом» непрозрачный фон чата полностью
    перекрывал слой — корень чата становится чуть прозрачным, сцена мягко

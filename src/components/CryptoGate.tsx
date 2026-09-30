@@ -140,7 +140,7 @@ export default function CryptoGate({
         {!setup && onReset && (
           resetArmed ? (
             <div className="mt-4 w-full">
-              <p className="text-center text-[10px] leading-relaxed text-red-400">
+              <p className="text-center text-[0.625rem] leading-relaxed text-red-400">
                 {t("gate.resetWarn")}
               </p>
               <input
@@ -164,7 +164,7 @@ export default function CryptoGate({
                     setResetText("");
                     onReset();
                   }}
-                  className="flex-1 rounded-lg border border-red-400/50 py-1.5 text-[11px] text-red-400 transition-colors hover:bg-red-500/10 disabled:opacity-40"
+                  className="flex-1 rounded-lg border border-red-400/50 py-1.5 text-[0.6875rem] text-red-400 transition-colors hover:bg-red-500/10 disabled:opacity-40"
                 >
                   {t("gate.resetConfirm")}
                 </button>
@@ -173,7 +173,7 @@ export default function CryptoGate({
                     setResetArmed(false);
                     setResetText("");
                   }}
-                  className="rounded-lg px-3 py-1.5 text-[11px] text-halo-muted transition-colors hover:text-halo-text"
+                  className="rounded-lg px-3 py-1.5 text-[0.6875rem] text-halo-muted transition-colors hover:text-halo-text"
                 >
                   {t("gate.resetCancel")}
                 </button>
@@ -182,13 +182,13 @@ export default function CryptoGate({
           ) : (
             <button
               onClick={() => setResetArmed(true)}
-              className="mt-4 text-[11px] text-halo-muted/60 transition-colors hover:text-red-400"
+              className="mt-4 text-[0.6875rem] text-halo-muted/60 transition-colors hover:text-red-400"
             >
               {t("gate.reset")}
             </button>
           )
         )}
-        <p className="mt-4 text-center text-[10px] leading-relaxed text-halo-muted/50">
+        <p className="mt-4 text-center text-[0.625rem] leading-relaxed text-halo-muted/50">
           {t("gate.note")}
         </p>
       </div>

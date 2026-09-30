@@ -16,14 +16,14 @@ export function ErrorNote({ title, raw }: { title: string; raw: string }) {
           {title}
         </span>
         <span
-          className={`flex shrink-0 items-center gap-1 text-[10px] text-halo-muted transition-colors hover:text-halo-text`}
+          className={`flex shrink-0 items-center gap-1 text-[0.625rem] text-halo-muted transition-colors hover:text-halo-text`}
         >
           {t("err.details")}
           <ChevronDownIcon className={open ? "" : "-rotate-90"} />
         </span>
       </button>
       {open && (
-        <pre className="scroll-slim mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-all border-t border-red-400/20 pt-2 font-mono text-[10px] leading-relaxed text-halo-muted">
+        <pre className="scroll-slim mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-all border-t border-red-400/20 pt-2 font-mono text-[0.625rem] leading-relaxed text-halo-muted">
           {raw}
         </pre>
       )}

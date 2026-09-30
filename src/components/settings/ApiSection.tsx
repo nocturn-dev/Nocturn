@@ -218,7 +218,7 @@ export function ApiSection({
               >
                 {p.label}
                 {p.kind === "anthropic" && (
-                  <span className="ml-1 text-[9px] opacity-70">native</span>
+                  <span className="ml-1 text-[0.5625rem] opacity-70">native</span>
                 )}
               </button>
             );
@@ -405,21 +405,21 @@ export function ApiSection({
                   <span className="truncate font-mono">{m.id}</span>
                   <span className="ml-auto flex shrink-0 items-center gap-1.5">
                     {m.vision && (
-                      <span className="rounded bg-sky-400/15 px-1.5 py-0.5 text-[9px] font-medium text-sky-400">
+                      <span className="rounded bg-sky-400/15 px-1.5 py-0.5 text-[0.5625rem] font-medium text-sky-400">
                         vision
                       </span>
                     )}
                     {!m.vision && m.text && (
-                      <span className="rounded bg-halo-muted/15 px-1.5 py-0.5 text-[9px] font-medium text-halo-muted">
+                      <span className="rounded bg-halo-muted/15 px-1.5 py-0.5 text-[0.5625rem] font-medium text-halo-muted">
                         text
                       </span>
                     )}
                     {m.id.endsWith(":free") ? (
-                      <span className="rounded bg-emerald-400/15 px-1.5 py-0.5 text-[9px] font-medium text-emerald-400">
+                      <span className="rounded bg-emerald-400/15 px-1.5 py-0.5 text-[0.5625rem] font-medium text-emerald-400">
                         free
                       </span>
                     ) : (
-                      <span className="rounded bg-amber-400/15 px-1.5 py-0.5 text-[9px] font-medium text-amber-400">
+                      <span className="rounded bg-amber-400/15 px-1.5 py-0.5 text-[0.5625rem] font-medium text-amber-400">
                         paid
                       </span>
                     )}
@@ -476,7 +476,7 @@ export function ApiSection({
           placeholder={t("api.fallbackModelPh")}
           className="w-full rounded-lg border border-halo-line bg-halo-surface px-3 py-2 text-sm text-halo-text outline-none transition-colors placeholder:text-halo-muted/60 focus:border-halo-accent/60"
         />
-        <span className="mt-1 block text-[11px] leading-relaxed text-halo-muted/70">
+        <span className="mt-1 block text-[0.6875rem] leading-relaxed text-halo-muted/70">
           {t("api.fallbackModelHint")}
         </span>
       </label>
@@ -497,7 +497,7 @@ export function ApiSection({
           <span className="flex-1" />
           <button
             onClick={onDetectOllama}
-            className="rounded-md border border-halo-line px-2 py-0.5 text-[10px] text-halo-muted transition-colors hover:bg-halo-hover hover:text-halo-text"
+            className="rounded-md border border-halo-line px-2 py-0.5 text-[0.625rem] text-halo-muted transition-colors hover:bg-halo-hover hover:text-halo-text"
           >
             {t("ollama.again")}
           </button>
@@ -528,7 +528,7 @@ export function ApiSection({
                 >
                   <span className="truncate font-mono">{id}</span>
                   <span className="ml-auto flex shrink-0 items-center gap-1.5">
-                    <span className="rounded bg-emerald-400/15 px-1.5 py-0.5 text-[9px] font-medium text-emerald-400">
+                    <span className="rounded bg-emerald-400/15 px-1.5 py-0.5 text-[0.5625rem] font-medium text-emerald-400">
                       {t("ollama.badge")}
                     </span>
                     {selected && <MiniCheckIcon />}
@@ -555,7 +555,7 @@ export function ApiSection({
           <button
             onClick={() => void (cbStatus.running ? cbStop() : cbStart())}
             disabled={cbBusy}
-            className="rounded-md border border-halo-line px-2 py-0.5 text-[10px] text-halo-muted transition-colors hover:bg-halo-hover hover:text-halo-text disabled:opacity-50"
+            className="rounded-md border border-halo-line px-2 py-0.5 text-[0.625rem] text-halo-muted transition-colors hover:bg-halo-hover hover:text-halo-text disabled:opacity-50"
           >
             {cbStatus.running ? t("api.colibriStop") : t("api.colibriStart")}
           </button>
@@ -621,7 +621,7 @@ export function ApiSection({
             <summary className="cursor-pointer text-xs text-halo-muted">
               {t("api.colibriLog")}
             </summary>
-            <pre className="scroll-slim mt-1 max-h-40 overflow-y-auto whitespace-pre-wrap break-all rounded-lg bg-halo-deep/60 p-2 font-mono text-[10px] leading-relaxed text-halo-muted">
+            <pre className="scroll-slim mt-1 max-h-40 overflow-y-auto whitespace-pre-wrap break-all rounded-lg bg-halo-deep/60 p-2 font-mono text-[0.625rem] leading-relaxed text-halo-muted">
               {cbLog.slice(-100).join("\n")}
             </pre>
           </details>
