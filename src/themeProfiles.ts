@@ -62,10 +62,9 @@ export function parseProfile(raw: unknown): ThemeProfile | null {
       officialContrast: a.officialContrast === true,
       officialMonoCode: a.officialMonoCode === true,
       fullClaude: a.fullClaude === true,
-      // Настройки Full Claude возим вместе с темой: serif-чат/звёзды/стекло,
+      // Настройки Full Claude возим вместе с темой: serif-чат/стекло,
       // радиус и шрифты темы (пустая строка = системный стек)
       fullClaudeSerif: a.fullClaudeSerif ?? true,
-      fullClaudeStars: a.fullClaudeStars === true,
       fullClaudeGlass: a.fullClaudeGlass === true,
       fullClaudeRadius: num(a.fullClaudeRadius, 1, 0.4, 1.6),
       fullClaudeUiFont: typeof a.fullClaudeUiFont === "string" ? a.fullClaudeUiFont : "",

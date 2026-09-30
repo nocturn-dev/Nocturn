@@ -1013,8 +1013,6 @@ export const ja = {
     "themes.fcSettings": "Full Claude の設定",
     "themes.fcSerif": "回答をセリフ体に",
     "themes.fcSerifDesc": "アシスタントの回答にセリフ体を使用（Claude Desktopと同様）。オフ——システムのサンセリフ。",
-    "themes.fcStars": "かすかな星野",
-    "themes.fcStarsDesc": "チャコールの地に淡いアンビエントシーンを重ねます。オフ——フラットな塗りつぶし。",
     "themes.fcGlass": "グラス",
     "themes.fcGlassDesc": "テーマ内のパネルを半透明＋ぼかし。オフ——ソリッドな塗り。グローバルのグラス設定はテーマ内では無効。",
     "themes.fcRadius": "角丸",

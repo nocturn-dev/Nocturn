@@ -2106,7 +2106,7 @@ export default function App() {
         {/* Ambient-слой: сцены/видео позади контента, z и паузы — в CSS.
             В светлой теме слой скрыт CSS-ом (display:none) — не монтируем
             совсем: rAF-цикл и видео продолжали бы работать в невидимом слое */}
-        {appearance.ambient && theme !== "light" && appearance.ambientScene !== "glow" && (
+        {appearance.ambient && !appearance.fullClaude && theme !== "light" && appearance.ambientScene !== "glow" && (
           <AmbientLayer
             scene={appearance.ambientScene}
             videoPath={appearance.ambientVideo}
