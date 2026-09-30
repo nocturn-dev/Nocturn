@@ -57,6 +57,10 @@ export interface Appearance {
   officialContrast: boolean;
   /** Official: обесцветить подсветку кода (серая шкала вместо синтакс-цветов) */
   officialMonoCode: boolean;
+  /** Full Claude: полная реплика Claude Desktop (палитра + компонентный слой).
+   *  Сознательно вне каскада кастомизации: ни Global-тумблеры, ни Official
+   *  на неё не влияют. Пока заглушка — состояние хранится, ничего не применяет */
+  fullClaude: boolean;
   /** Motion/Reduced: принудительно заглушить анимации интерфейса
    *  (поверх системной prefers-reduced-motion) */
   reduceMotion?: boolean;
@@ -132,6 +136,7 @@ export const DEFAULT_APPEARANCE: Appearance = {
   officialOled: false,
   officialContrast: false,
   officialMonoCode: false,
+  fullClaude: false,
   /** Motion/Reduced: принудительно заглушить анимации интерфейса
    *  (поверх системной prefers-reduced-motion) */
   reduceMotion: false,
@@ -205,6 +210,7 @@ export function loadAppearance(): Appearance {
       officialOled: p.officialOled ?? DEFAULT_APPEARANCE.officialOled,
       officialContrast: p.officialContrast ?? DEFAULT_APPEARANCE.officialContrast,
       officialMonoCode: p.officialMonoCode ?? DEFAULT_APPEARANCE.officialMonoCode,
+      fullClaude: p.fullClaude ?? DEFAULT_APPEARANCE.fullClaude,
       ambient: p.ambient ?? DEFAULT_APPEARANCE.ambient,
       ambientScene: isAmbientScene(p.ambientScene) ? p.ambientScene : "glow",
       ambientVideo: typeof p.ambientVideo === "string" ? p.ambientVideo : "",

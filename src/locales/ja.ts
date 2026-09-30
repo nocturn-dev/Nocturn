@@ -1008,6 +1008,8 @@ export const ja = {
     "themes.officialContrastDesc": "モノクロが物足りない場合に、境界とサブテキストを明るくします。",
     "themes.officialMonoCode": "モノクロのコードハイライト",
     "themes.officialMonoCodeDesc": "コードをグレースケールに。シンタックスカラーは消え、ハイライト構造は残ります。",
+    "themes.fullClaude": "Full Claudeテーマ — Claude Desktop再現",
+    "themes.fullClaudeDesc": "Claude Desktopの外観を完全再現：パレットにコンポーネント層（入力欄・メッセージ欄・ヘッダー）。Officialや通常のテーマ設定から独立——どのスイッチも影響しません。開発中：スイッチはまだ何も適用しません。",
     "themes.ambient": "アンビエント背景",
     "themes.ambientDesc": "アクセント色がゆっくりと呼吸するように漂う背景。ストリーミング中はアニメーションを一時停止し、システムの「動作を減らす」設定時は動きません。",
     "themes.ambientScene": "シーン",

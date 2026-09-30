@@ -61,6 +61,7 @@ export function parseProfile(raw: unknown): ThemeProfile | null {
       officialOled: a.officialOled === true,
       officialContrast: a.officialContrast === true,
       officialMonoCode: a.officialMonoCode === true,
+      fullClaude: a.fullClaude === true,
       reduceMotion: a.reduceMotion === true,
       motionScale: typeof a.motionScale === 'number' ? a.motionScale : 1,
       ambient: a.ambient === true,

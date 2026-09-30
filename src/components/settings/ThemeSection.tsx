@@ -426,7 +426,7 @@ export function ThemeSection({
 
       {/* Тема Official: строгий монохром одним тумблером. Включённой теме
           принадлежат только её настройки ниже; обычные контролы темы скрыты */}
-      <div className="mt-2.5 mb-4 flex items-center justify-between rounded-xl border border-halo-line px-3.5 py-3">
+      <div className="mt-2.5 flex items-center justify-between rounded-xl border border-halo-line px-3.5 py-3">
         <div className="min-w-0 pr-3">
           <p className="text-sm text-halo-text">{t("themes.official")}</p>
           <p className="mt-0.5 text-xs leading-relaxed text-halo-muted">
@@ -450,9 +450,37 @@ export function ThemeSection({
         </button>
       </div>
 
+      {/* Full Claude: заглушка будущей полной темы Claude Desktop. Живёт своей
+          карточкой рядом с Official и в каскад кастомизации не входит:
+          ни глобальные контролы, ни Official на неё не действуют (и она —
+          пока ни на что). Тумблер хранит состояние, ничего не применяя */}
+      <div className="mt-1.5 mb-4 flex items-center justify-between rounded-xl border border-halo-line px-3.5 py-3">
+        <div className="min-w-0 pr-3">
+          <p className="text-sm text-halo-text">{t("themes.fullClaude")}</p>
+          <p className="mt-0.5 text-xs leading-relaxed text-halo-muted">
+            {t("themes.fullClaudeDesc")}
+          </p>
+        </div>
+        <button
+          onClick={() =>
+            onAppearanceChange({ ...appearance, fullClaude: !appearance.fullClaude })
+          }
+          title={t("themes.fullClaude")}
+          className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${
+            appearance.fullClaude ? "bg-halo-accent" : "bg-halo-line"
+          }`}
+        >
+          <span
+            className={`absolute top-0.5 size-4 rounded-full bg-halo-on-accent transition ${
+              appearance.fullClaude ? "left-4.5" : "left-0.5"
+            }`}
+          />
+        </button>
+      </div>
+
       {/* Настройки самой Official: только то, что относится к ней */}
       {appearance.official && (
-        <div className="mb-4 space-y-1 rounded-xl border border-halo-line px-3.5 py-3">
+        <div className="mt-1.5 mb-4 space-y-1 rounded-xl border border-halo-line px-3.5 py-3">
           <p className="text-xs font-medium text-halo-muted">
             {t("themes.officialSettings")}
           </p>
