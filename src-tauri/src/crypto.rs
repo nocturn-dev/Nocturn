@@ -1,5 +1,6 @@
 //! Шифрование API-ключей: AES-256-GCM, ключ выводится из мастер-пароля
-//! пользователя (PBKDF2-HMAC-SHA256, 200k итераций).
+//! пользователя (Argon2id, 19 MiB, t=2, p=1). PBKDF2-HMAC-SHA256 (200k
+//! итераций) оставлен как легаси-KDF только для чтения старых crypto.json.
 //!
 //! Формат зашифрованной строки: `enc:v1:<base64(nonce ‖ ciphertext)>`.
 //! Производный ключ существует только в памяти процесса: родился при
@@ -9,139 +10,134 @@ use aes_gcm::aead::Aead;
 use aes_gcm::{Aes256Gcm, KeyInit, Nonce};
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use rand::RngCore;
-use std::sync::Mutex;
+use std::sync::{Mutex, MutexGuard};
+use std::time::{Duration, Instant, SystemTime};
 use zeroize::{Zeroize, Zeroizing};
 
 const PREFIX: &str = "enc:v1:";
 const KEY_LEN: usize = 32; // AES-256
 const PBKDF2_ITERS: u32 = 200_000;
-
-/// Производный ключ в памяти. None — «хранилище» заперто.
-/// Zeroizing: ключ затирается при любом drop (замена, авто-лок, выход)
-static VAULT_KEY: Mutex<Option<Zeroizing<Vec<u8>>>> = Mutex::new(None);
+const KEY_CHECK_MARKER: &str = "nocturn-key-check";
 
 /// Авто-запирание: 15 минут без операций шифрования/расшифровки —
 /// ключ стирается из памяти. Окно времени фикс: настройки на этот счёт
 /// сознательно нет, чтобы не соблазнять выключить безопасность вовсе.
-const VAULT_IDLE: std::time::Duration = std::time::Duration::from_secs(15 * 60);
-static LAST_USE: Mutex<Option<std::time::Instant>> = Mutex::new(None);
-/// Настенные часы — второй, страхующий таймер: Instant на Linux/macOS не
-/// идёт во время сна системы, и закрытый на ночь ноутбук продлевал окно
-/// авто-запирания на всё время сна. Истёк — если истёк ЛЮБОЙ из двух.
-/// SystemTime умеет скакать (NTP), поэтому он страхующий, не единственный
-static LAST_USE_WALL: Mutex<Option<std::time::SystemTime>> = Mutex::new(None);
+const VAULT_IDLE: Duration = Duration::from_secs(15 * 60);
 
-/// Отметка использования: продлевает окно авто-запирания.
-/// Порядок блокировок глобально строгий: VAULT_KEY → LAST_USE →
-/// LAST_USE_WALL (обратного порядка нигде нет — взаимоблокировка
-/// невозможна, свипер в lib.rs берёт их в том же порядке)
-fn touch_vault() {
-    // into_inner: poison — не повод молча не продлевать окно
-    *LAST_USE.lock().unwrap_or_else(|p| p.into_inner()) = Some(std::time::Instant::now());
-    *LAST_USE_WALL.lock().unwrap_or_else(|p| p.into_inner()) =
-        Some(std::time::SystemTime::now());
+/// Всё состояние хранилища под ОДНИМ мьютексом: ключ и отметки
+/// использования не могут разойтись, порядка блокировок нет вовсе —
+/// взаимоблокировка и гонка «установили ключ, но не успели продлить окно»
+/// невозможны по построению.
+struct Vault {
+    /// Производный ключ. None — хранилище заперто.
+    /// Zeroizing: ключ затирается при любом drop (замена, авто-лок, выход)
+    key: Option<Zeroizing<Vec<u8>>>,
+    /// Последнее использование: (Instant, SystemTime). Два таймера сразу:
+    /// Instant на Linux/macOS не идёт во время сна системы, и закрытый на
+    /// ночь ноутбук продлевал бы окно на всё время сна. Истёк — если истёк
+    /// ЛЮБОЙ из двух. SystemTime умеет скакать (NTP), поэтому он
+    /// страхующий, не единственный
+    last_use: Option<(Instant, SystemTime)>,
 }
 
-/// Истёк ли простой к моменту now/wall. Окно — параметр: тест авто-
-/// запирания гоняется без sleep и без допущения об аптайме машины
-fn vault_idle_expired_at(
-    window: std::time::Duration,
-    now: std::time::Instant,
-    wall: std::time::SystemTime,
-) -> bool {
-    let instant_idle = LAST_USE
-        .lock()
-        .unwrap_or_else(|p| p.into_inner())
-        .is_some_and(|t| now.duration_since(t) > window);
-    if instant_idle {
-        return true;
+impl Vault {
+    const fn new() -> Self {
+        Vault {
+            key: None,
+            last_use: None,
+        }
     }
-    // Clock ушёл назад (NTP): duration_since errs — не считаем истёкшим,
-    // Instant-таймер продолжает тикать
-    LAST_USE_WALL
-        .lock()
-        .unwrap_or_else(|p| p.into_inner())
-        .is_some_and(|t| wall.duration_since(t).map(|d| d > window).unwrap_or(false))
+
+    fn touch(&mut self) {
+        self.last_use = Some((Instant::now(), SystemTime::now()));
+    }
+
+    /// Стереть ключ (Zeroizing затирает буфер в Drop) и отметки
+    fn clear(&mut self) {
+        self.key.take();
+        self.last_use = None;
+    }
+
+    /// Истёк ли простой к моменту now/wall. Окно — параметр: тест авто-
+    /// запирания гоняется без sleep и без глобального состояния
+    fn idle_expired_at(&self, window: Duration, now: Instant, wall: SystemTime) -> bool {
+        let Some((last_instant, last_wall)) = self.last_use else {
+            return false;
+        };
+        if now.saturating_duration_since(last_instant) > window {
+            return true;
+        }
+        // Часы ушли назад (NTP): duration_since вернёт Err — не считаем
+        // истёкшим, Instant-таймер продолжает тикать
+        wall.duration_since(last_wall)
+            .map(|d| d > window)
+            .unwrap_or(false)
+    }
 }
 
-/// Единый гейт к VAULT_KEY: проверка простоя и стирание протухшего ключа —
-/// под ОДНОЙ блокировкой. Раньше `if vault_idle_expired() { clear_key(); }`
-/// в has_key/encrypt/decrypt оставлял окно, в котором clear_key стирал
-/// только что установленный другим потоком ключ. into_inner: при poison
-/// стирание не имеет права быть no-op'ом (ключ оставался в памяти при
-/// has_key() = false)
-fn vault_guard() -> std::sync::MutexGuard<'static, Option<Zeroizing<Vec<u8>>>> {
-    let mut guard = VAULT_KEY.lock().unwrap_or_else(|p| p.into_inner());
-    if vault_idle_expired_at(
-        VAULT_IDLE,
-        std::time::Instant::now(),
-        std::time::SystemTime::now(),
-    ) {
-        guard.take();
-        clear_last_use();
+static VAULT: Mutex<Vault> = Mutex::new(Vault::new());
+
+/// Единый гейт к состоянию: проверка простоя и стирание протухшего ключа —
+/// под одной блокировкой. into_inner: при poison стирание не имеет права
+/// быть no-op'ом (иначе ключ остаётся в памяти, а has_key() = false)
+fn vault_guard() -> MutexGuard<'static, Vault> {
+    let mut guard = VAULT.lock().unwrap_or_else(|p| p.into_inner());
+    if guard.idle_expired_at(VAULT_IDLE, Instant::now(), SystemTime::now()) {
+        guard.clear();
     }
     guard
 }
 
-/// Стереть отметки использования (сам ключ затирает в Drop take() у
-/// вызывающего — Zeroizing внутри Option)
-fn clear_last_use() {
-    LAST_USE.lock().unwrap_or_else(|p| p.into_inner()).take();
-    LAST_USE_WALL.lock().unwrap_or_else(|p| p.into_inner()).take();
-}
-
 /// Свипер lib.rs (раз в минуту): тот же единый гейт, что и у крипто-
-/// операций, — без гонки «проверка, затем стирание»
+/// операций — ключ не висит в памяти, пока приложение свернуто
 pub(crate) fn vault_sweep() {
     drop(vault_guard());
 }
 
 pub fn has_key() -> bool {
-    // Протухший ключ гасим прямо здесь: UI-опрос крипто-статуса увидит
+    // Протухший ключ гасится прямо в гейте: UI-опрос крипто-статуса увидит
     // «заперто» и покажет гейт разблокировки
-    vault_guard().is_some()
+    vault_guard().key.is_some()
 }
 
 pub fn set_key(key: Zeroizing<Vec<u8>>) {
-    // Старый ключ (если был) затираем, а не оставляем в памяти:
-    // Zeroizing затирает буфер в своём Drop. into_inner: poison не должен
-    // молча терять установку ключа
-    *VAULT_KEY.lock().unwrap_or_else(|p| p.into_inner()) = Some(key);
-    touch_vault();
+    let mut guard = VAULT.lock().unwrap_or_else(|p| p.into_inner());
+    // Старый ключ (если был) затирается Drop'ом Zeroizing при замене.
+    // Ключ и отметка ставятся под одной блокировкой: гонки нет
+    guard.key = Some(key);
+    guard.touch();
 }
 
 pub fn clear_key() {
-    // Zeroizing внутри Option затирает буфер в Drop при take().
-    // into_inner: полное стирание не имеет права быть no-op'ом при poison
-    VAULT_KEY.lock().unwrap_or_else(|p| p.into_inner()).take();
-    clear_last_use();
+    VAULT.lock().unwrap_or_else(|p| p.into_inner()).clear();
 }
 
 /// PBKDF2-HMAC-SHA256: пароль + соль → 32-байтный ключ AES.
 /// Легаси-KDF: нужен только для чтения старых crypto.json (до Argon2id);
 /// 200k итераций — ниже текущей рекомендации OWASP (600k), для НОВЫХ
-/// хранилищ не использовать. Ключ в Zeroizing с момента выделения:
-/// буфер не живёт вне обёртки ни на одном такте
+/// хранилищ не использовать. Ключ в Zeroizing с момента выделения
 pub fn derive_key(password: &str, salt: &[u8]) -> Zeroizing<Vec<u8>> {
     let mut out = Zeroizing::new(vec![0u8; KEY_LEN]);
     pbkdf2::pbkdf2_hmac::<sha2::Sha256>(password.as_bytes(), salt, PBKDF2_ITERS, &mut out);
     out
 }
 
+/// Параметры Argon2id фиксируем ЯВНО, не через Params::default(): дефолт —
+/// свойство версии крейта (в 0.4 было m=4 MiB, t=3, в 0.5 — OWASP), его
+/// смена меняла бы вывод KDF и «неверным паролем» запирала все существующие
+/// хранилища. Числа совпадают с default() argon2 0.5 — ключи пользователей
+/// не меняются; подъём параметров = отдельная миграция с kdf-меткой
+/// в crypto.json
+fn argon2_params() -> Result<argon2::Params, String> {
+    argon2::Params::new(19 * 1024, 2, 1, Some(KEY_LEN)).map_err(|e| format!("argon2 params: {e}"))
+}
+
 /// Argon2id — актуальный KDF хранилища. Детерминирован: тот же пароль+соль
 /// → тот же ключ.
 pub fn derive_key_argon2(password: &str, salt: &[u8]) -> Result<Zeroizing<Vec<u8>>, String> {
-    use argon2::{Algorithm, Argon2, Params, Version};
-    // Параметры фиксируем ЯВНО, не через Params::default(): дефолт —
-    // свойство версии крейта (в 0.4 было m=4 MiB, t=3, в 0.5 — OWASP),
-    // смена дефолта меняла бы вывод KDF и «неверным паролем» запирала все
-    // существующие хранилища. Числа совпадают с default() текущего 0.5 —
-    // ключи пользователей не меняются; подъём параметров = отдельная
-    // миграция с kdf-меткой в crypto.json
-    let params =
-        Params::new(19 * 1024, 2, 1, Some(KEY_LEN)).map_err(|e| format!("argon2 params: {e}"))?;
-    // Zeroizing сразу: ранний `?` ниже раньше дропал незатёртый производный
-    // ключ (обёртка стояла только на выходе)
+    use argon2::{Algorithm, Argon2, Version};
+    let params = argon2_params()?;
+    // Zeroizing сразу: ранний `?` ниже не оставит незатёртый ключ
     let mut out = Zeroizing::new(vec![0u8; KEY_LEN]);
     let argon = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
     // Раньше expect: единственный panic-путь криптомодуля на пути с
@@ -161,11 +157,13 @@ pub fn new_salt() -> Vec<u8> {
 /// Зашифровать строку текущим ключом. `enc:v1:…`; Err — хранилище заперто.
 /// Ключ читается по месту (borrow) — без копий в heap
 pub fn encrypt(plain: &str) -> Result<String, String> {
-    let guard = vault_guard();
-    let key = guard.as_ref().ok_or("vault is locked")?;
-    let result = encrypt_with(key, plain);
+    let mut guard = vault_guard();
+    let result = {
+        let key = guard.key.as_ref().ok_or("vault is locked")?;
+        encrypt_with(key, plain)
+    };
     if result.is_ok() {
-        touch_vault();
+        guard.touch();
     }
     result
 }
@@ -186,13 +184,15 @@ pub fn encrypt_with(key: &[u8], plain: &str) -> Result<String, String> {
 /// Расшифровать строку с префиксом. None — не зашифровано или заперто.
 /// Ключ читается по месту (borrow) — без копий в heap. Plaintext обёрнут
 /// в Zeroizing: секрет затирается при drop, а не остаётся в освободившейся
-/// heap-памяти (см. политику в шапке модуля)
+/// heap-памяти
 pub fn decrypt(stored: &str) -> Option<Zeroizing<String>> {
-    let guard = vault_guard();
-    let key = guard.as_ref()?;
-    let result = decrypt_with(key, stored);
+    let mut guard = vault_guard();
+    let result = {
+        let key = guard.key.as_ref()?;
+        decrypt_with(key, stored)
+    };
     if result.is_some() {
-        touch_vault();
+        guard.touch();
     }
     result
 }
@@ -252,64 +252,91 @@ pub fn hex_decode(s: &str) -> Option<Vec<u8>> {
 /// Тот же seal, что и для полей: вторая копия механизма (nonce/blob/
 /// префикс) расходилась бы с encrypt_with при любой правке формата
 pub fn make_check(key: &[u8]) -> Result<String, String> {
-    encrypt_with(key, "nocturn-key-check")
+    encrypt_with(key, KEY_CHECK_MARKER)
 }
 
 pub fn verify_check(key: &[u8], check: &str) -> bool {
-    let blob = match B64.decode(check.strip_prefix(PREFIX).unwrap_or("")) {
-        Ok(b) => b,
-        Err(_) => return false,
-    };
-    if blob.len() <= 12 {
-        return false;
-    }
-    let cipher = match Aes256Gcm::new_from_slice(key) {
-        Ok(c) => c,
-        Err(_) => return false,
-    };
-    cipher
-        .decrypt(Nonce::from_slice(&blob[..12]), &blob[12..])
-        .map(|pt| pt == b"nocturn-key-check")
-        .unwrap_or(false)
+    decrypt_with(key, check).is_some_and(|pt| pt.as_str() == KEY_CHECK_MARKER)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Mutex;
 
-    /// VAULT_KEY — глобальный стат: cargo test гоняет тесты в параллельных
+    /// VAULT — глобальный стат: cargo test гоняет тесты в параллельных
     /// потоках, и clear_key()/set_key() соседа под ногой давали спорадические
-    /// падения. Мутирующие глобал тесты обязаны идти сериализованно
+    /// падения. Тесты, мутирующие глобал, обязаны идти сериализованно
     static KEY_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn vault_auto_lock_expires_by_either_timer() {
-        // Окно 2 с: тест не зависит ни от sleep, ни от аптайма машины
-        // (Instant считается от старта системы, вычитание 15 минут могло
-        // бы паниковать на свежезагруженной)
-        const WINDOW: std::time::Duration = std::time::Duration::from_secs(2);
-        let now = std::time::Instant::now();
-        let wall = std::time::SystemTime::now();
-        let fresh = |d: std::time::Duration| d - std::time::Duration::from_secs(1);
-        let stale = |d: std::time::Duration| d + std::time::Duration::from_secs(1);
-        // Ни один таймер не истёк — не истёкло
-        *LAST_USE.lock().unwrap() = Some(now - fresh(WINDOW));
-        *LAST_USE_WALL.lock().unwrap() = Some(wall - fresh(WINDOW));
-        assert!(!vault_idle_expired_at(WINDOW, now, wall));
+        // Тест работает с локальным Vault, а не с глобалом: ни sleep, ни
+        // KEY_LOCK, ни зависимости от аптайма машины не нужны
+        const WINDOW: Duration = Duration::from_secs(2);
+        let now = Instant::now();
+        let wall = SystemTime::now();
+        let ago = |secs: u64| {
+            (
+                now.checked_sub(Duration::from_secs(secs))
+                    .expect("uptime too short for test"),
+                wall - Duration::from_secs(secs),
+            )
+        };
+        let vault_with = |last_use| Vault {
+            key: None,
+            last_use,
+        };
+        // Ни один таймер не истёк
+        assert!(!vault_with(Some(ago(1))).idle_expired_at(WINDOW, now, wall));
         // Настенные часы ушли за окно (сон/hibernate) при свежем Instant —
         // ровно ради этого случая существует второй таймер
-        *LAST_USE.lock().unwrap() = Some(now);
-        *LAST_USE_WALL.lock().unwrap() = Some(wall - stale(WINDOW));
-        assert!(vault_idle_expired_at(WINDOW, now, wall));
-        // Instant истёк, настенные часы свежие — истечение по любому из двух
-        *LAST_USE.lock().unwrap() = Some(now - stale(WINDOW));
-        *LAST_USE_WALL.lock().unwrap() = Some(wall);
-        assert!(vault_idle_expired_at(WINDOW, now, wall));
-        // Отметок нет — не истёкло (наличие ключа проверяет vault_guard)
-        *LAST_USE.lock().unwrap() = None;
-        *LAST_USE_WALL.lock().unwrap() = None;
-        assert!(!vault_idle_expired_at(WINDOW, now, wall));
+        let (i, _) = ago(0);
+        let (_, w) = ago(3);
+        assert!(vault_with(Some((i, w))).idle_expired_at(WINDOW, now, wall));
+        // Instant истёк, настенные часы свежие
+        let (i, _) = ago(3);
+        let (_, w) = ago(0);
+        assert!(vault_with(Some((i, w))).idle_expired_at(WINDOW, now, wall));
+        // Настенные часы в будущем (NTP назад) при свежем Instant — не истёк
+        let (i, _) = ago(0);
+        assert!(!vault_with(Some((i, wall + Duration::from_secs(60))))
+            .idle_expired_at(WINDOW, now, wall));
+        // Отметок нет — не истёкло
+        assert!(!vault_with(None).idle_expired_at(WINDOW, now, wall));
+    }
+
+    #[test]
+    fn clear_wipes_key_and_marks() {
+        let mut v = Vault::new();
+        v.key = Some(Zeroizing::new(vec![1u8; KEY_LEN]));
+        v.touch();
+        v.clear();
+        assert!(v.key.is_none());
+        assert!(v.last_use.is_none());
+    }
+
+    #[test]
+    fn argon2_params_match_crate_default() {
+        // Страховка при `cargo update`: если дефолт argon2 когда-нибудь
+        // сменится, явные параметры перестанут совпадать с тем, что считает
+        // «по умолчанию» крейт — повод осознанно решить, нужна ли миграция
+        let explicit = argon2::Params::new(19 * 1024, 2, 1, None).unwrap();
+        assert_eq!(explicit, argon2::Params::default());
+    }
+
+    #[test]
+    fn argon2_params_golden_vector() {
+        // Закрепление ЯВНЫХ параметров (19 MiB, t=2, p=1, out=32) hex-вектором:
+        // любая опечатка в числах или случайная правка меняет вывод KDF и
+        // «неверным паролем» запирает существующие хранилища — это падает
+        // здесь, в CI, а не у пользователя на разблокировке. Входы заморожены
+        // навсегда: password "nocturn-golden-vector", salt b"nocturn-salt-0123",
+        // Argon2id v0x13
+        let key = derive_key_argon2("nocturn-golden-vector", b"nocturn-salt-0123").unwrap();
+        assert_eq!(
+            hex_encode(&key),
+            "f72a0011cb945a13f0c37f961d2479b67f76e45bc12f0674e17423542713e801"
+        );
     }
 
     #[test]
@@ -331,10 +358,7 @@ mod tests {
         let enc = encrypt(secret).expect("encrypt");
         assert!(is_encrypted(&enc));
         assert_ne!(enc, secret);
-        assert_eq!(
-            decrypt(&enc).as_deref().map(String::as_str),
-            Some(secret)
-        );
+        assert_eq!(decrypt(&enc).as_deref().map(String::as_str), Some(secret));
         // неверный ключ → не расшифровывается
         set_key(derive_key("другой-пароль", b"salt-salt-salt-sa"));
         assert!(decrypt(&enc).is_none());
@@ -349,6 +373,9 @@ mod tests {
         assert!(verify_check(&key, &check));
         let wrong = derive_key("pw2", b"salt-salt-salt-sa");
         assert!(!verify_check(&wrong, &check));
+        // Мусор и строка без префикса — false, без паники
+        assert!(!verify_check(&key, ""));
+        assert!(!verify_check(&key, "enc:v1:AAAA"));
     }
 
     #[test]
