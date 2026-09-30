@@ -368,33 +368,47 @@ export function ambientGradientDefaults(): { from: string; to: string } {
  * Палитра темы Official — строгий монохром. Иерархия поверхностей
  * строится ступенями яркости (границы вместо теней), цвет остаётся
  * только для семантики: diff, статусы инструментов, ошибки.
+ *
+ * Отдаётся CSS-текстом для отдельного тега <style id="halo-official">,
+ * а НЕ инлайном на корне: инлайн-палитру сносила зачистка
+ * предпросмотных переменных в редакторе кастомных стилей (ThemeSection,
+ * PALETTE_VAR_NAMES) — тема «сбрасывалась» при каждом входе в настройки,
+ * оставляя смесь чёрного/серого/синего/белого. Селектор :root.official
+ * (0,2,0) выше data-style палитр (0,1,1) и html.light, а тег, переносимый
+ * в конец head — последняя инстанция каскада.
  */
-function officialPalette(a: Appearance): Record<string, string> {
-  const soft = {
-    "--halo-bg": "#0a0a0a",
-    "--halo-deep": "#060606",
-    "--halo-surface": "#141414",
-    "--halo-raised": "#1d1d1d",
-    "--halo-line": a.officialContrast ? "#3d3d3d" : "#262626",
-    "--halo-text": "#fafafa",
-    "--halo-muted": a.officialContrast ? "#c6c6c6" : "#a3a3a3",
-    "--halo-hover": "rgba(255, 255, 255, 0.06)",
-    "--halo-hover-strong": "rgba(255, 255, 255, 0.1)",
-    "--halo-code-bg": "#0f0f0f",
-    "--halo-accent": "#ececec",
-    "--halo-accent-deep": "#8f8f8f",
-    "--halo-on-accent": "#111111",
-  };
-  if (!a.officialOled) return soft;
-  return {
-    ...soft,
-    "--halo-bg": "#000000",
-    "--halo-deep": "#000000",
-    "--halo-surface": "#0d0d0d",
-    "--halo-raised": "#161616",
-    "--halo-line": a.officialContrast ? "#333333" : "#1f1f1f",
-    "--halo-code-bg": "#050505",
-  };
+function officialCss(oled: boolean, contrast: boolean): string {
+  const line = oled
+    ? contrast
+      ? "#333333"
+      : "#1f1f1f"
+    : contrast
+      ? "#3d3d3d"
+      : "#262626";
+  const muted = contrast ? "#c6c6c6" : "#a3a3a3";
+  const bg = oled ? "#000000" : "#0a0a0a";
+  const deep = oled ? "#000000" : "#060606";
+  const surface = oled ? "#0d0d0d" : "#141414";
+  const raised = oled ? "#161616" : "#1d1d1d";
+  const codeBg = oled ? "#050505" : "#0f0f0f";
+  return [
+    ":root.official {",
+    `  --halo-bg: ${bg};`,
+    `  --halo-deep: ${deep};`,
+    `  --halo-surface: ${surface};`,
+    `  --halo-raised: ${raised};`,
+    `  --halo-line: ${line};`,
+    "  --halo-text: #fafafa;",
+    `  --halo-muted: ${muted};`,
+    "  --halo-hover: rgba(255, 255, 255, 0.06);",
+    "  --halo-hover-strong: rgba(255, 255, 255, 0.1);",
+    `  --halo-code-bg: ${codeBg};`,
+    "  --halo-accent: #ececec;",
+    "  --halo-accent-deep: #8f8f8f;",
+    "  --halo-on-accent: #111111;",
+    "  color-scheme: dark;",
+    "}",
+  ].join("\n");
 }
 
 /** Применяем кастомизацию к <html>; theme нужен дляrem-масштаба (не конфликтует) */
@@ -412,8 +426,16 @@ export function applyAppearance(a: Appearance) {
   // Кастомные стили (конструктор): отдельный тег, обновляется при мутациях,
   // здесь — идемпотентная инициализация на старте
   applyCustomStyles();
-  root.style.setProperty("--halo-accent", a.accent);
-  root.style.setProperty("--halo-accent-deep", darken(a.accent, 0.82));
+  // Акцент: при Official НЕ пишем инлайн — монохромный акцент (#ececec)
+  // даёт тег halo-official (см. ниже); инлайн перебил бы его каскадно.
+  // При выключении — возвращаем акцент пользователя инлайном
+  if (a.official) {
+    root.style.removeProperty("--halo-accent");
+    root.style.removeProperty("--halo-accent-deep");
+  } else {
+    root.style.setProperty("--halo-accent", a.accent);
+    root.style.setProperty("--halo-accent-deep", darken(a.accent, 0.82));
+  }
   root.style.setProperty("--halo-term-font", `${a.termFont}px`);
   root.style.setProperty("--halo-blur", `${a.glassBlur}px`);
   // Чтение (кастомизация): дефолты vars = текущий дизайн
@@ -456,12 +478,25 @@ export function applyAppearance(a: Appearance) {
   if (a.style === "claude") root.removeAttribute("data-style");
   else root.setAttribute("data-style", a.style);
 
-  // Тема Official: монохромная палитра инлайном — inline-стили сильнее
-  // и html.light, и data-style, и акцента выше, так что никакой каскадной
-  // борьбы. Официальная тема всегда тёмная; при выключении все инлайн
-  // переопределения снимаются, обычные темы живут как раньше.
+  // Тема Official: монохромная палитра — отдельным тегом <style> в конце
+  // head (см. officialCss). Инлайн на корне нельзя: зачистка
+  // предпросмотных переменных в ThemeSection сносила её при каждом входе
+  // в настройки. Официальная тема всегда тёмная; при выключении тег
+  // снимается, обычные темы живут как раньше.
   root.classList.toggle("official", a.official);
   root.classList.toggle("official-mono-code", a.official && a.officialMonoCode);
+  const officialTag = document.getElementById("halo-official");
+  if (a.official) {
+    const tag = officialTag ?? document.createElement("style");
+    tag.id = "halo-official";
+    tag.textContent = officialCss(a.officialOled, a.officialContrast);
+    // appendChild переносит существующий тег в конец head — после
+    // halo-theme-styles / halo-custom-styles при любой их регенерации:
+    // при равной специфичности побеждает последний в DOM
+    document.head.appendChild(tag);
+  } else {
+    officialTag?.remove();
+  }
   root.classList.toggle("ambient", a.ambient);
   // Motion/Reduced: класс глушит анимации CSS-правилами в index.css;
   // canvas-сцены AmbientLayer ставятся на паузу через App (prop paused)
@@ -478,21 +513,6 @@ export function applyAppearance(a: Appearance) {
   }
   root.style.setProperty("--ambient-alpha", String(a.ambientBrightness));
   root.setAttribute("data-ambient-render", a.ambientRender);
-  if (a.official) {
-    const palette = officialPalette(a);
-    for (const [k, v] of Object.entries(palette)) {
-      root.style.setProperty(k, v);
-    }
-    // Принудительно тёмный color-scheme (перекрывает html.light)
-    root.style.colorScheme = "dark";
-  } else {
-    // Акцент и его производную НЕ снимаем: они установлены выше для обычных тем
-    for (const k of Object.keys(officialPalette(a))) {
-      if (k === "--halo-accent" || k === "--halo-accent-deep") continue;
-      root.style.removeProperty(k);
-    }
-    root.style.removeProperty("color-scheme");
-  }
 
   // Цвет рамки окна/мета theme-color: в index.html статично зашита тёмная —
   // светлые темы всегда получали тёмную рамку независимо от темы
