@@ -1237,6 +1237,8 @@ export const zh = {
     "common.nothingFound": "没有找到",
     "session.copy": "（副本）",
     "chat.worked": "运行了 {s} 秒",
+    "chat.runWorking": "运行 {d}",
+    "chat.runWorked": "已运行 {d}",
     "chat.workedUnit": "秒",
     "chat.thought": "思考",
     "chat.removeImage": "移除",

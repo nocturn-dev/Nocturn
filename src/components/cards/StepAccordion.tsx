@@ -66,7 +66,15 @@ function KindIcon({ kind }: { kind: StepRow["kind"] }) {
   );
 }
 
-export function StepAccordion({ steps }: { steps: StepRow[] }) {
+export function StepAccordion({
+  steps,
+  flat,
+}: {
+  steps: StepRow[];
+  /** Flat-режим (лента хода в стиле ZCode): ряды без коробок — только
+   *  иконка/лейбл/детали на прозрачном фоне, hover-подсветка остаётся */
+  flat?: boolean;
+}) {
   const { t } = useLang();
   const [open, setOpen] = useState<Set<string>>(new Set());
   const toggle = (id: string) =>
@@ -78,19 +86,25 @@ export function StepAccordion({ steps }: { steps: StepRow[] }) {
     });
 
   return (
-    <div className="mt-2 w-full space-y-0.5">
+    <div className={flat ? "w-full space-y-0.5" : "mt-2 w-full space-y-0.5"}>
       {steps.map((s) => {
         const isOpen = open.has(s.id);
         return (
           <div
             key={s.id}
-            className={`rounded-lg border bg-halo-deep/30 ${
-              s.failed ? "border-red-400/30" : "border-halo-line/50"
-            }`}
+            className={
+              flat
+                ? `rounded-lg ${s.failed ? "bg-red-400/5" : ""}`
+                : `rounded-lg border bg-halo-deep/30 ${
+                    s.failed ? "border-red-400/30" : "border-halo-line/50"
+                  }`
+            }
           >
             <button
               onClick={() => toggle(s.id)}
-              className="flex w-full items-center gap-2 px-2 py-1.5 text-left text-[0.6875rem] transition-colors hover:bg-halo-hover/40"
+              className={`flex w-full items-center gap-2 px-2 py-1.5 text-left text-[0.6875rem] transition-colors hover:bg-halo-hover/40 ${
+                flat ? "rounded-lg" : ""
+              }`}
             >
               <span className={`shrink-0 ${KIND_COLOR[s.kind]}`}>
                 <KindIcon kind={s.kind} />

@@ -1225,6 +1225,8 @@ export const ru = {
     "common.nothingFound": "Ничего не найдено",
     "session.copy": "(копия)",
     "chat.worked": "Работал {s} сек",
+    "chat.runWorking": "Работает {d}",
+    "chat.runWorked": "Работал {d}",
     "chat.workedUnit": "сек",
     "chat.thought": "Размышления",
     "chat.removeImage": "Убрать",

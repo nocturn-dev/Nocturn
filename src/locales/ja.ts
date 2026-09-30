@@ -1237,6 +1237,8 @@ export const ja = {
     "common.nothingFound": "見つかりません",
     "session.copy": "（コピー）",
     "chat.worked": "{s} 秒実行しました",
+    "chat.runWorking": "実行中 {d}",
+    "chat.runWorked": "実行時間 {d}",
     "chat.workedUnit": "秒",
     "chat.thought": "思考",
     "chat.removeImage": "削除",

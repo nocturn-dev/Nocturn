@@ -1208,6 +1208,8 @@ export const en = {
     "common.nothingFound": "Nothing found",
     "session.copy": "(copy)",
     "chat.worked": "Worked for {s} s",
+    "chat.runWorking": "Working for {d}",
+    "chat.runWorked": "Worked for {d}",
     "chat.workedUnit": "s",
     "chat.thought": "Thought",
     "chat.removeImage": "Remove",
