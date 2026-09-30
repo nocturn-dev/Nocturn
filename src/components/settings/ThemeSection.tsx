@@ -80,6 +80,9 @@ export function ThemeSection({
   onMsgGlassChange: (v: boolean) => void;
 }) {
   const { t } = useLang();
+  // Жёсткие темы (Official / Full Claude): пока активна любая, обычные
+  // контролы кастомизации скрыты — у тем свои палитры и свои настройки
+  const hardTheme = appearance.official || appearance.fullClaude;
   // Инлайн-ввод имени нового профиля (окно prompt недоступно в sandbox)
   const [profileSaveOpen, setProfileSaveOpen] = useState(false);
   const [profileNameDraft, setProfileNameDraft] = useState("");
@@ -435,7 +438,12 @@ export function ThemeSection({
         </div>
         <button
           onClick={() =>
-            onAppearanceChange({ ...appearance, official: !appearance.official })
+            // Жёсткие темы взаимоисключимы: включение одной выключает другую
+            onAppearanceChange({
+              ...appearance,
+              official: !appearance.official,
+              fullClaude: false,
+            })
           }
           title={t("themes.official")}
           className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${
@@ -463,7 +471,12 @@ export function ThemeSection({
         </div>
         <button
           onClick={() =>
-            onAppearanceChange({ ...appearance, fullClaude: !appearance.fullClaude })
+            // Включение Full Claude гасит Official (и наоборот — см. выше)
+            onAppearanceChange({
+              ...appearance,
+              fullClaude: !appearance.fullClaude,
+              official: false,
+            })
           }
           title={t("themes.fullClaude")}
           className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${
@@ -536,7 +549,7 @@ export function ThemeSection({
         </div>
       )}
 
-      {!appearance.official && (
+      {!hardTheme && (
         <>
       {/* Светлая/тёмная: компактные карточки в один ряд */}
       <div className="grid grid-cols-2 gap-3">
@@ -1020,7 +1033,7 @@ export function ThemeSection({
 
       <p className="mb-2 mt-6 text-[0.625rem] font-semibold uppercase tracking-[0.14em] text-halo-muted/60">{t("themes.gEffects")}</p>
 
-      {!appearance.official && (
+      {!hardTheme && (
       <>
       <div className="mt-4 flex items-center justify-between rounded-xl border border-halo-line px-3.5 py-3">
         <div>
@@ -1191,7 +1204,7 @@ export function ThemeSection({
 
       <p className="mb-2 mt-6 text-[0.625rem] font-semibold uppercase tracking-[0.14em] text-halo-muted/60">{t("themes.gBranding")}</p>
 
-      {!appearance.official && (
+      {!hardTheme && (
         <>
       {/* Знак приложения: новая широкая N или классическая */}
       <div className="mt-2.5 flex items-center gap-3 rounded-xl border border-halo-line px-3.5 py-3">
