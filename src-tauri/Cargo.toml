@@ -36,7 +36,7 @@ xcap = "0.4"
 enigo = "0.3"
 image = { version = "0.25", default-features = false, features = ["jpeg"] }
 base64 = "0.22"
-aes-gcm = "0.10"
+aes-gcm = { version = "0.10", features = ["zeroize"] }
 rand = "0.8"
 pbkdf2 = "0.12"
 argon2 = "0.5"
