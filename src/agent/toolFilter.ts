@@ -14,7 +14,9 @@ export function filterToolSchemas(
   return schemas.filter((x) => {
     const name = (x as { function?: { name?: string } } | null)?.function?.name;
     if (name === undefined) return true;
-    if (opts.removeSubagent && name === "subagent_run") return false;
+    if (opts.removeSubagent && (name === "subagent_run" || name === "workflow_run"))
+      // workflow_run тоже не субагентам: вложенный сценарий = глубина > 1
+      return false;
     // Память выключена тумблером — модель не должна звать её инструменты
     if (opts.removeMemory && name.startsWith("memory_")) return false;
     return !disabled.has(name);
