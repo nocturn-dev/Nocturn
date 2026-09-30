@@ -9,6 +9,18 @@ use std::sync::{Arc, Mutex};
 /// Реестр флагов отмены стримов: requestId → флаг
 pub struct AbortRegistry(pub Mutex<HashMap<String, Arc<AtomicBool>>>);
 
+impl AbortRegistry {
+    /// Копия карты с ТЕМИ ЖЕ Arc-флагами. Паникоизоляция прогона (блок 12
+    /// шаг 5) требует 'static-будущего для spawn —State не отдать; значения
+    /// общие, поэтому chat_abort в оригинальной карте поднимает флаг,
+    /// который видит изолированный прогон
+    fn snapshot(&self) -> AbortRegistry {
+        AbortRegistry(Mutex::new(
+            self.0.lock().map(|m| m.clone()).unwrap_or_default(),
+        ))
+    }
+}
+
 /// RAII-guard: удаляет запись из AbortRegistry при выходе из любого пути
 /// (ранний return по abort-флагу, "[DONE]", все "?"-выходы). Ручной remove
 /// в конце функции больше не нужен — Drop чистит автоматически. Чистит
@@ -303,6 +315,57 @@ pub async fn chat_stream(
     // с x-api-key вместо Bearer — загадочный 401 на валидном ключе
     provider: Option<String>,
 ) -> Result<(), String> {
+    // Регистрируем флаг отмены ДО отправки запроса: иначе chat_abort,
+    // пришедший между send() и регистрацией, был бы no-op. Повторный
+    // request_id поднимает флаг старого стрима: иначе AbortGuard старого
+    // при выходе вычищал запись нового, и отмена нового становилась no-op
+    let flag: Arc<AtomicBool> = {
+        let mut map = registry.0.lock().map_err(|e| e.to_string())?;
+        let f = Arc::new(AtomicBool::new(false));
+        if let Some(old) = map.insert(request_id.clone(), f.clone()) {
+            old.store(true, Ordering::Relaxed);
+        }
+        f
+    };
+    // Паникоизоляция (блок 12 шаг 5, паттерн ZCode): прогон — отдельная
+    // tokio-задача. Паника движка превращается в Err → карточка ошибки на
+    // фронте, вместо подвешенного промиса и убитого рантайма команды.
+    // Снапшот реестра несёт ТЕ ЖЕ Arc-флаги — Stop работает как раньше
+    let handle = tauri::async_runtime::spawn(chat_stream_impl(
+        app,
+        registry.snapshot(),
+        request_id,
+        base_url,
+        api_key,
+        model,
+        messages,
+        tools,
+        reasoning_effort,
+        provider,
+        flag,
+    ));
+    match handle.await {
+        Ok(res) => res,
+        Err(join) => Err(format!("engine panicked: {join}")),
+    }
+}
+
+/// Тело стрима без #[tauri::command]: реестр — снапшот (owned), флаг уже
+/// зарегистрирован наружной командой
+#[allow(clippy::too_many_arguments)]
+async fn chat_stream_impl(
+    app: tauri::AppHandle,
+    registry: AbortRegistry,
+    request_id: String,
+    base_url: String,
+    api_key: String,
+    model: String,
+    messages: Vec<ChatMessage>,
+    tools: Option<serde_json::Value>,
+    reasoning_effort: Option<String>,
+    provider: Option<String>,
+    flag: Arc<AtomicBool>,
+) -> Result<(), String> {
     use futures_util::StreamExt;
 
     // Адаптер протокола: явный провайдер с фронта, при отсутствии — эвристика
@@ -317,19 +380,9 @@ pub async fn chat_stream(
 
     let client = crate::network::shared_client(std::time::Duration::from_secs(30))?;
 
-    // Регистрируем флаг отмены ДО отправки запроса: иначе chat_abort,
-    // пришедший между send() и регистрацией, был бы no-op. Повторный
-    // request_id поднимает флаг старого стрима: иначе AbortGuard старого
-    // при выходе вычищал запись нового, и отмена нового становилась no-op
-    let flag: Arc<AtomicBool> = {
-        let mut map = registry.0.lock().map_err(|e| e.to_string())?;
-        let f = Arc::new(AtomicBool::new(false));
-        if let Some(old) = map.insert(request_id.clone(), f.clone()) {
-            old.store(true, Ordering::Relaxed);
-        }
-        f
-    };
-    // Guard чистит запись при любом выходе из функции (в т.ч. по "?" и return)
+    // Guard чистит запись при любом выходе из функции (в т.ч. по "?" и return).
+    // Чистит снапшот-карту — оригинальную запись чистит наружный AbortGuard,
+    // а флаг общий (Arc), поэтому Stop работает как раньше
     let _abort_guard = AbortGuard {
         registry: &registry,
         request_id: request_id.clone(),
