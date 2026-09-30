@@ -1021,8 +1021,9 @@ html.ambient.ambient-paused body::before {
 }
 
 /* ---------- Ambient: слой сцен/видео (fog, snow, city, stars, video).
-   Палитра сцен тёмная — в светлой теме слой скрыт. Интенсивность
-   регулируется переменной --ambient-alpha из «Кастомизации» ---------- */
+   Сцены рисуют СВОИ зашитые ночные палитры и полупрозрачное небо (не
+   палитру темы) — слой не темнит и не коричневит интерфейс. В светлой
+   теме слой скрыт. Интенсивность — --ambient-alpha из «Кастомизации» */
 .ambient-layer {
   position: fixed;
   inset: 0;
@@ -1042,31 +1043,17 @@ html.ambient.ambient-paused body::before {
 .ambient-video {
   filter: brightness(0.85) saturate(0.95);
 }
-/* затемняющий градиент: текст поверх видео/сцен остаётся читаемым.
-   Фидбек 29.09: прошлые значения (0.32/0.12/0.3) «давили» фон —
-   ослаблено вдвое; в режиме «За интерфейсом» оверлей выключен вовсе */
-.ambient-layer::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(
-    180deg,
-    rgba(0, 0, 0, 0.16),
-    rgba(0, 0, 0, 0.05) 45%,
-    rgba(0, 0, 0, 0.15)
-  );
-}
 html.light .ambient-layer {
   display: none;
 }
 
 /* Ambient «за интерфейсом»: слой уходит под контент — сцену видно сквозь
-   полупрозрачные панели и в зазорах; оверлей в этом режиме не нужен */
+   полупрозрачные панели и в зазорах. Подложка обязательна: небо сцен
+   теперь полупрозрачное, и без неё сквозь него в щелях светил бы белый
+   фон окна WebView */
 html[data-ambient-render="behind"] .ambient-layer {
   z-index: var(--halo-z-behind);
-}
-html[data-ambient-render="behind"] .ambient-layer::after {
-  content: none;
+  background: #05070c;
 }
 /* то же для сцены glow (body::before) */
 html[data-ambient-render="behind"]:not([data-ambient-scene]) body::before {
