@@ -19,6 +19,13 @@ import {
 import { keepAwake } from "../api";
 import { useLang, type MsgKey } from "../locales";
 import { isWindows } from "../platform";
+import {
+  addOffPeakTask,
+  loadOffPeak,
+  pruneOffPeak,
+  saveOffPeak,
+  type OffPeakTask,
+} from "../offpeak";
 
 interface AutomationsModalProps {
   open: boolean;
@@ -57,6 +64,26 @@ export default function AutomationsModal({
   const [historyFor, setHistoryFor] = useState<string | null>(null);
   // Создание с отчётом в заметки vault
   const [toVaultNew, setToVaultNew] = useState(true);
+  // Идл-очередь (offpeak): свежие данные на каждом открытии модала —
+  // раннер в App пишет в localStorage напрямую
+  const [opTasks, setOpTasks] = useState<OffPeakTask[]>([]);
+  const [opDraft, setOpDraft] = useState("");
+  useEffect(() => {
+    if (open) setOpTasks(pruneOffPeak(loadOffPeak(), Date.now()));
+  }, [open]);
+  const addOpTask = () => {
+    const text = opDraft.trim();
+    if (!text) return;
+    const next = addOffPeakTask(loadOffPeak(), text, Date.now());
+    saveOffPeak(next);
+    setOpTasks(next);
+    setOpDraft("");
+  };
+  const removeOpTask = (id: string) => {
+    const next = loadOffPeak().filter((t) => t.id !== id);
+    saveOffPeak(next);
+    setOpTasks(next);
+  };
 
   useEffect(() => {
     if (open) setItems(loadAutomations());
@@ -415,6 +442,61 @@ export default function AutomationsModal({
             />
           </button>
         </div>
+
+        {/* Идл-очередь (offpeak): задачи без расписания — исполняются, когда
+            движок свободен и пользователя нет за клавиатурой */}
+        <p className="mb-1 mt-6 text-sm font-semibold text-halo-text">
+          {t("offpeak.title")}
+        </p>
+        <p className="mb-2 text-xs leading-relaxed text-halo-muted">
+          {t("offpeak.hint")}
+        </p>
+        <div className="mb-2 flex gap-2">
+          <textarea
+            value={opDraft}
+            onChange={(e) => setOpDraft(e.target.value)}
+            placeholder={t("offpeak.placeholder")}
+            rows={2}
+            className="min-w-0 flex-1 resize-none rounded-lg border border-halo-line bg-halo-surface px-2.5 py-2 text-xs text-halo-text outline-none transition-colors placeholder:text-halo-muted/60 focus:border-halo-accent/60"
+          />
+          <button
+            onClick={addOpTask}
+            disabled={!opDraft.trim()}
+            className="shrink-0 self-end rounded-lg border border-halo-line px-3 py-2 text-xs text-halo-text transition-colors hover:border-halo-accent/50 hover:bg-halo-hover disabled:opacity-40"
+          >
+            {t("offpeak.add")}
+          </button>
+        </div>
+        {opTasks.length === 0 ? (
+          <p className="text-xs text-halo-muted/70">{t("offpeak.empty")}</p>
+        ) : (
+          <div className="space-y-1.5">
+            {opTasks.map((task) => (
+              <div
+                key={task.id}
+                className="flex items-center justify-between gap-2 rounded-lg border border-halo-line/60 bg-halo-surface/30 px-2.5 py-2"
+              >
+                <div className="min-w-0">
+                  <p className="truncate text-xs text-halo-text">{task.title}</p>
+                  <p className="text-[0.625rem] text-halo-muted/70">
+                    {task.status === "waiting" && t("offpeak.waiting")}
+                    {task.status === "running" && t("offpeak.running")}
+                    {task.status === "done" && t("offpeak.done")}
+                    {task.status === "failed" &&
+                      t("offpeak.failed") + (task.error ? `: ${task.error}` : "")}
+                  </p>
+                </div>
+                <button
+                  onClick={() => removeOpTask(task.id)}
+                  title={t("offpeak.delete")}
+                  className="shrink-0 rounded p-1 text-halo-muted transition-colors hover:text-halo-text"
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* Шаблоны */}
         <p className="mb-3 mt-6 text-sm font-semibold text-halo-text">
