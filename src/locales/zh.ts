@@ -180,6 +180,8 @@ export const zh = {
     "files.copied": "点击 — 复制路径",
     "files.modified": "已被代理修改",
     "cp.title": "检查点",
+    "cp.gitJournal": "检查点 Git 日志",
+    "cp.gitJournalHint": "将快照额外提交到 Nocturn 专属的 git 日志中（以 git 对象保存项目历史）。",
     "cp.created": "已创建项目检查点 — 代理修改前的文件已保存",
     "cp.empty": "还没有快照 — 快照会在代理修改前自动创建",
     "cp.unlabeled": "无标题",
