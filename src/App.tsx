@@ -75,6 +75,7 @@ import BrowserPanel from "./components/BrowserPanel";
 import Toasts from "./components/Toast";
 import DownloadProgress from "./components/DownloadProgress";
 import { isDue, loadAutomations, nextRunAfter, saveAutomations, VAULT_REPORT_SUFFIX } from "./automations";
+import { isIdle, loadOffPeak, nextWaiting, saveOffPeak } from "./offpeak";
 import { checkForUpdate } from "./api";
 import SearchModal from "./components/SearchModal";
 import ContextMenu, { type MenuItem } from "./components/ContextMenu";
@@ -1229,6 +1230,84 @@ export default function App() {
     return () => clearInterval(timer);
     // activeRunRef/handleSendRef — рефы со стабильной идентичностью;
     // тикер автоматизаций mount-only по замыслу
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ---------- Идл-очередь (offpeak, блок 12 шаг 3 — паттерн ZCode) ----------
+  // Задачи без расписания: исполняются, когда движок свободен и пользователь
+  // не активен дольше порога простоя. Активность = клавиши/клики где угодно
+  const lastActivityRef = useRef(Date.now());
+  useEffect(() => {
+    const mark = () => {
+      lastActivityRef.current = Date.now();
+    };
+    window.addEventListener("keydown", mark, { passive: true });
+    window.addEventListener("pointerdown", mark, { passive: true });
+    return () => {
+      window.removeEventListener("keydown", mark);
+      window.removeEventListener("pointerdown", mark);
+    };
+  }, []);
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const list = loadOffPeak();
+      const task = nextWaiting(list);
+      if (!task) return;
+      // Движок занят (прогон/автоматизация/цепочка) — промт не теряется,
+      // задача уедет на ближайшем тике простоя (контракт автоматизаций)
+      if (activeRunRef.current) return;
+      if (!isIdle(Date.now(), lastActivityRef.current, false)) return;
+      // Без настроенного API — как у автоматизаций: ждём, не спамим
+      if (
+        apiSettingsRef.current.api_key.trim() === "" ||
+        apiSettingsRef.current.model.trim() === ""
+      ) {
+        return;
+      }
+      const send = handleSendRef.current;
+      if (!send) return;
+      const session: Session = {
+        id: uid(),
+        title: `🌙 ${task.title}`.slice(0, 48),
+        createdAt: Date.now(),
+        messages: [],
+      };
+      saveOffPeak(
+        list.map((t) => (t.id === task.id ? { ...t, status: "running" as const } : t)),
+      );
+      setSessions((prev) => [session, ...prev]);
+      setActiveId(session.id);
+      // runStartedRef различает «движок занят, send bail-ит» (C10): задача
+      // возвращается в очередь, а не помечается выполненной
+      runStartedRef.current = false;
+      void send(task.text, undefined, session.id).then(
+        () => {
+          const started = runStartedRef.current;
+          const cur = loadOffPeak();
+          saveOffPeak(
+            cur.map((t) =>
+              t.id === task.id
+                ? started
+                  ? { ...t, status: "done" as const, ranAt: Date.now() }
+                  : { ...t, status: "waiting" as const }
+                : t,
+            ),
+          );
+        },
+        (e) => {
+          const cur = loadOffPeak();
+          saveOffPeak(
+            cur.map((t) =>
+              t.id === task.id
+                ? { ...t, status: "failed" as const, ranAt: Date.now(), error: String(e) }
+                : t,
+            ),
+          );
+        },
+      );
+    }, 30_000);
+    return () => clearInterval(timer);
+    // mount-only по замыслу, как тикер автоматизаций
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
