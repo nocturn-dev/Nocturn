@@ -59,8 +59,21 @@ export interface Appearance {
   officialMonoCode: boolean;
   /** Full Claude: полная реплика Claude Desktop (палитра + компонентный слой).
    *  Сознательно вне каскада кастомизации: ни Global-тумблеры, ни Official
-   *  на неё не влияют. Пока заглушка — состояние хранится, ничего не применяет */
+   *  на неё не влияют. Взаимоисключима с Official */
   fullClaude: boolean;
+  /** Настройки самой Full Claude — действуют только внутри темы */
+  /** Чат-ответы серифом (Georgia-стек, как у Claude) — дефолт on */
+  fullClaudeSerif: boolean;
+  /** Едва заметное звёздное небо вместо чистых заливок — дефолт off */
+  fullClaudeStars: boolean;
+  /** Стекло внутри темы (глобальный тумблер стекла игнорируется) — off */
+  fullClaudeGlass: boolean;
+  /** Масштаб скруглений внутри темы (дефолт 1 = 6–8px по ТЗ) */
+  fullClaudeRadius: number;
+  /** Шрифт UI внутри темы (пусто = системный гротеск) */
+  fullClaudeUiFont: string;
+  /** Моно внутри темы (пусто = системный стек) */
+  fullClaudeMonoFont: string;
   /** Motion/Reduced: принудительно заглушить анимации интерфейса
    *  (поверх системной prefers-reduced-motion) */
   reduceMotion?: boolean;
@@ -137,6 +150,12 @@ export const DEFAULT_APPEARANCE: Appearance = {
   officialContrast: false,
   officialMonoCode: false,
   fullClaude: false,
+  fullClaudeSerif: true,
+  fullClaudeStars: false,
+  fullClaudeGlass: false,
+  fullClaudeRadius: 1,
+  fullClaudeUiFont: "",
+  fullClaudeMonoFont: "",
   /** Motion/Reduced: принудительно заглушить анимации интерфейса
    *  (поверх системной prefers-reduced-motion) */
   reduceMotion: false,
@@ -211,6 +230,17 @@ export function loadAppearance(): Appearance {
       officialContrast: p.officialContrast ?? DEFAULT_APPEARANCE.officialContrast,
       officialMonoCode: p.officialMonoCode ?? DEFAULT_APPEARANCE.officialMonoCode,
       fullClaude: p.fullClaude ?? DEFAULT_APPEARANCE.fullClaude,
+      fullClaudeSerif: p.fullClaudeSerif ?? DEFAULT_APPEARANCE.fullClaudeSerif,
+      fullClaudeStars: p.fullClaudeStars ?? DEFAULT_APPEARANCE.fullClaudeStars,
+      fullClaudeGlass: p.fullClaudeGlass ?? DEFAULT_APPEARANCE.fullClaudeGlass,
+      fullClaudeRadius: clamp(
+        p.fullClaudeRadius ?? DEFAULT_APPEARANCE.fullClaudeRadius,
+        0.4,
+        1.6,
+      ),
+      fullClaudeUiFont: typeof p.fullClaudeUiFont === "string" ? p.fullClaudeUiFont : "",
+      fullClaudeMonoFont:
+        typeof p.fullClaudeMonoFont === "string" ? p.fullClaudeMonoFont : "",
       ambient: p.ambient ?? DEFAULT_APPEARANCE.ambient,
       ambientScene: isAmbientScene(p.ambientScene) ? p.ambientScene : "glow",
       ambientVideo: typeof p.ambientVideo === "string" ? p.ambientVideo : "",
@@ -422,6 +452,56 @@ function officialCss(oled: boolean, contrast: boolean): string {
   ].join("\n");
 }
 
+/**
+ * Палитра и базовые блоки темы Full Claude — реплика Claude Desktop:
+ * ультра-тёмный тёплый уголь, графитовые карточки с холодным отливом,
+ * терракотовый акцент, мягкие полупрозрачные границы. Всегда тёмная.
+ *
+ * Механика — точная копия officialCss: отдельный тег <style id=
+ * "halo-full-claude"> в конце head, все палитровые переменные с !important
+ * (data-style палитры 0-2-1 и инлайн на корне иначе пробивали бы :root,
+ * см. урок Official). Тема вне каскада кастомизации: переменные «Чтения»
+ * (масштаб/плотность/ширина), радиус и шрифты фиксируются в скоупе —
+ * глобальные слайдеры и выборы шрифтов на неё не действуют.
+ */
+function fullClaudeCss(a: Appearance): string {
+  const r = clamp(a.fullClaudeRadius ?? 1, 0.4, 1.6);
+  // Шрифты: пустое значение = системный стек (побайтно дефолт index.css);
+  // непустое — пресет из настроек темы, фолбэки как в applyAppearance
+  const uiFont = a.fullClaudeUiFont
+    ? `${a.fullClaudeUiFont}, ui-sans-serif, system-ui, sans-serif`
+    : '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", "Noto Sans", Arial, sans-serif';
+  const monoFont = a.fullClaudeMonoFont
+    ? `${a.fullClaudeMonoFont}, ui-monospace, Menlo, Consolas, "Liberation Mono", monospace`
+    : 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace';
+  return [
+    ":root.full-claude {",
+    "  --halo-bg: #1a1a1a !important;",
+    "  --halo-deep: #212121 !important;",
+    "  --halo-surface: #1f1f23 !important;",
+    "  --halo-raised: #26262b !important;",
+    "  --halo-line: rgba(255, 255, 255, 0.07) !important;",
+    "  --halo-text: #e3e3e3 !important;",
+    "  --halo-muted: #a19b95 !important;",
+    "  --halo-hover: rgba(255, 255, 255, 0.05) !important;",
+    "  --halo-hover-strong: rgba(255, 255, 255, 0.08) !important;",
+    "  --halo-code-bg: #1f1f23 !important;",
+    "  --halo-code-text: #e3e3e3 !important;",
+    "  --halo-accent: #d97757 !important;",
+    "  --halo-accent-deep: #bd5d3a !important;",
+    "  --halo-on-accent: #ffffff !important;",
+    "  --halo-blur: 14px !important;",
+    `  --halo-radius-scale: ${r} !important;`,
+    "  --halo-msg-scale: 1 !important;",
+    "  --halo-density: 1 !important;",
+    "  --halo-content-width: 48rem !important;",
+    `  --halo-font-ui: ${uiFont} !important;`,
+    `  --halo-font-mono: ${monoFont} !important;`,
+    "  color-scheme: dark;",
+    "}",
+  ].join("\n");
+}
+
 /** Применяем кастомизацию к <html>; theme нужен дляrem-масштаба (не конфликтует) */
 export function applyAppearance(a: Appearance) {
   const root = document.documentElement;
@@ -437,10 +517,10 @@ export function applyAppearance(a: Appearance) {
   // Кастомные стили (конструктор): отдельный тег, обновляется при мутациях,
   // здесь — идемпотентная инициализация на старте
   applyCustomStyles();
-  // Акцент: при Official НЕ пишем инлайн — монохромный акцент (#ececec)
-  // даёт тег halo-official (см. ниже); инлайн перебил бы его каскадно.
+  // Акцент: при Official/Full Claude НЕ пишем инлайн — акцент темы даёт её
+  // тег (монохром #ececec / терракота #d97757); инлайн перебил бы его каскадно.
   // При выключении — возвращаем акцент пользователя инлайном
-  if (a.official) {
+  if (a.official || a.fullClaude) {
     root.style.removeProperty("--halo-accent");
     root.style.removeProperty("--halo-accent-deep");
   } else {
@@ -468,14 +548,16 @@ export function applyAppearance(a: Appearance) {
   } else {
     root.style.removeProperty("--halo-font-mono");
   }
-  // Палитра подсветки кода + терминал: прозрачность/блюр (дефолты = как было)
-  applyCodeTheme(a.codeTheme ?? "midnight");
+  // Палитра подсветки кода + терминал: прозрачность/блюр (дефолты = как было).
+  // Full Claude фиксирует свою подсветку — выбор codeTheme в теме не действует
+  applyCodeTheme(a.fullClaude ? "midnight" : (a.codeTheme ?? "midnight"));
   root.style.setProperty("--halo-term-opacity", String(a.termOpacity ?? 1));
   root.style.setProperty("--halo-density", String(a.density ?? 1));
   root.style.setProperty("--halo-content-width", `${a.contentWidth ?? 768}px`);
   // Фон код-блоков независимо от темы: инлайном только при переопределении,
-  // иначе палитра стиля (data-style) продолжает управлять --halo-code-bg
-  if (a.codeStyle === "light") {
+  // иначе палитра стиля (data-style) продолжает управлять --halo-code-bg.
+  // В Full Claude фон даёт тег темы — инлайн не пишем
+  if (a.codeStyle === "light" && !a.fullClaude) {
     root.style.setProperty("--halo-code-bg", "#f0eee6");
     root.style.setProperty("--halo-code-text", "#2a2926");
   } else {
@@ -493,11 +575,15 @@ export function applyAppearance(a: Appearance) {
   // head (см. officialCss). Инлайн на корне нельзя: зачистка
   // предпросмотных переменных в ThemeSection сносила её при каждом входе
   // в настройки. Официальная тема всегда тёмная; при выключении тег
-  // снимается, обычные темы живут как раньше.
-  root.classList.toggle("official", a.official);
-  root.classList.toggle("official-mono-code", a.official && a.officialMonoCode);
+  // снимается, обычные темы живут как раньше. С Full Claude взаимоисключима:
+  // тег Official снимается, пока активна Full Claude
+  root.classList.toggle("official", a.official && !a.fullClaude);
+  root.classList.toggle(
+    "official-mono-code",
+    a.official && !a.fullClaude && a.officialMonoCode,
+  );
   const officialTag = document.getElementById("halo-official");
-  if (a.official) {
+  if (a.official && !a.fullClaude) {
     const tag = officialTag ?? document.createElement("style");
     tag.id = "halo-official";
     tag.textContent = officialCss(a.officialOled, a.officialContrast);
@@ -508,22 +594,44 @@ export function applyAppearance(a: Appearance) {
   } else {
     officialTag?.remove();
   }
-  root.classList.toggle("ambient", a.ambient);
+
+  // Тема Full Claude: тот же паттерн переносимого тега (см. fullClaudeCss),
+  // тег идёт ПОСЛЕ official — при гипотетическом включении обеих (профиль
+  // с мусором) побеждает Full Claude. Применение темы = последний автор
+  // палитры, поэтому тег пересобирается на каждое изменение appearance
+  root.classList.toggle("full-claude", a.fullClaude);
+  const fullClaudeTag = document.getElementById("halo-full-claude");
+  if (a.fullClaude) {
+    const tag = fullClaudeTag ?? document.createElement("style");
+    tag.id = "halo-full-claude";
+    tag.textContent = fullClaudeCss(a);
+    document.head.appendChild(tag);
+  } else {
+    fullClaudeTag?.remove();
+  }
+
+  // Ambient: глобальные сцены при Full Claude не действуют (чистые заливки);
+  // свой тумблер темы включает сцену stars, приглушённую до ~15% яркости
+  const fcStars = a.fullClaude && (a.fullClaudeStars ?? false);
+  const ambientOn = (a.ambient && !a.fullClaude) || fcStars;
+  root.classList.toggle("ambient", ambientOn);
+  if (fcStars) {
+    root.setAttribute("data-ambient-scene", "stars");
+    root.style.setProperty("--ambient-alpha", "0.15");
+  } else if (a.ambient && !a.fullClaude && a.ambientScene !== "glow") {
+    root.setAttribute("data-ambient-scene", a.ambientScene);
+    root.style.setProperty("--ambient-alpha", String(a.ambientBrightness));
+  } else {
+    root.removeAttribute("data-ambient-scene");
+    root.style.setProperty("--ambient-alpha", String(a.ambientBrightness));
+  }
+  root.setAttribute("data-ambient-render", a.ambientRender);
   // Motion/Reduced: класс глушит анимации CSS-правилами в index.css;
   // canvas-сцены AmbientLayer ставятся на паузу через App (prop paused)
   root.classList.toggle("motion-reduced", a.reduceMotion ?? false);
   root.style.setProperty("--motion-scale", String(a.motionScale ?? 1));
   // Акцент-градиент: класс на html, CSS в index.css
   root.classList.toggle("accent-gradient", a.accentGradient ?? false);
-  // Сцена: glow — базовое дыхание (body::before), остальные — слой в App.
-  // Яркость слоя через переменную, CSS читает её
-  if (a.ambient && a.ambientScene !== "glow") {
-    root.setAttribute("data-ambient-scene", a.ambientScene);
-  } else {
-    root.removeAttribute("data-ambient-scene");
-  }
-  root.style.setProperty("--ambient-alpha", String(a.ambientBrightness));
-  root.setAttribute("data-ambient-render", a.ambientRender);
 
   // Цвет рамки окна/мета theme-color: в index.html статично зашита тёмная —
   // светлые темы всегда получали тёмную рамку независимо от темы

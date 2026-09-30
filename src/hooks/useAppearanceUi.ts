@@ -27,12 +27,13 @@ export function useAppearanceUi() {
   const [themeProfiles, setThemeProfiles] = useState<ThemeProfile[]>(loadThemeProfiles);
 
   // Тема применяется мгновенно и запоминается.
-  // Official-тема всегда тёмная: светлая не применяется, пока она включена
+  // Official и Full Claude всегда тёмные: светлая не применяется, пока
+  // включена любая из них
   useEffect(() => {
-    const forceDark = appearance.official;
+    const forceDark = appearance.official || appearance.fullClaude;
     document.documentElement.classList.toggle("light", theme === "light" && !forceDark);
     localStorage.setItem("haloui-theme", theme);
-  }, [theme, appearance.official]);
+  }, [theme, appearance.official, appearance.fullClaude]);
 
   // Авто-тема: opt-in. off — тема только ручная; system — следуем ОС;
   // schedule — светлый интервал дня (может переходить через полночь).
@@ -76,11 +77,16 @@ export function useAppearanceUi() {
     return () => window.clearInterval(iv);
   }, [appearance.themeAuto, appearance.autoDay, appearance.autoNight, setTheme]);
 
-  // Эффект стекла — независимый слой поверх любой темы
+  // Эффект стекла — независимый слой поверх любой темы. Full Claude
+  // вне этого каскада: глобальный тумблер в теме не действует, вместо него —
+  // свой (fullClaudeGlass), с теми же CSS-правилами html.glass
   useEffect(() => {
-    document.documentElement.classList.toggle("glass", glass);
+    const glassOn =
+      (glass && !appearance.fullClaude) ||
+      (appearance.fullClaude && (appearance.fullClaudeGlass ?? false));
+    document.documentElement.classList.toggle("glass", glassOn);
     localStorage.setItem("haloui-glass", glass ? "1" : "0");
-  }, [glass]);
+  }, [glass, appearance.fullClaude, appearance.fullClaudeGlass]);
 
   // Кастомизация: DOM-переменные применяются мгновенно (drag слайдера —
   // живой превью), а побочные эффекты — хвостом с дебаунсом. Без него тик

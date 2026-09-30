@@ -983,7 +983,7 @@ export const en = {
     "themes.officialMonoCode": "Monochrome code highlighting",
     "themes.officialMonoCodeDesc": "Code in greyscale: syntax colors fade, the highlight structure remains.",
     "themes.fullClaude": "Full Claude theme — Claude Desktop replica",
-    "themes.fullClaudeDesc": "A complete Claude Desktop look: palette plus a component layer (composer, feed, chrome). Independent from Official and regular theme settings — no toggle affects it. Work in progress: the switch applies nothing yet.",
+    "themes.fullClaudeDesc": "A complete Claude Desktop look: charcoal palette, serif responses, graphite cards, the terracotta accent. Always dark; regular theme controls are hidden while enabled — the theme has its own.",
     "themes.ambient": "Ambient background",
     "themes.ambientDesc": "Slowly breathing accent glows over the interface. The animation pauses while streaming and never runs with the system reduce-motion setting.",
     "themes.ambientScene": "Scene",

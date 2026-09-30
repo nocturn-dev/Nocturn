@@ -1042,13 +1042,14 @@ export default function App() {
   }, [streamingId]);
 
   // Обои: класс на html — CSS делает сайдбар/чат чуть прозрачными,
-  // чтобы фон уходил за сайдбар (раньше обои обрывались на его границе)
+  // чтобы фон уходил за сайдбар (раньше обои обрывались на его границе).
+  // Full Claude обои игнорирует — чистые монолитные заливки
   useEffect(() => {
     document.documentElement.classList.toggle(
       "has-wallpaper",
-      Boolean(appearance.chatWallpaper),
+      Boolean(appearance.chatWallpaper) && !appearance.fullClaude,
     );
-  }, [appearance.chatWallpaper]);
+  }, [appearance.chatWallpaper, appearance.fullClaude]);
 
   const menuSession = menu ? sessions.find((s) => s.id === menu.id) : null;
 
@@ -2088,8 +2089,9 @@ export default function App() {
       }`}
     >
         {/* Обои на уровне окна: за сайдбаром и чатом (кастомизация) —
-            раньше жили только в колонке чата и «не уходили» за сайдбар */}
-        {appearance.chatWallpaper && (
+            раньше жили только в колонке чата и «не уходили» за сайдбар.
+            В Full Claude не рисуются: чистые монолитные заливки темы */}
+        {appearance.chatWallpaper && !appearance.fullClaude && (
           <div
             aria-hidden
             className="pointer-events-none fixed inset-0 z-0 overflow-hidden"

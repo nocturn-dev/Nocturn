@@ -1009,7 +1009,7 @@ export const zh = {
     "themes.officialMonoCode": "黑白代码高亮",
     "themes.officialMonoCodeDesc": "代码以灰阶显示：语法色淡出，高亮结构保留。",
     "themes.fullClaude": "Full Claude 主题 — 复刻 Claude Desktop",
-    "themes.fullClaudeDesc": "完整的 Claude Desktop 外观：配色加组件层（输入区、消息流、顶栏）。独立于 Official 和常规主题设置——任何开关都不影响它。开发中：开关暂未应用任何效果。",
+    "themes.fullClaudeDesc": "完整的 Claude Desktop 外观：炭黑配色、衬线回复、石墨卡片和陶土色强调。始终为深色；启用期间隐藏常规主题设置——主题有自己的设置。",
     "themes.ambient": "氛围背景",
     "themes.ambientDesc": "缓慢呼吸的强调色光斑。流式输出时动画暂停；系统开启“减弱动态效果”时完全不动。",
     "themes.ambientScene": "场景",
