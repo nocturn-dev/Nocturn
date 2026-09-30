@@ -789,6 +789,9 @@ export function ThemeSection({
         )}
       </div>
 
+      {/* Палитра/геометрия/шрифты — часть гейта выше: при жёстких темах
+          (Official/Full Claude) скрыты целиком, у темы свои акцент,
+          скругления и шрифты — иначе задваивалось (фидбек владельца) */}
       <p className="mb-2 mt-6 text-[0.625rem] font-semibold uppercase tracking-[0.14em] text-halo-muted/60">{t("themes.gPalette")}</p>
 
       {/* Стиль тёмной темы: выпадающий список с живым превью выбранного */}
@@ -955,10 +958,6 @@ export function ThemeSection({
           </div>
         )}
       </div>
-
-        </>
-
-      )}
 
       {/* Акцентный цвет */}
       <p className="mb-2 mt-4 text-xs font-medium text-halo-muted">
@@ -1181,10 +1180,12 @@ export function ThemeSection({
         </div>
       </div>
 
-      <p className="mb-2 mt-6 text-[0.625rem] font-semibold uppercase tracking-[0.14em] text-halo-muted/60">{t("themes.gEffects")}</p>
+        </>
+      )}
 
       {!hardTheme && (
       <>
+      <p className="mb-2 mt-6 text-[0.625rem] font-semibold uppercase tracking-[0.14em] text-halo-muted/60">{t("themes.gEffects")}</p>
       <div className="mt-4 flex items-center justify-between rounded-xl border border-halo-line px-3.5 py-3">
         <div>
           <p className="text-sm text-halo-text">{t("themes.glass")}</p>
@@ -1304,11 +1305,9 @@ export function ThemeSection({
         </button>
       </div>
 
-      </>
-      )}
-
       {/* Подсветка кода: компактный блок — темы с мини-превью реальных цветов
-          вместо двух громоздких карточек (фидбек 26.09) */}
+          вместо двух громоздких карточек (фидбек 26.09). В Full Claude
+          подсветка своя (midnight) — карточка скрыта вместе с секцией */}
       <div className="mt-4 rounded-xl border border-halo-line px-3.5 py-3">
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
@@ -1351,11 +1350,12 @@ export function ThemeSection({
           />
         </div>
       </div>
-
-      <p className="mb-2 mt-6 text-[0.625rem] font-semibold uppercase tracking-[0.14em] text-halo-muted/60">{t("themes.gBranding")}</p>
+      </>
+      )}
 
       {!hardTheme && (
         <>
+      <p className="mb-2 mt-6 text-[0.625rem] font-semibold uppercase tracking-[0.14em] text-halo-muted/60">{t("themes.gBranding")}</p>
       {/* Знак приложения: новая широкая N или классическая */}
       <div className="mt-2.5 flex items-center gap-3 rounded-xl border border-halo-line px-3.5 py-3">
         <div className="min-w-0 flex-1">
