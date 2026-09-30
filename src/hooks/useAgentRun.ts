@@ -30,6 +30,7 @@ import { evalHardLimit } from "../limits";
 import { filterToolSchemas } from "../agent/toolFilter";
 import { runPython, CODE_RUN_SCHEMA } from "../codeRun";
 import { StreamDeltaBuffer, applyMainDeltas } from "./streamBuffer";
+import { interpolate, parseWorkflow, type WorkflowDef } from "../workflow";
 import { notifyTaskDone, type NotifyPrefs } from "../notify";
 import { useLang } from "../locales";
 import { dayKeyLocal } from "../time";
@@ -2048,6 +2049,118 @@ ${report}`;
           content: subContent,
         });
       };
+      // Workflow-оркестратор v1 (блок 12 шаг 6): последовательные шаги-
+      // субагенты, выход шага — переменная {{id}} для последующих промтов.
+      // Роли — из mergeRoles (свои роли пользователя тоже доступны)
+      const runOneWorkflow = async (call: ToolCallInfo): Promise<void> => {
+        const done = (content: string) => {
+          flushDeltas();
+          pushMessage({
+            id: uid(),
+            role: "tool",
+            content,
+            toolCallId: call.id,
+            toolName: call.name,
+          });
+          history.push({
+            role: "tool",
+            tool_call_id: call.id,
+            name: call.name,
+            content,
+          });
+        };
+        let def: WorkflowDef;
+        try {
+          const parsed = JSON.parse(call.arguments) as { workflow?: unknown };
+          const roles = mergeRoles(subConfigRef.current.roles);
+          const wf = parseWorkflow(parsed.workflow, new Set(roles.map((r) => r.id)));
+          if (!wf.ok) {
+            done(`workflow error: ${wf.error}`);
+            return;
+          }
+          def = wf.def;
+        } catch (e) {
+          done(`workflow error: bad JSON arguments: ${e}`);
+          return;
+        }
+        if (permMode === "plan") {
+          // Как у субагентов (FIX [SECURITY]): шаги исполняют инструменты —
+          // в plan-режиме сценарий блокируется целиком
+          done(t("agent.planBlocked"));
+          return;
+        }
+        if (abortedRef.current.has(requestId)) {
+          done("workflow aborted before start");
+          return;
+        }
+        const roles = mergeRoles(subConfigRef.current.roles);
+        const vars: Record<string, string> = {};
+        const journal: string[] = [
+          `workflow "${def.name}" — ${def.steps.length} step(s)`,
+        ];
+        for (let i = 0; i < def.steps.length; i++) {
+          if (abortedRef.current.has(requestId)) {
+            journal.push(`— aborted by user at step ${i + 1}/${def.steps.length}`);
+            break;
+          }
+          const step = def.steps[i]!;
+          setActivity(
+            t("activity.toolCall", {
+              name: `workflow:${step.id} ${i + 1}/${def.steps.length}`,
+            }),
+          );
+          const role: SubagentRole =
+            roles.find((r) => r.id === step.role) ??
+            roles.find((r) => r.id === "coder") ??
+            roles[0] ??
+            // SUBAGENT_ROLES непустой по построению; строгие индексы требуют
+            // явности — фолбэк даёт валидную безопасную роль
+            SUBAGENT_ROLES[0] ??
+            { id: "researcher", name: "Researcher", tools: null, maxSteps: 8, systemPrompt: "" };
+          const task = interpolate(step.prompt, vars);
+          try {
+            const report = await runSubagent({
+              role,
+              task,
+              baseUrl: apiSettings.base_url,
+              apiKey: apiSettings.api_key,
+              model: role.model || apiSettings.model,
+              // Расход шагов — в общую копилку Hard Limit задачи
+              onUsage: (u) => {
+                usageAcc.prompt += u.prompt;
+                usageAcc.completion += u.completion;
+                checkHardLimit();
+              },
+              effort: effortRef.current,
+              aborted: () => abortedRef.current.has(requestId),
+              runRequestId: requestId,
+              disabledTools: sessionsRef.current.find((s) => s.id === targetId)
+                ?.disabledTools,
+            });
+            vars[step.id] = report;
+            // Журнал не тащит полные отчёты в контекст модели: кап на шаг
+            const short = report.length > 1500 ? report.slice(0, 1499) + "…" : report;
+            journal.push(
+              `— [${i + 1}/${def.steps.length}] ${step.id} (${role.name}): ok\n${short}`,
+            );
+          } catch (e) {
+            const errText = `error: ${e}`;
+            if (step.continueOnError) {
+              vars[step.id] = errText;
+              journal.push(
+                `— [${i + 1}/${def.steps.length}] ${step.id}: ${errText} (continue)`,
+              );
+              continue;
+            }
+            journal.push(
+              `— [${i + 1}/${def.steps.length}] ${step.id}: ${errText} — scenario stopped`,
+            );
+            done(journal.join("\n"));
+            return;
+          }
+        }
+        done(journal.join("\n"));
+      };
       if (subCalls.length > 0) {
         const limit = Math.max(1, subConfigRef.current.maxParallel);
         if (subConfigRef.current.autonomous) {
@@ -2060,6 +2173,10 @@ ${report}`;
           for (const call of subCalls) await runOneSubagent(call);
         }
       }
+      const wfCalls = toolCalls.filter((c) => c.name === "workflow_run");
+      for (const call of wfCalls) {
+        await runOneWorkflow(call);
+      }
 
       // Скриншоты шага копим и отдаём модели ПОСЛЕ всех tool-результатов:
       // user-сообщение между tool-сообщениями рвёт их последовательность,
@@ -2069,6 +2186,7 @@ ${report}`;
         if (abortedRef.current.has(requestId)) return finalize();
         if (call.name === "subagent_run") continue; // уже исполнены выше
         if (call.name === "subagent_status") continue; // уже исполнены выше
+        if (call.name === "workflow_run") continue; // уже исполнены выше (фронтенд)
         if (call.name === "plan_update") continue; // уже исполнены выше (фронтенд)
         if (call.name === "ask_user") continue; // уже исполнены выше (фронтенд)
 

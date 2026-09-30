@@ -957,6 +957,42 @@ pub fn frontend_tool_schemas() -> Vec<serde_json::Value> {
                 }
             }
         }),
+        // Workflow-оркестратор v1 (блок 12 шаг 6): исполнение на фронтенде
+        // (шаги — субагенты через runSubagent), Rust — только схема
+        serde_json::json!({
+            "type": "function",
+            "function": {
+                "name": "workflow_run",
+                "description": "Run a named workflow: an ordered scenario of subagent steps. Each step is executed as a subagent; its final report becomes a variable, later steps reference earlier outputs with {{stepId}} in their prompt. A failed step stops the scenario unless the step has continueOnError=true. Use for repeatable multi-part tasks (research then code then review).",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "workflow": {
+                            "type": "object",
+                            "description": "Scenario definition {name, steps:[{id, prompt, role?, continueOnError?}]}. id — [a-zA-Z0-9_-] up to 32 chars, used as the variable name; role — a known subagent role id (researcher/coder/critic/librarian or a custom one); prompt may reference earlier step outputs as {{stepId}}",
+                            "properties": {
+                                "name": { "type": "string" },
+                                "steps": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "id": { "type": "string" },
+                                            "prompt": { "type": "string" },
+                                            "role": { "type": "string" },
+                                            "continueOnError": { "type": "boolean" }
+                                        },
+                                        "required": ["id", "prompt"]
+                                    }
+                                }
+                            },
+                            "required": ["name", "steps"]
+                        }
+                    },
+                    "required": ["workflow"]
+                }
+            }
+        }),
         // План задач: исполнение целиком на фронтенде (App парсит tasks и
         // обновляет виджет Progress в чате), Rust нужен только как схема
         serde_json::json!({
@@ -1176,6 +1212,7 @@ mod tests {
         let name_of = |v: &serde_json::Value| v["function"]["name"].as_str().unwrap().to_string();
         let names: Vec<String> = schemas.iter().map(name_of).collect();
         assert!(names.contains(&"subagent_run".to_string()));
+        assert!(names.contains(&"workflow_run".to_string()));
         assert!(names.contains(&"plan_update".to_string()));
         assert!(names.contains(&"ask_user".to_string()));
 
