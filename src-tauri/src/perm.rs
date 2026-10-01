@@ -42,9 +42,9 @@ static PERM: Mutex<Option<PermState>> = Mutex::new(None);
 /// Текущее состояние; до первого perm_set — Ask без корней и без синхронизации
 pub(crate) fn current() -> PermState {
     PERM.lock()
-        .ok()
-        .and_then(|g| g.clone())
-        .unwrap_or(PermState {
+        .unwrap_or_else(|p| p.into_inner())
+        .clone()
+        .unwrap_or_else(|| PermState {
             mode: PermMode::Ask,
             roots: Vec::new(),
             roots_canon: Vec::new(),
@@ -52,11 +52,13 @@ pub(crate) fn current() -> PermState {
         })
 }
 
-/// Обновить состояние (вызывается командой perm_set из фронта)
+/// Обновить состояние (вызывается командой perm_set из фронта).
+/// into_inner: poison (паника под локом) не имеет права превращать perm_set
+/// в no-op — иначе все мутации навсегда отбивались бы «not synchronized yet»
+/// при внешне зелёном UI, и ни один лог об этом не сказал бы
 pub(crate) fn set(state: PermState) {
-    if let Ok(mut g) = PERM.lock() {
-        *g = Some(state);
-    }
+    let mut g = PERM.lock().unwrap_or_else(|p| p.into_inner());
+    *g = Some(state);
 }
 
 /// Решение по инструменту. Возвращаемое Err — текст для модели.

@@ -153,7 +153,9 @@ pub fn colibri_start(
         let app2 = app.clone();
         std::thread::spawn(move || {
             for line in BufReader::new(err).lines().map_while(Result::ok) {
-                let _ = app2.emit("colibri-log", format!("[err] {line}"));
+                // Канал приватный (см. комментарий выше): stderr — не исключение,
+                // broadcast доставлял логи и в quickentry без слушателей
+                let _ = app2.emit_to("main", "colibri-log", format!("[err] {line}"));
             }
         });
     }

@@ -266,7 +266,9 @@ fn transcribe_impl(app: &tauri::AppHandle, audio_base64: String) -> Result<Strin
     wav.extend_from_slice(&pcm);
 
     let wav_path = std::env::temp_dir().join(format!("nocturn-dictation-{}.wav", crate::fsutil::rand_hex8()));
-    fs::write(&wav_path, &wav).map_err(|e| e.to_string())?;
+    // 600 с момента создания: голый fs::write на общем /tmp оставлял
+    // world-readable окно с голосовой записью до конца транскрипции
+    crate::fsutil::write_private(&wav_path, &wav)?;
 
     let mut cmd = std::process::Command::new(&cli);
     cmd.arg("-m")

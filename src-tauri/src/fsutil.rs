@@ -37,7 +37,12 @@ pub fn atomic_write(path: &Path, data: &[u8]) -> Result<(), String> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let _ = fs::set_permissions(&tmp, fs::Permissions::from_mode(0o600));
+        // Проглатывать отказ chmod нельзя: rename опубликовал бы файл под
+        // umask (вплоть до 0644), а callers ссылаются на 600 как на гарантию
+        if let Err(e) = fs::set_permissions(&tmp, fs::Permissions::from_mode(0o600)) {
+            let _ = fs::remove_file(&tmp);
+            return Err(format!("cannot chmod 600 {}: {e}", tmp.display()));
+        }
     }
     fs::rename(&tmp, path).map_err(|e| {
         // не оставляем temp-мусор при неудачном rename
@@ -45,6 +50,32 @@ pub fn atomic_write(path: &Path, data: &[u8]) -> Result<(), String> {
         format!("cannot rename into {}: {e}", path.display())
     })?;
     Ok(())
+}
+
+/// Записать приватный файл (temp-артефакты с чувствительным содержимым:
+/// черновики диктовки и т.п.). На Unix права 600 ставятся С МОМЕНТА
+/// СОЗДАНИЯ: fs::write создаёт файл под umask, и на общем /tmp это
+/// world-readable окно до отдельного chmod. На Windows — обычная запись
+/// (ACL пер-юзерного %TEMP% уже приватный).
+pub fn write_private(path: &Path, data: &[u8]) -> Result<(), String> {
+    #[cfg(unix)]
+    {
+        use std::io::Write;
+        use std::os::unix::fs::OpenOptionsExt;
+        let mut f = fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(path)
+            .map_err(|e| format!("cannot create {}: {e}", path.display()))?;
+        f.write_all(data)
+            .map_err(|e| format!("cannot write {}: {e}", path.display()))
+    }
+    #[cfg(not(unix))]
+    {
+        fs::write(path, data).map_err(|e| format!("cannot write {}: {e}", path.display()))
+    }
 }
 
 /// Чтение файла с потолком размера: metadata-check + read_to_string.
