@@ -736,6 +736,12 @@ pub fn browser_view_start(app: tauri::AppHandle) -> Result<(), String> {
         while BROWSER_VIEW_ACTIVE.load(Ordering::SeqCst)
             && BROWSER_VIEW_GEN.load(Ordering::SeqCst) == gen
         {
+            // Окно-потребитель УНИЧТОЖЕНО (не скрыто в трей — скрытое живо):
+            // кадры больше некому доставлять, гасим трансляцию сами
+            if app.get_webview_window("main").is_none() {
+                BROWSER_VIEW_ACTIVE.store(false, Ordering::SeqCst);
+                break;
+            }
             let conn = {
                 let reg = app.state::<browser::BrowserRegistry>();
                 let guard = reg.0.lock().unwrap_or_else(|p| p.into_inner());
@@ -1124,18 +1130,28 @@ fn project_store_dir(root: &str, create: bool) -> Result<std::path::PathBuf, Str
 /// Сессии проекта: читаются из <root>/.nocturn/sessions.json (ZCode-стиль —
 /// данные проекта живут в папке проекта). Нет файла — None
 #[tauri::command(async)]
-pub fn load_project_sessions(root: String) -> Result<Option<String>, String> {
-    let dir = match project_store_dir(&root, false) {
-        Ok(d) => d,
-        Err(_) => return Ok(None), // нет папки — нет и хранилища
-    };
-    let path = dir.join("sessions.json");
-    if !path.exists() {
+pub async fn load_project_sessions(root: String) -> Result<Option<String>, String> {
+    // Отказ sensitive-path-гардала — не «хранилища нет»: наружу Err, чтобы
+    // системный отказ не маскировался пустым ответом (project_store_dir оба
+    // случая неразличим). Пустой корень — ошибка контракта, как и раньше
+    let root = root.trim();
+    if root.is_empty() {
+        return Err("project root is empty".into());
+    }
+    crate::settings::rejects_sensitive_path(root)?;
+    let dir = std::path::Path::new(root).join(".nocturn");
+    if !dir.is_dir() {
         return Ok(None);
     }
-    fs::read_to_string(&path)
-        .map(Some)
-        .map_err(|e| e.to_string())
+    tauri::async_runtime::spawn_blocking(move || {
+        let path = dir.join("sessions.json");
+        if !path.exists() {
+            return Ok(None);
+        }
+        fs::read_to_string(&path).map(Some).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("blocking task failed: {e}"))?
 }
 
 /// Сессии проекта: атомарная запись в <root>/.nocturn/sessions.json

@@ -340,6 +340,19 @@ mod tests {
     }
 
     #[test]
+    fn pbkdf2_golden_vector() {
+        // Легаси-KDF тоже детерминирован: смена вывода pbkdf2 (cargo update)
+        // сделала бы старые crypto.json недешифруемыми МОЛЧА — roundtrip-тесты
+        // этого не видят. Входы заморожены навсегда: password
+        // "nocturn-pbkdf2-golden", salt b"nocturn-salt-0123", 200k, SHA-256
+        let key = derive_key("nocturn-pbkdf2-golden", b"nocturn-salt-0123");
+        assert_eq!(
+            hex_encode(&key),
+            "183dbbac689de29176261873dda58d93b55a5bc48432efc56687da96fc5bef16"
+        );
+    }
+
+    #[test]
     fn hex_decode_rejects_non_ascii_without_panic() {
         // Регресс: не-ASCII с чётной байтовой длиной паниковал на char-границе
         assert_eq!(hex_decode("deadBEEF"), Some(vec![0xde, 0xad, 0xbe, 0xef]));
