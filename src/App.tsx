@@ -67,6 +67,8 @@ import ResetConfirmModal from "./components/ResetConfirmModal";
 
 
 import ChatArea from "./components/ChatArea";
+import { YouTubeLayer } from "./components/YouTubeLayer";
+import { ytToggleOpen } from "./yt/ytPlayer";
 import SettingsModal, { type Section } from "./components/SettingsModal";
 import AutomationsModal from "./components/AutomationsModal";
 import CompareModal from "./components/CompareModal";
@@ -1540,6 +1542,12 @@ export default function App() {
         // Повторный бинд возвращает интерфейс
         setZenMode((v) => !v);
         break;
+      case "youtube_toggle":
+        // Плеер YouTube: окно скрывается/показывается, звук не прерывается.
+        // Интеграция выключена — честная подсказка вместо мёртвого бинда
+        if (mediaPrefs.youtube) ytToggleOpen();
+        else addToast(t("media.ytNeedEnable"));
+        break;
       case "hard_mode":
         if (hardModeRef.current) setHardSkin((v) => !v);
         else addToast(t("hard.needEnable"));
@@ -2681,6 +2689,11 @@ export default function App() {
           cwd={projectRoot ?? undefined}
           combo={binds.hard_mode ?? "Ctrl+Shift+H"}
         />
+      )}
+      {/* YouTube-плеер: окно под шапкой + постоянный iframe. Монтируется
+          только при включённой интеграции — размонтирование = сброс */}
+      {mediaPrefs.youtube && (
+        <YouTubeLayer closeBind={binds.youtube_toggle ?? "Ctrl+Alt+Y"} />
       )}
       <Toasts items={toasts} />
       {/* Скачивание моделей (whisper / voice wake): тематизированное окно */}

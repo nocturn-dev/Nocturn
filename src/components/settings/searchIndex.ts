@@ -46,6 +46,7 @@ export const SETTINGS_SEARCH_INDEX: { section: Section; keys: MsgKey[] }[] = [
       "media.lyricsColor",
       "media.cover",
       "media.textShimmer",
+      "media.ytOpenPlayer",
     ],
   },
   {
@@ -122,6 +123,7 @@ export const SETTINGS_SEARCH_INDEX: { section: Section; keys: MsgKey[] }[] = [
       "sc.terminal",
       "sc.sidebar",
       "sc.permMode",
+      "sc.ytToggle",
       "win.fullscreen",
       "sc.addCustom",
       "sc.comboLabel",

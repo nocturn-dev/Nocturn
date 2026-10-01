@@ -70,6 +70,16 @@ session store.
   sends the track title and artist name (nothing else). Playback state and
   control never leave the machine: they go through the OS media controls
   (SMTC on Windows), with no Spotify account or network involved.
+- **YouTube player (opt-in, radio with the Spotify integration).** Uses
+  only the official embed from `www.youtube-nocookie.com` — the sanctioned
+  embedding path, no keys, no OAuth, no stream extraction or ad bypass.
+  The CSP widens `frame-src` to that host only (static in tauri.conf.json;
+  the app never renders third-party iframes from chat content — raw HTML in
+  markdown is disabled, so the widened frame-src is exercised exclusively by
+  the player). Video thumbnails are fetched from `i.ytimg.com` (covered by
+  the existing `img-src https:`). You paste links yourself; the queue and
+  volume live in localStorage. Playback of the collapsed window continues
+  by design (the iframe stays mounted).
 
 ## Reporting
 

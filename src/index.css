@@ -235,6 +235,27 @@ html.accent-gradient [role="button"].bg-halo-accent:hover {
   }
 }
 
+/* ---------- Окно YouTube-плеера (слой под минибаром): сворачивание БЕЗ
+   размонтирования — iframe обязан жить, пока играет звук. visibility
+   переключается с задержкой (после анимации), иначе exit-анимация
+   теряется. transform/opacity только — композитинг, без reflow. ---------- */
+.yt-pop {
+  transition:
+    opacity calc(180ms * var(--motion-scale)) var(--ease-standard),
+    transform calc(180ms * var(--motion-scale)) var(--ease-standard),
+    visibility 0s 0s;
+}
+.yt-pop.yt-pop-closed {
+  opacity: 0;
+  transform: translateY(-12px) scale(0.98);
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    opacity calc(180ms * var(--motion-scale)) var(--ease-exit),
+    transform calc(180ms * var(--motion-scale)) var(--ease-exit),
+    visibility 0s 180ms;
+}
+
 /* ---------- Микроанимации ---------- */
 @keyframes halo-fade-up {
   from {

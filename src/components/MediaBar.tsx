@@ -1,4 +1,13 @@
-import { useEffect, useState, type CSSProperties } from "react";
+import { useEffect, useState, useSyncExternalStore, type CSSProperties } from "react";
+import {
+  getYtState,
+  subscribeYt,
+  thumbUrl,
+  ytNext,
+  ytPrev,
+  ytSetOpen,
+  ytToggle,
+} from "../yt/ytPlayer";
 import {
   lyricsFetch,
   mediaControl,
@@ -48,6 +57,11 @@ function parseLyrics(synced: string | null, plain: string | null): LyricLine[] {
   return [];
 }
 
+function mmssFmt(secs: number): string {
+  const sec = Math.max(0, Math.floor(secs));
+  return `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}`;
+}
+
 /**
  * Мини-бар плеера: тонкая полоска под шапкой чата. Состояние — системный
  * плеер через SMTC / оконный fallback (бекенд), время тикает локально.
@@ -62,6 +76,7 @@ export function MediaBar({ prefs }: { prefs: MediaPrefs }) {
   const [lyricsLoading, setLyricsLoading] = useState(false);
   const [lyricOffset, setLyricOffset] = useState(0);
   const [, setTick] = useState(0);
+  const yt = useSyncExternalStore(subscribeYt, getYtState);
 
   // Начальный снимок + живые события бекенда (смена трека/пауза/seek)
   useEffect(() => {
@@ -129,6 +144,83 @@ export function MediaBar({ prefs }: { prefs: MediaPrefs }) {
     const iv = window.setInterval(() => setTick((v) => v + 1), 1000);
     return () => window.clearInterval(iv);
   }, [state?.playing, state?.trackId]);
+
+  // Режим YouTube: интеграция — радио с Spotify (bar=false), минибар
+  // показывает трек embed-плеера; без трека — узкая полоска-вход в плеер
+  if (prefs.youtube) {
+    const tr = yt.track;
+    return (
+      <div className="anim-fade relative z-20 flex h-9 items-center gap-2.5 border-b border-halo-line/60 bg-halo-deep/60 px-4 backdrop-blur">
+        {tr ? (
+          <img
+            src={thumbUrl(tr.videoId)}
+            alt=""
+            className="h-7 w-12 shrink-0 rounded-md object-cover"
+          />
+        ) : (
+          <div className="flex h-7 w-12 shrink-0 items-center justify-center rounded-md bg-halo-surface text-halo-muted/60">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+              <rect x="1.5" y="4.5" width="21" height="15" rx="4.5" />
+              <path d="M10 8.8v6.4l5.6-3.2L10 8.8z" fill="var(--halo-deep)" />
+            </svg>
+          </div>
+        )}
+        <div className="w-40 shrink-0 leading-tight">
+          <p className="truncate text-xs font-medium text-halo-text">
+            {tr ? tr.title : "YouTube"}
+          </p>
+          {tr && tr.author && (
+            <p className="truncate text-[0.6875rem] text-halo-muted">
+              {tr.author}
+            </p>
+          )}
+        </div>
+        {/* Play — по центру, как у минибара-скетча; без трека открывает плеер */}
+        <div className="flex min-w-0 flex-1 items-center justify-center gap-1">
+          <button
+            onClick={ytPrev}
+            disabled={!tr || yt.queueIndex <= 0}
+            title={t("media.ttPrev")}
+            className="rounded p-1 text-halo-muted transition-colors hover:text-halo-text disabled:opacity-30"
+          >
+            <PrevTrackIcon />
+          </button>
+          <button
+            onClick={() => (tr ? ytToggle() : ytSetOpen(true))}
+            title={t("media.ttPlay")}
+            className="rounded-full p-1.5 text-halo-text transition-colors hover:bg-halo-hover"
+          >
+            {tr && yt.playing ? <PauseIcon /> : <PlayIcon />}
+          </button>
+          <button
+            onClick={ytNext}
+            disabled={!tr || yt.queueIndex >= yt.queue.length - 1}
+            title={t("media.ttNext")}
+            className="rounded p-1 text-halo-muted transition-colors hover:text-halo-text disabled:opacity-30"
+          >
+            <NextTrackIcon />
+          </button>
+        </div>
+        <span className="shrink-0 text-[0.625rem] tabular-nums text-halo-muted/70">
+          {tr ? mmssFmt(yt.currentTime) : "0:00"}
+        </span>
+        <button
+          onClick={() => ytSetOpen(true)}
+          title={t("media.ytOpenPlayer")}
+          className="rounded p-1 text-halo-muted transition-colors hover:bg-halo-hover hover:text-halo-text"
+        >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
+            <path
+              d="M4 10l8-6 8 6v10H4V10z"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </button>
+      </div>
+    );
+  }
 
   if (!prefs.bar || !state || !state.title) return null;
 
