@@ -122,7 +122,10 @@ interface ChatAreaProps {
   onUndoWrite: (f: ChangedFile) => void;
   /** Review: открыть правую панель с живым диффом прогона (App собирает
    *  fs_write + чекпоинт). Не передан — кнопка Review не рендерится */
-  onReviewChanges?: (files: ChangedFile[]) => void;
+  onReviewChanges?: (files: ChangedFile[], focusPath?: string) => void;
+  /** Open на строке карточки изменений: системное открытие файла (App
+   *  резолвит корень проекта и показывает ошибку тостом) */
+  onOpenFileExternal?: (path: string) => void;
   /** Редактирование отправленного сообщения (карандаш): правка + перезапрос */
   onEditMessage?: (msgId: string, newText: string) => void;
   /** Живые прогоны субагентов (ключ — tool call id) */
@@ -263,6 +266,7 @@ export default function ChatArea({
   onAskAnswer,
   onUndoWrite,
   onReviewChanges,
+  onOpenFileExternal,
   onEditMessage,
   subRuns,
   plan,
@@ -1355,9 +1359,10 @@ export default function ChatArea({
                       onUndo={onUndoWrite}
                       onReview={
                         onReviewChanges
-                          ? () => onReviewChanges(sessionWrites)
+                          ? (fp) => onReviewChanges(sessionWrites, fp)
                           : undefined
                       }
+                      onOpenExternal={onOpenFileExternal}
                     />,
                   );
                 } else {
@@ -1549,6 +1554,12 @@ export default function ChatArea({
                       key={`changes-${turn.user?.id ?? ti}`}
                       files={derived.writesFiles}
                       onUndo={onUndoWrite}
+                      onReview={
+                        onReviewChanges
+                          ? (fp) => onReviewChanges(derived.writesFiles, fp)
+                          : undefined
+                      }
+                      onOpenExternal={onOpenFileExternal}
                     />,
                   );
                 }

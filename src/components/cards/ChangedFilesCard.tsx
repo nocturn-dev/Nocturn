@@ -1,4 +1,5 @@
 import { diffLines, diffStats, normalizePath } from "../../diff";
+import { langFromPath } from "../../highlight";
 import { useLang } from "../../locales";
 import { type ChangedFile } from "../../types";
 import { DiffView } from "./DiffView";
@@ -9,12 +10,16 @@ function ChangedFilesCardBase({
   files,
   onUndo,
   onReview,
+  onOpenExternal,
 }: {
   files: ChangedFile[];
   onUndo: (f: ChangedFile) => void;
   /** Review: открыть правую панель с живым диффом прогона (App собирает
-   *  fs_write-диффы + чекпоинт). Без колбэка кнопка не рендерится */
-  onReview?: () => void;
+   *  fs_write-диффы + чекпоинт). Аргумент — фокус на файле строки
+   *  (ZCode-стиль: у каждого файла своя кнопка). Без колбэка не рендерится */
+  onReview?: (focusPath?: string) => void;
+  /** Open: открыть файл системным приложением (бекенд резолвит root) */
+  onOpenExternal?: (path: string) => void;
 }) {
   const { t } = useLang();
   const [open, setOpen] = useState(false);
@@ -124,6 +129,32 @@ function ChangedFilesCardBase({
                       −{st.removed}
                     </span>
                   </button>
+                  {/* Кнопки строки как в ZCode: Review — дифф файла в панели,
+                      Open — системное приложение. Undo не трогаем */}
+                  {onReview && !isUndone && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onReview(normalizePath(f.path));
+                      }}
+                      title={t("agent.rowReviewTitle")}
+                      className="shrink-0 rounded-md border border-halo-line px-2 py-0.5 text-[0.625rem] text-halo-muted transition-colors hover:border-halo-accent/50 hover:text-halo-text"
+                    >
+                      {t("agent.rowReview")}
+                    </button>
+                  )}
+                  {onOpenExternal && !isUndone && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onOpenExternal(f.path);
+                      }}
+                      title={t("agent.rowOpenTitle")}
+                      className="shrink-0 rounded-md border border-halo-line px-2 py-0.5 text-[0.625rem] text-halo-muted transition-colors hover:border-halo-accent/50 hover:text-halo-text"
+                    >
+                      {t("agent.rowOpen")}
+                    </button>
+                  )}
                   {isUndone ? (
                     <span className="shrink-0 text-[0.625rem] text-halo-muted/70">
                       ↩ {t("agent.undone")}
@@ -145,6 +176,7 @@ function ChangedFilesCardBase({
                     <DiffView
                       lines={diffLines(f.before ?? "", f.after)}
                       hasBefore={f.before !== null}
+                      lang={langFromPath(f.path)}
                     />
                   </div>
                 )}

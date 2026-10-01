@@ -1,6 +1,7 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useDelayedUnmount } from "../motion";
 import { diffLines } from "../diff";
+import { langFromPath } from "../highlight";
 import { useLang } from "../locales";
 import { DiffView } from "./cards/DiffView";
 import { ChevronDownIcon, XSmallIcon } from "./cards/icons";
@@ -40,6 +41,7 @@ function ExpandedDiff({
       <DiffView
         lines={lines}
         hasBefore={f.before !== null}
+        lang={langFromPath(f.path)}
         onQuoteLine={
           onQuote ? (line, text) => onQuote(f.path, line, text) : undefined
         }
@@ -51,17 +53,25 @@ function ExpandedDiff({
 export function DiffPanel({
   open,
   files,
+  focusPath,
   onQuote,
   onClose,
 }: {
   open: boolean;
   files: DiffPanelFile[];
+  /** Файл, на котором сфокусироваться при открытии (кнопка Review на строке) */
+  focusPath?: string;
   /** Клик по строке диффа → цитата «file:line» в композер (Волна 6) */
   onQuote?: (path: string, line: number, text: string) => void;
   onClose: () => void;
 }) {
   const { t } = useLang();
   const [openFile, setOpenFile] = useState<string | null>(null);
+  // Focus из кнопки Review на строке: применяется при КАЖДОМ открытии
+  // панели (состояние экземпляра живёт между открытиями)
+  useEffect(() => {
+    if (open) setOpenFile(focusPath ?? null);
+  }, [open, focusPath]);
   const show = useDelayedUnmount(open, 200);
   if (!show) return null;
   const total = files.reduce(

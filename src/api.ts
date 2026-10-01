@@ -1552,6 +1552,18 @@ export function openExternal(url: string): Promise<void> {
   return invoke("plugin:opener|open_url", { url });
 }
 
+/** Открыть файл системным приложением (кнопка Open в карточке изменений).
+ *  root — корень проекта для относительных путей fs_write; sensitive-path
+ *  гардал на бекенде отсекает системные локации. Осознанно НЕ через
+ *  capability opener (open_path) — вебвью не получает право открывать
+ *  произвольные пути, резолюция и гардал живут в команде. */
+export function openFileExternal(
+  root: string | null,
+  path: string,
+): Promise<void> {
+  return invoke("open_file_external", { root, path });
+}
+
 export async function pickSaveFile(
   defaultName: string,
   ext: "json" | "md" | "txt" = "json",
