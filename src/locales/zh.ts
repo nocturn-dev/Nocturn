@@ -1217,6 +1217,7 @@ export const zh = {
     "media.ytBlocked": "该视频禁止内嵌播放 — 请在浏览器中打开",
     "media.ytBadUrl": "看起来不是 YouTube 链接 — 请检查后重试",
     "media.ytHowTo": "YouTube 已启用：在迷你条中按 Play 并粘贴链接。用 ✕、背景或 {bind} 收起窗口",
+    "media.ytAdded": "视频已添加 — 在聊天迷你条中按 Play，播放器会自动打开",
     "media.ytNeedEnable": "请先在「集成」中启用 YouTube",
     "media.shimFrom": "起始颜色",
     "media.shimTo": "目标颜色",

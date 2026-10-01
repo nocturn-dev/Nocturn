@@ -147,6 +147,9 @@ export function YouTubeLayer({ closeBind }: { closeBind: string }) {
               title="YouTube"
               allow="autoplay; encrypted-media; picture-in-picture"
               allowFullScreen
+              // WebView2 может молчать про Referer — политика явная (правило
+              // webview-плееров: без реферера YouTube отдаёт 150/153)
+              referrerPolicy="strict-origin-when-cross-origin"
               className="aspect-video w-full border-0"
             />
           ) : (

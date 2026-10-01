@@ -1217,6 +1217,7 @@ export const ja = {
     "media.ytBlocked": "この動画は埋め込みが禁止されています — ブラウザで開いてください",
     "media.ytBadUrl": "YouTubeのリンクではないようです — 確認して再試行してください",
     "media.ytHowTo": "YouTube が有効になりました：ミニバーの Play を押してリンクを貼り付けてください。ウィンドウは ✕、背景、{bind} で折りたたみます",
+    "media.ytAdded": "動画を追加しました — チャットのミニバーで Play を押すとプレイヤーが開きます",
     "media.ytNeedEnable": "先に「統合」で YouTube を有効にしてください",
     "media.shimFrom": "開始色",
     "media.shimTo": "終了色",
