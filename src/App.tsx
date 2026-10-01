@@ -1172,6 +1172,19 @@ export default function App() {
     [lastCheckpointRef],
   );
 
+  // «＋ Новый проект» из селектора композера (ZCode-паттерн «добавить проект
+  // прямо в секции»): выбранная папка → проект → сразу становится активным
+  const handleNewProjectFromComposer = useCallback(async () => {
+    const picked = await pickFolder().catch(() => null);
+    if (!picked) return;
+    const name =
+      picked.split(/[\\/]/).filter(Boolean).pop() ?? picked;
+    const id = `p-${crypto.randomUUID().slice(0, 8)}`;
+    setProjects((prev) => [...prev, { id, name, root: picked }]);
+    setActiveProjectId(id);
+    setProjectRoot(picked);
+  }, []);
+
   // Open на строке карточки изменений: системное приложение (ZCode-стиль).
   // Корень проекта — для относительных путей fs_write; ошибка — тостом,
   // а не молча (open_path фейлится на файлах без ассоциации)
@@ -2352,6 +2365,7 @@ export default function App() {
         onConfirmDecision={handleConfirmDecision}
         projects={projects}
         activeProjectId={activeProjectId}
+        onNewProject={handleNewProjectFromComposer}
         onSelectProject={(id) => {
           setActiveProjectId(id);
           // Корень работы следует за проектом: выбор над композером задаёт
