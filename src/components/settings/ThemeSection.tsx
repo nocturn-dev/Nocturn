@@ -1300,6 +1300,31 @@ export function ThemeSection({
         </button>
       </div>
 
+      {/* Шиммер-переливание текста: медленный градиентный сдвиг по
+          background-clip: text (эпический эффект на строгих тёмных тонах) */}
+      <div className="mt-2.5 flex items-center justify-between rounded-xl border border-halo-line px-3.5 py-3">
+        <div>
+          <p className="text-sm text-halo-text">{t("themes.textShimmer")}</p>
+          <p className="mt-0.5 text-xs text-halo-muted">
+            {t("themes.textShimmerDesc")}
+          </p>
+        </div>
+        <button
+          onClick={() =>
+            onAppearanceChange({ ...appearance, textShimmer: !appearance.textShimmer })
+          }
+          className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${
+            appearance.textShimmer ? "bg-halo-accent" : "bg-halo-line"
+          }`}
+        >
+          <span
+            className={`absolute top-0.5 size-4 rounded-full bg-halo-on-accent transition ${
+              appearance.textShimmer ? "left-4.5" : "left-0.5"
+            }`}
+          />
+        </button>
+      </div>
+
       {/* Motion/Reduced: форс-глушение анимаций поверх системной настройки
           (canvas-сцены ставит на паузу App через paused у AmbientLayer) */}
       <div className="mt-2.5 flex items-center justify-between rounded-xl border border-halo-line px-3.5 py-3">

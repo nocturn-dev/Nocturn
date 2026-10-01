@@ -10,6 +10,7 @@ use std::sync::Mutex;
 pub mod browser;
 pub mod chat;
 mod colibri;
+mod clipboard;
 mod crypto;
 pub mod computer;
 mod files;
@@ -208,6 +209,7 @@ pub fn run() {
                 .build(),
         )
         .invoke_handler(tauri::generate_handler![
+            clipboard::clipboard_write,
             settings::load_settings,
             settings::save_settings,
             settings::load_profiles,

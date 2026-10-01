@@ -919,6 +919,8 @@ export const ja = {
     "themes.chatMarkDesc": "メッセージフィードの背景に浮かぶ幽霊のような「N」",
     "themes.msgGlass": "AI 回答のガラス",
     "themes.msgGlassDesc": "モデルの回答カードへのガラス効果",
+    "themes.textShimmer": "テキストの輝き",
+    "themes.textShimmerDesc": "空のチャットの挨拶にゆっくり流れるグラデーション光沢",
     "themes.reduceMotion": "アニメーションを減らす",
     "themes.reduceMotionHint": "インターフェースのアニメーションを停止します：応答のストリーミング、背景、ポップアップ。低スペック環境に有効。",
     "themes.scaleHint": "インターフェース全体の大きさ",

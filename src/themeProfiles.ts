@@ -74,6 +74,7 @@ export function parseProfile(raw: unknown): ThemeProfile | null {
       // молча сбрасывало бы serif/inline-код и цвет знака
       serifChat: a.serifChat === true,
       inlineCodeClaude: a.inlineCodeClaude === true,
+      textShimmer: a.textShimmer === true,
       markColor: typeof a.markColor === "string" ? a.markColor : "",
       reduceMotion: a.reduceMotion === true,
       motionScale: typeof a.motionScale === 'number' ? a.motionScale : 1,

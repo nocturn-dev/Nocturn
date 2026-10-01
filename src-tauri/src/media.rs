@@ -304,11 +304,21 @@ mod windows_impl {
     const APPCOMMAND_MEDIA_PREVTRACK: isize = 12;
 
     /// Управление окном Spotify без SMTC: WM_APPCOMMAND (проверено зондом
-    /// --toggle: клиент тогглит воспроизведение и меняет заголовок)
+    /// --toggle: клиент тогглит воспроизведение и меняет заголовок).
+    /// На паузе трек-окна нет (заголовок просто "Spotify") — раньше Play
+    /// молча игнорировался и song нельзя было возобновить из минибара;
+    /// теперь в этом случае команда уходит в любое видимое окно клиента
     fn window_control(msg: &Msg) {
         use windows::Win32::Foundation::{LPARAM, WPARAM};
         use windows::Win32::UI::WindowsAndMessaging::PostMessageW;
-        let Some(hwnd) = track_window_hwnd() else {
+        let pids = spotify_pids();
+        let hwnd = track_window_hwnd().or_else(|| {
+            spotify_windows(&pids)
+                .into_iter()
+                .find(|(_hwnd, _pid, title)| !title.is_empty())
+                .map(|(hwnd, _, _)| hwnd)
+        });
+        let Some(hwnd) = hwnd else {
             eprintln!("media: window control ignored, no spotify window");
             return;
         };

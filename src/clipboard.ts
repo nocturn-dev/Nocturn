@@ -1,12 +1,22 @@
 /**
- * Копирование в буфер обмена с фолбэком. navigator.clipboard в WebKitGTK
- * полноценно появился поздно (2.36+), а vite target держит старые движки:
- * без фолбэка «копировать» просто молча не срабатывало. execCommand
- * устарел, но как последний фолбэк работает везде.
+ * Копирование в буфер обмена. Основной путь — Rust-команда clipboard_write
+ * (arboard): нативная запись не проходит через navigator.clipboard, который
+ * является перехватываемой поверхностью (клиппер-малварь подменяет текст).
+ * Фолбэки — для браузерного превью вне Tauri: navigator.clipboard в WebKitGTK
+ * полноценно появился поздно (2.36+), а vite target держит старые движки;
+ * execCommand устарел, но как последний фолбэк работает везде.
  */
+
+import { clipboardWrite } from "./api";
 
 /** Скопировать текст; true — успех (любым из путей) */
 export async function copyText(text: string): Promise<boolean> {
+  try {
+    await clipboardWrite(text);
+    return true;
+  } catch {
+    // нет Tauri (браузерное превью) или команда упала — JS-пути ниже
+  }
   try {
     await navigator.clipboard.writeText(text);
     return true;

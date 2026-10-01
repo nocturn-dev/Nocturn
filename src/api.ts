@@ -1575,6 +1575,14 @@ export function mediaControl(
   return invoke("media_control", { action });
 }
 
+/** Запись в системный буфер через Rust (arboard): копирование выполняет
+ *  нативный слой, а не navigator.clipboard из JS (перехватываемая поверхность).
+ *  Вне Tauri (браузерное превью) — отказ, вызывающий уходит в свой фолбэк. */
+export function clipboardWrite(text: string): Promise<void> {
+  if (!inTauri) return Promise.reject(new Error("not in tauri"));
+  return invoke("clipboard_write", { text });
+}
+
 /** Режим отслеживания минибара: desktop | browser | off (radio, один активен) */
 export function mediaSetMode(mode: "desktop" | "browser" | "off"): Promise<void> {
   return invoke("media_set_mode", { mode });

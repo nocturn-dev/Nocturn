@@ -893,6 +893,8 @@ export const en = {
     "themes.chatMarkDesc": "Ghost «N» behind the message feed",
     "themes.msgGlass": "Glass on AI replies",
     "themes.msgGlassDesc": "Glass effect on the model's message cards",
+    "themes.textShimmer": "Text shimmer",
+    "themes.textShimmerDesc": "Slow gradient sheen on the empty-chat greeting",
     "themes.reduceMotion": "Reduce motion",
     "themes.reduceMotionHint": "Silence interface animations: response streaming, background, pop-ups. Helpful on low-end machines.",
     "themes.scaleHint": "size of the whole interface",
