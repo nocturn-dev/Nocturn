@@ -27,27 +27,15 @@ function mmss(secs: number): string {
 }
 
 /**
- * Слой YouTube: всплывающее окно плеера под минибаром (как окно настроек,
- * но сверху) + ПОСТОЯННЫЙ хост iframe. Ключевой приём: окно при сворачивании
- * не размонтируется (CSS visibility с задержкой) — iframe живёт, звук
+ * Слой YouTube: МОДАЛЬНЫЙ оверлей (fixed на весь интерфейс, верхний слой
+ * z-modal) — центр только flexbox'ом контейнера (items/justify-center),
+ * никаких ручных сдвигов. Фон: затемнение + лёгкий backdrop-blur, клик по
+ * нему сворачивает окно. Ключевой приём: окно при сворачивании не
+ * размонтируется (CSS visibility с задержкой) — iframe живёт, звук
  * продолжает играть, управляет минибар. Монтируется только при включённой
  * интеграции (prefs.youtube) — размонтирование = полный сброс драйвера.
- *
- * Геометрия: fixed-слой живёт в flex-корне App рядом с чатом, но центруется
- * по ЗОНЕ ЧАТА — инсеты на ширину сайдбара с его стороны (иначе окно
- * «смотрит влево» и заезжает под сайдбар). z-index — только классом
- * z-[var(--halo-z-modal)]: inline style zIndex с var() в WebView2 не
- * применился, и окно ушло ПОД контент чата.
  */
-export function YouTubeLayer({
-  closeBind,
-  leftInset,
-  rightInset,
-}: {
-  closeBind: string;
-  leftInset: number;
-  rightInset: number;
-}) {
+export function YouTubeLayer({ closeBind }: { closeBind: string }) {
   const { t } = useLang();
   const yt = useSyncExternalStore(subscribeYt, getYtState);
   const [src, setSrc] = useState<string | null>(null);
@@ -94,11 +82,20 @@ export function YouTubeLayer({
 
   return (
     <div
-      className="pointer-events-none fixed top-0 z-[var(--halo-z-modal)] flex justify-center"
-      style={{ left: leftInset, right: rightInset }}
+      className={`fixed inset-0 z-[var(--halo-z-modal)] flex items-center justify-center p-6 ${
+        yt.open ? "pointer-events-auto" : "pointer-events-none"
+      }`}
     >
+      {/* Фон: затемнение + лёгкий блюр интерфейса (blur — условно, правило
+          дома: закрытому слою backdrop-filter не нужен); клик — свернуть */}
       <div
-        className={`yt-pop pointer-events-auto mx-4 mt-[88px] w-[min(760px,94vw)] rounded-2xl border border-halo-line bg-halo-deep shadow-2xl ${
+        onClick={() => ytSetOpen(false)}
+        className={`absolute inset-0 bg-black/50 transition-opacity duration-200 ${
+          yt.open ? "opacity-100 backdrop-blur-sm" : "opacity-0"
+        }`}
+      />
+      <div
+        className={`yt-pop relative w-[min(820px,92vw)] rounded-2xl border border-halo-line bg-halo-deep shadow-2xl ${
           yt.open ? "yt-pop-open" : "yt-pop-closed"
         }`}
       >
