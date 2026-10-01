@@ -59,6 +59,7 @@ export function MediaBar({ prefs }: { prefs: MediaPrefs }) {
   const { t } = useLang();
   const [state, setState] = useState<MediaStateDto | null>(null);
   const [lyrics, setLyrics] = useState<LyricLine[] | null>(null);
+  const [lyricsLoading, setLyricsLoading] = useState(false);
   const [lyricOffset, setLyricOffset] = useState(0);
   const [, setTick] = useState(0);
 
@@ -98,11 +99,13 @@ export function MediaBar({ prefs }: { prefs: MediaPrefs }) {
   useEffect(() => {
     if (!prefs.lyrics || !state?.title) {
       setLyrics(null);
+      setLyricsLoading(false);
       return;
     }
     let disposed = false;
     setLyrics(null);
     setLyricOffset(0);
+    setLyricsLoading(true);
     void lyricsFetch(state.artist ?? "", state.title, null)
       .then((r) => {
         if (disposed) return;
@@ -111,6 +114,9 @@ export function MediaBar({ prefs }: { prefs: MediaPrefs }) {
       })
       .catch(() => {
         if (!disposed) setLyrics(null);
+      })
+      .finally(() => {
+        if (!disposed) setLyricsLoading(false);
       });
     return () => {
       disposed = true;
@@ -159,12 +165,21 @@ export function MediaBar({ prefs }: { prefs: MediaPrefs }) {
           className="h-6 w-6 shrink-0 rounded-md object-cover"
         />
       )}
-      <div className="min-w-0 flex-1 leading-tight">
-        {lyric ? (
-          <>
+      {/* Трек — артист: слева, фиксированный блок (фидбек владельца) */}
+      <div className="w-40 shrink-0 truncate text-xs text-halo-muted">
+        {state.title}
+        {state.artist ? ` — ${state.artist}` : ""}
+      </div>
+      {/* Лирика: по центру, авто-следящая; смена строки — плавный фейд
+          (keyed remount, токены motion), без «дёрганья» */}
+      <div className="relative flex h-full min-w-0 flex-1 items-center justify-center">
+        {lyricsLoading ? (
+          <span className="text-[0.625rem] text-halo-muted/60">…</span>
+        ) : lyric ? (
+          <div key={viewIdx} className="anim-fade w-full leading-tight">
             {/* Текущая строка: подсветка темой (accent) или своим цветом */}
             <p
-              className={`truncate text-xs ${
+              className={`truncate text-center text-xs ${
                 customColor ? "" : "text-halo-accent"
               }`}
               style={customColor ? { color: customColor } : undefined}
@@ -172,16 +187,15 @@ export function MediaBar({ prefs }: { prefs: MediaPrefs }) {
               {lyric.text}
             </p>
             {nextLyric && nextLyric.text !== lyric.text && (
-              <p className="truncate text-[0.625rem] text-halo-muted/60">
+              <p className="truncate text-center text-[0.625rem] text-halo-muted/60">
                 {nextLyric.text}
               </p>
             )}
-          </>
+          </div>
         ) : (
-          <p className="truncate text-xs text-halo-muted">
-            {state.title}
-            {state.artist ? ` — ${state.artist}` : ""}
-          </p>
+          <span className="rounded-md border border-halo-line/50 bg-halo-surface/60 px-2.5 py-1 text-[0.625rem] text-halo-muted/70">
+            {t("media.lyricsMissing")}
+          </span>
         )}
       </div>
       {lyrics && lyrics.length > 1 && (

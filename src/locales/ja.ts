@@ -1200,6 +1200,7 @@ export const ja = {
     "media.coverDesc": "OS プレイヤーからのサムネイル。どこにも送信されません",
     "media.unavailable": "メディア統合は Windows でのみ利用できます",
     "media.lyricsColor": "ハイライト色",
+    "media.lyricsMissing": "歌詞なし",
     "media.lyricsTheme": "テーマに合わせたテキスト",
     "media.lyricsCustom": "カスタムテキストカラー",
     "media.warnTitle": "⚠️ ローカルハードコア",
