@@ -4,11 +4,14 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <!-- S6: color-scheme до загрузки CSS — нативные скроллбары/формы сразу
-         в тёмной гамме; инлайн-скрипт для ранней темы невозможен (CSP
-         script-src 'self'), стартовый фон совпадает со Splash -->
+         в тёмной гамме. Инлайн-скрипт для ранней темы невозможен (CSP
+         script-src 'self') — фон до первой отрисовки выставляет внешний
+         boot-theme.js (classic script в head, исполняется синхронно);
+         <style> ниже — фолбэк, если скрипт не исполнился -->
     <meta name="color-scheme" content="dark light" />
     <meta name="theme-color" content="#1f1e1d" />
     <title>Nocturn</title>
+    <script src="/boot-theme.js"></script>
     <style>
       html {
         background: #1f1e1d;
