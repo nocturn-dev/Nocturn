@@ -39,21 +39,27 @@ pub async fn git_status(path: String) -> Result<Vec<GitEntry>, String> {
 /// путей от фронта, traversal исключён), потолок 32 КБ — простыня правил
 /// не должна съедать контекст каждой отправки
 #[tauri::command(async)]
-pub fn project_rules_read(root: String) -> Result<Option<String>, String> {
-    // Путь с фронтенда — общий гардал системных локаций (модель settings.rs)
-    crate::settings::rejects_sensitive_path(&root)?;
-    let root = std::path::PathBuf::from(root.trim());
-    if !root.is_dir() {
-        return Ok(None);
-    }
-    for name in ["AGENTS.md", "CLAUDE.md"] {
-        let p = root.join(name);
-        if p.is_file() {
-            let text = crate::fsutil::read_capped_string(&p, 32 * 1024)?;
-            return Ok(Some(text));
+pub async fn project_rules_read(root: String) -> Result<Option<String>, String> {
+    // Корень проекта может быть сетевым: is_dir/чтение правил — в
+    // blocking-пул (класс crypto_status)
+    tauri::async_runtime::spawn_blocking(move || {
+        // Путь с фронтенда — общий гардал системных локаций (модель settings.rs)
+        crate::settings::rejects_sensitive_path(&root)?;
+        let root = std::path::PathBuf::from(root.trim());
+        if !root.is_dir() {
+            return Ok(None);
         }
-    }
-    Ok(None)
+        for name in ["AGENTS.md", "CLAUDE.md"] {
+            let p = root.join(name);
+            if p.is_file() {
+                let text = crate::fsutil::read_capped_string(&p, 32 * 1024)?;
+                return Ok(Some(text));
+            }
+        }
+        Ok(None)
+    })
+    .await
+    .map_err(|e| format!("project rules task failed: {e}"))?
 }
 
 fn git_status_impl(path: String) -> Result<Vec<GitEntry>, String> {
@@ -777,17 +783,21 @@ pub async fn checkpoint_files(
 }
 
 #[tauri::command(async)]
-pub fn checkpoint_delete(app: tauri::AppHandle, path: String, id: String) -> Result<(), String> {
-    // Путь с фронтенда — общий гардал системных локаций (модель settings.rs)
-    crate::settings::rejects_sensitive_path(&path)?;
-    if !cp_id_ok(&id) {
-        return Err("bad checkpoint id".into());
-    }
-    let dir = checkpoints_dir(&app, &path)?;
-    fs::remove_file(dir.join(format!("{id}.json"))).map_err(|e| e.to_string())?;
-    // Сайдкар — Best-effort: осиротевшая мета отфильтровалась бы и так
-    let _ = fs::remove_file(dir.join(format!("{id}.meta.json")));
-    Ok(())
+pub async fn checkpoint_delete(app: tauri::AppHandle, path: String, id: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        // Путь с фронтенда — общий гардал системных локаций (модель settings.rs)
+        crate::settings::rejects_sensitive_path(&path)?;
+        if !cp_id_ok(&id) {
+            return Err("bad checkpoint id".into());
+        }
+        let dir = checkpoints_dir(&app, &path)?;
+        fs::remove_file(dir.join(format!("{id}.json"))).map_err(|e| e.to_string())?;
+        // Сайдкар — Best-effort: осиротевшая мета отфильтровалась бы и так
+        let _ = fs::remove_file(dir.join(format!("{id}.meta.json")));
+        Ok(())
+    })
+    .await
+    .map_err(|e| format!("checkpoint delete task failed: {e}"))?
 }
 
 

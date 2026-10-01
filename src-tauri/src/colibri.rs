@@ -165,21 +165,30 @@ pub fn colibri_start(
 }
 
 #[tauri::command(async)]
-pub fn colibri_stop(registry: tauri::State<'_, ColibriRegistry>) -> Result<ColibriStatus, String> {
-    let mut guard = registry.proc.lock().map_err(|e| e.to_string())?;
-    if let Some(c) = guard.take() {
-        kill_tree(c.id());
-        let mut c = c;
-        // Страховка: kill_tree бьёт по группе и может промахнуться (гонка
-        // старта, унаследованная группа) — прямой kill гарантирует, что
-        // wait() ниже не зависнет навсегда
-        let _ = c.kill();
-        let _ = c.wait();
-    }
-    Ok(ColibriStatus {
-        running: false,
-        pid: None,
+pub async fn colibri_stop(app: tauri::AppHandle) -> Result<ColibriStatus, String> {
+    // kill_tree + wait() блокируют до смерти процесса — на воркере tokio
+    // это вставало поперёк SSE-стримов (контраст: mcp_disconnect давно в
+    // spawn_blocking). State в 'static-замыкание не утащить — реестр из app
+    tauri::async_runtime::spawn_blocking(move || {
+        use tauri::Manager as _;
+        let registry = app.state::<ColibriRegistry>();
+        let mut guard = registry.proc.lock().map_err(|e| e.to_string())?;
+        if let Some(c) = guard.take() {
+            kill_tree(c.id());
+            let mut c = c;
+            // Страховка: kill_tree бьёт по группе и может промахнуться (гонка
+            // старта, унаследованная группа) — прямой kill гарантирует, что
+            // wait() ниже не зависнет навсегда
+            let _ = c.kill();
+            let _ = c.wait();
+        }
+        Ok(ColibriStatus {
+            running: false,
+            pid: None,
+        })
     })
+    .await
+    .map_err(|e| format!("colibri stop task failed: {e}"))?
 }
 
 #[tauri::command(async)]

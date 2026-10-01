@@ -52,12 +52,11 @@ pub struct ProfilesStore {
     pub active: String,
 }
 
-#[tauri::command(async)]
-pub fn load_profiles(app: tauri::AppHandle) -> Result<ProfilesStore, String> {
-    let path = config_file(&app, "profiles.json")?;
+fn load_profiles_blocking(app: &tauri::AppHandle) -> Result<ProfilesStore, String> {
+    let path = config_file(app, "profiles.json")?;
     if !path.exists() {
         // Миграция: профили, ранее сохранённые внутри settings.json
-        let spath = config_file(&app, "settings.json")?;
+        let spath = config_file(app, "settings.json")?;
         if let Ok(data) = fs::read_to_string(&spath) {
             if let Ok(v) = serde_json::from_str::<serde_json::Value>(&data) {
                 let store = ProfilesStore {
@@ -74,8 +73,8 @@ pub fn load_profiles(app: tauri::AppHandle) -> Result<ProfilesStore, String> {
                 if !store.profiles.is_empty() {
                     // Миграция идемпотентна — провал повторится на следующем
                     // старте, но молча терять фиксацию профилей на диске нельзя
-                    if let Err(e) = save_profiles(
-                        app.clone(),
+                    if let Err(e) = save_profiles_blocking(
+                        app,
                         store.profiles.clone(),
                         store.active.clone(),
                         false,
@@ -103,8 +102,17 @@ pub fn load_profiles(app: tauri::AppHandle) -> Result<ProfilesStore, String> {
 }
 
 #[tauri::command(async)]
-pub fn save_profiles(
-    app: tauri::AppHandle,
+pub async fn load_profiles(app: tauri::AppHandle) -> Result<ProfilesStore, String> {
+    // profiles.json читается на старте и после crypto-unlock: на сетевом
+    // профиле AppData чтение висит до SMB-таймаута — blocking-пул
+    // (класс crypto_status)
+    tauri::async_runtime::spawn_blocking(move || load_profiles_blocking(&app))
+        .await
+        .map_err(|e| format!("profiles load task failed: {e}"))?
+}
+
+fn save_profiles_blocking(
+    app: &tauri::AppHandle,
     mut profiles: Vec<ApiProfile>,
     active: String,
     encrypt: bool,
@@ -116,7 +124,7 @@ pub fn save_profiles(
             }
         }
     }
-    let path = config_file(&app, "profiles.json")?;
+    let path = config_file(app, "profiles.json")?;
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
@@ -126,6 +134,20 @@ pub fn save_profiles(
     }))
     .map_err(|e| e.to_string())?;
     crate::fsutil::atomic_write(&path, json.as_bytes())
+}
+
+#[tauri::command(async)]
+pub async fn save_profiles(
+    app: tauri::AppHandle,
+    profiles: Vec<ApiProfile>,
+    active: String,
+    encrypt: bool,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        save_profiles_blocking(&app, profiles, active, encrypt)
+    })
+    .await
+    .map_err(|e| format!("profiles save task failed: {e}"))?
 }
 
 /// Метa-файл шифрования crypto.json: соль KDF + маркер-проверка пароля.
@@ -448,9 +470,8 @@ const EXPORT_FILES: &[&str] = &[
 /// API-ключи по умолчанию маскируются: файлом настроек можно делиться,
 /// не отдавая ключи провайдеров; include_secrets=true — осознанный экспорт
 /// для переноса на другую машину.
-#[tauri::command(async)]
-pub fn settings_read_all(
-    app: tauri::AppHandle,
+fn settings_read_all_blocking(
+    app: &tauri::AppHandle,
     include_secrets: Option<bool>,
 ) -> Result<serde_json::Value, String> {
     use tauri::Manager;
@@ -481,6 +502,20 @@ pub fn settings_read_all(
         }
     }
     Ok(serde_json::Value::Object(files))
+}
+
+#[tauri::command(async)]
+pub async fn settings_read_all(
+    app: tauri::AppHandle,
+    include_secrets: Option<bool>,
+) -> Result<serde_json::Value, String> {
+    // Экспорт читает до 15 файлов подряд: на сетевом профиле AppData это
+    // десятки секунд блокировки — blocking-пул (класс crypto_status)
+    tauri::async_runtime::spawn_blocking(move || {
+        settings_read_all_blocking(&app, include_secrets)
+    })
+    .await
+    .map_err(|e| format!("settings read task failed: {e}"))?
 }
 
 /// Маскирование API-ключей в экспорте (пустая строка: обратный импорт
@@ -545,9 +580,8 @@ fn mask_secrets(file: &str, v: &mut serde_json::Value) {
 /// hooks.json/mcp.json исполняемы по своей природе (команды хуков через
 /// cmd /C, запуск серверов) — пишутся только при явном подтверждении с
 /// фронтенда, иначе импорт «поделенного конфига» был бы RCE.
-#[tauri::command(async)]
-pub fn settings_write_all(
-    app: tauri::AppHandle,
+fn settings_write_all_blocking(
+    app: &tauri::AppHandle,
     files: std::collections::HashMap<String, serde_json::Value>,
     allow_executable_configs: bool,
 ) -> Result<usize, String> {
@@ -579,6 +613,19 @@ pub fn settings_write_all(
     // Импорт мог перезаписать settings.json — кэш под него не годится
     invalidate_settings_cache();
     Ok(written)
+}
+
+#[tauri::command(async)]
+pub async fn settings_write_all(
+    app: tauri::AppHandle,
+    files: std::collections::HashMap<String, serde_json::Value>,
+    allow_executable_configs: bool,
+) -> Result<usize, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        settings_write_all_blocking(&app, files, allow_executable_configs)
+    })
+    .await
+    .map_err(|e| format!("settings write task failed: {e}"))?
 }
 /// Отсечение чувствительных системных локаций для команд, получающих
 /// произвольный путь с фронта (экспорт/импорт настроек, плагины, звуки):
@@ -789,42 +836,53 @@ fn ensure_export_target(
 /// Сохранить экспорт-файл настроек (содержимое собрано на фронте).
 /// Экспорт живёт только вне конфиг-каталога, формат — строго .json.
 #[tauri::command(async)]
-pub fn settings_export_write(
+pub async fn settings_export_write(
     app: tauri::AppHandle,
     path: String,
     content: String,
 ) -> Result<(), String> {
-    let target = ensure_export_target(&app, &path)?;
-    // Регистронезависимо: на Windows/macOS (ФС нечувствительна к регистру)
-    // EXPORT.JSON — легитимное имя; chat_export_write уже проверяет так
-    if !path.to_lowercase().ends_with(".json") {
-        return Err("export file must be .json".into());
-    }
-    // Проверка, что это валидный JSON — защита от мусора
-    serde_json::from_str::<serde_json::Value>(&content)
-        .map_err(|e| format!("export content is not valid JSON: {e}"))?;
-    crate::fsutil::atomic_write(&target, content.as_bytes())
+    // Канонизация + запись: путь может лежать на сетевом ресурсе
+    tauri::async_runtime::spawn_blocking(move || {
+        let target = ensure_export_target(&app, &path)?;
+        // Регистронезависимо: на Windows/macOS (ФС нечувствительна к регистру)
+        // EXPORT.JSON — легитимное имя; chat_export_write уже проверяет так
+        if !path.to_lowercase().ends_with(".json") {
+            return Err("export file must be .json".into());
+        }
+        // Проверка, что это валидный JSON — защита от мусора
+        serde_json::from_str::<serde_json::Value>(&content)
+            .map_err(|e| format!("export content is not valid JSON: {e}"))?;
+        crate::fsutil::atomic_write(&target, content.as_bytes())
+    })
+    .await
+    .map_err(|e| format!("settings export task failed: {e}"))?
 }
 
 /// Сохранить файл экспорта чата (.md или .json). Путь приходит из диалога
 /// «Сохранить как», но команда вызывается из вебвью — гарды те же, что у
 /// настроек. JSON дополнительно валидируется, чтобы «JSON» не оказался мусором.
 #[tauri::command(async)]
-pub fn chat_export_write(
+pub async fn chat_export_write(
     app: tauri::AppHandle,
     path: String,
     content: String,
 ) -> Result<(), String> {
-    let lower = path.to_lowercase();
-    if !lower.ends_with(".md") && !lower.ends_with(".json") {
-        return Err("chat export file must be .md or .json".into());
-    }
-    let target = ensure_export_target(&app, &path)?;
-    if lower.ends_with(".json") {
-        serde_json::from_str::<serde_json::Value>(&content)
-            .map_err(|e| format!("export content is not valid JSON: {e}"))?;
-    }
-    crate::fsutil::atomic_write(&target, content.as_bytes())
+    // Цель может лежать на сетевом ресурсе (диалог «Сохранить как»):
+    // канонизация + запись — в blocking-пул
+    tauri::async_runtime::spawn_blocking(move || {
+        let lower = path.to_lowercase();
+        if !lower.ends_with(".md") && !lower.ends_with(".json") {
+            return Err("chat export file must be .md or .json".into());
+        }
+        let target = ensure_export_target(&app, &path)?;
+        if lower.ends_with(".json") {
+            serde_json::from_str::<serde_json::Value>(&content)
+                .map_err(|e| format!("export content is not valid JSON: {e}"))?;
+        }
+        crate::fsutil::atomic_write(&target, content.as_bytes())
+    })
+    .await
+    .map_err(|e| format!("chat export task failed: {e}"))?
 }
 
 /// Прочитать импорт-файл (путь контролируется фронтом: потолок 32 МБ —
@@ -856,14 +914,13 @@ pub async fn settings_import_read(path: String) -> Result<serde_json::Value, Str
 /// Тумблер шифрования: перезаписывает settings.json и profiles.json,
 /// шифруя (или расшифровывая) все API-ключи на месте.
 /// Включение требует разблокированного хранилища (пароль уже введён).
-#[tauri::command(async)]
-pub fn set_key_encryption(app: tauri::AppHandle, enable: bool) -> Result<(), String> {
+fn set_key_encryption_blocking(app: &tauri::AppHandle, enable: bool) -> Result<(), String> {
     if enable && !crypto::has_key() {
         return Err("vault is locked: enter the master password first".into());
     }
 
     // settings.json: ключ + флаг encrypt_keys
-    let spath = config_file(&app, "settings.json")?;
+    let spath = config_file(app, "settings.json")?;
     if spath.exists() {
         let data = fs::read_to_string(&spath).map_err(|e| e.to_string())?;
         let mut v: serde_json::Value = serde_json::from_str(&data).unwrap_or(serde_json::json!({}));
@@ -895,7 +952,7 @@ pub fn set_key_encryption(app: tauri::AppHandle, enable: bool) -> Result<(), Str
     }
 
     // profiles.json: ключи всех профилей
-    let ppath = config_file(&app, "profiles.json")?;
+    let ppath = config_file(app, "profiles.json")?;
     if ppath.exists() {
         let data = fs::read_to_string(&ppath).map_err(|e| e.to_string())?;
         let mut v: serde_json::Value = serde_json::from_str(&data).unwrap_or(serde_json::json!({}));
@@ -928,6 +985,15 @@ pub fn set_key_encryption(app: tauri::AppHandle, enable: bool) -> Result<(), Str
     Ok(())
 }
 
+#[tauri::command(async)]
+pub async fn set_key_encryption(app: tauri::AppHandle, enable: bool) -> Result<(), String> {
+    // Перезаписывает settings.json и profiles.json целиком (чтение+шифрование+
+    // запись каждого) — на сетевом профиле это минуты блокировки: blocking-пул
+    tauri::async_runtime::spawn_blocking(move || set_key_encryption_blocking(&app, enable))
+        .await
+        .map_err(|e| format!("encryption switch task failed: {e}"))?
+}
+
 /// Проект (фронтовый Project; отдельное поле — привязанный профиль API)
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct ProjectRec {
@@ -945,9 +1011,8 @@ pub struct ProjectRec {
 }
 
 /// Хранилище проектов — отдельный файл projects.json
-#[tauri::command(async)]
-pub fn load_projects(app: tauri::AppHandle) -> Result<Vec<ProjectRec>, String> {
-    let path = config_file(&app, "projects.json")?;
+fn load_projects_blocking(app: &tauri::AppHandle) -> Result<Vec<ProjectRec>, String> {
+    let path = config_file(app, "projects.json")?;
     if !path.exists() {
         return Ok(Vec::new());
     }
@@ -956,13 +1021,29 @@ pub fn load_projects(app: tauri::AppHandle) -> Result<Vec<ProjectRec>, String> {
 }
 
 #[tauri::command(async)]
-pub fn save_projects(app: tauri::AppHandle, projects: Vec<ProjectRec>) -> Result<(), String> {
-    let path = config_file(&app, "projects.json")?;
+pub async fn load_projects(app: tauri::AppHandle) -> Result<Vec<ProjectRec>, String> {
+    tauri::async_runtime::spawn_blocking(move || load_projects_blocking(&app))
+        .await
+        .map_err(|e| format!("projects load task failed: {e}"))?
+}
+
+fn save_projects_blocking(
+    app: &tauri::AppHandle,
+    projects: Vec<ProjectRec>,
+) -> Result<(), String> {
+    let path = config_file(app, "projects.json")?;
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
     let json = serde_json::to_string_pretty(&projects).map_err(|e| e.to_string())?;
     crate::fsutil::atomic_write(&path, json.as_bytes())
+}
+
+#[tauri::command(async)]
+pub async fn save_projects(app: tauri::AppHandle, projects: Vec<ProjectRec>) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || save_projects_blocking(&app, projects))
+        .await
+        .map_err(|e| format!("projects save task failed: {e}"))?
 }
 pub(crate) fn config_file(app: &tauri::AppHandle, name: &str) -> Result<std::path::PathBuf, String> {
     use tauri::Manager;
@@ -980,8 +1061,10 @@ pub(crate) fn config_file(app: &tauri::AppHandle, name: &str) -> Result<std::pat
 /// запросы без ключа с загадочным 401 от провайдера.
 pub fn decrypt_stored_key(stored: &str) -> Result<String, String> {
     match crypto::decrypt(stored) {
-        // Граница serde (поле ApiSettings — String): копия здесь неизбежна,
-        // но plaintext из crypto больше не живёт в heap без Zeroizing
+        // Граница serde (поле ApiSettings — String): копия здесь неизбежна.
+        // Честная оговорка: plain.to_string() — обычный String БЕЗ Zeroizing,
+        // он живёт в ApiSettings.api_key и не затирается при drop; Zeroizing
+        // внутри crypto.rs защищает только собственные буферы криптомодуля
         Some(plain) => Ok(plain.to_string()),
         None if crypto::has_key() => Err(
             "stored API key cannot be decrypted (master password changed or reset) — re-enter the key"
@@ -1008,9 +1091,11 @@ pub(crate) fn invalidate_settings_cache() {
     }
 }
 
-#[tauri::command(async)]
-pub fn load_settings(app: tauri::AppHandle) -> Result<ApiSettings, String> {
-    let path = config_file(&app, "settings.json")?;
+/// Синхронное тело load_settings: зовётся из blocking-пула командой и
+/// напрямую из run_tool (его spawn_blocking-секция). Кэш валиден, пока
+/// размер и mtime файла совпадают с записанными
+pub(crate) fn load_settings_blocking(app: &tauri::AppHandle) -> Result<ApiSettings, String> {
+    let path = config_file(app, "settings.json")?;
     // Кэш валиден, пока размер и mtime файла совпадают с записанными
     let cached = {
         let guard = SETTINGS_CACHE.lock().map_err(|e| e.to_string())?;
@@ -1053,8 +1138,14 @@ pub fn load_settings(app: tauri::AppHandle) -> Result<ApiSettings, String> {
 }
 
 #[tauri::command(async)]
-pub fn save_settings(app: tauri::AppHandle, settings: ApiSettings) -> Result<(), String> {
-    let path = config_file(&app, "settings.json")?;
+pub async fn load_settings(app: tauri::AppHandle) -> Result<ApiSettings, String> {
+    tauri::async_runtime::spawn_blocking(move || load_settings_blocking(&app))
+        .await
+        .map_err(|e| format!("settings load task failed: {e}"))?
+}
+
+fn save_settings_blocking(app: &tauri::AppHandle, settings: ApiSettings) -> Result<(), String> {
+    let path = config_file(app, "settings.json")?;
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
@@ -1066,6 +1157,13 @@ pub fn save_settings(app: tauri::AppHandle, settings: ApiSettings) -> Result<(),
     crate::fsutil::atomic_write(&path, json.as_bytes())?;
     invalidate_settings_cache();
     Ok(())
+}
+
+#[tauri::command(async)]
+pub async fn save_settings(app: tauri::AppHandle, settings: ApiSettings) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || save_settings_blocking(&app, settings))
+        .await
+        .map_err(|e| format!("settings save task failed: {e}"))?
 }
 /// Прочитать конфиг-файл как Value (модули со своей статикой: dictation и пр.)
 pub(crate) fn read_json_config(

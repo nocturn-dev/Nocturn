@@ -44,56 +44,74 @@ pub(crate) fn note_title_from_content(file: &str, content: &str) -> String {
 }
 
 #[tauri::command(async)]
-pub fn notes_list(app: tauri::AppHandle) -> Result<Vec<NoteInfo>, String> {
-    let dir = notes_dir(&app)?;
-    let mut out: Vec<NoteInfo> = Vec::new();
-    for entry in fs::read_dir(&dir).map_err(|e| e.to_string())?.flatten() {
-        let name = entry.file_name().to_string_lossy().to_string();
-        if !name.ends_with(".md") {
-            continue;
+pub async fn notes_list(app: tauri::AppHandle) -> Result<Vec<NoteInfo>, String> {
+    // Список читает до 1 МБ НА КАЖДУЮ заметку ради заголовка: vault на сотни
+    // файлов — секунды блокировки. blocking-пул (класс crypto_status)
+    tauri::async_runtime::spawn_blocking(move || {
+        let dir = notes_dir(&app)?;
+        let mut out: Vec<NoteInfo> = Vec::new();
+        for entry in fs::read_dir(&dir).map_err(|e| e.to_string())?.flatten() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if !name.ends_with(".md") {
+                continue;
+            }
+            let updated = entry
+                .metadata()
+                .ok()
+                .and_then(|m| m.modified().ok())
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            // Для заголовка читаем максимум 1 МБ: раньше каждый .md читался
+            // ЦЕЛИКОМ при каждом открытии списка (vault на сотни больших заметок
+            // давал фризы и пики памяти). Фолбэк — имя файла
+            let title = crate::fsutil::read_capped_string(&entry.path(), 1024 * 1024)
+                .map(|c| note_title_from_content(&name, &c))
+                .unwrap_or_else(|_| note_title_from_content(&name, ""));
+            out.push(NoteInfo { title, file: name, updated });
         }
-        let updated = entry
-            .metadata()
-            .ok()
-            .and_then(|m| m.modified().ok())
-            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
-        // Для заголовка читаем максимум 1 МБ: раньше каждый .md читался
-        // ЦЕЛИКОМ при каждом открытии списка (vault на сотни больших заметок
-        // давал фризы и пики памяти). Фолбэк — имя файла
-        let title = crate::fsutil::read_capped_string(&entry.path(), 1024 * 1024)
-            .map(|c| note_title_from_content(&name, &c))
-            .unwrap_or_else(|_| note_title_from_content(&name, ""));
-        out.push(NoteInfo { title, file: name, updated });
-    }
-    out.sort_by_key(|n| std::cmp::Reverse(n.updated));
-    Ok(out)
+        out.sort_by_key(|n| std::cmp::Reverse(n.updated));
+        Ok(out)
+    })
+    .await
+    .map_err(|e| format!("notes list task failed: {e}"))?
 }
 
 #[tauri::command(async)]
-pub fn notes_read(app: tauri::AppHandle, file: String) -> Result<String, String> {
-    let file = sanitize_note_file(&file)?;
-    let path = notes_dir(&app)?.join(file);
-    // Потолок размера: агентный vault_read лимитирован, прямая команда
-    // раньше возвращала файл любого размера (OOM на многогигабайтном пути)
-    crate::fsutil::read_capped_string(&path, 0)
+pub async fn notes_read(app: tauri::AppHandle, file: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let file = sanitize_note_file(&file)?;
+        let path = notes_dir(&app)?.join(file);
+        // Потолок размера: агентный vault_read лимитирован, прямая команда
+        // раньше возвращала файл любого размера (OOM на многогигабайтном пути)
+        crate::fsutil::read_capped_string(&path, 0)
+    })
+    .await
+    .map_err(|e| format!("notes read task failed: {e}"))?
 }
 
 #[tauri::command(async)]
-pub fn notes_write(app: tauri::AppHandle, file: String, content: String) -> Result<(), String> {
-    let file = sanitize_note_file(&file)?;
-    let path = notes_dir(&app)?.join(file);
-    // atomic_write, а не fs::write: «личный vault» на Unix не должен быть
-    // 0644-читаемым всеми, краш не должен рвать файл
-    crate::fsutil::atomic_write(&path, content.as_bytes())
+pub async fn notes_write(app: tauri::AppHandle, file: String, content: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let file = sanitize_note_file(&file)?;
+        let path = notes_dir(&app)?.join(file);
+        // atomic_write, а не fs::write: «личный vault» на Unix не должен быть
+        // 0644-читаемым всеми, краш не должен рвать файл
+        crate::fsutil::atomic_write(&path, content.as_bytes())
+    })
+    .await
+    .map_err(|e| format!("notes write task failed: {e}"))?
 }
 
 #[tauri::command(async)]
-pub fn notes_delete(app: tauri::AppHandle, file: String) -> Result<(), String> {
-    let file = sanitize_note_file(&file)?;
-    let path = notes_dir(&app)?.join(file);
-    fs::remove_file(path).map_err(|e| e.to_string())
+pub async fn notes_delete(app: tauri::AppHandle, file: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let file = sanitize_note_file(&file)?;
+        let path = notes_dir(&app)?.join(file);
+        fs::remove_file(path).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("notes delete task failed: {e}"))?
 }
 #[cfg(test)]
 mod notes_tests {

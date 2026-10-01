@@ -140,22 +140,33 @@ fn font_import_impl(app: tauri::AppHandle, src: String) -> Result<CustomFont, St
 }
 
 #[tauri::command(async)]
-pub fn font_list(app: tauri::AppHandle) -> Vec<CustomFont> {
-    read_manifest(&app)
-        .into_iter()
-        .filter(|f| PathBuf::from(&f.path).exists())
-        .collect()
+pub async fn font_list(app: tauri::AppHandle) -> Result<Vec<CustomFont>, String> {
+    // exists() на каждый файл манифеста: на сетевом профиле — секунды;
+    // blocking-пул (класс crypto_status). Результат обёрнут в Result —
+    // контракт для invoke не меняется (Ok-значение сериализуется как раньше)
+    tauri::async_runtime::spawn_blocking(move || {
+        Ok(read_manifest(&app)
+            .into_iter()
+            .filter(|f| PathBuf::from(&f.path).exists())
+            .collect::<Vec<_>>())
+    })
+    .await
+    .map_err(|e| format!("font list task failed: {e}"))?
 }
 
 #[tauri::command(async)]
-pub fn font_delete(app: tauri::AppHandle, id: String) -> Result<(), String> {
-    let mut fonts = read_manifest(&app);
-    if let Some(pos) = fonts.iter().position(|f| f.id == id) {
-        let f = fonts.remove(pos);
-        let _ = fs::remove_file(&f.path);
-        write_manifest(&app, &fonts)?;
-    }
-    Ok(())
+pub async fn font_delete(app: tauri::AppHandle, id: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut fonts = read_manifest(&app);
+        if let Some(pos) = fonts.iter().position(|f| f.id == id) {
+            let f = fonts.remove(pos);
+            let _ = fs::remove_file(&f.path);
+            write_manifest(&app, &fonts)?;
+        }
+        Ok(())
+    })
+    .await
+    .map_err(|e| format!("font delete task failed: {e}"))?
 }
 
 #[cfg(test)]
