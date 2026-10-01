@@ -1215,6 +1215,7 @@ export const zh = {
     "media.ytHint": "收起窗口：{bind} — 播放继续",
     "media.ytClose": "收起（播放继续）",
     "media.ytBlocked": "该视频禁止内嵌播放 — 请在浏览器中打开",
+    "media.ytBadUrl": "看起来不是 YouTube 链接 — 请检查后重试",
     "media.ytNeedEnable": "请先在「集成」中启用 YouTube",
     "media.shimFrom": "起始颜色",
     "media.shimTo": "目标颜色",

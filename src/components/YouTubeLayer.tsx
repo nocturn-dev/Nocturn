@@ -32,8 +32,22 @@ function mmss(secs: number): string {
  * не размонтируется (CSS visibility с задержкой) — iframe живёт, звук
  * продолжает играть, управляет минибар. Монтируется только при включённой
  * интеграции (prefs.youtube) — размонтирование = полный сброс драйвера.
+ *
+ * Геометрия: fixed-слой живёт в flex-корне App рядом с чатом, но центруется
+ * по ЗОНЕ ЧАТА — инсеты на ширину сайдбара с его стороны (иначе окно
+ * «смотрит влево» и заезжает под сайдбар). z-index — только классом
+ * z-[var(--halo-z-modal)]: inline style zIndex с var() в WebView2 не
+ * применился, и окно ушло ПОД контент чата.
  */
-export function YouTubeLayer({ closeBind }: { closeBind: string }) {
+export function YouTubeLayer({
+  closeBind,
+  leftInset,
+  rightInset,
+}: {
+  closeBind: string;
+  leftInset: number;
+  rightInset: number;
+}) {
   const { t } = useLang();
   const yt = useSyncExternalStore(subscribeYt, getYtState);
   const [src, setSrc] = useState<string | null>(null);
@@ -79,12 +93,14 @@ export function YouTubeLayer({ closeBind }: { closeBind: string }) {
   const pos = scrub ?? yt.currentTime;
 
   return (
-    <div className="pointer-events-none fixed inset-x-0 top-0 flex justify-center">
+    <div
+      className="pointer-events-none fixed top-0 z-[var(--halo-z-modal)] flex justify-center"
+      style={{ left: leftInset, right: rightInset }}
+    >
       <div
-        className={`yt-pop pointer-events-auto mx-4 mt-[88px] w-[min(760px,94vw)] rounded-2xl border border-halo-line bg-halo-deep/95 shadow-2xl backdrop-blur ${
+        className={`yt-pop pointer-events-auto mx-4 mt-[88px] w-[min(760px,94vw)] rounded-2xl border border-halo-line bg-halo-deep shadow-2xl ${
           yt.open ? "yt-pop-open" : "yt-pop-closed"
         }`}
-        style={{ zIndex: "var(--halo-z-modal)" }}
       >
         {/* Шапка: превью + название, крестик сворачивает (звук играет дальше) */}
         <div className="flex items-center gap-2.5 border-b border-halo-line/60 px-3.5 py-2.5">
@@ -123,7 +139,9 @@ export function YouTubeLayer({ closeBind }: { closeBind: string }) {
           </button>
         </div>
 
-        {/* Видео: iframe живёт здесь всегда (сворачивание — только CSS) */}
+        {/* Видео/ввод: пока трека нет — ЗОНА ВИДЕО и есть текстовое поле
+            (вставил ссылку → Enter); с треком — iframe, поле уезжает вниз
+            и работает только на добавление в очередь */}
         <div className="bg-black">
           {src ? (
             <iframe
@@ -135,8 +153,38 @@ export function YouTubeLayer({ closeBind }: { closeBind: string }) {
               className="aspect-video w-full border-0"
             />
           ) : (
-            <div className="flex aspect-video w-full items-center justify-center bg-halo-surface/40 text-halo-muted/50">
-              <YouTubeGlyph />
+            <div className="flex aspect-video w-full flex-col items-center justify-center gap-4 bg-halo-surface/30 px-8">
+              <div className="text-halo-muted/40">
+                <YouTubeGlyph />
+              </div>
+              <div className="flex w-full max-w-md items-center gap-2">
+                <input
+                  autoFocus
+                  value={draft}
+                  onChange={(e) => {
+                    setDraft(e.target.value);
+                    setDraftError(false);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.nativeEvent.isComposing) submitDraft();
+                  }}
+                  placeholder={t("media.ytEmpty")}
+                  className={`h-10 min-w-0 flex-1 rounded-xl border bg-halo-deep px-3.5 text-sm text-halo-text outline-none placeholder:text-halo-muted/50 ${
+                    draftError
+                      ? "border-halo-error/60"
+                      : "border-halo-line focus:border-halo-accent/50"
+                  }`}
+                />
+                <button
+                  onClick={submitDraft}
+                  className="h-10 shrink-0 rounded-xl border border-halo-accent/40 bg-halo-accent/10 px-4 text-sm font-medium text-halo-accent transition-colors hover:bg-halo-accent/20"
+                >
+                  {t("media.ytPlay")}
+                </button>
+              </div>
+              {draftError && (
+                <p className="text-xs text-halo-error">{t("media.ytBadUrl")}</p>
+              )}
             </div>
           )}
         </div>
@@ -206,69 +254,72 @@ export function YouTubeLayer({ closeBind }: { closeBind: string }) {
           />
         </div>
 
-        {/* Очередь: ссылка/ID + список (пустой — то же поле, оно и стартует) */}
-        <div className="border-t border-halo-line/60 px-3.5 py-2.5">
-          <div className="flex items-center gap-2">
-            <input
-              value={draft}
-              onChange={(e) => {
-                setDraft(e.target.value);
-                setDraftError(false);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.nativeEvent.isComposing) submitDraft();
-              }}
-              placeholder={t("media.ytQueuePlaceholder")}
-              className={`h-8 min-w-0 flex-1 rounded-lg border bg-halo-surface/60 px-2.5 text-xs text-halo-text outline-none placeholder:text-halo-muted/50 ${
-                draftError ? "border-halo-error/60" : "border-halo-line focus:border-halo-accent/50"
-              }`}
-            />
-            <button
-              onClick={submitDraft}
-              className="h-8 shrink-0 rounded-lg border border-halo-accent/40 bg-halo-accent/10 px-3 text-xs font-medium text-halo-accent transition-colors hover:bg-halo-accent/20"
-            >
-              {track ? t("media.ytEnqueue") : t("media.ytPlay")}
-            </button>
-          </div>
-          {yt.queue.length > 0 && (
-            <div className="mt-2 max-h-36 space-y-1 overflow-y-auto scroll-slim">
-              {yt.queue.map((q: YtTrack, i: number) => (
-                <div
-                  key={q.videoId + i}
-                  className={`group flex items-center gap-2 rounded-lg px-2 py-1 text-xs ${
-                    i === yt.queueIndex
-                      ? "bg-halo-accent/10 text-halo-text"
-                      : "text-halo-muted hover:bg-halo-hover/50"
-                  }`}
-                >
-                  <img
-                    src={thumbUrl(q.videoId)}
-                    alt=""
-                    className="h-6 w-10 shrink-0 rounded object-cover"
-                  />
-                  <button
-                    onClick={() => ytPlayAt(i)}
-                    className="min-w-0 flex-1 truncate text-left"
-                    title={q.title}
-                  >
-                    {q.title}
-                  </button>
-                  <button
-                    onClick={() => ytRemoveAt(i)}
-                    className="shrink-0 rounded p-0.5 opacity-0 transition-opacity group-hover:opacity-100 hover:text-halo-text"
-                    title={t("media.ytRemove")}
-                  >
-                    ✕
-                  </button>
-                </div>
-              ))}
+        {/* Очередь: поле добавления — только когда что-то уже играет
+            (первый трек вводится в зоне видео выше) */}
+        {track && (
+          <div className="border-t border-halo-line/60 px-3.5 py-2.5">
+            <div className="flex items-center gap-2">
+              <input
+                value={draft}
+                onChange={(e) => {
+                  setDraft(e.target.value);
+                  setDraftError(false);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.nativeEvent.isComposing) submitDraft();
+                }}
+                placeholder={t("media.ytQueuePlaceholder")}
+                className={`h-8 min-w-0 flex-1 rounded-lg border bg-halo-surface/60 px-2.5 text-xs text-halo-text outline-none placeholder:text-halo-muted/50 ${
+                  draftError ? "border-halo-error/60" : "border-halo-line focus:border-halo-accent/50"
+                }`}
+              />
+              <button
+                onClick={submitDraft}
+                className="h-8 shrink-0 rounded-lg border border-halo-accent/40 bg-halo-accent/10 px-3 text-xs font-medium text-halo-accent transition-colors hover:bg-halo-accent/20"
+              >
+                {t("media.ytEnqueue")}
+              </button>
             </div>
-          )}
-          {/* Подсказка закрытия по бинду (бинд — из «Горячих клавиш») */}
-          <p className="mt-2 text-[0.625rem] text-halo-muted/50">
-            {t("media.ytHint", { bind: closeBind })}
-          </p>
-        </div>
+            {yt.queue.length > 0 && (
+              <div className="mt-2 max-h-36 space-y-1 overflow-y-auto scroll-slim">
+                {yt.queue.map((q: YtTrack, i: number) => (
+                  <div
+                    key={q.videoId + i}
+                    className={`group flex items-center gap-2 rounded-lg px-2 py-1 text-xs ${
+                      i === yt.queueIndex
+                        ? "bg-halo-accent/10 text-halo-text"
+                        : "text-halo-muted hover:bg-halo-hover/50"
+                    }`}
+                  >
+                    <img
+                      src={thumbUrl(q.videoId)}
+                      alt=""
+                      className="h-6 w-10 shrink-0 rounded object-cover"
+                    />
+                    <button
+                      onClick={() => ytPlayAt(i)}
+                      className="min-w-0 flex-1 truncate text-left"
+                      title={q.title}
+                    >
+                      {q.title}
+                    </button>
+                    <button
+                      onClick={() => ytRemoveAt(i)}
+                      className="shrink-0 rounded p-0.5 opacity-0 transition-opacity group-hover:opacity-100 hover:text-halo-text"
+                      title={t("media.ytRemove")}
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+        {/* Подсказка закрытия по бинду (бинд — из «Горячих клавиш») — всегда */}
+        <p className="border-t border-halo-line/60 px-3.5 py-2 text-center text-[0.625rem] text-halo-muted/50">
+          {t("media.ytHint", { bind: closeBind })}
+        </p>
       </div>
     </div>
   );

@@ -2690,10 +2690,14 @@ export default function App() {
           combo={binds.hard_mode ?? "Ctrl+Shift+H"}
         />
       )}
-      {/* YouTube-плеер: окно под шапкой + постоянный iframe. Монтируется
-          только при включённой интеграции — размонтирование = сброс */}
+      {/* YouTube-плеер: окно под шапкой + постоянный iframe. Центр — по
+          ЗОНЕ ЧАТА (инсет на ширину сайдбара с его стороны, свёрнутый = 0) */}
       {mediaPrefs.youtube && (
-        <YouTubeLayer closeBind={binds.youtube_toggle ?? "Ctrl+Alt+Y"} />
+        <YouTubeLayer
+          closeBind={binds.youtube_toggle ?? "Ctrl+Alt+Y"}
+          leftInset={sidebarSide === "left" && !sidebarCollapsed ? sidebarWidth : 0}
+          rightInset={sidebarSide === "right" && !sidebarCollapsed ? sidebarWidth : 0}
+        />
       )}
       <Toasts items={toasts} />
       {/* Скачивание моделей (whisper / voice wake): тематизированное окно */}
