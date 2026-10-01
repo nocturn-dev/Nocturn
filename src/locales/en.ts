@@ -1187,6 +1187,7 @@ export const en = {
     "media.ytClose": "Collapse (playback continues)",
     "media.ytBlocked": "Embedding is not allowed for this video — open it in a browser",
     "media.ytBadUrl": "Doesn't look like a YouTube link — check it and try again",
+    "media.ytHowTo": "YouTube is on: press Play in the mini-bar and paste a link. Collapse the window with ✕, the backdrop or {bind}",
     "media.ytNeedEnable": "Enable YouTube in Integrations first",
     "media.shimFrom": "From color",
     "media.shimTo": "To color",

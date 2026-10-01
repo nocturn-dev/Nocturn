@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useLang } from "../../locales";
 import { isWindows } from "../../platform";
 import { mediaStatus, type MediaStateDto } from "../../api";
-import { ytSetOpen } from "../../yt/ytPlayer";
+import { ytPlayUrl, ytSetOpen } from "../../yt/ytPlayer";
 import type { MediaPrefs } from "../../mediaPrefs";
 import { SpotifyIcon, YouTubeIcon } from "../cards/icons";
 import { ToggleRow } from "./parts";
@@ -25,6 +25,19 @@ export function IntegrationsSection({
   const unavailable = !isWindows();
   const on = mediaPrefs.bar;
   const ytOn = mediaPrefs.youtube;
+  // Поле ссылки YouTube прямо во вкладке: вставил → играет (+окно плеера)
+  const [ytDraft, setYtDraft] = useState("");
+  const [ytDraftError, setYtDraftError] = useState(false);
+  const submitYtDraft = () => {
+    const res = ytPlayUrl(ytDraft);
+    if (!res.ok) {
+      setYtDraftError(true);
+      return;
+    }
+    setYtDraft("");
+    setYtDraftError(false);
+    ytSetOpen(true);
+  };
 
   // Живое состояние плеера прямо на вкладке: юзер сразу видит, что бекенд
   // слышит SMTC (иначе «не работает» невозможно отличить от «не включил»)
@@ -141,21 +154,50 @@ export function IntegrationsSection({
         )}
       </p>
 
-      {/* YouTube: блок включённой интеграции — вход в плеер (виден и без
-          трека; радио с Spotify соблюдено на карточках выше) */}
+      {/* YouTube: блок включённой интеграции — ПОЛЕ ССЫЛКИ прямо здесь
+          (вставил → играет) + радио с Spotify соблюдено на карточках */}
       {ytOn && (
         <div className="mt-3 rounded-xl border border-halo-line bg-halo-surface/50 px-3 py-2">
-          <p className="mb-1 px-1 text-xs font-medium text-halo-text">
-            YouTube
-          </p>
-          <button
-            onClick={() => ytSetOpen(true)}
-            className="mb-1 flex w-full items-center justify-between rounded-lg px-2 py-2 text-left transition-colors hover:bg-halo-hover/50"
-          >
-            <span className="text-sm text-halo-text">{t("media.ytOpenPlayer")}</span>
-            <span className="text-xs text-halo-muted">↗</span>
-          </button>
-          <p className="px-2 text-[0.625rem] leading-relaxed text-halo-muted/70">
+          <div className="flex items-center justify-between px-2 pb-1">
+            <p className="text-xs font-medium text-halo-text">YouTube</p>
+            <button
+              onClick={() => ytSetOpen(true)}
+              className="text-[0.6875rem] text-halo-muted transition-colors hover:text-halo-text"
+              title={t("media.ytOpenPlayer")}
+            >
+              ↗
+            </button>
+          </div>
+          <div className="flex items-center gap-2 px-2">
+            <input
+              value={ytDraft}
+              onChange={(e) => {
+                setYtDraft(e.target.value);
+                setYtDraftError(false);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.nativeEvent.isComposing) submitYtDraft();
+              }}
+              placeholder={t("media.ytEmpty")}
+              className={`h-8 min-w-0 flex-1 rounded-lg border bg-halo-deep px-2.5 text-xs text-halo-text outline-none placeholder:text-halo-muted/50 ${
+                ytDraftError
+                  ? "border-halo-error/60"
+                  : "border-halo-line focus:border-halo-accent/50"
+              }`}
+            />
+            <button
+              onClick={submitYtDraft}
+              className="h-8 shrink-0 rounded-lg border border-halo-accent/40 bg-halo-accent/10 px-3 text-xs font-medium text-halo-accent transition-colors hover:bg-halo-accent/20"
+            >
+              {t("media.ytPlay")}
+            </button>
+          </div>
+          {ytDraftError && (
+            <p className="px-2 pt-1 text-[0.625rem] text-halo-error">
+              {t("media.ytBadUrl")}
+            </p>
+          )}
+          <p className="px-2 pt-1.5 text-[0.625rem] leading-relaxed text-halo-muted/70">
             {t("media.ytCardHint")}
           </p>
         </div>

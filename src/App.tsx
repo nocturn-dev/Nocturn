@@ -913,6 +913,18 @@ export default function App() {
   useEffect(() => {
     saveMediaPrefs(mediaPrefs);
   }, [mediaPrefs]);
+  // Включил YouTube — всплывающая инструкция «как этим пользоваться»
+  // (реф-гард: один тост на включение, без deps-эффекта — паттерн дома)
+  const ytHowToShownRef = useRef(false);
+  useEffect(() => {
+    if (mediaPrefs.youtube && !ytHowToShownRef.current) {
+      ytHowToShownRef.current = true;
+      addToast(
+        t("media.ytHowTo", { bind: binds.youtube_toggle ?? "Ctrl+Alt+Y" }),
+      );
+    }
+    if (!mediaPrefs.youtube) ytHowToShownRef.current = false;
+  });
   /** Строка «проект · модель» для тела уведомления */
   const notifyMeta = (s: Session | null) => {
     const project = projects.find((p) => p.id === s?.projectId);
@@ -2690,14 +2702,10 @@ export default function App() {
           combo={binds.hard_mode ?? "Ctrl+Shift+H"}
         />
       )}
-      {/* YouTube-плеер: окно под шапкой + постоянный iframe. Центр — по
-          ЗОНЕ ЧАТА (инсет на ширину сайдбара с его стороны, свёрнутый = 0) */}
+      {/* YouTube-плеер: модальный оверлей с постоянным iframe. Монтируется
+          только при включённой интеграции — размонтирование = сброс */}
       {mediaPrefs.youtube && (
-        <YouTubeLayer
-          closeBind={binds.youtube_toggle ?? "Ctrl+Alt+Y"}
-          leftInset={sidebarSide === "left" && !sidebarCollapsed ? sidebarWidth : 0}
-          rightInset={sidebarSide === "right" && !sidebarCollapsed ? sidebarWidth : 0}
-        />
+        <YouTubeLayer closeBind={binds.youtube_toggle ?? "Ctrl+Alt+Y"} />
       )}
       <Toasts items={toasts} />
       {/* Скачивание моделей (whisper / voice wake): тематизированное окно */}
