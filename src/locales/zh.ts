@@ -919,6 +919,8 @@ export const zh = {
     "themes.chatMarkDesc": "消息流背景上的幽灵「N」",
     "themes.msgGlass": "AI 回复玻璃效果",
     "themes.msgGlassDesc": "模型回复卡片上的玻璃效果",
+    "themes.textShimmer": "文字流光",
+    "themes.textShimmerDesc": "空聊天问候语上的缓慢渐变流光",
     "themes.reduceMotion": "减少动画",
     "themes.reduceMotionHint": "静默界面动画：回复流式输出、背景、弹窗。低配机器适用。",
     "themes.scaleHint": "整个界面的大小",

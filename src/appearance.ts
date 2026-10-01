@@ -77,6 +77,9 @@ export interface Appearance {
   serifChat?: boolean;
   /** Inline-код в стиле Claude: тёплый чип с красноватым ink (red-200/600) */
   inlineCodeClaude?: boolean;
+  /** Шиммер-переливание текста (медленный градиентный сдвиг по
+   *  background-clip: text) на приветствии пустого экрана */
+  textShimmer?: boolean;
   /** Цвет знака N (hex); пусто — фирменный градиент циан→синий.
    *  Вне палитрового каскада: действует и в жёстких темах (как data-mark) */
   markColor?: string;
@@ -163,6 +166,7 @@ export const DEFAULT_APPEARANCE: Appearance = {
   fullClaudeMonoFont: "",
   serifChat: false,
   inlineCodeClaude: false,
+  textShimmer: false,
   markColor: "",
   /** Motion/Reduced: принудительно заглушить анимации интерфейса
    *  (поверх системной prefers-reduced-motion) */
@@ -251,6 +255,7 @@ export function loadAppearance(): Appearance {
       serifChat: p.serifChat ?? DEFAULT_APPEARANCE.serifChat,
       inlineCodeClaude:
         p.inlineCodeClaude ?? DEFAULT_APPEARANCE.inlineCodeClaude,
+      textShimmer: p.textShimmer ?? DEFAULT_APPEARANCE.textShimmer,
       markColor: typeof p.markColor === "string" ? p.markColor : "",
       ambient: p.ambient ?? DEFAULT_APPEARANCE.ambient,
       ambientScene: isAmbientScene(p.ambientScene) ? p.ambientScene : "glow",
@@ -752,6 +757,8 @@ export function applyAppearance(a: Appearance) {
   root.style.setProperty("--motion-scale", String(a.motionScale ?? 1));
   // Акцент-градиент: класс на html, CSS в index.css
   root.classList.toggle("accent-gradient", a.accentGradient ?? false);
+  // Шиммер-переливание приветствия: класс на html, CSS в index.css
+  root.classList.toggle("text-shimmer", a.textShimmer ?? false);
 
   // Пользовательский CSS — верхний слой «поверх тем»: теги тем re-append'ятся
   // в конец head (см. official/full-claude выше), а halo-custom-css создан

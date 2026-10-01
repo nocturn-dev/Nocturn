@@ -73,6 +73,7 @@ export const SETTINGS_SEARCH_INDEX: { section: Section; keys: MsgKey[] }[] = [
       "themes.glass",
       "themes.glassBlur",
       "themes.msgGlass",
+      "themes.textShimmer",
       "themes.sidebarGlass",
       "themes.reduceMotion",
       "themes.motionSpeed",

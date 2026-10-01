@@ -53,6 +53,9 @@ tauri-plugin-global-shortcut = "2"
 # фишинг в доверенном окне. Потребитель — MarkdownLink (фронт)
 tauri-plugin-opener = "2"
 url = "2"
+# Запись в системный буфер из Rust (см. clipboard.rs): navigator.clipboard
+# из JS — перехватываемая поверхность (клиппер-малварь)
+arboard = "3"
 
 [target.'cfg(unix)'.dependencies]
 # kill(-pgid) для kill_tree: std не умеет сигналить процесс-группе

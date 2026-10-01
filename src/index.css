@@ -196,6 +196,39 @@ html.accent-gradient [role="button"].bg-halo-accent:hover {
   background-image: linear-gradient(135deg, var(--halo-accent-deep), var(--halo-accent));
 }
 
+/* ---------- Шиммер-переливание текста (кастомизация): медленный
+   градиентный сдвиг по background-clip: text. Лента почти целиком
+   цвета текста, узкая акцентная полоса уезжает по циклу 12с — на
+   строгих тёмных тонах читается как «дыхание», не как неон.
+   @supports-гард: движок без clip:text оставит обычный цвет
+   (иначе transparent fill = невидимый текст). ---------- */
+@supports ((-webkit-background-clip: text) or (background-clip: text)) {
+  html.text-shimmer .shimmer-text {
+    background-image: linear-gradient(
+      110deg,
+      var(--halo-text) 42%,
+      var(--halo-accent) 50%,
+      var(--halo-text) 58%
+    );
+    background-size: 300% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    animation: halo-text-shimmer 12s ease-in-out infinite;
+  }
+}
+@keyframes halo-text-shimmer {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
 /* ---------- Микроанимации ---------- */
 @keyframes halo-fade-up {
   from {
@@ -542,7 +575,8 @@ html.zen.voice-listening body::after {
   .animate-pulse,
   .animate-ping,
   .animate-spin,
-  .animate-bounce {
+  .animate-bounce,
+  .shimmer-text {
     animation: none !important;
   }
 }
@@ -569,6 +603,7 @@ html.motion-reduced .usage-arc,
 html.motion-reduced .work-status-star,
 html.motion-reduced .work-status-text,
 html.motion-reduced .shimmer::after,
+html.motion-reduced .shimmer-text,
 html.motion-reduced .animate-pulse,
 html.motion-reduced .animate-ping,
 html.motion-reduced .animate-spin,

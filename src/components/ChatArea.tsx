@@ -1789,7 +1789,11 @@ export default function ChatArea({
               <span className="text-halo-accent">
                 <SparkIcon />
               </span>
-              <h2 className="mt-4 text-3xl font-medium tracking-tight text-halo-text">
+              <h2
+                className={`mt-4 text-3xl font-medium tracking-tight text-halo-text ${
+                  appearance.textShimmer ? "shimmer-text" : ""
+                }`}
+              >
                 {greeting}
               </h2>
               <p className="mb-7 mt-2 max-w-sm text-sm leading-relaxed text-halo-muted">
@@ -1807,7 +1811,7 @@ export default function ChatArea({
             </div>
           </div>
         ) : (
-          <div className="msg-feed mx-auto flex w-full max-w-3xl flex-col gap-5 px-8 py-8">
+          <div className="msg-feed mx-auto flex w-full max-w-3xl flex-col gap-5 px-8 pt-8 pb-16">
             {/* Ход = сообщение пользователя + всё, что агент сделал до следующего.
                 groupTurns: весь ход в ОДНОЙ карточке; иначе каждый шаг отдельно.
                 В конце хода — сводка изменённых файлов */}

@@ -905,6 +905,8 @@ export const ru = {
     "themes.chatMarkDesc": "Призрачная «N» на фоне ленты сообщений",
     "themes.msgGlass": "Стекло в ответах ИИ",
     "themes.msgGlassDesc": "Эффект стекла на карточках ответов модели",
+    "themes.textShimmer": "Переливание текста",
+    "themes.textShimmerDesc": "Медленный градиентный отблеск на приветствии пустого экрана",
     "themes.reduceMotion": "Уменьшить анимацию",
     "themes.reduceMotionHint": "Заглушить анимации интерфейса: поток ответов, фон, всплывания. Полезно на слабых машинах.",
     "themes.scaleHint": "размер всего интерфейса",
