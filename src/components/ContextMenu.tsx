@@ -54,7 +54,7 @@ export default function ContextMenu({ x, y, items, onClose }: ContextMenuProps) 
       <div
         ref={ref}
         style={{ left: pos.left, top: pos.top }}
-        className="glass-pane anim-pop fixed z-50 min-w-52 overflow-hidden rounded-xl border border-halo-line bg-halo-deep py-1.5 shadow-2xl"
+        className="glass-pane anim-pop fixed z-[var(--halo-z-modal-top)] min-w-52 overflow-hidden rounded-xl border border-halo-line bg-halo-deep py-1.5 shadow-2xl"
       >
         {items.map((item, i) => (
           <div key={i}>

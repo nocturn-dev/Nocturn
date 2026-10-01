@@ -489,7 +489,7 @@ export default function SettingsModal({
     <div
       // S3: backdrop-blur на оверлее поверх glass-pane-контента давал вложенный
       // фильтр — на WKWebView известный источник фризов; затемнения достаточно
-      className={`fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 ${
+      className={`fixed inset-0 z-[var(--halo-z-modal)] flex items-center justify-center bg-black/50 p-4 ${
         closing ? "anim-fade-out" : "anim-fade"
       }`}
       onClick={onClose}

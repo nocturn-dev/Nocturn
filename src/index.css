@@ -325,6 +325,13 @@ html.voice-listening body::after {
 html.motion-reduced.voice-listening body::after {
   animation: none;
 }
+/* Системный «уменьшить движение» гасит бесконечный voice-blink так же,
+   как ручной тумблер выше — раньше точка микрофона пульсировала вечно */
+@media (prefers-reduced-motion: reduce) {
+  html.voice-listening body::after {
+    animation: none;
+  }
+}
 
 /* ---------- Zen-режим (бинд toggle_zen, дефолт Ctrl+Alt+Z) ----------
    Медитативный вид: весь GUI скрыт (visibility, не display — лэйаут не
@@ -991,18 +998,10 @@ input[type="range"]::-webkit-slider-thumb:active {
 /* Стекло в монохроме выключаем: чёткая граница вместо размытия.
    backdrop-filter гасим тоже — blur под непрозрачным фоном невидим,
    но движок продолжает каждый кадр снапшотить и фильтровать backdrop
-   (пересекающийся режим Official + «Эффект стекла») */
-html.official .glass-pane {
-  background: var(--halo-deep);
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
-}
-/* Сайдбар-стекло тоже гасится (переменная сильнее класса прозрачности) */
-html.official aside.glass-pane {
-  background: var(--halo-deep);
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
-}
+   (пересекающийся режим Official + «Эффект стекла»).
+   САМИ ПРАВИЛА — В КОНЦЕ ФАЙЛА: у html.glass- и msg-glass-правил та же
+   специфичность (0-2-1), позиция решает, и монохром обязан побеждать все
+   стеклянные режимы независимо от того, где они объявлены */
 
 /* Монохромная подсветка кода: серая шкала вместо синтакс-цветов */
 html.official.official-mono-code .markdown pre {
@@ -1055,7 +1054,11 @@ html.ambient:not([data-ambient-scene]) body::before {
 .ambient-video {
   filter: brightness(0.85) saturate(0.95);
 }
-html.light .ambient-layer {
+/* В светлой теме слой скрыт ЦЕЛИКОМ: и сцены, и glow-подложка body::before
+   (раньше display:none гасил только слой сцен, и акцентный тинт glow
+   продолжал рисоваться поверх контента — вопреки комментарию выше) */
+html.light .ambient-layer,
+html.light.ambient:not([data-ambient-scene]) body::before {
   display: none;
 }
 
@@ -1097,9 +1100,35 @@ html.has-wallpaper aside.bg-halo-deep {
 
 /* «Стекло в ответах ИИ» самодостаточно: работает и при выключенном общем
    «Эффекте стекла» — матует карточку (deep@70% + blur) независимо.
-   Official сильнее (его правило ниже по файлу делает карточку плотной). */
+   Official сильнее: его гашение стоит в конце файла ПОСЛЕ этого правила
+   (равная специфичность 0-2-1 — решает позиция) */
 html:not(.glass) .msg-glass {
   background: color-mix(in srgb, var(--halo-deep) 70%, transparent);
   backdrop-filter: blur(var(--halo-blur, 14px)) saturate(1.25);
   -webkit-backdrop-filter: blur(var(--halo-blur, 14px)) saturate(1.25);
+}
+
+/* ---------- Тема Official: гашение стекла (конец файла — последняя
+   инстанция каскада при специфичности 0-2-1). Прежнее расположение выше
+   по файлу проигрывало html:not(.glass) .msg-glass, а селектор
+   aside.glass-pane был мёртвым: в кодовой базе нет aside с glass-pane,
+   сайдбар стеклится через html.sidebar-glass aside / html.glass
+   .bg-halo-deep ---------- */
+html.official .glass-pane,
+html.official .msg-glass {
+  background: var(--halo-deep);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+/* Пузыри пользователя и прочие raised-заливки: html.glass делал их
+   полупрозрачными — в строгом монохроме плотные */
+html.official .bg-halo-raised {
+  background: var(--halo-raised);
+}
+/* Сайдбар (aside несёт bg-halo-deep). Обои чата не трогаем: их прозрачность
+   — целевая фича (has-wallpaper), а не стеклянный режим */
+html:not(.has-wallpaper).official aside.bg-halo-deep {
+  background: var(--halo-deep);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
