@@ -5,7 +5,8 @@ import { shortModelName } from "../ProviderIcon";
 import { memo, useEffect, useMemo, useState } from "react";
 
 // memo: навигация рендерится рядом с лентой и пересобиралась на каждый
-// keystroke черновика — пропсы (messages/model/scrollRef) стабильны
+// keystroke черновика. messages меняется на каждый флеш стрима — memo
+// пробивается, но цена мала: один проход O(visible) без markdown-парса
 export const MessageNav = memo(function MessageNav({
   messages,
   model,

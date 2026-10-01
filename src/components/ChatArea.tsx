@@ -702,6 +702,10 @@ export default function ChatArea({
     /** Вызовы по id tool-сообщения (для SubagentCard в RunCard);
      *  в кэше derived — стабильные ссылки для memo */
     callOf: Map<string, ToolCallInfo | undefined>;
+    /** Раунды хода для RunCard: фильтр assistants в кэше derived — новый
+     *  массив на каждую пересборку feedNodes пробивал memo(RunCard) на
+     *  каждый тик стрима (ре-парс markdown всей истории) */
+    rounds: Message[];
     results: { id: string; content: string }[];
     resultsOf: Map<string, { id: string; content: string }[]>;
     writesFiles: ChangedFile[];
@@ -790,6 +794,13 @@ export default function ChatArea({
         toolMsgsOf,
         roundSteps,
         callOf,
+        rounds: assistants.filter(
+          (a) =>
+            a.content ||
+            a.thought ||
+            (a.toolCalls && a.toolCalls.length > 0) ||
+            a.error,
+        ),
         results,
         resultsOf,
         writesFiles: [...writes.values()],
@@ -1334,13 +1345,8 @@ export default function ChatArea({
                   // шаги хронологически, usage один раз в конце. Без карточек
                   // на каждый раунд — они и дублировали шапки/мысли ——
                   if (assistants.length > 0) {
-                    const rounds = assistants.filter(
-                      (a) =>
-                        a.content ||
-                        a.thought ||
-                        (a.toolCalls && a.toolCalls.length > 0) ||
-                        a.error,
-                    );
+                    // Из derived-кэша: стабильная ссылка на каждый тик стрима
+                    const rounds = derived.rounds;
                     if (rounds.length > 0 && ti === turns.length - 1) {
                       lastTurnMerged = true;
                     }
@@ -1512,23 +1518,31 @@ export default function ChatArea({
               }
               return nodes;
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- полный список зависимостей ниже
+    // Сознательно вне списка: derived/turns пересчитываются от messages
+    // (они в deps), функции-стабы стабильны по построению.
+    // printSpeed/highlightLive/showReasoning ДОЛЖНЫ быть здесь: настройки
+    // чтения применяются к карточкам лениво, только когда messages меняется
+    // (находка аудита — «тихо не работает»)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [
       activity,
       editMessage,
       groupTurns,
+      highlightLive,
       messages,
       model,
       msgGlass,
       onEditMessage,
       onReviewChanges,
       onUndoWrite,
+      printSpeed,
       reuseAttachment,
       ribbon,
       sessionChangesOpen,
       sessionWrites,
       showMsgTime,
       showOldTurns,
+      showReasoning,
       showUserMsgs,
       streamCaret,
       streamSmooth,

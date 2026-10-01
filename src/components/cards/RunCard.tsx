@@ -181,15 +181,12 @@ function RunRound({
         /* Мягкая подложка под текстом раунда: на «голом» фоне ленты текст
            сливался с ambient/шагами (фидбек владельца) */
         <div className="markdown mt-2 rounded-lg border border-halo-line/40 bg-halo-surface/40 px-3.5 py-2.5 text-sm leading-relaxed text-halo-text">
-          <ReactMarkdown
-            remarkPlugins={MD_PLUGINS}
-            rehypePlugins={
-              highlightLive || !isStreamingRound ? REHYPE_PLUGINS : REHYPE_PLUGINS_NO_HL
-            }
-            components={mdComponents}
-          >
-            {text}
-          </ReactMarkdown>
+          <RoundMarkdown
+            text={text}
+            isStreamingRound={isStreamingRound}
+            highlightLive={highlightLive}
+            mdComponents={mdComponents}
+          />
           {caret && isStreamingRound && (
             <span className="animate-pulse align-baseline text-halo-accent">▍</span>
           )}
@@ -219,6 +216,37 @@ function RunRound({
     </Fragment>
   );
 }
+
+/** Тяжёлая часть раунда — парс markdown + highlight — под memo: ре-рендер
+ *  RunCard (смена subRuns/activity) не должен перепарсивать текст
+ *  исторических раундов. Пропсы стабильны: текст раунда из derived-кэша
+ *  ChatArea, mdComponents — useMemo([onPreviewArtifact]) в RunCardBase */
+const RoundMarkdown = memo(function RoundMarkdown({
+  text,
+  isStreamingRound,
+  highlightLive,
+  mdComponents,
+}: {
+  text: string;
+  isStreamingRound: boolean;
+  highlightLive: boolean;
+  mdComponents: {
+    a: (p: ComponentPropsWithoutRef<"a">) => ReactNode;
+    pre: (p: { node?: unknown; children?: ReactNode }) => ReactNode;
+  };
+}) {
+  return (
+    <ReactMarkdown
+      remarkPlugins={MD_PLUGINS}
+      rehypePlugins={
+        highlightLive || !isStreamingRound ? REHYPE_PLUGINS : REHYPE_PLUGINS_NO_HL
+      }
+      components={mdComponents}
+    >
+      {text}
+    </ReactMarkdown>
+  );
+});
 
 function RunCardBase({
   runKey,

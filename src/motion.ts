@@ -27,8 +27,12 @@ export function useDelayedUnmount(open: boolean, ms: number): boolean {
 /** Обёртка обновления состояния в View Transition (кроссфейд на композиторе).
  *  Фолбэки: нет VT-поддержки или reduceMotion — обычный апдейт */
 export function withViewTransition(update: () => void): void {
+  // Два источника «тишины»: системный prefers-reduced-motion И ручной тумблер
+  // «Motion: Reduced» (класс на html) — раньше ручной тумблер VT-морфы
+  // настроек/поиска не глушил
   const reduce =
-    window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+    (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false) ||
+    document.documentElement.classList.contains("motion-reduced");
   const doc = document as Document & {
     startViewTransition?: (cb: () => void) => unknown;
   };

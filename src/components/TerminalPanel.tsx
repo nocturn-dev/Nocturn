@@ -247,6 +247,30 @@ export default function TerminalPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // ---------- Сброс проекции при смене задачи ----------
+  // Панель не перемонтируется при переключении задач (PTY не должен умирать),
+  // но append-only курсор был общим: в панель новой задачи допечатывались
+  // сообщения СТАРОЙ (или лента замерзала на чужом содержимом). Смена
+  // session.id — полный сброс: буфер, курсор, живое сообщение. Буфер строк —
+  // только проекция агента: консоль (PTY) рендерится из отдельного VT
+  const projSessionRef = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (projSessionRef.current === session?.id) return;
+    projSessionRef.current = session?.id;
+    linesRef.current = [];
+    lineBaseRef.current = 0;
+    setLinesBase(0);
+    setLines([]);
+    cursorRef.current = 0;
+    liveRef.current = freshLive("");
+    const title = session?.title ?? "—";
+    write(
+      `${C.dim}Nocturn · ${t("terminal.welcome")} · ${esc(title)}${C.reset}\r\n` +
+        `${C.dim}${t("terminal.hint")}${C.reset}\r\n`,
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.id]);
+
   // ---------- Append-only проекция сообщений (режим «Агент») ----------
   const cursorRef = useRef(0); // индекс первого незапечатанного сообщения
   const liveRef = useRef<LiveState>(freshLive(""));

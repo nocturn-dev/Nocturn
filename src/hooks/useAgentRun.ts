@@ -287,6 +287,10 @@ export function useAgentRun(deps: AgentRunDeps) {
   );
 
   const [streamingId, setStreamingId] = useState<string | null>(null);
+  // id ассистентского сообщения активного стрима — СОСТОЯНИЕ, а не чтение
+  // ref в рендере: streamingRef заполняется вне setState-цикла, и рендер
+  // мог видеть рассинхрон (карточка стрима без индикатора на первый кадр)
+  const [streamingAssistantId, setStreamingAssistantId] = useState<string | null>(null);
   // FIX [re-entrancy]: реф активного прогона (requestId). state streamingId
   // обновляется асинхронно — автоматизации и очередь нуждаются в синхронном
   // «занят ли движок прямо сейчас», иначе второй прогон перезаписывает
@@ -797,6 +801,10 @@ export function useAgentRun(deps: AgentRunDeps) {
       if (activeRunRef.current === requestId) {
         activeRunRef.current = null; // FIX [re-entrancy]: движок свободен
       }
+      // Чужой (более новый) ассистентский id не трогаем — сравнение по значению
+      setStreamingAssistantId((cur) =>
+        cur != null && streamingRef.current.get(requestId) === cur ? null : cur,
+      );
       streamingRef.current.delete(requestId);
       abortedRef.current.delete(requestId);
       if (streamingTargetRef.current === targetId) streamingTargetRef.current = null;
@@ -1085,6 +1093,7 @@ export function useAgentRun(deps: AgentRunDeps) {
     if (!isAgent) {
       const assistantId = uid();
       streamingRef.current.set(requestId, assistantId);
+      setStreamingAssistantId(assistantId);
       pushMessage({ id: assistantId, role: "assistant", content: "", thought: "", model: apiSettings.model });
       // Флаг «провайдер отдал хоть что-то»: пустой 200-ответ (image-модель
       // в текстовом чате и т.п.) больше не исчезает молча — на карточке
@@ -1207,6 +1216,7 @@ export function useAgentRun(deps: AgentRunDeps) {
       // в groupTurns-карточке квадратично (11 шагов ~84с показывали 646с)
       const stepStartedAt = Date.now();
       streamingRef.current.set(requestId, assistantId);
+      setStreamingAssistantId(assistantId);
       pushMessage({ id: assistantId, role: "assistant", content: "", thought: "", model: apiSettings.model });
       setTyping(true);
       setActivity(t("activity.thinking"));
@@ -2175,6 +2185,30 @@ ${report}`;
       }
       const wfCalls = toolCalls.filter((c) => c.name === "workflow_run");
       for (const call of wfCalls) {
+        // Тот же FIX [SECURITY], что у subagent_run выше: шаги сценария
+        // исполняют инструменты без поинструментных подтверждений фронтенда,
+        // поэтому сам запуск сценария в ask/edit — mutating-действие.
+        // Раньше сценарий шёл молча, пока каждый обычный тул спрашивал
+        if (
+          (permMode !== "full" || !subConfigRef.current.autonomous) &&
+          (await askConfirm(call)) === "deny"
+        ) {
+          pushMessage({
+            id: uid(),
+            role: "tool",
+            content: "user denied workflow run",
+            toolCallId: call.id,
+            toolName: call.name,
+            status: "denied",
+          });
+          history.push({
+            role: "tool",
+            tool_call_id: call.id,
+            name: call.name,
+            content: "user denied workflow run",
+          });
+          continue;
+        }
         await runOneWorkflow(call);
       }
 
@@ -2395,6 +2429,9 @@ ${report}`;
         setTyping(false);
         setActivity(null);
         setStreamingId((cur) => (cur === requestId ? null : cur));
+        setStreamingAssistantId((cur) =>
+          cur != null && streamingRef.current.get(requestId) === cur ? null : cur,
+        );
         streamingRef.current.delete(requestId);
         abortedRef.current.delete(requestId);
         stoppedRef.current.delete(requestId);
@@ -2429,6 +2466,7 @@ ${report}`;
     if (msgId) stoppedRef.current.set(streamingId, msgId);
     streamingRef.current.delete(streamingId);
     setStreamingId(null);
+    setStreamingAssistantId(null);
     setTyping(false);
     // activeRunRef НЕ обнуляем: движок освободит finalize уходящего прогона.
     // Синхронное обнуление открывало окно, в котором автоматизация/очередь
@@ -2468,11 +2506,8 @@ ${report}`;
     }
   };
 
-  // id ассистентского сообщения активного стрима: карточки сравнивают
-  // себя с ним (isStreaming), тогда как streamingId — это requestId
-  // (отмена/корректировки/поправки ключуются по нему)
-  const streamingAssistantId =
-    streamingId ? (streamingRef.current.get(streamingId) ?? null) : null;
+  // streamingAssistantId — состояние (см. объявление рядом с streamingId):
+  // чтение streamingRef прямо в рендере было гонкой «запись вне setState»
 
   return {
     handleSend,
