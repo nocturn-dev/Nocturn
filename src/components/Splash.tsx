@@ -63,7 +63,12 @@ export default function Splash({
         fading ? "pointer-events-none opacity-0" : "opacity-100"
       }`}
       style={{
-        background: stage2 ? "var(--halo-bg)" : "#1f1e1d",
+        // Цвет старта = фон окна, выставленный public/boot-theme.js ДО
+        // первой отрисовки (единая точка правды: читаем, не дублируем —
+        // раньше светлая тема стартовала тёмной вспышкой)
+        background: stage2
+          ? "var(--halo-bg)"
+          : document.documentElement.style.background || "#1f1e1d",
         transition: `opacity ${FADE_MS}ms ease, background 300ms ease`,
       }}
     >
