@@ -91,6 +91,9 @@ export function IntegrationsSection({
             {live.playing ? "▶ " : "⏸ "}
             {live.title}
             {live.artist ? ` — ${live.artist}` : ""}
+            {live.source ? (
+              <span className="text-halo-muted/60"> · {live.source}</span>
+            ) : null}
           </span>
         ) : (
           <span className="text-halo-muted/60">{t("media.liveIdle")}</span>
