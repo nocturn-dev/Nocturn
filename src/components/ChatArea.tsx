@@ -96,6 +96,8 @@ interface ChatAreaProps {
   projects: Project[];
   activeProjectId: string | null;
   onSelectProject: (id: string | null) => void;
+  /** «＋ Новый проект» из поповера: папка → проект → сразу выбран */
+  onNewProject?: () => void;
   /** Открыть настройки на конкретной секции (карточки статусов дашборда) */
   onOpenSettingsSection?: (section: "mcp" | "main") => void;
   /** Встроенные роли (Код / Инженер / …) — QuickSettings-поповер композера */
@@ -274,6 +276,7 @@ export default function ChatArea({
   projects,
   activeProjectId,
   onSelectProject,
+  onNewProject,
   onUndoWrite,
   onReviewChanges,
   onOpenFileExternal,
@@ -1915,6 +1918,21 @@ export default function ChatArea({
                           </span>
                         </button>
                       ))}
+                      {/* ZCode-паттерн: «добавить проект» прямо в секции */}
+                      {onNewProject && (
+                        <>
+                          <div className="my-1 border-t border-halo-line/60" />
+                          <button
+                            onClick={() => {
+                              onNewProject();
+                              setProjectOpen(false);
+                            }}
+                            className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs text-halo-muted transition-colors hover:bg-halo-hover hover:text-halo-accent"
+                          >
+                            ＋ {t("project.new")}
+                          </button>
+                        </>
+                      )}
                     </div>
                   </>
                 )}
@@ -1922,8 +1940,10 @@ export default function ChatArea({
             </div>
           )}
           {/* z-30 выше ленты сообщений (z-10): glass-pane создаёт stacking
-              context, и палитра slash без этого слоя оказывалась под лентой */}
-          <div className="glass-pane relative z-30 rounded-2xl border border-halo-line bg-halo-surface p-2.5 shadow-sm transition duration-200">
+              context, и палитра slash без этого слоя оказывалась под лентой.
+              Пропорции по ZCode: компактный радиус, тонкая рамка, без тени —
+              композер не должен перетягивать фокус с ленты */}
+          <div className="glass-pane relative z-30 rounded-xl border border-halo-line/70 bg-halo-surface/80 p-2 transition duration-200">
             {/* Палитра скилов (&) */}
             {skillActive && skillMatches.length > 0 && (
               <div className="scroll-slim absolute bottom-full left-0 right-0 z-20 mb-2 max-h-64 overflow-y-auto rounded-xl border border-halo-line bg-halo-deep/95 p-1.5 shadow-xl backdrop-blur">
@@ -2204,7 +2224,7 @@ export default function ChatArea({
 
             {/* Нижняя панель в духе ZCode: режимы слева, модель и настройки
                 справа. Все чипы — единая анатомия COMPOSER_CHIP */}
-            <div className="mt-1.5 flex items-center gap-1.5 px-1">
+            <div className="mt-1 flex items-center gap-1.5 px-1">
               <button
                 onClick={onToggleAgent}
                 title={t("agent.toggle")}
