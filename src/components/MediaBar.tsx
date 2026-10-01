@@ -157,7 +157,11 @@ export function MediaBar({ prefs }: { prefs: MediaPrefs }) {
     prefs.lyricColorMode === "custom" ? prefs.lyricColor : null;
 
   return (
-    <div className="anim-fade relative z-20 flex h-9 items-center gap-2.5 border-b border-halo-line/60 bg-halo-deep/60 px-4 backdrop-blur">
+    <div
+      className={`anim-fade relative z-20 flex h-9 items-center gap-2.5 border-b border-halo-line/60 bg-halo-deep/60 px-4 backdrop-blur ${
+        prefs.textShimmer ? "media-text-shimmer" : ""
+      }`}
+    >
       {prefs.cover && state.cover && (
         <img
           src={state.cover}
@@ -167,7 +171,11 @@ export function MediaBar({ prefs }: { prefs: MediaPrefs }) {
       )}
       {/* Артист + трек: слева, две плитки (артист первой, название ниже) */}
       <div className="w-40 shrink-0 leading-tight">
-        <p className="truncate text-xs font-medium text-halo-text">
+        <p
+          className={`truncate text-xs font-medium text-halo-text ${
+            prefs.textShimmer ? "shimmer-text" : ""
+          }`}
+        >
           {state.artist ?? state.title}
         </p>
         {state.artist && (
@@ -183,11 +191,12 @@ export function MediaBar({ prefs }: { prefs: MediaPrefs }) {
           <span className="text-[0.625rem] text-halo-muted/60">…</span>
         ) : lyric ? (
           <div key={viewIdx} className="anim-fade w-full leading-tight">
-            {/* Текущая строка: подсветка темой (accent) или своим цветом */}
+            {/* Текущая строка: подсветка темой (accent) или своим цветом;
+                шиммер перекрывает статичный цвет переливанием */}
             <p
               className={`truncate text-center text-xs ${
                 customColor ? "" : "text-halo-accent"
-              }`}
+              } ${prefs.textShimmer ? "shimmer-text" : ""}`}
               style={customColor ? { color: customColor } : undefined}
             >
               {lyric.text}

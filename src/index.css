@@ -200,10 +200,14 @@ html.accent-gradient [role="button"].bg-halo-accent:hover {
    градиентный сдвиг по background-clip: text. Лента почти целиком
    цвета текста, узкая акцентная полоса уезжает по циклу 12с — на
    строгих тёмных тонах читается как «дыхание», не как неон.
+   Два независимых гейта: html.text-shimmer — глобальный тумблер
+   «Кастомизации» (приветствие), html.media-text-shimmer — изолированный
+   тумблер «Интеграции → Spotify» (текст минибара).
    @supports-гард: движок без clip:text оставит обычный цвет
    (иначе transparent fill = невидимый текст). ---------- */
 @supports ((-webkit-background-clip: text) or (background-clip: text)) {
-  html.text-shimmer .shimmer-text {
+  html.text-shimmer .shimmer-text,
+  html.media-text-shimmer .shimmer-text {
     background-image: linear-gradient(
       110deg,
       var(--halo-text) 42%,

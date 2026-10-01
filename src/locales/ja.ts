@@ -1200,6 +1200,8 @@ export const ja = {
     "media.lyricsDesc": "曲名とアーティストで歌詞を検索——ネットに出るのはこのデータだけです",
     "media.cover": "曲のアートワーク",
     "media.coverDesc": "OS プレイヤーからのサムネイル。どこにも送信されません",
+    "media.textShimmer": "テキストの輝き",
+    "media.textShimmerDesc": "歌詞とトラックタイルにゆっくり流れるグラデーション光沢（ハイライト色を上書き）",
     "media.unavailable": "メディア統合は Windows でのみ利用できます",
     "media.lyricsColor": "ハイライト色",
     "media.lyricsMissing": "歌詞なし",
