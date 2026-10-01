@@ -268,7 +268,7 @@ export default function App() {
     "haloui-sidebar-side",
     "left",
   );
-  const [hideStarter, setHideStarter] = useBoolPref("haloui-hide-starter", false);
+
   // Voice Wake («Jarvis-режим»): локальное голосовое пробуждение по фразе.
   // Всё офлайн: openWakeWord в вебвью, команды — через существующий perm-слой
   const [voiceWakeOn, setVoiceWakeOn] = useBoolPref("haloui-voice-wake", false);
@@ -2350,8 +2350,6 @@ export default function App() {
         pendingAsk={pendingAsk}
         onAskAnswer={handleAskAnswer}
         onConfirmDecision={handleConfirmDecision}
-        sessions={sessions}
-        onOpenSession={setActiveId}
         onOpenSettingsSection={(s) => {
           setSettingsSection(s);
           setSettingsOpen(true);
@@ -2409,8 +2407,6 @@ export default function App() {
         termShell={termShell}
         termPalette={TERMINAL_PALETTES[appearance.termPalette ?? "default"]}
         termBlur={appearance.termBlur}
-        hideStarter={hideStarter}
-        onToggleStarter={() => setHideStarter((v) => !v)}
         terminalHeightPct={terminalHeight}
         onTerminalResizeStart={startTerminalResize}
         scrollFollow={scrollFollow}
@@ -2497,8 +2493,6 @@ export default function App() {
         }}
         sidebarSide={sidebarSide}
         onSidebarSideChange={setSidebarSide}
-        hideStarter={hideStarter}
-        onHideStarterChange={setHideStarter}
         scrollFollow={scrollFollow}
         onScrollFollowChange={setScrollFollow}
         streamSmooth={streamSmooth}

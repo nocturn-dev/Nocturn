@@ -68,8 +68,6 @@ interface SettingsModalProps {
   /** Эргономика: сторона сайдбара и стартовые подсказки */
   sidebarSide: "left" | "right";
   onSidebarSideChange: (side: "left" | "right") => void;
-  hideStarter: boolean;
-  onHideStarterChange: (v: boolean) => void;
   /** Поведение генерации */
   scrollFollow: boolean;
   onScrollFollowChange: (v: boolean) => void;
@@ -244,8 +242,6 @@ export default function SettingsModal({
   onImportSessions,
   sidebarSide,
   onSidebarSideChange,
-  hideStarter,
-  onHideStarterChange,
   scrollFollow,
   onScrollFollowChange,
   streamSmooth,
@@ -669,8 +665,6 @@ export default function SettingsModal({
             <MainSection
               sidebarSide={sidebarSide}
               onSidebarSideChange={onSidebarSideChange}
-              hideStarter={hideStarter}
-              onHideStarterChange={onHideStarterChange}
               scrollFollow={scrollFollow}
               onScrollFollowChange={onScrollFollowChange}
               streamSmooth={streamSmooth}
