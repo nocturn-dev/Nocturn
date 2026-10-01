@@ -22,6 +22,17 @@ export interface MediaPrefs {
   /** Интеграция YouTube (встроенный плеер): РАДИО с bar — включённой
    *  может быть только одна карточка («Интеграций») */
   youtube: boolean;
+  /** Фоновый режим: окно плеера сворачивается само через 10 с после
+   *  старта воспроизведения */
+  ytAutoCollapse: boolean;
+  /** Повтор очереди: кончилась — начинать с первого */
+  ytLoopQueue: boolean;
+  /** Перетаскивание окна плеера за шапку */
+  ytDraggable: boolean;
+  /** Клик по фону/чату не сворачивает окно (закрывать крестиком/биндом) */
+  ytKeepOpen: boolean;
+  /** Размер окна плеера: s | m | l */
+  ytSize: "s" | "m" | "l";
   /** Пара цветов переливания (от → к), #rrggbb */
   shimmerFrom: string;
   shimmerTo: string;
@@ -58,6 +69,11 @@ export function loadMediaPrefs(): MediaPrefs {
         lyricColor: "#f4abab",
         textShimmer: false,
         youtube: false,
+        ytAutoCollapse: false,
+        ytLoopQueue: false,
+        ytDraggable: false,
+        ytKeepOpen: false,
+        ytSize: "m",
         ...shimPair({}),
       };
     }
@@ -75,6 +91,11 @@ export function loadMediaPrefs(): MediaPrefs {
           : "#f4abab",
       textShimmer: p.textShimmer === true,
       youtube: p.youtube === true,
+      ytAutoCollapse: p.ytAutoCollapse === true,
+      ytLoopQueue: p.ytLoopQueue === true,
+      ytDraggable: p.ytDraggable === true,
+      ytKeepOpen: p.ytKeepOpen === true,
+      ytSize: p.ytSize === "s" || p.ytSize === "l" ? p.ytSize : "m",
       ...shimPair(p),
     };
   } catch {
@@ -86,6 +107,11 @@ export function loadMediaPrefs(): MediaPrefs {
       lyricColor: "#f4abab",
       textShimmer: false,
       youtube: false,
+      ytAutoCollapse: false,
+      ytLoopQueue: false,
+      ytDraggable: false,
+      ytKeepOpen: false,
+      ytSize: "m",
       ...shimPair({}),
     };
   }

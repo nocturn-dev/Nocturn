@@ -47,6 +47,11 @@ export const SETTINGS_SEARCH_INDEX: { section: Section; keys: MsgKey[] }[] = [
       "media.cover",
       "media.textShimmer",
       "media.ytOpenPlayer",
+      "media.ytAutoCollapse",
+      "media.ytLoop",
+      "media.ytDrag",
+      "media.ytKeepOpen",
+      "media.ytSize",
     ],
   },
   {

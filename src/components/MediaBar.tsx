@@ -62,6 +62,17 @@ function mmssFmt(secs: number): string {
   return `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}`;
 }
 
+/** Название YT-ролика → кандидат для lrclib: срезаем скобочный мусор
+ *  («(Official Video)», «【MV】») и хвостовые разделители канала */
+function cleanYtTitle(raw: string): string {
+  return raw
+    .replace(/\([^)]*\)|\[[^\]]*\]|【[^】]*】|「[^」]*」/g, " ")
+    .replace(/[\s|／·–——-]*$/u, "")
+    .replace(/^[\s|／·–——-]+/u, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
 /**
  * Мини-бар плеера: тонкая полоска под шапкой чата. Состояние — системный
  * плеер через SMTC / оконный fallback (бекенд), время тикает локально.
@@ -76,6 +87,8 @@ export function MediaBar({ prefs }: { prefs: MediaPrefs }) {
   const [lyricsLoading, setLyricsLoading] = useState(false);
   const [lyricOffset, setLyricOffset] = useState(0);
   const [, setTick] = useState(0);
+  // Лирика YouTube-режима (отдельно от Spotify-лирики)
+  const [ytLyrics, setYtLyrics] = useState<LyricLine[] | null>(null);
   const yt = useSyncExternalStore(subscribeYt, getYtState);
 
   // Начальный снимок + живые события бекенда (смена трека/пауза/seek)
@@ -145,6 +158,34 @@ export function MediaBar({ prefs }: { prefs: MediaPrefs }) {
     return () => window.clearInterval(iv);
   }, [state?.playing, state?.trackId]);
 
+  // Лирика для YouTube: автор = канал («Artist - Topic» → «Artist»),
+  // название чистится. Deps — примитивы: объект track пересоздаётся
+  // каждым тиком infoDelivery, строковые поля стабильны
+  const ytTrackId = yt.track?.videoId ?? null;
+  const ytTrackAuthor = yt.track?.author ?? "";
+  const ytTrackTitle = yt.track?.title ?? "";
+  useEffect(() => {
+    if (!prefs.youtube || !prefs.lyrics || !ytTrackId) {
+      setYtLyrics(null);
+      return;
+    }
+    let disposed = false;
+    const artist = ytTrackAuthor.replace(/\s*-\s*Topic$/i, "").trim();
+    const title = cleanYtTitle(ytTrackTitle);
+    void lyricsFetch(artist, title, null)
+      .then((r) => {
+        if (disposed) return;
+        const lines = parseLyrics(r.synced, r.plain);
+        setYtLyrics(lines.length > 0 ? lines : null);
+      })
+      .catch(() => {
+        if (!disposed) setYtLyrics(null);
+      });
+    return () => {
+      disposed = true;
+    };
+  }, [prefs.youtube, prefs.lyrics, ytTrackId, ytTrackAuthor, ytTrackTitle]);
+
   // Режим YouTube: интеграция — радио с Spotify (bar=false), минибар
   // показывает трек embed-плеера; без трека — узкая полоска-вход в плеер
   if (prefs.youtube) {
@@ -165,15 +206,32 @@ export function MediaBar({ prefs }: { prefs: MediaPrefs }) {
             </svg>
           </div>
         )}
-        <div className="w-40 shrink-0 leading-tight">
+        <div className="w-40 shrink-0 leading-tight" title={tr?.title}>
           <p className="truncate text-xs font-medium text-halo-text">
             {tr ? tr.title : "YouTube"}
           </p>
-          {tr && tr.author && (
-            <p className="truncate text-[0.6875rem] text-halo-muted">
-              {tr.author}
-            </p>
-          )}
+          {(() => {
+            const idx =
+              ytLyrics && tr
+                ? ytLyrics.reduce(
+                    (acc, l, i) => (l.t >= 0 && l.t <= yt.currentTime ? i : acc),
+                    -1,
+                  )
+                : -1;
+            const line = idx >= 0 ? (ytLyrics ?? [])[idx] : undefined;
+            if (line) {
+              return (
+                <p className="truncate text-[0.6875rem] text-halo-accent">
+                  {line.text}
+                </p>
+              );
+            }
+            return tr && tr.author ? (
+              <p className="truncate text-[0.6875rem] text-halo-muted">
+                {tr.author}
+              </p>
+            ) : null;
+          })()}
         </div>
         {/* Play — по центру, как у минибара-скетча; без трека открывает плеер */}
         <div className="flex min-w-0 flex-1 items-center justify-center gap-1">

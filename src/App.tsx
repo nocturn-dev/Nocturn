@@ -2705,7 +2705,13 @@ export default function App() {
       {/* YouTube-плеер: модальный оверлей с постоянным iframe. Монтируется
           только при включённой интеграции — размонтирование = сброс */}
       {mediaPrefs.youtube && (
-        <YouTubeLayer closeBind={binds.youtube_toggle ?? "Ctrl+Alt+Y"} />
+        <YouTubeLayer
+          closeBind={binds.youtube_toggle ?? "Ctrl+Alt+Y"}
+          autoCollapse={mediaPrefs.ytAutoCollapse}
+          keepOpen={mediaPrefs.ytKeepOpen}
+          draggable={mediaPrefs.ytDraggable}
+          size={mediaPrefs.ytSize}
+        />
       )}
       <Toasts items={toasts} />
       {/* Скачивание моделей (whisper / voice wake): тематизированное окно */}
