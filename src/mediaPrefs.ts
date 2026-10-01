@@ -16,6 +16,9 @@ export interface MediaPrefs {
   cover: boolean;
   lyricColorMode: "theme" | "custom";
   lyricColor: string;
+  /** Изолированный шиммер текста минибара (лирика + плитки трека):
+   *  не зависит от глобального тумблера «Кастомизации» */
+  textShimmer: boolean;
 }
 
 const LS_KEY = "haloui-media";
@@ -30,6 +33,7 @@ export function loadMediaPrefs(): MediaPrefs {
         cover: true,
         lyricColorMode: "theme",
         lyricColor: "#f4abab",
+        textShimmer: false,
       };
     }
     const p = JSON.parse(raw) as Partial<MediaPrefs> & { mode?: string };
@@ -44,6 +48,7 @@ export function loadMediaPrefs(): MediaPrefs {
         typeof p.lyricColor === "string" && /^#[0-9a-fA-F]{6}$/.test(p.lyricColor)
           ? p.lyricColor
           : "#f4abab",
+      textShimmer: p.textShimmer === true,
     };
   } catch {
     return {
@@ -52,6 +57,7 @@ export function loadMediaPrefs(): MediaPrefs {
       cover: true,
       lyricColorMode: "theme",
       lyricColor: "#f4abab",
+      textShimmer: false,
     };
   }
 }

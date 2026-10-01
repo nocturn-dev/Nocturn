@@ -1171,6 +1171,8 @@ export const en = {
     "media.lyricsDesc": "Looks up lyrics by title and artist — the only data that leaves the machine",
     "media.cover": "Track artwork",
     "media.coverDesc": "Thumbnail from the OS player, never uploaded anywhere",
+    "media.textShimmer": "Text shimmer",
+    "media.textShimmerDesc": "Slow gradient sheen on lyrics and track tiles (overrides the highlight color)",
     "media.unavailable": "The media integration is available on Windows only",
     "media.lyricsColor": "Highlight color",
     "media.lyricsMissing": "Lyrics unavailable",

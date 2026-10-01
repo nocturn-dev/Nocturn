@@ -45,6 +45,7 @@ export const SETTINGS_SEARCH_INDEX: { section: Section; keys: MsgKey[] }[] = [
       "media.lyrics",
       "media.lyricsColor",
       "media.cover",
+      "media.textShimmer",
     ],
   },
   {

@@ -1200,6 +1200,8 @@ export const zh = {
     "media.lyricsDesc": "按曲名和歌手查找歌词——这是唯一离开本机的数据",
     "media.cover": "曲目封面",
     "media.coverDesc": "来自系统播放器的缩略图，不会上传到任何地方",
+    "media.textShimmer": "文字流光",
+    "media.textShimmerDesc": "歌词和曲目磁贴上的缓慢渐变流光（覆盖高亮颜色）",
     "media.unavailable": "媒体集成仅在 Windows 上可用",
     "media.lyricsColor": "高亮颜色",
     "media.lyricsMissing": "歌词缺失",
