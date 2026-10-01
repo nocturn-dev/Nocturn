@@ -31,7 +31,7 @@ import { filterToolSchemas } from "../agent/toolFilter";
 import { runPython, CODE_RUN_SCHEMA } from "../codeRun";
 import { StreamDeltaBuffer, applyMainDeltas } from "./streamBuffer";
 import { interpolate, parseWorkflow, type WorkflowDef } from "../workflow";
-import { notifyTaskDone, type NotifyPrefs } from "../notify";
+import { notifyTaskDone, playRunSound, type NotifyPrefs } from "../notify";
 import { useLang } from "../locales";
 import { dayKeyLocal } from "../time";
 import {
@@ -347,6 +347,9 @@ export function useAgentRun(deps: AgentRunDeps) {
   // requestId → id ассистентского сообщения в активном стриме
   const streamingRef = useRef<Map<string, string>>(new Map());
   const abortedRef = useRef<Set<string>>(new Set());
+  // Прогоны, завершившиеся ошибкой (для звука error в finalize — иначе
+  // complete прозвучал бы поверх упавшего прогона)
+  const runErroredRef = useRef<Set<string>>(new Set());
   // Прогоны, остановленные пользователем: requestId → id ассистентской
   // карточки. finalize ставит маркер «остановлено» после дренажа дельт
   const stoppedRef = useRef<Map<string, string>>(new Map());
@@ -807,6 +810,7 @@ export function useAgentRun(deps: AgentRunDeps) {
       );
       streamingRef.current.delete(requestId);
       abortedRef.current.delete(requestId);
+      runErroredRef.current.delete(requestId);
       if (streamingTargetRef.current === targetId) streamingTargetRef.current = null;
       // Прогон завершён — метка последней активности (для авто-архива)
       setSessions((prev) =>
@@ -861,6 +865,14 @@ export function useAgentRun(deps: AgentRunDeps) {
         if (activeRunRef.current === null) {
           setQueuedMsgs((prev) => [next, ...prev]);
         }
+      }
+      // Звук прогона (opt-in): error — если прогон упал, complete — только
+      // на естественном финале; Stop/Hard Limit молчат (юзер сам нажал,
+      // карточка и маркер в тексте и так говорят)
+      if (runErroredRef.current.has(requestId)) {
+        playRunSound("error");
+      } else if (!wasAborted) {
+        playRunSound("complete");
       }
       // Тост + звук: пользователь мог уйти в другое приложение
       void notifyTaskDone(
@@ -1156,9 +1168,11 @@ export function useAgentRun(deps: AgentRunDeps) {
           },
         });
       } catch (e) {
+        runErroredRef.current.add(requestId);
         setMsgError(assistantId, String(e));
       }
       if (!gotAny && !abortedRef.current.has(requestId)) {
+        runErroredRef.current.add(requestId);
         setMsgError(
           assistantId,
           `model: ${apiSettings.model} · base: ${apiSettings.base_url}`,
@@ -1193,6 +1207,9 @@ export function useAgentRun(deps: AgentRunDeps) {
 
     const askConfirm = (call: ToolCallInfo) =>
       new Promise<"once" | "always" | "deny">((resolve) => {
+        // Звук подтверждения (opt-in): юзер мог скроллить ленту и не увидеть
+        // карточку; вне фокуса продублирует notifyTaskDone ниже
+        playRunSound("confirm");
         openInteraction(
           { id: uid(), kind: "confirm", requestId, call },
           (r) => resolve(r.kind === "confirm" ? r.decision : "deny"),
@@ -1351,6 +1368,7 @@ export function useAgentRun(deps: AgentRunDeps) {
         });
       } catch (e) {
         failed = true;
+        runErroredRef.current.add(requestId);
         setMsgError(assistantId, String(e));
       }
       setTyping(false);
@@ -1364,6 +1382,7 @@ export function useAgentRun(deps: AgentRunDeps) {
         !abortedRef.current.has(requestId) &&
         !limitHitRef.current
       ) {
+        runErroredRef.current.add(requestId);
         setMsgError(
           assistantId,
           `model: ${apiSettings.model} · base: ${apiSettings.base_url}`,
@@ -2415,6 +2434,7 @@ ${report}`;
       const assistantId = streamingRef.current.get(requestId);
       if (assistantId) setMsgError(assistantId, String(e));
       else addToast(`${t("err.generic")}: ${e}`);
+      runErroredRef.current.add(requestId);
       try {
         run.finalize?.();
       } catch (e2) {

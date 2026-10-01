@@ -776,6 +776,11 @@ export const ja = {
     "notify.soundPing": "ピン",
     "notify.soundSoft": "ソフト",
     "notify.soundCustom": "カスタム",
+    "main.runSounds": "実行サウンド",
+    "main.runSoundsDesc": "上で選んだサウンドでささやかに通知——アプリにフォーカスがあっても鳴ります",
+    "main.runSoundComplete": "実行が完了しました",
+    "main.runSoundConfirm": "承認のリクエスト",
+    "main.runSoundError": "実行エラー",
     "main.browserPanel": "エージェントのブラウザパネル",
     "main.exportTitle": "設定のエクスポートとインポート",
     "main.exportHint":
