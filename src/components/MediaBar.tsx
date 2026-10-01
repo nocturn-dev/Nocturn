@@ -165,10 +165,16 @@ export function MediaBar({ prefs }: { prefs: MediaPrefs }) {
           className="h-6 w-6 shrink-0 rounded-md object-cover"
         />
       )}
-      {/* Трек — артист: слева, фиксированный блок (фидбек владельца) */}
-      <div className="w-40 shrink-0 truncate text-xs text-halo-muted">
-        {state.title}
-        {state.artist ? ` — ${state.artist}` : ""}
+      {/* Артист + трек: слева, две плитки (артист первой, название ниже) */}
+      <div className="w-40 shrink-0 leading-tight">
+        <p className="truncate text-xs font-medium text-halo-text">
+          {state.artist ?? state.title}
+        </p>
+        {state.artist && (
+          <p className="truncate text-[0.6875rem] text-halo-muted">
+            {state.title}
+          </p>
+        )}
       </div>
       {/* Лирика: по центру, авто-следящая; смена строки — плавный фейд
           (keyed remount, токены motion), без «дёрганья» */}

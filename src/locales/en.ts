@@ -1174,6 +1174,8 @@ export const en = {
     "media.lyricsMissing": "Lyrics unavailable",
     "media.lyricsTheme": "Theme-matched text",
     "media.lyricsCustom": "Custom text color",
+    "media.lyricsThemeDesc": "Highlight the line with the current theme accent",
+    "media.lyricsCustomDesc": "A free color for the lyric line",
     "media.warnTitle": "⚠️ Local hardcore",
     "media.warnBody": "Integrations work directly with Windows processes (WinAPI) — reading window titles and the player system media controls. Everything stays inside your PC: no tokens or data ever leave the machine. Antivirus software may flag the process reading — a false positive.",
     "media.warnAccept": "Accept",

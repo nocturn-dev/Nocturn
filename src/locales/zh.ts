@@ -1203,6 +1203,8 @@ export const zh = {
     "media.lyricsMissing": "歌词缺失",
     "media.lyricsTheme": "文本随主题配色",
     "media.lyricsCustom": "自定义文本颜色",
+    "media.lyricsThemeDesc": "用当前主题的强调色高亮歌词行",
+    "media.lyricsCustomDesc": "为歌词行使用自由颜色",
     "media.warnTitle": "⚠️ 本地硬核",
     "media.warnBody": "集成直接使用 Windows 进程（WinAPI）——读取窗口标题和播放器的系统媒体控制器。一切都在你的电脑内完成：令牌和数据不会离开本机。杀毒软件可能对进程读取报警——这是误报。",
     "media.warnAccept": "接受",

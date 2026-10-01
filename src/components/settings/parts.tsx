@@ -338,6 +338,7 @@ export function ToggleRow({
   defaultOn,
   on,
   onChange,
+  big,
 }: {
   label: string;
   /** Пояснение под названием строки (мелким приглушённым шрифтом) */
@@ -347,6 +348,8 @@ export function ToggleRow({
   /** Контролируемый режим: значение извне */
   on?: boolean;
   onChange?: (v: boolean) => void;
+  /** Увеличенный переключатель (чуть заметнее в блоках интеграций) */
+  big?: boolean;
 }) {
   const [inner, setInner] = useState(!!defaultOn);
   const value = on ?? inner;
@@ -370,13 +373,17 @@ export function ToggleRow({
       <button
         onClick={toggle}
         disabled={disabled}
-        className={`relative h-5 w-9 rounded-full transition-colors ${
-          value ? "bg-halo-accent" : "bg-halo-line"
-        } ${disabled ? "cursor-not-allowed opacity-50" : ""}`}
+        className={`relative rounded-full transition-colors ${
+          big ? "h-6 w-11" : "h-5 w-9"
+        } ${value ? "bg-halo-accent" : "bg-halo-line"} ${
+          disabled ? "cursor-not-allowed opacity-50" : ""
+        }`}
       >
         <span
-          className={`absolute top-0.5 size-4 rounded-full bg-halo-on-accent transition ${
-            value ? "left-4.5" : "left-0.5"
+          className={`absolute top-0.5 rounded-full bg-halo-on-accent transition ${
+            big ? "size-5" : "size-4"
+          } ${
+            value ? (big ? "left-[22px]" : "left-4.5") : "left-0.5"
           }`}
         />
       </button>
