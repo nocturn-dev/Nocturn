@@ -164,11 +164,17 @@ pub fn network_get_config() -> NetworkConfig {
 }
 
 #[tauri::command(async)]
-pub fn network_set_config(
+pub async fn network_set_config(
     app: tauri::AppHandle,
     config: NetworkConfig,
 ) -> Result<(), String> {
-    crate::settings::save_json_config(&app, "network.json", &config)?;
-    set_config(config);
-    Ok(())
+    // set_config читает CA-файл по пользовательскому пути — тот может быть
+    // сетевым (UNC): запись конфига + чтение CA в blocking-пул
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::settings::save_json_config(&app, "network.json", &config)?;
+        set_config(config);
+        Ok(())
+    })
+    .await
+    .map_err(|e| format!("network config task failed: {e}"))?
 }

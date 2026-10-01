@@ -203,7 +203,7 @@ pub async fn run_tool(
         // Фолбэк None сознателен (битый конфиг не должен ронять инструмент),
         // но отказ чтения неотличим от «не настроено» — снимаем тупик
         // диагностики логом
-        crate::settings::load_settings(app_for_settings)
+        crate::settings::load_settings_blocking(&app_for_settings)
             .inspect_err(|e| {
                 eprintln!("run_tool: settings load failed, fallbacks degraded: {e}");
             })
@@ -503,20 +503,27 @@ pub fn browser_get_config() -> browser::BrowserConfig {
 /// Сохранить конфиг Browser Use: в файл + в снапшот; смена пути к браузеру
 /// или headless сбрасывает текущее соединение, чтобы настройки применились
 #[tauri::command(async)]
-pub fn browser_set_config(
+pub async fn browser_set_config(
     app: tauri::AppHandle,
-    registry: tauri::State<'_, browser::BrowserRegistry>,
     config: browser::BrowserConfig,
 ) -> Result<(), String> {
-    let old = browser::config();
-    save_json_config(&app, "browser.json", &config)?;
-    let exe_changed = old.executable != config.executable;
-    let headless_changed = old.headless != config.headless;
-    browser::set_config(config);
-    if exe_changed || headless_changed {
-        registry.kill_all();
-    }
-    Ok(())
+    // kill_all ждёт wait() на каждом живом браузере, запись конфига может
+    // тянуть сетевой профиль — всё в blocking-пул. State в 'static-замыкание
+    // не утащить — реестр берём из app внутри
+    tauri::async_runtime::spawn_blocking(move || {
+        use tauri::Manager;
+        let old = browser::config();
+        save_json_config(&app, "browser.json", &config)?;
+        let exe_changed = old.executable != config.executable;
+        let headless_changed = old.headless != config.headless;
+        browser::set_config(config);
+        if exe_changed || headless_changed {
+            app.state::<browser::BrowserRegistry>().kill_all();
+        }
+        Ok(())
+    })
+    .await
+    .map_err(|e| format!("browser config task failed: {e}"))?
 }
 
 #[tauri::command(async)]
@@ -525,13 +532,17 @@ pub fn computer_get_config() -> computer::ComputerConfig {
 }
 
 #[tauri::command(async)]
-pub fn computer_set_config(
+pub async fn computer_set_config(
     app: tauri::AppHandle,
     config: computer::ComputerConfig,
 ) -> Result<(), String> {
-    save_json_config(&app, "computer.json", &config)?;
-    computer::set_config(config);
-    Ok(())
+    tauri::async_runtime::spawn_blocking(move || {
+        save_json_config(&app, "computer.json", &config)?;
+        computer::set_config(config);
+        Ok(())
+    })
+    .await
+    .map_err(|e| format!("computer config task failed: {e}"))?
 }
 
 #[tauri::command(async)]
@@ -549,22 +560,26 @@ pub fn imagegen_get_config() -> imagegen::ImageGenConfig {
 }
 
 #[tauri::command(async)]
-pub fn imagegen_set_config(
+pub async fn imagegen_set_config(
     app: tauri::AppHandle,
     config: imagegen::ImageGenConfig,
 ) -> Result<(), String> {
     // На диск ключ уходит зашифрованным (как ключи settings/profiles),
     // в памяти остаётся открытым текстом для запросов к провайдеру
-    let mut for_disk = config.clone();
-    if crypto::has_key()
-        && !for_disk.api_key.is_empty()
-        && !crypto::is_encrypted(&for_disk.api_key)
-    {
-        for_disk.api_key = crypto::encrypt(&for_disk.api_key)?;
-    }
-    save_json_config(&app, "imagegen.json", &for_disk)?;
-    imagegen::set_config(config);
-    Ok(())
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut for_disk = config.clone();
+        if crypto::has_key()
+            && !for_disk.api_key.is_empty()
+            && !crypto::is_encrypted(&for_disk.api_key)
+        {
+            for_disk.api_key = crypto::encrypt(&for_disk.api_key)?;
+        }
+        save_json_config(&app, "imagegen.json", &for_disk)?;
+        imagegen::set_config(config);
+        Ok(())
+    })
+    .await
+    .map_err(|e| format!("imagegen config task failed: {e}"))?
 }
 
 #[tauri::command(async)]
@@ -581,20 +596,24 @@ pub fn websearch_get_config() -> websearch::WebSearchConfig {
 }
 
 #[tauri::command(async)]
-pub fn websearch_set_config(
+pub async fn websearch_set_config(
     app: tauri::AppHandle,
     config: websearch::WebSearchConfig,
 ) -> Result<(), String> {
-    let mut for_disk = config.clone();
-    if crypto::has_key()
-        && !for_disk.brave_key.is_empty()
-        && !crypto::is_encrypted(&for_disk.brave_key)
-    {
-        for_disk.brave_key = crypto::encrypt(&for_disk.brave_key)?;
-    }
-    save_json_config(&app, "websearch.json", &for_disk)?;
-    websearch::set_config(config);
-    Ok(())
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut for_disk = config.clone();
+        if crypto::has_key()
+            && !for_disk.brave_key.is_empty()
+            && !crypto::is_encrypted(&for_disk.brave_key)
+        {
+            for_disk.brave_key = crypto::encrypt(&for_disk.brave_key)?;
+        }
+        save_json_config(&app, "websearch.json", &for_disk)?;
+        websearch::set_config(config);
+        Ok(())
+    })
+    .await
+    .map_err(|e| format!("websearch config task failed: {e}"))?
 }
 
 // ---------- Свои звуки уведомлений ----------
@@ -698,15 +717,19 @@ fn sound_data_impl(app: tauri::AppHandle) -> Result<Option<String>, String> {
 
 /// Удалить свою мелодию
 #[tauri::command(async)]
-pub fn sound_delete(app: tauri::AppHandle) -> Result<(), String> {
-    let dir = sound_path(&app)?;
-    for e in fs::read_dir(&dir).map_err(|e| e.to_string())?.flatten() {
-        let name = e.file_name().to_string_lossy().to_string();
-        if name.starts_with("custom.") {
-            let _ = fs::remove_file(e.path());
+pub async fn sound_delete(app: tauri::AppHandle) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let dir = sound_path(&app)?;
+        for e in fs::read_dir(&dir).map_err(|e| e.to_string())?.flatten() {
+            let name = e.file_name().to_string_lossy().to_string();
+            if name.starts_with("custom.") {
+                let _ = fs::remove_file(e.path());
+            }
         }
-    }
-    Ok(())
+        Ok(())
+    })
+    .await
+    .map_err(|e| format!("sound delete task failed: {e}"))?
 }
 
 // ---------- Живой просмотр браузера агента (панель справа) ----------
@@ -1083,14 +1106,20 @@ pub fn frontend_tool_schemas() -> Vec<serde_json::Value> {
 
 /// История задач: таскаем целиком как JSON-строку, чтобы не дублировать типы.
 #[tauri::command(async)]
-pub fn load_sessions(app: tauri::AppHandle) -> Result<Option<String>, String> {
-    let path = config_file(&app, "sessions.json")?;
-    if !path.exists() {
-        return Ok(None);
-    }
-    fs::read_to_string(&path)
-        .map(Some)
-        .map_err(|e| e.to_string())
+pub async fn load_sessions(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    // sessions.json может быть многометровым, профиль AppData — сетевым:
+    // чтение в blocking-пул (класс crypto_status)
+    tauri::async_runtime::spawn_blocking(move || {
+        let path = config_file(&app, "sessions.json")?;
+        if !path.exists() {
+            return Ok(None);
+        }
+        fs::read_to_string(&path)
+            .map(Some)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("sessions load task failed: {e}"))?
 }
 
 #[tauri::command(async)]
@@ -1156,66 +1185,80 @@ pub async fn load_project_sessions(root: String) -> Result<Option<String>, Strin
 
 /// Сессии проекта: атомарная запись в <root>/.nocturn/sessions.json
 #[tauri::command(async)]
-pub fn save_project_sessions(root: String, data: String) -> Result<(), String> {
-    let dir = project_store_dir(&root, true)?;
-    crate::fsutil::atomic_write(&dir.join("sessions.json"), data.as_bytes())
+pub async fn save_project_sessions(root: String, data: String) -> Result<(), String> {
+    // Проект может жить на сетевом ресурсе: create_dir_all + запись —
+    // в blocking-пул (класс crypto_status)
+    tauri::async_runtime::spawn_blocking(move || {
+        let dir = project_store_dir(&root, true)?;
+        crate::fsutil::atomic_write(&dir.join("sessions.json"), data.as_bytes())
+    })
+    .await
+    .map_err(|e| format!("project sessions save task failed: {e}"))?
 }
 
 /// Обои чата: разрешить вебвью читать выбранное изображение через
 /// asset-протокол (по образцу ambient_video_register)
-// (async): Path::exists() на отвалившемся сетевом диске висит до SMB-таймаута —
-// sync-команда исполнялась на главном потоке и морозила GUI
 #[tauri::command(async)]
-pub fn wallpaper_register(app: tauri::AppHandle, path: String) -> Result<(), String> {
-    // Путь с фронта → тот же sensitive-path гардал, что у sound_import:
-    // allow_file расширяет asset-скоуп вебвью на произвольный файл
-    rejects_sensitive_path(&path)?;
-    const OK: &[&str] = &["png", "jpg", "jpeg", "webp", "gif"];
-    let ext = std::path::Path::new(&path)
-        .extension()
-        .and_then(|e| e.to_str())
-        .map(|e| e.to_ascii_lowercase())
-        .ok_or("file has no extension")?;
-    if !OK.contains(&ext.as_str()) {
-        return Err(format!("unsupported image format: .{ext} (use png/jpg/webp/gif)"));
-    }
-    if !std::path::Path::new(&path).exists() {
-        return Err("file does not exist".into());
-    }
-    use tauri::Manager;
-    app.asset_protocol_scope()
-        .allow_file(&path)
-        .map_err(|e| format!("cannot allow wallpaper file: {e}"))
+pub async fn wallpaper_register(app: tauri::AppHandle, path: String) -> Result<(), String> {
+    // exists() на отвалившемся сетевом диске висит до SMB-таймаута:
+    // проверка пути + allow_file — в blocking-пул, не на tokio-воркер
+    tauri::async_runtime::spawn_blocking(move || {
+        // Путь с фронта → тот же sensitive-path гардал, что у sound_import:
+        // allow_file расширяет asset-скоуп вебвью на произвольный файл
+        rejects_sensitive_path(&path)?;
+        const OK: &[&str] = &["png", "jpg", "jpeg", "webp", "gif"];
+        let ext = std::path::Path::new(&path)
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.to_ascii_lowercase())
+            .ok_or("file has no extension")?;
+        if !OK.contains(&ext.as_str()) {
+            return Err(format!("unsupported image format: .{ext} (use png/jpg/webp/gif)"));
+        }
+        if !std::path::Path::new(&path).exists() {
+            return Err("file does not exist".into());
+        }
+        use tauri::Manager;
+        app.asset_protocol_scope()
+            .allow_file(&path)
+            .map_err(|e| format!("cannot allow wallpaper file: {e}"))
+    })
+    .await
+    .map_err(|e| format!("wallpaper register task failed: {e}"))?
 }
 
 /// Ambient: разрешить вебвью читать выбранное пользователем видео через
-/// asset-протокол. Скоуп расширяется ТОЧКО на выбранный файл (allow_file) —
+/// asset-протокол. Скоуп расширяется ТОЧКОЙ на выбранный файл (allow_file) —
 /// никаких широких "**"-разрешений; расширение проверяем по whitelist.
-// (async): см. wallpaper_register — fs-доступ вне главного потока
 #[tauri::command(async)]
-pub fn ambient_video_register(app: tauri::AppHandle, path: String) -> Result<(), String> {
-    // Путь с фронта → тот же sensitive-path гардал, что у sound_import
-    rejects_sensitive_path(&path)?;
-    // ogv/mkv убраны: Chromium-движок (WebView2) не играет Matroska/Theora
-    // в <video> — пользователь получал тихо пустой слой вместо ошибки.
-    // Linux/WebKitGTK: mp4/mov/m4v требуют GStreamer gst-libav — в
-    // минимальных установках видео молча не играет, webm надёжнее
-    const OK: &[&str] = &["mp4", "webm", "mov", "m4v"];
-    let ext = std::path::Path::new(&path)
-        .extension()
-        .and_then(|e| e.to_str())
-        .map(|e| e.to_ascii_lowercase())
-        .ok_or("file has no extension")?;
-    if !OK.contains(&ext.as_str()) {
-        return Err(format!("unsupported video format: .{ext} (use mp4/webm)"));
-    }
-    if !std::path::Path::new(&path).exists() {
-        return Err("file does not exist".into());
-    }
-    use tauri::Manager;
-    app.asset_protocol_scope()
-        .allow_file(&path)
-        .map_err(|e| format!("cannot allow video file: {e}"))
+pub async fn ambient_video_register(app: tauri::AppHandle, path: String) -> Result<(), String> {
+    // exists() на сетевом пути висит до SMB-таймаута — см. wallpaper_register
+    tauri::async_runtime::spawn_blocking(move || {
+        // Путь с фронта → тот же sensitive-path гардал, что у sound_import
+        rejects_sensitive_path(&path)?;
+        // ogv/mkv убраны: Chromium-движок (WebView2) не играет Matroska/Theora
+        // в <video> — пользователь получал тихо пустой слой вместо ошибки.
+        // Linux/WebKitGTK: mp4/mov/m4v требуют GStreamer gst-libav — в
+        // минимальных установках видео молча не играет, webm надёжнее
+        const OK: &[&str] = &["mp4", "webm", "mov", "m4v"];
+        let ext = std::path::Path::new(&path)
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.to_ascii_lowercase())
+            .ok_or("file has no extension")?;
+        if !OK.contains(&ext.as_str()) {
+            return Err(format!("unsupported video format: .{ext} (use mp4/webm)"));
+        }
+        if !std::path::Path::new(&path).exists() {
+            return Err("file does not exist".into());
+        }
+        use tauri::Manager;
+        app.asset_protocol_scope()
+            .allow_file(&path)
+            .map_err(|e| format!("cannot allow video file: {e}"))
+    })
+    .await
+    .map_err(|e| format!("ambient video register task failed: {e}"))?
 }
 
 #[cfg(test)]

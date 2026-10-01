@@ -189,29 +189,47 @@ pub fn execute_memory_tool(
 // ---------- Команды для UI (раздел «Память») ----------
 
 #[tauri::command(async)]
-pub fn memory_list(app: tauri::AppHandle) -> Result<Vec<MemoryFact>, String> {
-    let path = crate::settings::config_file(&app, "memory.json")?;
-    let mut facts = load(&path)?.facts;
-    facts.sort_by_key(|f| std::cmp::Reverse(f.ts));
-    Ok(facts)
+pub async fn memory_list(app: tauri::AppHandle) -> Result<Vec<MemoryFact>, String> {
+    // memory.json целиком читается и парсится на каждый вызов — blocking-пул
+    // (класс crypto_status)
+    tauri::async_runtime::spawn_blocking(move || {
+        let path = crate::settings::config_file(&app, "memory.json")?;
+        let mut facts = load(&path)?.facts;
+        facts.sort_by_key(|f| std::cmp::Reverse(f.ts));
+        Ok(facts)
+    })
+    .await
+    .map_err(|e| format!("memory list task failed: {e}"))?
 }
 
 #[tauri::command(async)]
-pub fn memory_add(app: tauri::AppHandle, text: String) -> Result<(), String> {
-    let path = crate::settings::config_file(&app, "memory.json")?;
-    add_fact(&path, &text).map(|_| ())
+pub async fn memory_add(app: tauri::AppHandle, text: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let path = crate::settings::config_file(&app, "memory.json")?;
+        add_fact(&path, &text).map(|_| ())
+    })
+    .await
+    .map_err(|e| format!("memory add task failed: {e}"))?
 }
 
 #[tauri::command(async)]
-pub fn memory_delete(app: tauri::AppHandle, id: String) -> Result<(), String> {
-    let path = crate::settings::config_file(&app, "memory.json")?;
-    delete_fact(&path, &id)
+pub async fn memory_delete(app: tauri::AppHandle, id: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let path = crate::settings::config_file(&app, "memory.json")?;
+        delete_fact(&path, &id)
+    })
+    .await
+    .map_err(|e| format!("memory delete task failed: {e}"))?
 }
 
 #[tauri::command(async)]
-pub fn memory_clear(app: tauri::AppHandle) -> Result<(), String> {
-    let path = crate::settings::config_file(&app, "memory.json")?;
-    clear_all(&path)
+pub async fn memory_clear(app: tauri::AppHandle) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let path = crate::settings::config_file(&app, "memory.json")?;
+        clear_all(&path)
+    })
+    .await
+    .map_err(|e| format!("memory clear task failed: {e}"))?
 }
 
 #[cfg(test)]

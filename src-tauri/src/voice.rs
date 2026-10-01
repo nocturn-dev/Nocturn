@@ -170,14 +170,19 @@ async fn do_download(app: &tauri::AppHandle, wake_model: &str) -> Result<(), Str
 /// Имя строго из белого списка — путь конструируется только из констант.
 /// ~1 МБ на файл через IPC один раз при старте слушателя — приемлемо
 #[tauri::command(async)]
-pub fn voice_read_model(app: tauri::AppHandle, name: String) -> Result<String, String> {
-    if !is_known_model_file(&name) {
-        return Err(format!("unknown model file: {name}"));
-    }
-    let dir = voice_dir(&app)?;
-    let data = std::fs::read(dir.join(&name))
-        .map_err(|e| format!("model file {name} is not downloaded yet: {e}"))?;
-    Ok(base64::engine::general_purpose::STANDARD.encode(data))
+pub async fn voice_read_model(app: tauri::AppHandle, name: String) -> Result<String, String> {
+    // ~1 МБ чтения + base64: blocking-пул (класс crypto_status)
+    tauri::async_runtime::spawn_blocking(move || {
+        if !is_known_model_file(&name) {
+            return Err(format!("unknown model file: {name}"));
+        }
+        let dir = voice_dir(&app)?;
+        let data = std::fs::read(dir.join(&name))
+            .map_err(|e| format!("model file {name} is not downloaded yet: {e}"))?;
+        Ok(base64::engine::general_purpose::STANDARD.encode(data))
+    })
+    .await
+    .map_err(|e| format!("voice model read task failed: {e}"))?
 }
 
 #[cfg(test)]

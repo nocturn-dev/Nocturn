@@ -897,8 +897,18 @@ pub fn mcp_list_servers(app: tauri::AppHandle) -> Result<Vec<McpServerConfig>, S
 
 /// Сохранить конфиг серверов (кнопка в настройках)
 #[tauri::command(async)]
-pub fn mcp_save_servers(
+pub async fn mcp_save_servers(
     app: tauri::AppHandle,
+    servers: Vec<McpServerConfig>,
+) -> Result<(), String> {
+    // Запись mcp.json — в blocking-пул (класс crypto_status)
+    tauri::async_runtime::spawn_blocking(move || mcp_save_servers_impl(&app, servers))
+        .await
+        .map_err(|e| format!("mcp save task failed: {e}"))?
+}
+
+fn mcp_save_servers_impl(
+    app: &tauri::AppHandle,
     servers: Vec<McpServerConfig>,
 ) -> Result<(), String> {
     // Имя — ключ реестра соединений и префикс инструмента: только безопасные символы
@@ -926,7 +936,7 @@ pub fn mcp_save_servers(
             return Err(format!("server \"{}\": command is empty", s.name));
         }
     }
-    save_servers(&app, &servers)
+    save_servers(app, &servers)
 }
 
 /// Подключить сервер: рукопожатие + tools/list. Повторный вызов для живого
