@@ -55,6 +55,67 @@ export function FolderIcon() {
   );
 }
 
+/** Пауза: две вертикали (минибар плеера) */
+export function PauseIcon() {
+  return (
+    <svg
+      width="12"
+      height="12"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+    >
+      <path d="M9 5v14M15 5v14" />
+    </svg>
+  );
+}
+
+/** Play: треугольник (минибар плеера) */
+export function PlayIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M8 5.5v13a.6.6 0 0 0 .92.5l10.2-6.5a.6.6 0 0 0 0-1L8.92 5a.6.6 0 0 0-.92.5Z" />
+    </svg>
+  );
+}
+
+/** Предыдущий трек: бар + треугольник влево */
+export function PrevTrackIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+      <rect x="5" y="5.5" width="2.4" height="13" rx="0.6" />
+      <path d="M19 6.2v11.6a.6.6 0 0 1-.94.5l-8.6-5.8a.6.6 0 0 1 0-1l8.6-5.8a.6.6 0 0 1 .94.5Z" />
+    </svg>
+  );
+}
+
+/** Следующий трек: треугольник вправо + бар */
+export function NextTrackIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+      <rect x="16.6" y="5.5" width="2.4" height="13" rx="0.6" />
+      <path d="M5 6.2v11.6a.6.6 0 0 0 .94.5l8.6-5.8a.6.6 0 0 0 0-1L5.94 5.7a.6.6 0 0 0-.94.5Z" />
+    </svg>
+  );
+}
+
+/** Логотип Spotify (карточка «Интеграций»): фирменный зелёный круг с дугами */
+export function SpotifyIcon({ size = 28 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <circle cx="12" cy="12" r="10.5" fill="#1DB954" />
+      <path
+        d="M7.2 9.7c3.4-1 7-.7 9.8 1M7.6 12.6c2.9-.8 5.8-.5 8.2 1M8.1 15.4c2.4-.6 4.6-.4 6.6.8"
+        stroke="#12120f"
+        strokeWidth="1.7"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
 export function WrenchIcon() {
   return (
     <svg

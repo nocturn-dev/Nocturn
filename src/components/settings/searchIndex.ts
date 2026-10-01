@@ -37,6 +37,16 @@ export const SETTINGS_SEARCH_INDEX: { section: Section; keys: MsgKey[] }[] = [
     ],
   },
   {
+    section: "integrations",
+    keys: [
+      "settings.integrations",
+      "integrations.desc",
+      "media.bar",
+      "media.lyrics",
+      "media.cover",
+    ],
+  },
+  {
     section: "profile",
     keys: [
       "profile.who",

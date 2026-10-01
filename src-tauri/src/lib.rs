@@ -17,6 +17,7 @@ mod fonts;
 mod fsutil;
 pub mod hooks;
 pub mod imagegen;
+mod media;
 mod memory;
 mod websearch;
 mod network;
@@ -282,6 +283,9 @@ pub fn run() {
             fsutil::storage_stats,
             fsutil::storage_cleanup,
             open_file_external,
+            media::media_status,
+            media::media_control,
+            media::lyrics_fetch,
             memory::memory_list,
             memory::memory_add,
             memory::memory_delete,

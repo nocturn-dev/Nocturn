@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { AskQuestion, Attachment, ChangedFile, Message, PermissionMode, PlanTask, Project, Session, ToolCallInfo } from "../types";
+import type { MediaPrefs } from "../mediaPrefs";
+import { MediaBar } from "./MediaBar";
 import type { PromptPreset } from "../presets";
 import { normalizePath, parseWriteResult } from "../diff";
 import type { SlashCommand } from "../commands";
@@ -92,6 +94,8 @@ interface ChatAreaProps {
   onToggleDisabledTool: (name: string) => void;
   /** Ожидающее подтверждение агента */
   pendingConfirm: { requestId: string; call: ToolCallInfo } | null;
+  /** Медиа-минибар над лентой (вкладка «Интеграции») */
+  mediaPrefs: MediaPrefs;
   /** Селектор проекта над центрированным композером (пустой чат) */
   projects: Project[];
   activeProjectId: string | null;
@@ -273,6 +277,7 @@ export default function ChatArea({
   onConfirmDecision,
   pendingAsk,
   onAskAnswer,
+  mediaPrefs,
   projects,
   activeProjectId,
   onSelectProject,
@@ -1756,6 +1761,9 @@ export default function ChatArea({
       {/* План задач агента (виджет Progress): в relative-обёртке зоны чата,
           вне скролл-контейнера — висит в углу и не уезжает при прокрутке */}
       {plan && plan.length > 0 && <PlanPanel plan={plan} />}
+      {/* Мини-бар плеера: тонкая полоска под шапкой, только когда включён
+          и что-то играет (вкладка «Интеграции») */}
+      <MediaBar prefs={mediaPrefs} />
       <div
         ref={scrollRef}
         className="scroll-slim relative z-10 h-full overflow-y-auto"

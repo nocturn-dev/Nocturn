@@ -1552,6 +1552,51 @@ export function openExternal(url: string): Promise<void> {
   return invoke("plugin:opener|open_url", { url });
 }
 
+/** Снимок состояния системного плеера (Windows SMTC). null — ничего играет */
+export interface MediaStateDto {
+  title: string | null;
+  artist: string | null;
+  playing: boolean;
+  positionSecs: number;
+  updatedAtMs: number;
+  trackId: string;
+  cover?: string | null;
+}
+
+export function mediaStatus(): Promise<MediaStateDto | null> {
+  return invoke("media_status");
+}
+
+export function mediaControl(
+  action: "play" | "pause" | "next" | "prev",
+): Promise<void> {
+  return invoke("media_control", { action });
+}
+
+export interface LyricsDto {
+  plain: string | null;
+  synced: string | null;
+  found: boolean;
+}
+
+export function lyricsFetch(
+  artist: string,
+  title: string,
+  durationSecs: number | null,
+): Promise<LyricsDto> {
+  return invoke("lyrics_fetch", { artist, title, durationSecs });
+}
+
+/** Лёгкое событие бекенда «состояние плеера изменилось»: фронт перечитывает
+ *  полный снимок через mediaStatus (покрывает и обложку) */
+export function onMediaState(
+  handler: (p: { hasTrack: boolean }) => void,
+): Promise<() => void> {
+  return listen<{ hasTrack: boolean }>("media-state", (e) =>
+    handler(e.payload),
+  );
+}
+
 /** Открыть файл системным приложением (кнопка Open в карточке изменений).
  *  root — корень проекта для относительных путей fs_write; sensitive-path
  *  гардал на бекенде отсекает системные локации. Осознанно НЕ через
