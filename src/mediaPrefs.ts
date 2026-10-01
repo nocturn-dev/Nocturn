@@ -19,6 +19,26 @@ export interface MediaPrefs {
   /** Изолированный шиммер текста минибара (лирика + плитки трека):
    *  не зависит от глобального тумблера «Кастомизации» */
   textShimmer: boolean;
+  /** Пара цветов переливания (от → к), #rrggbb */
+  shimmerFrom: string;
+  shimmerTo: string;
+}
+
+const HEX_RE = /^#[0-9a-fA-F]{6}$/;
+/** Дефолтная пара переливания минибара: лосось → бирюза (динамично,
+ *  но не кислотно на тёмных тонах) */
+const SHIM_FROM = "#f4abab";
+const SHIM_TO = "#38c7ee";
+
+function shimPair(p: Partial<MediaPrefs>): { shimmerFrom: string; shimmerTo: string } {
+  return {
+    shimmerFrom: typeof p.shimmerFrom === "string" && HEX_RE.test(p.shimmerFrom)
+      ? p.shimmerFrom
+      : SHIM_FROM,
+    shimmerTo: typeof p.shimmerTo === "string" && HEX_RE.test(p.shimmerTo)
+      ? p.shimmerTo
+      : SHIM_TO,
+  };
 }
 
 const LS_KEY = "haloui-media";
@@ -34,6 +54,7 @@ export function loadMediaPrefs(): MediaPrefs {
         lyricColorMode: "theme",
         lyricColor: "#f4abab",
         textShimmer: false,
+        ...shimPair({}),
       };
     }
     const p = JSON.parse(raw) as Partial<MediaPrefs> & { mode?: string };
@@ -49,6 +70,7 @@ export function loadMediaPrefs(): MediaPrefs {
           ? p.lyricColor
           : "#f4abab",
       textShimmer: p.textShimmer === true,
+      ...shimPair(p),
     };
   } catch {
     return {
@@ -58,6 +80,7 @@ export function loadMediaPrefs(): MediaPrefs {
       lyricColorMode: "theme",
       lyricColor: "#f4abab",
       textShimmer: false,
+      ...shimPair({}),
     };
   }
 }

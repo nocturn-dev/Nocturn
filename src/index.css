@@ -196,31 +196,27 @@ html.accent-gradient [role="button"].bg-halo-accent:hover {
   background-image: linear-gradient(135deg, var(--halo-accent-deep), var(--halo-accent));
 }
 
-/* ---------- Шиммер-переливание текста: по буквам едет световая полоса
-   (accent -> bright -> deep) на фоне цвета текста. Геометрия важна:
-   background-size 200% и сдвиг позиции ровно на период (0% -> 200%) —
-   бесшовный линейный цикл, полоса пересекает текст каждый проход.
-   (Прошлая версия не работала: при size 300% и полосе 42-58% видимое
-   окно не задевало полосу почти весь цикл.) Лёгкий hue-rotate сверху —
-   «динамический цвет»: оттенок полосы дышит вокруг акцента; серый/
-   белый текст нейтрален к повороту и не перекрашивается.
-   Два независимых гейта: html.text-shimmer — глобальный тумблер
-   «Кастомизации» (приветствие), .media-text-shimmer — изолированный
-   тумблер «Интеграции → Spotify» (класс на корне минибара, не на html).
-   @supports-гард: движок без clip:text оставит обычный цвет
+/* ---------- Шиммер-переливание текста: цветной поток ЕДЕТ ПО БУКВАМ
+   БЕСПЕРЕРЫВНО. Геометрия: периодический градиент from -> to -> from ->
+   to -> from (size 200%), сдвиг позиции ровно на период (0% -> 200%) —
+   окно (половина периода) в любой момент внутри перехода цветов, движение
+   монотонное, стык цикла бесшовный: поток не останавливается никогда.
+   Цвета настраиваются (от/к): --shim-from/--shim-to ставит js (минибар —
+   на корне бара, глобальный — на html); фолбэк — токены темы.
+   Гейты: html.text-shimmer — тумблер «Кастомизации» (приветствие),
+   .media-text-shimmer — тумблер «Интеграции → Spotify» (класс на корне
+   минибара, не на html). @supports-гард: без clip:text — обычный цвет
    (иначе transparent fill = невидимый текст). ---------- */
 @supports ((-webkit-background-clip: text) or (background-clip: text)) {
   html.text-shimmer .shimmer-text,
   .media-text-shimmer .shimmer-text {
     background-image: linear-gradient(
       110deg,
-      var(--halo-text) 0%,
-      var(--halo-text) 38%,
-      var(--halo-accent) 47%,
-      var(--halo-text) 52%,
-      var(--halo-accent-deep) 57%,
-      var(--halo-text) 66%,
-      var(--halo-text) 100%
+      var(--shim-from, var(--halo-text)) 0%,
+      var(--shim-to, var(--halo-accent)) 25%,
+      var(--shim-from, var(--halo-text)) 50%,
+      var(--shim-to, var(--halo-accent)) 75%,
+      var(--shim-from, var(--halo-text)) 100%
     );
     background-size: 200% 100%;
     background-repeat: repeat;
@@ -233,15 +229,9 @@ html.accent-gradient [role="button"].bg-halo-accent:hover {
 @keyframes halo-text-shimmer {
   0% {
     background-position: 0% 0;
-    filter: hue-rotate(0deg);
-  }
-  50% {
-    background-position: 100% 0;
-    filter: hue-rotate(-30deg);
   }
   100% {
     background-position: 200% 0;
-    filter: hue-rotate(0deg);
   }
 }
 

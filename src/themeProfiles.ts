@@ -75,6 +75,8 @@ export function parseProfile(raw: unknown): ThemeProfile | null {
       serifChat: a.serifChat === true,
       inlineCodeClaude: a.inlineCodeClaude === true,
       textShimmer: a.textShimmer === true,
+      shimmerFrom: typeof a.shimmerFrom === "string" ? a.shimmerFrom : undefined,
+      shimmerTo: typeof a.shimmerTo === "string" ? a.shimmerTo : undefined,
       markColor: typeof a.markColor === "string" ? a.markColor : "",
       reduceMotion: a.reduceMotion === true,
       motionScale: typeof a.motionScale === 'number' ? a.motionScale : 1,

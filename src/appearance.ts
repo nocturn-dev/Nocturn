@@ -80,6 +80,9 @@ export interface Appearance {
   /** Шиммер-переливание текста (медленный градиентный сдвиг по
    *  background-clip: text) на приветствии пустого экрана */
   textShimmer?: boolean;
+  /** Пара цветов переливания (от → к), #rrggbb */
+  shimmerFrom?: string;
+  shimmerTo?: string;
   /** Цвет знака N (hex); пусто — фирменный градиент циан→синий.
    *  Вне палитрового каскада: действует и в жёстких темах (как data-mark) */
   markColor?: string;
@@ -167,6 +170,8 @@ export const DEFAULT_APPEARANCE: Appearance = {
   serifChat: false,
   inlineCodeClaude: false,
   textShimmer: false,
+  shimmerFrom: "#d97757",
+  shimmerTo: "#5f87d4",
   markColor: "",
   /** Motion/Reduced: принудительно заглушить анимации интерфейса
    *  (поверх системной prefers-reduced-motion) */
@@ -256,6 +261,14 @@ export function loadAppearance(): Appearance {
       inlineCodeClaude:
         p.inlineCodeClaude ?? DEFAULT_APPEARANCE.inlineCodeClaude,
       textShimmer: p.textShimmer ?? DEFAULT_APPEARANCE.textShimmer,
+      shimmerFrom:
+        typeof p.shimmerFrom === "string" && /^#[0-9a-fA-F]{6}$/.test(p.shimmerFrom)
+          ? p.shimmerFrom
+          : DEFAULT_APPEARANCE.shimmerFrom,
+      shimmerTo:
+        typeof p.shimmerTo === "string" && /^#[0-9a-fA-F]{6}$/.test(p.shimmerTo)
+          ? p.shimmerTo
+          : DEFAULT_APPEARANCE.shimmerTo,
       markColor: typeof p.markColor === "string" ? p.markColor : "",
       ambient: p.ambient ?? DEFAULT_APPEARANCE.ambient,
       ambientScene: isAmbientScene(p.ambientScene) ? p.ambientScene : "glow",
@@ -757,8 +770,16 @@ export function applyAppearance(a: Appearance) {
   root.style.setProperty("--motion-scale", String(a.motionScale ?? 1));
   // Акцент-градиент: класс на html, CSS в index.css
   root.classList.toggle("accent-gradient", a.accentGradient ?? false);
-  // Шиммер-переливание приветствия: класс на html, CSS в index.css
+  // Шиммер-переливание приветствия: класс на html, CSS в index.css;
+  // пара цветов (от → к) — var'ы, невалидное значение = токены темы
   root.classList.toggle("text-shimmer", a.textShimmer ?? false);
+  const hexRe = /^#[0-9a-fA-F]{6}$/;
+  const shimFrom = a.shimmerFrom && hexRe.test(a.shimmerFrom) ? a.shimmerFrom : "";
+  const shimTo = a.shimmerTo && hexRe.test(a.shimmerTo) ? a.shimmerTo : "";
+  if (shimFrom) root.style.setProperty("--shim-from", shimFrom);
+  else root.style.removeProperty("--shim-from");
+  if (shimTo) root.style.setProperty("--shim-to", shimTo);
+  else root.style.removeProperty("--shim-to");
 
   // Пользовательский CSS — верхний слой «поверх тем»: теги тем re-append'ятся
   // в конец head (см. official/full-claude выше), а halo-custom-css создан
