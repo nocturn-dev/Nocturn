@@ -155,7 +155,12 @@ export function attachYtIframe(el: HTMLIFrameElement | null) {
 }
 
 /** Базовый src первого iframe: дальше видео грузятся loadVideoById без
- *  перезагрузки фрейма (пересоздание = потеря playback-состояния) */
+ *  перезагрузки фрейма (пересоздание = потеря playback-состояния).
+ *  Хост — основной www.youtube.com: youtube-nocookie в WebView2 отдаёт
+ *  ошибку 150 даже на embed-разрешённых видео (браузер играет) — известная
+ *  беда webview-плееров. widget_referrer — легальный параметр плеера:
+ *  WebView2 не шлёт Referer у iframe, YouTube из-за этого режет playback
+ *  (150/153); параметр заменяет недостающий заголовок. */
 export function ytEmbedSrc(firstVideoId: string): string {
   const origin = typeof window !== "undefined" ? window.location.origin : "";
   const params = new URLSearchParams({
@@ -166,8 +171,11 @@ export function ytEmbedSrc(firstVideoId: string): string {
     iv_load_policy: "3",
     modestbranding: "1",
   });
-  if (origin) params.set("origin", origin);
-  return `https://www.youtube-nocookie.com/embed/${firstVideoId}?${params}`;
+  if (origin) {
+    params.set("origin", origin);
+    params.set("widget_referrer", origin);
+  }
+  return `https://www.youtube.com/embed/${firstVideoId}?${params}`;
 }
 
 function send(func: string, args: unknown[] = []) {
@@ -260,7 +268,13 @@ function onEnded() {
 
 if (typeof window !== "undefined") {
   window.addEventListener("message", (e) => {
-    if (e.origin !== "https://www.youtube-nocookie.com") return;
+    // Оба hosts embed'а: основной www.youtube.com + nocookie (запасной)
+    if (
+      e.origin !== "https://www.youtube.com" &&
+      e.origin !== "https://www.youtube-nocookie.com"
+    ) {
+      return;
+    }
     handleYtMessage(e.data);
   });
   // Очередь/громкость прошлой сессии: восстанавливаются сразу, без автозапуска
@@ -305,6 +319,12 @@ export function ytPlayUrl(input: string): { ok: boolean; error?: string } {
 
 export function ytToggle(): void {
   if (!state.track) return;
+  // iframe ещё не создан (трек добавлен из настроек, окно не открывали) —
+  // плей = открыть окно: там iframe смонтируется с autoplay и стартует
+  if (!state.ready) {
+    set({ open: true });
+    return;
+  }
   if (state.playing) send("pauseVideo");
   else send("playVideo");
 }

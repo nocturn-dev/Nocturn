@@ -25,18 +25,22 @@ export function IntegrationsSection({
   const unavailable = !isWindows();
   const on = mediaPrefs.bar;
   const ytOn = mediaPrefs.youtube;
-  // Поле ссылки YouTube прямо во вкладке: вставил → играет (+окно плеера)
+  // Поле ссылки YouTube прямо во вкладке: вставил → добавилось в плеер.
+  // Окно НАСТРОЕК при этом не открываем (владелец: модалка поверх настроек
+  // сбивает) — вместо этого честная инструкция: минибар → Play
   const [ytDraft, setYtDraft] = useState("");
   const [ytDraftError, setYtDraftError] = useState(false);
+  const [ytAdded, setYtAdded] = useState(false);
   const submitYtDraft = () => {
     const res = ytPlayUrl(ytDraft);
     if (!res.ok) {
       setYtDraftError(true);
+      setYtAdded(false);
       return;
     }
     setYtDraft("");
     setYtDraftError(false);
-    ytSetOpen(true);
+    setYtAdded(true);
   };
 
   // Живое состояние плеера прямо на вкладке: юзер сразу видит, что бекенд
@@ -195,6 +199,11 @@ export function IntegrationsSection({
           {ytDraftError && (
             <p className="px-2 pt-1 text-[0.625rem] text-halo-error">
               {t("media.ytBadUrl")}
+            </p>
+          )}
+          {ytAdded && (
+            <p className="px-2 pt-1 text-[0.625rem] text-emerald-400">
+              {t("media.ytAdded")}
             </p>
           )}
           <p className="px-2 pt-1.5 text-[0.625rem] leading-relaxed text-halo-muted/70">

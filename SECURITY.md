@@ -71,15 +71,19 @@ session store.
   control never leave the machine: they go through the OS media controls
   (SMTC on Windows), with no Spotify account or network involved.
 - **YouTube player (opt-in, radio with the Spotify integration).** Uses
-  only the official embed from `www.youtube-nocookie.com` — the sanctioned
-  embedding path, no keys, no OAuth, no stream extraction or ad bypass.
-  The CSP widens `frame-src` to that host only (static in tauri.conf.json;
-  the app never renders third-party iframes from chat content — raw HTML in
-  markdown is disabled, so the widened frame-src is exercised exclusively by
-  the player). Video thumbnails are fetched from `i.ytimg.com` (covered by
-  the existing `img-src https:`). You paste links yourself; the queue and
-  volume live in localStorage. Playback of the collapsed window continues
-  by design (the iframe stays mounted).
+  only the official embed (`www.youtube.com`, with
+  `www.youtube-nocookie.com` as a fallback host) — the sanctioned embedding
+  path, no keys, no OAuth, no stream extraction or ad bypass. The CSP
+  widens `frame-src` to those hosts only (static in tauri.conf.json; the
+  app never renders third-party iframes from chat content — raw HTML in
+  markdown is disabled, so the widened frame-src is exercised exclusively
+  by the player). The embed URL carries `origin`/`widget_referrer` = the
+  app's own origin — desktop WebViews do not send a Referer header for
+  iframes, and without it YouTube rejects playback (error 150/153).
+  Video thumbnails are fetched from `i.ytimg.com` (covered by the existing
+  `img-src https:`). You paste links yourself; the queue and volume live
+  in localStorage. Playback of the collapsed window continues by design
+  (the iframe stays mounted).
 
 ## Reporting
 
