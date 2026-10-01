@@ -17,7 +17,7 @@ import {
 } from "./diff";
 import { DiffPanel, type DiffPanelFile } from "./components/DiffPanel";
 import { PlanSidePanel } from "./components/PlanSidePanel";
-import { checkpointFiles, windowToggleFullscreen } from "./api";
+import { checkpointFiles, windowToggleFullscreen, openFileExternal } from "./api";
 import {
   firstConfirm,
 } from "./interactions";
@@ -233,6 +233,8 @@ export default function App() {
   const [diffReview, setDiffReview] = useState<{
     open: boolean;
     files: DiffPanelFile[];
+    /** Файл, на котором сфокусироваться (кнопка Review на строке карточки) */
+    focus?: string;
   }>({ open: false, files: [] });
 
   // ---------- Панель плана (Plan Mode): авто-открытие при смене режима ----------
@@ -1118,7 +1120,7 @@ export default function App() {
   // прогона покрывает правки мимо fs_write (shell и т.п.): «снимок до ↔
   // файл на диске сейчас». Бинарники и файлы крупнее капа — пропускаем
   const handleReviewChanges = useCallback(
-    async (fsWrites: ChangedFile[]) => {
+    async (fsWrites: ChangedFile[], focusPath?: string) => {
       const utf8 = new TextDecoder("utf-8", { fatal: true });
       const decode = (b64: string): string | null => {
         try {
@@ -1164,10 +1166,22 @@ export default function App() {
           // снимок недоступен (ротация CP_KEEP/удалён) — остаётся fs_write
         }
       }
-      setDiffReview({ open: true, files: [...byPath.values()] });
+      setDiffReview({ open: true, files: [...byPath.values()], focus: focusPath });
     },
     // ref стабилен; включён для exhaustive-deps
     [lastCheckpointRef],
+  );
+
+  // Open на строке карточки изменений: системное приложение (ZCode-стиль).
+  // Корень проекта — для относительных путей fs_write; ошибка — тостом,
+  // а не молча (open_path фейлится на файлах без ассоциации)
+  const handleOpenFileExternal = useCallback(
+    (path: string) => {
+      openFileExternal(projectRootRef.current, path).catch((e) =>
+        addToast(String(e)),
+      );
+    },
+    [addToast],
   );
 
   // Latest-ref паттерн: слушатель keydown вешается ровно один раз,
@@ -2307,6 +2321,7 @@ export default function App() {
         activity={activity}
         onUndoWrite={handleUndoWrite}
         onReviewChanges={handleReviewChanges}
+        onOpenFileExternal={handleOpenFileExternal}
         subRuns={subRuns}
         plan={activeSession?.plan}
         userCommands={mergedUserCommands}
@@ -2614,6 +2629,7 @@ export default function App() {
       <DiffPanel
         open={diffReview.open}
         files={diffReview.files}
+        focusPath={diffReview.focus}
         onQuote={handleDiffQuote}
         onClose={() => setDiffReview((p) => ({ ...p, open: false }))}
       />

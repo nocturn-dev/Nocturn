@@ -281,6 +281,7 @@ pub fn run() {
             files::git_autocommit,
             fsutil::storage_stats,
             fsutil::storage_cleanup,
+            open_file_external,
             memory::memory_list,
             memory::memory_add,
             memory::memory_delete,
@@ -453,6 +454,42 @@ fn hide_to_tray(app: tauri::AppHandle) -> Result<(), String> {
     } else {
         Ok(())
     }
+}
+
+/// Открыть файл системным приложением (кнопка Open в карточке изменений,
+/// ZCode-стиль). Относительный путь fs_write резолвится от корня проекта.
+/// Гардал пути — тот же rejects_sensitive_path: системные локации не
+/// открываем; файлы проекта агента — легитимная пользовательская цель.
+/// Команда, а не прямое opener-разрешение вебвью: capability opener:default
+/// остаётся только на http/https — вебвью не получает право открыть
+/// произвольный путь
+#[tauri::command(async)]
+async fn open_file_external(
+    app: tauri::AppHandle,
+    root: Option<String>,
+    path: String,
+) -> Result<(), String> {
+    let owned;
+    let target: &std::path::Path = {
+        let p = std::path::Path::new(&path);
+        if p.is_absolute() {
+            p
+        } else {
+            let root = root
+                .filter(|r| !r.trim().is_empty())
+                .ok_or("relative path without project root")?;
+            owned = std::path::Path::new(root.trim()).join(&path);
+            &owned
+        }
+    };
+    crate::settings::rejects_sensitive_path(&target.to_string_lossy())?;
+    if !target.is_file() {
+        return Err(format!("file does not exist: {}", target.display()));
+    }
+    use tauri_plugin_opener::OpenerExt;
+    app.opener()
+        .open_path(target.to_string_lossy().to_string(), None::<String>)
+        .map_err(|e| e.to_string())
 }
 
 /// Развернуть/свернуть главное окно. Нативный maximize: DWM сам играет
