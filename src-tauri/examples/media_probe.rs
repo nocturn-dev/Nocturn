@@ -43,8 +43,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .and_then(|p| p.PlaybackStatus().ok())
             .map(|st| st == GlobalSystemMediaTransportControlsSessionPlaybackStatus::Playing)
             .unwrap_or(false);
+        let updated = s
+            .GetTimelineProperties()
+            .ok()
+            .and_then(|t| t.LastUpdatedTime().ok())
+            .map(|dt| dt.UniversalTime)
+            .unwrap_or(0);
         println!(
-            "  #{n} source={source:?} playing={playing} title={title:?} artist={artist:?}"
+            "  #{n} source={source:?} playing={playing} updated_ft={updated} title={title:?} artist={artist:?}"
         );
     }
     if n == 0 {

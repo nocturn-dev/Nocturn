@@ -29,6 +29,9 @@ pub struct MediaStateDto {
     /// data:image/...;base64 — только при смене трека (тяжёлый payload)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cover: Option<String>,
+    /// Источник сессии (AUMID): диагностика «кого слышит минибар»
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
 }
 
 #[derive(Clone, Serialize)]
@@ -199,48 +202,57 @@ mod windows_impl {
         }
     }
 
-    /// Целевая сессия: предпочитаем Spotify (source AUMID содержит
-    /// "spotify"), иначе играющую, иначе первую попавшуюся
+    /// Целевая сессия: сначала ИГРАЮЩИЕ (у паузированного LastUpdatedTime
+    /// заморожена, у играющего тикает каждые несколько секунд), среди них —
+    /// самый свежий таймлайн; Spotify — тай-брейк. Это надёжнее поиска по
+    /// имени источника: AUMID у Spotify-клиентов различается (Spotify /
+    /// SpotifyAB.SpotifyMusic_... / web-плеер в браузере).
     fn target_session(
         manager: &GlobalSystemMediaTransportControlsSessionManager,
     ) -> Option<GlobalSystemMediaTransportControlsSession> {
         let view = manager.GetSessions().ok()?;
         let it = view.First().ok()?;
-        let mut fallback: Option<GlobalSystemMediaTransportControlsSession> = None;
-        let mut playing: Option<GlobalSystemMediaTransportControlsSession> = None;
-        let mut spotify: Option<GlobalSystemMediaTransportControlsSession> = None;
+        let mut best: Option<GlobalSystemMediaTransportControlsSession> = None;
+        let mut best_score = -1i64;
         loop {
             let has = it.MoveNext().ok()?;
             if !has {
                 break;
             }
             let s = it.Current().ok()?;
-            let source = s
-                .SourceAppUserModelId()
-                .map(|v| v.to_string())
-                .unwrap_or_default();
-            let is_spotify = source.to_lowercase().contains("spotify");
             let is_playing = s
                 .GetPlaybackInfo()
                 .ok()
-                .map(|p| {
-                    p.PlaybackStatus().ok()
-                        == Some(
-                            GlobalSystemMediaTransportControlsSessionPlaybackStatus::Playing,
-                        )
-                })
+                .and_then(|p| p.PlaybackStatus().ok())
+                .map(|st| st == GlobalSystemMediaTransportControlsSessionPlaybackStatus::Playing)
                 .unwrap_or(false);
-            if is_spotify && spotify.is_none() {
-                spotify = Some(s.clone());
+            let ft = s
+                .GetTimelineProperties()
+                .map(|t| {
+                    t.LastUpdatedTime()
+                        .map(|dt| dt.UniversalTime)
+                        .unwrap_or(0)
+                })
+                .unwrap_or(0);
+            let source = s
+                .SourceAppUserModelId()
+                .map(|v| v.to_string())
+                .unwrap_or_default()
+                .to_lowercase();
+            // Играющий плеер всегда важнее паузированного (бит 62 не
+            // пересекается с таймштампом), дальше — свежесть таймлайна,
+            // Spotify — тай-брейк при равенстве
+            let mut score = if is_playing { 1i64 << 62 } else { 0 };
+            score += ft / 2;
+            if source.contains("spotify") {
+                score += 1;
             }
-            if is_playing && playing.is_none() {
-                playing = Some(s.clone());
-            }
-            if fallback.is_none() {
-                fallback = Some(s);
+            if score > best_score {
+                best_score = score;
+                best = Some(s);
             }
         }
-        spotify.or(playing).or(fallback)
+        best
     }
 
     fn apply_control(
@@ -320,6 +332,10 @@ mod windows_impl {
             prev.as_ref().and_then(|p| p.dto.cover.clone())
         };
 
+        let source_app = session
+            .SourceAppUserModelId()
+            .map(|v| v.to_string())
+            .unwrap_or_default();
         let dto = MediaStateDto {
             title: if title.is_empty() { None } else { Some(title) },
             artist: if artist.is_empty() { None } else { Some(artist) },
@@ -328,6 +344,11 @@ mod windows_impl {
             updated_at_ms,
             track_id: track_id.clone(),
             cover,
+            source: if source_app.is_empty() {
+                None
+            } else {
+                Some(source_app)
+            },
         };
 
         // Событие — только на значимые изменения: трек, пауза, seek (>3с).

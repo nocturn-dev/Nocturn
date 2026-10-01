@@ -1561,6 +1561,8 @@ export interface MediaStateDto {
   updatedAtMs: number;
   trackId: string;
   cover?: string | null;
+  /** AUMID источника: диагностика, кого слышит минибар */
+  source?: string | null;
 }
 
 export function mediaStatus(): Promise<MediaStateDto | null> {
