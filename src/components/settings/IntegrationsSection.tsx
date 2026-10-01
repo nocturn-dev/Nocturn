@@ -119,56 +119,48 @@ export function IntegrationsSection({
             on={mediaPrefs.lyrics}
             onChange={(v) => onMediaPrefsChange({ ...mediaPrefs, lyrics: v })}
           />
-          {/* Подсветка лирики: токены темы или собственный цвет */}
+          {/* Подсветка лирики: токены темы или собственный цвет —
+              полноценные строки со switch (чуточку больше) */}
           {mediaPrefs.lyrics && (
-            <div className="mb-1 flex items-center gap-2 px-2 pl-6">
-              <span className="text-[0.6875rem] text-halo-muted">
-                {t("media.lyricsColor")}
-              </span>
-              <button
-                onClick={() =>
-                  onMediaPrefsChange({ ...mediaPrefs, lyricColorMode: "theme" })
+            <>
+              <ToggleRow
+                big
+                label={t("media.lyricsTheme")}
+                desc={t("media.lyricsThemeDesc")}
+                on={mediaPrefs.lyricColorMode === "theme"}
+                onChange={(v) =>
+                  onMediaPrefsChange({ ...mediaPrefs, lyricColorMode: v ? "theme" : "custom" })
                 }
-                className={`rounded-md border px-2 py-0.5 text-[0.625rem] transition-colors ${
-                  mediaPrefs.lyricColorMode === "theme"
-                    ? "border-halo-accent/50 bg-halo-accent/10 text-halo-accent"
-                    : "border-halo-line text-halo-muted hover:text-halo-text"
-                }`}
-              >
-                {t("media.lyricsTheme")}
-              </button>
-              <button
-                onClick={() =>
-                  onMediaPrefsChange({ ...mediaPrefs, lyricColorMode: "custom" })
+              />
+              <ToggleRow
+                big
+                label={t("media.lyricsCustom")}
+                desc={t("media.lyricsCustomDesc")}
+                on={mediaPrefs.lyricColorMode === "custom"}
+                onChange={(v) =>
+                  onMediaPrefsChange({ ...mediaPrefs, lyricColorMode: v ? "custom" : "theme" })
                 }
-                className={`rounded-md border px-2 py-0.5 text-[0.625rem] transition-colors ${
-                  mediaPrefs.lyricColorMode === "custom"
-                    ? "border-halo-accent/50 bg-halo-accent/10"
-                    : "border-halo-line text-halo-muted hover:text-halo-text"
-                }`}
-                style={
-                  mediaPrefs.lyricColorMode === "custom"
-                    ? { color: mediaPrefs.lyricColor }
-                    : undefined
-                }
-              >
-                {t("media.lyricsCustom")}
-              </button>
+              />
               {mediaPrefs.lyricColorMode === "custom" && (
-                <input
-                  type="color"
-                  value={mediaPrefs.lyricColor}
-                  onChange={(e) =>
-                    onMediaPrefsChange({
-                      ...mediaPrefs,
-                      lyricColor: e.target.value,
-                    })
-                  }
-                  className="h-6 w-8 cursor-pointer rounded border border-halo-line bg-transparent"
-                  title={t("media.lyricsCustom")}
-                />
+                <div className="mb-1 flex items-center gap-2 px-2 pl-6">
+                  <input
+                    type="color"
+                    value={mediaPrefs.lyricColor}
+                    onChange={(e) =>
+                      onMediaPrefsChange({
+                        ...mediaPrefs,
+                        lyricColor: e.target.value,
+                      })
+                    }
+                    className="h-7 w-10 cursor-pointer rounded border border-halo-line bg-transparent"
+                    title={t("media.lyricsCustom")}
+                  />
+                  <span className="text-[0.625rem] text-halo-muted/70">
+                    {mediaPrefs.lyricColor}
+                  </span>
+                </div>
               )}
-            </div>
+            </>
           )}
           <ToggleRow
             label={t("media.cover")}

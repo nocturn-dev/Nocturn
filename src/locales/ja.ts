@@ -1203,6 +1203,8 @@ export const ja = {
     "media.lyricsMissing": "歌詞なし",
     "media.lyricsTheme": "テーマに合わせたテキスト",
     "media.lyricsCustom": "カスタムテキストカラー",
+    "media.lyricsThemeDesc": "現在のテーマのアクセントで行をハイライト",
+    "media.lyricsCustomDesc": "歌詞行に自由な色を設定",
     "media.warnTitle": "⚠️ ローカルハードコア",
     "media.warnBody": "統合は Windows のプロセスを直接操作します（WinAPI）——ウィンドウタイトルやプレイヤーのシステムメディアコントロールの読み取り。すべて PC 内で完結し、トークンやデータは外部に出ません。プロセス読み取りにウイルス対策ソフトが反応することがあります——誤検知です。",
     "media.warnAccept": "承認",
