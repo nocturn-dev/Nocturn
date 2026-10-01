@@ -1189,6 +1189,8 @@ export const ru = {
     "media.cover": "Обложка трека",
     "media.coverDesc": "Миниатюра из системного плеера, никуда не отправляется",
     "media.unavailable": "Медиа-интеграция доступна только на Windows",
+    "media.live": "Состояние плеера:",
+    "media.liveIdle": "ничего не играет (запусти Spotify и включи музыку)",
     "media.ttPrev": "Предыдущий трек",
     "media.ttPlay": "Пауза / воспроизвести",
     "media.ttNext": "Следующий трек",

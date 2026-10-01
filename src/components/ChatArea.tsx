@@ -1769,7 +1769,13 @@ export default function ChatArea({
         className="scroll-slim relative z-10 h-full overflow-y-auto"
       >
         {visible.length === 0 && !typing ? (
-          <div className={`relative flex h-full flex-col items-center justify-center overflow-hidden px-6 text-center ${composerCentered ? "pb-[30vh]" : ""}`}>
+          <div
+            className={`relative flex h-full flex-col items-center overflow-hidden px-6 text-center ${
+              composerCentered
+                ? "justify-start pt-[9vh]"
+                : "justify-center"
+            }`}
+          >
             {/* Гигантский призрачный логотип фоном — как в ZCode */}
             <div className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-[64%] select-none opacity-[0.05]">
               <NocturnMark size={480} />
@@ -1848,12 +1854,14 @@ export default function ChatArea({
       />
 
       {/* Поле ввода с нижней панелью: модель · подсказка · отправка.
-          Пустой чат — композер уезжает в центр (ZCode-стиль), абсолютом:
-          из потока он исчезает, и приветствие центрируется на всей высоте */}
+          Пустой чат — композер уезжает в центр (ZCode-стиль), абсолютом с
+          якорем по ВЕРХНЕЙ кромке (top 42%): растёт вниз — вложения и панели
+          над полем не наезжают на приветствие (приветствие сверху с pt-9vh,
+          блоки не пересекаются даже на минимальных 600px высоты) */}
       <div
         className={
           composerCentered
-            ? "absolute inset-x-0 top-[57%] z-30 -translate-y-1/2 px-6"
+            ? "absolute inset-x-0 top-[42%] z-30 px-6"
             : "shrink-0 px-6 pb-5"
         }
       >

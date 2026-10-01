@@ -1,5 +1,7 @@
+import { useEffect, useState } from "react";
 import { useLang } from "../../locales";
 import { isWindows } from "../../platform";
+import { mediaStatus, type MediaStateDto } from "../../api";
 import type { MediaPrefs } from "../../mediaPrefs";
 import { SpotifyIcon } from "../cards/icons";
 import { ToggleRow } from "./parts";
@@ -21,6 +23,26 @@ export function IntegrationsSection({
   const { t } = useLang();
   const unavailable = !isWindows();
   const on = mediaPrefs.bar;
+
+  // Живое состояние плеера прямо на вкладке: юзер сразу видит, что бекенд
+  // слышит SMTC (иначе «не работает» невозможно отличить от «не включил»)
+  const [live, setLive] = useState<MediaStateDto | null>(null);
+  useEffect(() => {
+    if (unavailable) return;
+    let disposed = false;
+    const read = () =>
+      mediaStatus()
+        .then((st) => {
+          if (!disposed) setLive(st);
+        })
+        .catch(() => {});
+    void read();
+    const iv = window.setInterval(read, 3000);
+    return () => {
+      disposed = true;
+      window.clearInterval(iv);
+    };
+  }, [unavailable]);
 
   return (
     <div className="mx-auto max-w-2xl">
@@ -62,6 +84,18 @@ export function IntegrationsSection({
           {t("media.unavailable")}
         </p>
       )}
+      <p className="mt-2 px-1 text-[0.6875rem] text-halo-muted">
+        {t("media.live")}{" "}
+        {live?.title ? (
+          <span className="text-halo-text">
+            {live.playing ? "▶ " : "⏸ "}
+            {live.title}
+            {live.artist ? ` — ${live.artist}` : ""}
+          </span>
+        ) : (
+          <span className="text-halo-muted/60">{t("media.liveIdle")}</span>
+        )}
+      </p>
 
       {on && (
         <div className="mt-3 rounded-xl border border-halo-line bg-halo-surface/50 px-3 py-2">

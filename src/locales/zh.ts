@@ -1201,6 +1201,8 @@ export const zh = {
     "media.cover": "曲目封面",
     "media.coverDesc": "来自系统播放器的缩略图，不会上传到任何地方",
     "media.unavailable": "媒体集成仅在 Windows 上可用",
+    "media.live": "播放器状态：",
+    "media.liveIdle": "没有正在播放的内容（打开 Spotify 并播放）",
     "media.ttPrev": "上一首",
     "media.ttPlay": "暂停 / 播放",
     "media.ttNext": "下一首",
