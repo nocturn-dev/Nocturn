@@ -27,7 +27,7 @@ export default function ResetConfirmModal({
   }, [onCancel]);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+    <div className="fixed inset-0 z-[var(--halo-z-modal)] flex items-center justify-center bg-black/60">
       <div className="glass-pane anim-pop w-full max-w-sm rounded-2xl border border-halo-line bg-halo-deep/90 p-6 shadow-2xl">
         <h2 className="text-base font-medium text-halo-text">{t("reset.title")}</h2>
         <p className="mt-2 text-xs leading-relaxed text-halo-muted">

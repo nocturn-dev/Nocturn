@@ -139,7 +139,7 @@ export default function KnowledgeModal({
 
   return (
     <div
-      className={`fixed inset-0 z-50 overflow-y-auto bg-black/50 p-4 backdrop-blur-sm ${open ? "anim-fade" : "anim-fade-out"}`}
+      className={`fixed inset-0 z-[var(--halo-z-modal)] overflow-y-auto bg-black/50 p-4 backdrop-blur-sm ${open ? "anim-fade" : "anim-fade-out"}`}
       onClick={onClose}
     >
       <div

@@ -378,7 +378,7 @@ export default function GraphModal({ notes, onOpenNote, onClose }: GraphModalPro
 
   return (
     <div
-      className="anim-fade fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-6 backdrop-blur-sm"
+      className="anim-fade fixed inset-0 z-[var(--halo-z-modal)] flex items-center justify-center bg-black/60 p-6 backdrop-blur-sm"
       onClick={onClose}
     >
       <div

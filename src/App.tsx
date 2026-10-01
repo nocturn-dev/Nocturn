@@ -2651,7 +2651,7 @@ export default function App() {
       )}
       {accentEdit && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+          className="fixed inset-0 z-[var(--halo-z-modal)] flex items-center justify-center bg-black/60"
           onMouseDown={() => setAccentEdit(null)}
         >
           <div

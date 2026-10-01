@@ -405,9 +405,9 @@ export function cssVarColor(name: string, fallback: string): Rgb {
  *  выбранных пользователем цветов): оттенок стиля поверх deep, не зашитый
  *  синий. Единая точка для слоя и инпутов конструктора */
 export function ambientGradientDefaults(): { from: string; to: string } {
-  const deep = cssVarColor("--halo-deep", "#060606");
+  const deep = cssVarColor("--halo-deep", "#1f1e1d");
   const accent = cssVarColor("--halo-accent", "#d97757");
-  const tint = sceneTint(deep, cssVarColor("--halo-bg", "#0a0a0a"), accent);
+  const tint = sceneTint(deep, cssVarColor("--halo-bg", "#262624"), accent);
   return { from: rgbCss(mixRgb(tint, deep, 0.25)), to: rgbCss(deep) };
 }
 
@@ -420,9 +420,11 @@ export function ambientGradientDefaults(): { from: string; to: string } {
  * а НЕ инлайном на корне: инлайн-палитру сносила зачистка
  * предпросмотных переменных в редакторе кастомных стилей (ThemeSection,
  * PALETTE_VAR_NAMES) — тема «сбрасывалась» при каждом входе в настройки,
- * оставляя смесь чёрного/серого/синего/белого. Селектор :root.official
- * (0,2,0) выше data-style палитр (0,1,1) и html.light, а тег, переносимый
- * в конец head — последняя инстанция каскада.
+ * оставляя смесь чёрного/серого/синего/белого. Специфичности: палитры
+ * стилей — html[data-style]:not(.light) = 0-2-1, :root.official — 0-2-0,
+ * поэтому без !important палитра стиля закономерно била бы тег (урок
+ * аудита каскада); !important + перенос тега в конец head — последняя
+ * инстанция каскада.
  */
 function officialCss(oled: boolean, contrast: boolean): string {
   const line = oled
@@ -501,14 +503,18 @@ export const FULL_CLAUDE_PALETTE = {
  */
 function fullClaudeCss(a: Appearance): string {
   const r = clamp(a.fullClaudeRadius ?? 1, 0.4, 1.6);
-  // Шрифты: пустое значение = системный стек (побайтно дефолт index.css);
-  // непустое — пресет из настроек темы, фолбэки как в applyAppearance
-  const uiFont = a.fullClaudeUiFont
-    ? `${a.fullClaudeUiFont}, ui-sans-serif, system-ui, sans-serif`
-    : '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", "Noto Sans", Arial, sans-serif';
-  const monoFont = a.fullClaudeMonoFont
-    ? `${a.fullClaudeMonoFont}, ui-monospace, Menlo, Consolas, "Liberation Mono", monospace`
-    : 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace';
+  // Шрифты: пустое значение = системный стек ИЗ index.css (с emoji-фолбэками)
+  // — var не пишем вовсе: собственная копия стека здесь уже дрейфовала
+  // (без emoji-фолбэков), а второй источник правды для одной константы
+  // гарантированно разъезжается. Непустое — пресет темы + фолбэки
+  const fontVars = [
+    a.fullClaudeUiFont
+      ? `  --halo-font-ui: ${a.fullClaudeUiFont}, ui-sans-serif, system-ui, sans-serif !important;`
+      : null,
+    a.fullClaudeMonoFont
+      ? `  --halo-font-mono: ${a.fullClaudeMonoFont}, ui-monospace, Menlo, Consolas, "Liberation Mono", monospace !important;`
+      : null,
+  ].filter((l): l is string => l !== null);
   // Чат-ответы серифом — фирменный приём Claude (user sans / assistant serif,
   // ср. data-font-атрибуты claude.ai). Тумблер темы возвращает системный sans
   const serifChat = (a.fullClaudeSerif ?? true)
@@ -541,8 +547,7 @@ function fullClaudeCss(a: Appearance): string {
       "  --halo-msg-scale: 1 !important;",
       "  --halo-density: 1 !important;",
       "  --halo-content-width: 48rem !important;",
-      `  --halo-font-ui: ${uiFont} !important;`,
-      `  --halo-font-mono: ${monoFont} !important;`,
+      ...fontVars,
       "  color-scheme: dark;",
       "}",
     ],
@@ -581,8 +586,16 @@ function fullClaudeCss(a: Appearance): string {
       "html.full-claude:not(.glass) .glass-pane {",
       `  background: ${FULL_CLAUDE_PALETTE.surface};`,
       "}",
+      // Конвенция C5 (WebKitGTK < 2.40 отбрасывает декларацию color-mix
+      // ЦЕЛИКОМ, правило «пустеет»): сперва плотный фолбэк, полупрозрачность
+      // — только под @supports
       "html.full-claude.glass .glass-pane {",
-      `  background: color-mix(in srgb, ${FULL_CLAUDE_PALETTE.surface} 70%, transparent);`,
+      `  background: ${FULL_CLAUDE_PALETTE.surface};`,
+      "}",
+      "@supports (background: color-mix(in srgb, red, transparent)) {",
+      "  html.full-claude.glass .glass-pane {",
+      `    background: color-mix(in srgb, ${FULL_CLAUDE_PALETTE.surface} 70%, transparent);`,
+      "  }",
       "}",
       "html.full-claude .bg-halo-deep.shadow-2xl {",
       `  background: ${FULL_CLAUDE_PALETTE.surface};`,
@@ -739,6 +752,16 @@ export function applyAppearance(a: Appearance) {
   root.style.setProperty("--motion-scale", String(a.motionScale ?? 1));
   // Акцент-градиент: класс на html, CSS в index.css
   root.classList.toggle("accent-gradient", a.accentGradient ?? false);
+
+  // Пользовательский CSS — верхний слой «поверх тем»: теги тем re-append'ятся
+  // в конец head (см. official/full-claude выше), а halo-custom-css создан
+  // в main.tsx ДО рендера и оставался выше палитр — community-темы молча
+  // проигрывали каскад data-style-палитрам (0-2-1). appendChild существующего
+  // узла переносит его в конец head — порядок восстанавливается при каждом
+  // applyAppearance. Против !important жёстких тем юзерский CSS выигрывает
+  // только собственным !important — осознанный порядок слоёв
+  const userCssTag = document.getElementById("halo-custom-css");
+  if (userCssTag) document.head.appendChild(userCssTag);
 
   // Цвет рамки окна/мета theme-color: в index.html статично зашита тёмная —
   // светлые темы всегда получали тёмную рамку независимо от темы

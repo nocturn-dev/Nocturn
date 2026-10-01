@@ -64,7 +64,7 @@ export default function CryptoGate({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-halo-bg">
+    <div className="fixed inset-0 z-[var(--halo-z-modal)] flex items-center justify-center bg-halo-bg">
       {/* Призрачный логотип фоном */}
       <div className="pointer-events-none absolute inset-0 flex select-none items-center justify-center opacity-[0.05]">
         <NocturnMark size={420} />
