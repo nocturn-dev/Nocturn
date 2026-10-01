@@ -767,6 +767,18 @@ fn ensure_export_target(
     };
     let cfg_n = norm_path(&cfg);
     let target_n = norm_path(target);
+    // Ревалидация канонической формы: canonicalize резолвит симлинки/junction
+    // и 8.3, а проверка выше идёт по сырой строке. Без повтора предзасаженный
+    // линк уводил запись в защищённую локацию мимо блок-листа. Провал
+    // канонизации (экзотическая ФС) — не фейл: проверяем то, что смогли
+    let canon_target = match target.parent() {
+        Some(parent) if parent.exists() => match std::fs::canonicalize(parent) {
+            Ok(base) => base.join(target.file_name().unwrap_or_default()),
+            Err(_) => target.to_path_buf(),
+        },
+        _ => target.to_path_buf(),
+    };
+    rejects_sensitive_path(&canon_target.to_string_lossy())?;
     let parent_inside = canon_dir(target.parent()).is_some_and(|d| starts_dir(&d, &cfg_n));
     if starts_dir(&target_n, &cfg_n) || parent_inside {
         return Err("export target must be outside the application config directory".into());
@@ -783,7 +795,9 @@ pub fn settings_export_write(
     content: String,
 ) -> Result<(), String> {
     let target = ensure_export_target(&app, &path)?;
-    if !path.ends_with(".json") {
+    // Регистронезависимо: на Windows/macOS (ФС нечувствительна к регистру)
+    // EXPORT.JSON — легитимное имя; chat_export_write уже проверяет так
+    if !path.to_lowercase().ends_with(".json") {
         return Err("export file must be .json".into());
     }
     // Проверка, что это валидный JSON — защита от мусора
@@ -824,6 +838,14 @@ pub async fn settings_import_read(path: String) -> Result<serde_json::Value, Str
     // Чтение до 32 МБ + парс — в blocking-пул: на воркере tokio это
     // вставало поперёк SSE-стримов (класс crypto_status)
     tauri::async_runtime::spawn_blocking(move || {
+        // Симлинк на пути — вне модели доверия импорта («осознанное чтение
+        // файла пользователем»): резолвим и ревалидируем, иначе предзасаженный
+        // линк читал защищённую локацию мимо блок-листа. Канонизация здесь же,
+        // в blocking-пуле: на сетевом пути это блокирующий metadata-вызов
+        let canon = std::fs::canonicalize(&path)
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or_else(|_| path.clone());
+        rejects_sensitive_path(&canon)?;
         let data = crate::fsutil::read_capped_string(std::path::Path::new(&path), 0)?;
         serde_json::from_str(&data).map_err(|e| format!("import file corrupted: {e}"))
     })
