@@ -1772,7 +1772,11 @@ export default function ChatArea({
           <div
             className={`relative flex h-full flex-col items-center overflow-hidden px-6 text-center ${
               composerCentered
-                ? "justify-start pt-[7vh]"
+                ? // Приветствие прижато СВЕРХУ К КЛАСТЕРУ КОМПОЗЕРА: кластер
+                  // (пилюли+чип+шелл, ~180px) отцентрован ровно на 50vh, зазор
+                  // 16px → отступ низа = 50vh + 90 + 16. Формула одна и в окне,
+                  // и в F11 — блоки физически не могут разъехаться
+                  "justify-end pb-[calc(50vh+106px)]"
                 : "justify-center"
             }`}
           >
@@ -1858,14 +1862,13 @@ export default function ChatArea({
       />
 
       {/* Поле ввода с нижней панелью: модель · подсказка · отправка.
-          Пустой чат — композер уезжает в центр (ZCode-стиль), абсолютом с
-          якорем по ВЕРХНЕЙ кромке (top 42%): растёт вниз — вложения и панели
-          над полем не наезжают на приветствие (приветствие сверху с pt-9vh,
-          блоки не пересекаются даже на минимальных 600px высоты) */}
+          Пустой чат — ВЕСЬ кластер (пилюли+чип+шелл) отцентрован ровно
+          посередке экрана: top-1/2 + translate-y-1/2, без привязки к vh —
+          одинаково и в оконном режиме, и в F11 */}
       <div
         className={
           composerCentered
-            ? "absolute inset-x-0 top-[30%] z-30 px-6"
+            ? "absolute inset-x-0 top-1/2 z-30 -translate-y-1/2 px-6"
             : "shrink-0 px-6 pb-5"
         }
       >

@@ -62,7 +62,8 @@ export function IntegrationsSection({
       </p>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        {/* Карточка-иконка: клик = включить (Desktop-режим) / выключить */}
+        {/* Карточка: иконка + название (как в «Отдыхе»); клик = включить
+            (Desktop-режим) / выключить */}
         <button
           onClick={() => {
             if (!unavailable)
@@ -70,7 +71,7 @@ export function IntegrationsSection({
           }}
           disabled={unavailable}
           title={t("media.cardHint")}
-          className={`relative flex h-24 flex-col items-center justify-center gap-2 rounded-xl border transition-[transform,border-color] duration-200 ${
+          className={`relative flex h-28 flex-col items-center justify-center gap-2 rounded-xl border transition-[transform,border-color] duration-200 ${
             unavailable
               ? "cursor-not-allowed border-halo-line/40 bg-halo-surface/30 opacity-50"
               : on
@@ -79,6 +80,13 @@ export function IntegrationsSection({
           }`}
         >
           <SpotifyIcon />
+          <span
+            className={`text-sm font-medium ${
+              on ? "text-halo-text" : "text-halo-muted"
+            }`}
+          >
+            Spotify
+          </span>
           {/* Индикатор состояния: зелёная точка — интеграция включена */}
           <span
             className={`absolute right-2.5 top-2.5 size-1.5 rounded-full ${
