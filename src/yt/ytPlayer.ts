@@ -30,6 +30,12 @@ export interface YtState {
   currentTime: number;
   duration: number;
   volume: number; // 0..100
+  /** Скорость воспроизведения 0.75..2 (восстанавливается на каждом треке) */
+  rate: number;
+  /** Повтор текущего трека (цикл в панели окна) */
+  repeatOne: boolean;
+  /** Повтор очереди — синхронизируется из prefs (mediaPrefs.ytLoopQueue) */
+  loopQueue: boolean;
   queue: YtTrack[];
   queueIndex: number;
   /** Окно плеера открыто (свернутое = false, но iframe живёт) */
@@ -47,11 +53,18 @@ let state: YtState = {
   currentTime: 0,
   duration: 0,
   volume: 80,
+  rate: 1,
+  repeatOne: false,
+  loopQueue: false,
   queue: [],
   queueIndex: -1,
   open: false,
   errorCode: null,
 };
+
+/** Запомненные позиции: videoId → секунда остановки (resume). Держим до
+ *  50 записей — при переполнении стираем самые старые (порядок вставки) */
+let positions: Record<string, number> = {};
 
 const listeners = new Set<() => void>();
 
@@ -69,12 +82,18 @@ export function getYtState(): YtState {
   return state;
 }
 
-/** Восстановить очередь/громкость (без автозапуска — iframe нет до play) */
+/** Восстановить очередь/громкость/скорость/позиции (без автозапуска) */
 export function loadYtPersisted(): void {
   try {
     const raw = localStorage.getItem(LS_KEY);
     if (!raw) return;
-    const p = JSON.parse(raw) as { queue?: unknown; volume?: unknown };
+    const p = JSON.parse(raw) as {
+      queue?: unknown;
+      volume?: unknown;
+      rate?: unknown;
+      repeatOne?: unknown;
+      positions?: unknown;
+    };
     const queue = Array.isArray(p.queue)
       ? p.queue.filter(
           (t): t is YtTrack =>
@@ -84,10 +103,20 @@ export function loadYtPersisted(): void {
             (t as YtTrack).videoId.length > 0,
         )
       : [];
+    const pos: Record<string, number> = {};
+    if (p.positions && typeof p.positions === "object") {
+      for (const [k, v] of Object.entries(p.positions as Record<string, unknown>)) {
+        if (typeof v === "number" && v > 0 && Number.isFinite(v)) pos[k] = v;
+      }
+    }
+    positions = pos;
     set({
       queue,
       queueIndex: queue.length > 0 ? 0 : -1,
       volume: typeof p.volume === "number" ? Math.min(100, Math.max(0, p.volume)) : 80,
+      rate:
+        typeof p.rate === "number" && p.rate >= 0.25 && p.rate <= 2 ? p.rate : 1,
+      repeatOne: p.repeatOne === true,
     });
   } catch {
     // битый JSON — стартуем с пустой очередью
@@ -98,11 +127,39 @@ function persist() {
   try {
     localStorage.setItem(
       LS_KEY,
-      JSON.stringify({ queue: state.queue, volume: state.volume }),
+      JSON.stringify({
+        queue: state.queue,
+        volume: state.volume,
+        rate: state.rate,
+        repeatOne: state.repeatOne,
+        positions,
+      }),
     );
   } catch {
     // переполнение квоты — очередь живёт только в памяти
   }
+}
+
+/** Запомнить позицию текущего трека (resume). Тротлинг — только для
+ *  вызовов из потока infoDelivery */
+let lastPosSave = 0;
+function savePosition(force = false) {
+  const id = state.track?.videoId;
+  if (!id || state.currentTime < 5) return;
+  const now = Date.now();
+  if (!force && now - lastPosSave < 5000) return;
+  lastPosSave = now;
+  positions[id] = state.currentTime;
+  const keys = Object.keys(positions);
+  const oldest = keys[0];
+  if (keys.length > 50 && oldest) delete positions[oldest];
+  persist();
+}
+
+/** Стартовая секунда для трека: resume, но только если смотрели > 15 с */
+function startFor(videoId: string): number {
+  const p = positions[videoId];
+  return p && p > 15 ? Math.floor(p) : 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -244,6 +301,10 @@ export function handleYtMessage(data: unknown) {
       if (qi >= 0 && qi !== state.queueIndex) patch.queueIndex = qi;
     }
     set(patch);
+    // Пауза/играем — копим позицию для resume (тротлинг внутри)
+    if (i.playerState === 1 || i.playerState === 2 || i.playerState === 3) {
+      savePosition();
+    }
   } else if (msg.event === "onStateChange" && typeof msg.info === "number") {
     // Убедиться, что infoDelivery несёт числа — страховка на другой формат
     if (msg.info === 0) onEnded();
@@ -255,15 +316,41 @@ export function handleYtMessage(data: unknown) {
 }
 
 function onEnded() {
+  // Повтор трека: гоняем текущий с начала
+  if (state.repeatOne && state.track) {
+    send("loadVideoById", [state.track.videoId, 0]);
+    send("playVideo");
+    reapplyRate();
+    return;
+  }
   const next = state.queueIndex + 1;
   const nt = next >= 0 ? state.queue[next] : undefined;
   if (nt) {
     set({ queueIndex: next });
-    send("loadVideoById", [nt.videoId]);
+    send("loadVideoById", [nt.videoId, startFor(nt.videoId)]);
     send("playVideo");
+    reapplyRate();
+  } else if (state.loopQueue && state.queue.length > 0) {
+    // Повтор очереди: кончилась — с первого
+    const first = state.queue[0];
+    if (first) {
+      set({ queueIndex: 0 });
+      send("loadVideoById", [first.videoId, startFor(first.videoId)]);
+      send("playVideo");
+      reapplyRate();
+      return;
+    }
   } else {
     set({ playing: false });
   }
+}
+
+/** После смены трека embed может сбросить скорость — повторяем команду
+ *  (дважды: сразу и после подъёма плеера) */
+function reapplyRate() {
+  if (state.rate === 1) return;
+  send("setPlaybackRate", [state.rate]);
+  setTimeout(() => send("setPlaybackRate", [state.rate]), 600);
 }
 
 if (typeof window !== "undefined") {
@@ -309,11 +396,13 @@ export function ytPlayUrl(input: string): { ok: boolean; error?: string } {
   persist();
   if (iframe) {
     // Повторный первый-плей после сброса очереди: iframe уже жив
-    send("loadVideoById", [id]);
+    send("loadVideoById", [id, startFor(id)]);
     send("playVideo");
+    reapplyRate();
   }
   // Если iframe ещё нет — его создаст React-слой по факту state.track:
-  // src = embed/<id>?autoplay=1 сам стартует, handshake уйдёт из onLoad
+  // src = embed/<id>?autoplay=1 сам стартует (resume для этого трека
+  // подставит loadVideoById после handshake — см. ytOnIframeReady)
   return { ok: true };
 }
 
@@ -333,6 +422,35 @@ export function ytSeek(secs: number): void {
   send("seekTo", [Math.max(0, secs), true]);
 }
 
+/** iframe поднялся (onLoad): handshake сделал слой; здесь — resume для
+ *  трека, который уже стоит в очереди (autoplay стартует с нуля), и
+ *  восстановление скорости */
+export function ytOnIframeReady(): void {
+  const id = state.track?.videoId;
+  if (id && startFor(id) > 0) {
+    send("loadVideoById", [id, startFor(id)]);
+    send("playVideo");
+  }
+  reapplyRate();
+}
+
+export function ytSetRate(rate: number): void {
+  const r = Math.min(2, Math.max(0.25, rate));
+  set({ rate: r });
+  send("setPlaybackRate", [r]);
+  persist();
+}
+
+export function ytSetRepeatOne(v: boolean): void {
+  set({ repeatOne: v });
+  persist();
+}
+
+/** Синхронизация тумблера «Повтор очереди» из prefs */
+export function ytSetLoopQueue(v: boolean): void {
+  set({ loopQueue: v });
+}
+
 export function ytSetVolume(v: number): void {
   const vol = Math.min(100, Math.max(0, Math.round(v)));
   set({ volume: vol });
@@ -344,18 +462,22 @@ export function ytNext(): void {
   const next = state.queueIndex + 1;
   const nt = next >= 0 ? state.queue[next] : undefined;
   if (!nt) return;
+  savePosition(true);
   set({ queueIndex: next, playing: true, currentTime: 0, duration: 0 });
-  send("loadVideoById", [nt.videoId]);
+  send("loadVideoById", [nt.videoId, startFor(nt.videoId)]);
   send("playVideo");
+  reapplyRate();
 }
 
 export function ytPrev(): void {
   const prev = state.queueIndex - 1;
   const pt = prev >= 0 ? state.queue[prev] : undefined;
   if (!pt) return;
+  savePosition(true);
   set({ queueIndex: prev, playing: true, currentTime: 0, duration: 0 });
-  send("loadVideoById", [pt.videoId]);
+  send("loadVideoById", [pt.videoId, startFor(pt.videoId)]);
   send("playVideo");
+  reapplyRate();
 }
 
 export function ytRemoveAt(index: number): void {
@@ -372,9 +494,11 @@ export function ytRemoveAt(index: number): void {
 export function ytPlayAt(index: number): void {
   const it = index >= 0 ? state.queue[index] : undefined;
   if (!it) return;
+  savePosition(true);
   set({ queueIndex: index, playing: true, currentTime: 0, duration: 0 });
-  send("loadVideoById", [it.videoId]);
+  send("loadVideoById", [it.videoId, startFor(it.videoId)]);
   send("playVideo");
+  reapplyRate();
 }
 
 export function ytSetOpen(open: boolean): void {
@@ -387,6 +511,7 @@ export function ytToggleOpen(): void {
 
 /** Полный сброс (интеграция выключена — слой размонтирован) */
 export function ytReset(): void {
+  savePosition(true);
   attachYtIframe(null);
   set({
     ready: false,

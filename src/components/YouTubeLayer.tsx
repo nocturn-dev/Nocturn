@@ -7,12 +7,15 @@ import {
   thumbUrl,
   ytEmbedSrc,
   ytNext,
+  ytOnIframeReady,
   ytPlayAt,
   ytPlayUrl,
   ytPrev,
   ytRemoveAt,
   ytSeek,
   ytSetOpen,
+  ytSetRate,
+  ytSetRepeatOne,
   ytSetVolume,
   ytReset,
   ytHandshake,
@@ -26,16 +29,38 @@ function mmss(secs: number): string {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 
+const RATES = [0.75, 1, 1.25, 1.5, 2] as const;
+const SIZE_CLASSES: Record<"s" | "m" | "l", string> = {
+  s: "w-[min(640px,92vw)]",
+  m: "w-[min(820px,92vw)]",
+  l: "w-[min(1000px,94vw)]",
+};
+
 /**
  * Слой YouTube: МОДАЛЬНЫЙ оверлей (fixed на весь интерфейс, верхний слой
  * z-modal) — центр только flexbox'ом контейнера (items/justify-center),
  * никаких ручных сдвигов. Фон: затемнение + лёгкий backdrop-blur, клик по
- * нему сворачивает окно. Ключевой приём: окно при сворачивании не
- * размонтируется (CSS visibility с задержкой) — iframe живёт, звук
- * продолжает играть, управляет минибар. Монтируется только при включённой
- * интеграции (prefs.youtube) — размонтирование = полный сброс драйвера.
+ * нему сворачивает окно (тумблер keepOpen делает фон «стеклянным» для
+ * кликов — чат работает, окно закрывают крестиком/биндом). Ключевой приём:
+ * окно при сворачивании не размонтируется (CSS visibility с задержкой) —
+ * iframe живёт, звук продолжает играть, управляет минибар. Монтируется
+ * только при включённой интеграции — размонтирование = полный сброс.
+ * Опционально: перетаскивание за шапку (drag), размер s/m/l,
+ * авто-сворачивание после старта воспроизведения (autoCollapse).
  */
-export function YouTubeLayer({ closeBind }: { closeBind: string }) {
+export function YouTubeLayer({
+  closeBind,
+  autoCollapse = false,
+  keepOpen = false,
+  draggable = false,
+  size = "m",
+}: {
+  closeBind: string;
+  autoCollapse?: boolean;
+  keepOpen?: boolean;
+  draggable?: boolean;
+  size?: "s" | "m" | "l";
+}) {
   const { t } = useLang();
   const yt = useSyncExternalStore(subscribeYt, getYtState);
   const [src, setSrc] = useState<string | null>(null);
@@ -43,6 +68,9 @@ export function YouTubeLayer({ closeBind }: { closeBind: string }) {
   const [draftError, setDraftError] = useState(false);
   const [scrub, setScrub] = useState<number | null>(null);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  // Драг за шапку: смещение от центра (flex-центр остаётся базой)
+  const [drag, setDrag] = useState({ x: 0, y: 0 });
+  const dragRef = useRef<{ px: number; py: number; x: number; y: number } | null>(null);
 
   // Первый трек: один раз создаём iframe с его id в src; дальше —
   // loadVideoById без перезагрузок
@@ -55,7 +83,10 @@ export function YouTubeLayer({ closeBind }: { closeBind: string }) {
     const el = iframeRef.current;
     attachYtIframe(el);
     if (el) {
-      const on = () => ytHandshake();
+      const on = () => {
+        ytHandshake();
+        ytOnIframeReady();
+      };
       el.addEventListener("load", on);
       return () => el.removeEventListener("load", on);
     }
@@ -64,6 +95,34 @@ export function YouTubeLayer({ closeBind }: { closeBind: string }) {
 
   // Размонтирование слоя = интеграция выключена: полный сброс
   useEffect(() => () => ytReset(), []);
+
+  // Фоновый режим: после старта воспроизведения окно сворачивается само
+  useEffect(() => {
+    if (!autoCollapse || !yt.playing || !yt.open) return;
+    const timer = setTimeout(() => {
+      if (getYtState().playing) ytSetOpen(false);
+    }, 10000);
+    return () => window.clearTimeout(timer);
+  }, [autoCollapse, yt.playing, yt.open]);
+
+  // Тумблер драга выключен — вернуть окно в центр
+  useEffect(() => {
+    if (!draggable) setDrag({ x: 0, y: 0 });
+  }, [draggable]);
+
+  const onDragStart = (e: React.PointerEvent) => {
+    if (!draggable) return;
+    dragRef.current = { px: e.clientX, py: e.clientY, x: drag.x, y: drag.y };
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+  };
+  const onDragMove = (e: React.PointerEvent) => {
+    const d = dragRef.current;
+    if (!d) return;
+    setDrag({ x: d.x + (e.clientX - d.px), y: d.y + (e.clientY - d.py) });
+  };
+  const onDragEnd = () => {
+    dragRef.current = null;
+  };
 
   const submitDraft = () => {
     const res = ytPlayUrl(draft);
@@ -87,20 +146,39 @@ export function YouTubeLayer({ closeBind }: { closeBind: string }) {
       }`}
     >
       {/* Фон: затемнение + лёгкий блюр интерфейса (blur — условно, правило
-          дома: закрытому слою backdrop-filter не нужен); клик — свернуть */}
+          дома). keepOpen: фон прозрачен для кликов — чат работает, окно
+          не сворачивается (закрывать крестиком/биндом) */}
       <div
-        onClick={() => ytSetOpen(false)}
+        onClick={() => {
+          if (!keepOpen) ytSetOpen(false);
+        }}
         className={`absolute inset-0 bg-black/50 transition-opacity duration-200 ${
           yt.open ? "opacity-100 backdrop-blur-sm" : "opacity-0"
-        }`}
+        } ${keepOpen ? "pointer-events-none" : ""}`}
       />
+      {/* Обёртка драга: transform живёт здесь, чтобы не конфликтовать
+          с transition окна (yt-pop анимирует transform) */}
       <div
-        className={`yt-pop relative w-[min(820px,92vw)] rounded-2xl border border-halo-line bg-halo-deep shadow-2xl ${
+        className="relative"
+        style={draggable ? { transform: `translate(${drag.x}px, ${drag.y}px)` } : undefined}
+      >
+      <div
+        className={`yt-pop relative ${SIZE_CLASSES[size]} rounded-2xl border border-halo-line bg-halo-deep shadow-2xl ${
           yt.open ? "yt-pop-open" : "yt-pop-closed"
         }`}
       >
-        {/* Шапка: превью + название, крестик сворачивает (звук играет дальше) */}
-        <div className="flex items-center gap-2.5 border-b border-halo-line/60 px-3.5 py-2.5">
+        {/* Шапка: превью + название, крестик сворачивает (звук играет дальше).
+            Драг (по тумблеру) — за шапку, pointer-capture */}
+        <div
+          onPointerDown={onDragStart}
+          onPointerMove={onDragMove}
+          onPointerUp={onDragEnd}
+          onPointerCancel={onDragEnd}
+          className={`flex items-center gap-2.5 border-b border-halo-line/60 px-3.5 py-2.5 ${
+            draggable ? "cursor-move select-none touch-none" : ""
+          }`}
+          title={draggable ? t("media.ytDrag") : undefined}
+        >
           {track ? (
             <img
               src={thumbUrl(track.videoId)}
@@ -196,7 +274,7 @@ export function YouTubeLayer({ closeBind }: { closeBind: string }) {
           </p>
         )}
 
-        {/* Управление: seek, play, prev/next, громкость */}
+        {/* Управление: seek, play, prev/next, скорость, громкость, цикл */}
         <div className="flex items-center gap-3 px-3.5 py-2.5">
           <button
             onClick={ytPrev}
@@ -222,6 +300,22 @@ export function YouTubeLayer({ closeBind }: { closeBind: string }) {
           >
             <NextTrackIcon />
           </button>
+          {/* Скорость: сегмент 0.75–2 */}
+          <div className="flex shrink-0 items-center rounded-lg border border-halo-line p-0.5">
+            {RATES.map((r) => (
+              <button
+                key={r}
+                onClick={() => ytSetRate(r)}
+                className={`rounded-md px-1.5 py-0.5 text-[0.5625rem] tabular-nums transition-colors ${
+                  yt.rate === r
+                    ? "bg-halo-accent/20 text-halo-accent"
+                    : "text-halo-muted hover:text-halo-text"
+                }`}
+              >
+                {r}×
+              </button>
+            ))}
+          </div>
           <input
             type="range"
             min={0}
@@ -252,6 +346,31 @@ export function YouTubeLayer({ closeBind }: { closeBind: string }) {
             className="w-20 shrink-0"
             title={`${yt.volume}%`}
           />
+          {/* Повтор трека: цикл */}
+          <button
+            onClick={() => ytSetRepeatOne(!yt.repeatOne)}
+            title={t("media.ttRepeat")}
+            className={`rounded p-1 transition-colors ${
+              yt.repeatOne
+                ? "text-halo-accent"
+                : "text-halo-muted hover:text-halo-text"
+            }`}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+              <path
+                d="M17 2l4 4-4 4M3 11V9a4 4 0 014-4h14M7 22l-4-4 4-4M21 13v2a4 4 0 01-4 4H3"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+              {yt.repeatOne && (
+                <text x="12" y="15.5" textAnchor="middle" fontSize="9" fill="currentColor" stroke="none">
+                  1
+                </text>
+              )}
+            </svg>
+          </button>
         </div>
 
         {/* Очередь: поле добавления — только когда что-то уже играет
@@ -320,6 +439,7 @@ export function YouTubeLayer({ closeBind }: { closeBind: string }) {
         <p className="border-t border-halo-line/60 px-3.5 py-2 text-center text-[0.625rem] text-halo-muted/50">
           {t("media.ytHint", { bind: closeBind })}
         </p>
+      </div>
       </div>
     </div>
   );

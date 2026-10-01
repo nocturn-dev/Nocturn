@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useLang } from "../../locales";
+import { useLang, MsgKey } from "../../locales";
 import { isWindows } from "../../platform";
 import { mediaStatus, type MediaStateDto } from "../../api";
 import { ytPlayUrl, ytSetOpen } from "../../yt/ytPlayer";
@@ -206,6 +206,51 @@ export function IntegrationsSection({
               {t("media.ytAdded")}
             </p>
           )}
+          {/* Кастомизация плеера: поведение окна и очереди */}
+          <div className="mt-2 border-t border-halo-line/60 pt-2">
+            <ToggleRow
+              label={t("media.ytAutoCollapse")}
+              desc={t("media.ytAutoCollapseDesc")}
+              on={mediaPrefs.ytAutoCollapse}
+              onChange={(v) => onMediaPrefsChange({ ...mediaPrefs, ytAutoCollapse: v })}
+            />
+            <ToggleRow
+              label={t("media.ytLoop")}
+              desc={t("media.ytLoopDesc")}
+              on={mediaPrefs.ytLoopQueue}
+              onChange={(v) => onMediaPrefsChange({ ...mediaPrefs, ytLoopQueue: v })}
+            />
+            <ToggleRow
+              label={t("media.ytDrag")}
+              desc={t("media.ytDragDesc")}
+              on={mediaPrefs.ytDraggable}
+              onChange={(v) => onMediaPrefsChange({ ...mediaPrefs, ytDraggable: v })}
+            />
+            <ToggleRow
+              label={t("media.ytKeepOpen")}
+              desc={t("media.ytKeepOpenDesc")}
+              on={mediaPrefs.ytKeepOpen}
+              onChange={(v) => onMediaPrefsChange({ ...mediaPrefs, ytKeepOpen: v })}
+            />
+            <div className="mb-1 flex items-center justify-between px-2 py-2">
+              <p className="text-sm text-halo-text">{t("media.ytSize")}</p>
+              <div className="flex items-center gap-0.5 rounded-lg border border-halo-line p-0.5">
+                {(["s", "m", "l"] as const).map((sz) => (
+                  <button
+                    key={sz}
+                    onClick={() => onMediaPrefsChange({ ...mediaPrefs, ytSize: sz })}
+                    className={`rounded-md px-2.5 py-1 text-xs transition-colors ${
+                      mediaPrefs.ytSize === sz
+                        ? "bg-halo-accent/20 text-halo-accent"
+                        : "text-halo-muted hover:text-halo-text"
+                    }`}
+                  >
+                    {t(`media.ytSize${sz.toUpperCase()}` as MsgKey)}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
           <p className="px-2 pt-1.5 text-[0.625rem] leading-relaxed text-halo-muted/70">
             {t("media.ytCardHint")}
           </p>
