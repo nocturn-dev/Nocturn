@@ -41,7 +41,8 @@ export const SETTINGS_SEARCH_INDEX: { section: Section; keys: MsgKey[] }[] = [
     keys: [
       "settings.integrations",
       "integrations.desc",
-      "media.bar",
+      "media.modeDesktop",
+      "media.modeBrowser",
       "media.lyrics",
       "media.cover",
     ],

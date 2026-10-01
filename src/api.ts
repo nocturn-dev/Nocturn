@@ -1575,6 +1575,11 @@ export function mediaControl(
   return invoke("media_control", { action });
 }
 
+/** Режим отслеживания минибара: desktop | browser | off (radio, один активен) */
+export function mediaSetMode(mode: "desktop" | "browser" | "off"): Promise<void> {
+  return invoke("media_set_mode", { mode });
+}
+
 export interface LyricsDto {
   plain: string | null;
   synced: string | null;
