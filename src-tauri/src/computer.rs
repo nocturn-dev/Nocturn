@@ -212,17 +212,19 @@ fn with_enigo<T>(
 /// Координаты для enigo Coordinate::Abs. Скриншот отдаёт физические пиксели:
 /// на Windows процесс DPI-aware и SetCursorPos ходит в физических — сходится;
 /// на X11 масштаба нет. На macOS CGEvent меряет глобальные координаты в
-/// поинтах (1x) — координаты Retina-скриншота домножаем на scale монитора,
-/// иначе клики уезжают к правому-нижнему углу
+/// поинтах (1x), а скриншот Retina — в физических пикселях: делим на scale.
+/// Домножение (первая версия) давало смещение scale² — клик улетал за экран
 fn enigo_abs_coords(x: i32, y: i32) -> Result<(i32, i32), String> {
     #[cfg(target_os = "macos")]
     {
         let monitors =
             xcap::Monitor::all().map_err(|e| format!("monitor enumeration failed: {e}"))?;
+        // max(1.0): странный монитор с scale<1 не должен делить на ноль/дробь
         let scale = target_monitor(&monitors)?
             .scale_factor()
-            .unwrap_or(1.0) as f64;
-        Ok(((x as f64 * scale).round() as i32, (y as f64 * scale).round() as i32))
+            .unwrap_or(1.0)
+            .max(1.0) as f64;
+        Ok(((x as f64 / scale).round() as i32, (y as f64 / scale).round() as i32))
     }
     #[cfg(not(target_os = "macos"))]
     Ok((x, y))
