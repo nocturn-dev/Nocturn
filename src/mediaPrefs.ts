@@ -19,6 +19,9 @@ export interface MediaPrefs {
   /** Изолированный шиммер текста минибара (лирика + плитки трека):
    *  не зависит от глобального тумблера «Кастомизации» */
   textShimmer: boolean;
+  /** Интеграция YouTube (встроенный плеер): РАДИО с bar — включённой
+   *  может быть только одна карточка («Интеграций») */
+  youtube: boolean;
   /** Пара цветов переливания (от → к), #rrggbb */
   shimmerFrom: string;
   shimmerTo: string;
@@ -54,6 +57,7 @@ export function loadMediaPrefs(): MediaPrefs {
         lyricColorMode: "theme",
         lyricColor: "#f4abab",
         textShimmer: false,
+        youtube: false,
         ...shimPair({}),
       };
     }
@@ -70,6 +74,7 @@ export function loadMediaPrefs(): MediaPrefs {
           ? p.lyricColor
           : "#f4abab",
       textShimmer: p.textShimmer === true,
+      youtube: p.youtube === true,
       ...shimPair(p),
     };
   } catch {
@@ -80,6 +85,7 @@ export function loadMediaPrefs(): MediaPrefs {
       lyricColorMode: "theme",
       lyricColor: "#f4abab",
       textShimmer: false,
+      youtube: false,
       ...shimPair({}),
     };
   }

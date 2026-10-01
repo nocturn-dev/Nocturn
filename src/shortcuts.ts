@@ -20,6 +20,7 @@ export const SHORTCUT_ACTIONS = [
   "toggle_fullscreen",
   "hard_mode",
   "toggle_zen",
+  "youtube_toggle",
 ] as const;
 
 export type ShortcutAction = (typeof SHORTCUT_ACTIONS)[number];
@@ -46,6 +47,9 @@ export const SHORTCUT_DEFAULTS: ShortcutBinds = {
   toggle_fullscreen: "F11",
   hard_mode: "Ctrl+Shift+H",
   toggle_zen: "Ctrl+Alt+Z",
+  // YouTube-плеер: Ctrl+Alt+Y свободен (Zen на Ctrl+Alt+Z, QuickEntry на
+  // Ctrl+Alt+Space) — тот же ряд, та же рука
+  youtube_toggle: "Ctrl+Alt+Y",
 };
 
 /** Развёрнутые подписи действий (ключи локалей) */
@@ -61,6 +65,7 @@ export const SHORTCUT_LABEL_KEYS: Record<ShortcutAction, string> = {
   toggle_fullscreen: "win.fullscreen",
   hard_mode: "sc.hardMode",
   toggle_zen: "sc.zen",
+  youtube_toggle: "sc.ytToggle",
 };
 
 export interface ComboParts {

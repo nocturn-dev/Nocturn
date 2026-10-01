@@ -92,10 +92,13 @@ but stay at the plain-chat level. Nocturn is the missing middle ground:
 
 ### Automation & integration
 
-- **Integrations tab** — a dedicated settings tab for local-only OS
-  integrations (player mini-bar today; YouTube and Telegram planned), gated
-  by a one-time transparency warning: everything runs through WinAPI on your
-  machine, nothing leaves it.
+- **Integrations tab** — a dedicated settings tab for local integrations,
+  gated by a one-time transparency warning: everything runs through WinAPI
+  on your machine. **Spotify** (desktop client via OS media controls +
+  window-title fallback) and **YouTube** (official `youtube-nocookie` embed:
+  paste a link, queue, collapsible popup player feeding the same mini-bar)
+  are mutually exclusive — one active integration at a time. Telegram is
+  planned.
 - **Automations** — scheduled tasks (daily / weekdays / weekly / interval): the
   agent starts a chat and runs the prompt on schedule; optional keep-awake.
 - **MCP** — external Model Context Protocol servers over **stdio and remote

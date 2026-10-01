@@ -2,8 +2,9 @@ import { useEffect, useState } from "react";
 import { useLang } from "../../locales";
 import { isWindows } from "../../platform";
 import { mediaStatus, type MediaStateDto } from "../../api";
+import { ytSetOpen } from "../../yt/ytPlayer";
 import type { MediaPrefs } from "../../mediaPrefs";
-import { SpotifyIcon } from "../cards/icons";
+import { SpotifyIcon, YouTubeIcon } from "../cards/icons";
 import { ToggleRow } from "./parts";
 
 /**
@@ -23,6 +24,7 @@ export function IntegrationsSection({
   const { t } = useLang();
   const unavailable = !isWindows();
   const on = mediaPrefs.bar;
+  const ytOn = mediaPrefs.youtube;
 
   // Живое состояние плеера прямо на вкладке: юзер сразу видит, что бекенд
   // слышит SMTC (иначе «не работает» невозможно отличить от «не включил»)
@@ -54,11 +56,13 @@ export function IntegrationsSection({
       </p>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        {/* Карточка: иконка + название (как в «Отдыхе»); клик = включить
-            / выключить минибар */}
+        {/* Карточка Spotify: клик = включить/выключить; РАДИО с YouTube —
+            включённой может быть только одна интеграция минибара */}
         <button
           onClick={() => {
-            if (!unavailable) onMediaPrefsChange({ ...mediaPrefs, bar: !on });
+            if (unavailable) return;
+            if (on) onMediaPrefsChange({ ...mediaPrefs, bar: false });
+            else onMediaPrefsChange({ ...mediaPrefs, bar: true, youtube: false });
           }}
           disabled={unavailable}
           title={t("media.cardHint")}
@@ -85,6 +89,35 @@ export function IntegrationsSection({
             }`}
           />
         </button>
+        {/* Карточка YouTube: официальный embed (youtube-nocookie), без
+            ключей; работает на всех платформах — Windows-гейт только у
+            SMTC-интеграции Spotify */}
+        <button
+          onClick={() => {
+            if (ytOn) onMediaPrefsChange({ ...mediaPrefs, youtube: false });
+            else onMediaPrefsChange({ ...mediaPrefs, youtube: true, bar: false });
+          }}
+          title={t("media.ytCardHint")}
+          className={`relative flex h-28 flex-col items-center justify-center gap-2 rounded-xl border transition-[transform,border-color] duration-200 ${
+            ytOn
+              ? "border-halo-accent/40 bg-halo-surface/70 hover:border-halo-accent/60"
+              : "border-halo-line bg-halo-surface/50 hover:-translate-y-1 hover:border-halo-accent/40"
+          }`}
+        >
+          <YouTubeIcon />
+          <span
+            className={`text-sm font-medium ${
+              ytOn ? "text-halo-text" : "text-halo-muted"
+            }`}
+          >
+            YouTube
+          </span>
+          <span
+            className={`absolute right-2.5 top-2.5 size-1.5 rounded-full ${
+              ytOn ? "bg-emerald-400" : "bg-halo-muted/40"
+            }`}
+          />
+        </button>
       </div>
 
       {unavailable && (
@@ -107,6 +140,26 @@ export function IntegrationsSection({
           <span className="text-halo-muted/60">{t("media.liveIdle")}</span>
         )}
       </p>
+
+      {/* YouTube: блок включённой интеграции — вход в плеер (виден и без
+          трека; радио с Spotify соблюдено на карточках выше) */}
+      {ytOn && (
+        <div className="mt-3 rounded-xl border border-halo-line bg-halo-surface/50 px-3 py-2">
+          <p className="mb-1 px-1 text-xs font-medium text-halo-text">
+            YouTube
+          </p>
+          <button
+            onClick={() => ytSetOpen(true)}
+            className="mb-1 flex w-full items-center justify-between rounded-lg px-2 py-2 text-left transition-colors hover:bg-halo-hover/50"
+          >
+            <span className="text-sm text-halo-text">{t("media.ytOpenPlayer")}</span>
+            <span className="text-xs text-halo-muted">↗</span>
+          </button>
+          <p className="px-2 text-[0.625rem] leading-relaxed text-halo-muted/70">
+            {t("media.ytCardHint")}
+          </p>
+        </div>
+      )}
 
       {on && (
         <div className="mt-3 rounded-xl border border-halo-line bg-halo-surface/50 px-3 py-2">

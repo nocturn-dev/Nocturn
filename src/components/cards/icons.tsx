@@ -116,6 +116,17 @@ export function SpotifyIcon({ size = 28 }: { size?: number }) {
   );
 }
 
+/** Логотип YouTube (карточка «Интеграций»): фирменный красный скруглённый
+ *  прямоугольник с белым треугольником */
+export function YouTubeIcon({ size = 28 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <rect x="1.5" y="4.5" width="21" height="15" rx="4.5" fill="#FF0000" />
+      <path d="M10 8.8v6.4l5.6-3.2L10 8.8z" fill="#fff" />
+    </svg>
+  );
+}
+
 export function WrenchIcon() {
   return (
     <svg
