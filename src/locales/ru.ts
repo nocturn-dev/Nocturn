@@ -759,6 +759,11 @@ export const ru = {
     "notify.soundPing": "Пинг",
     "notify.soundSoft": "Мягкий",
     "notify.soundCustom": "Свой",
+    "main.runSounds": "Звуки прогона",
+    "main.runSoundsDesc": "Тихий сигнал выбранным выше звуком — работает и когда приложение в фокусе",
+    "main.runSoundComplete": "Прогон завершён",
+    "main.runSoundConfirm": "Запрос подтверждения",
+    "main.runSoundError": "Ошибка прогона",
     "main.browserPanel": "Панель браузера агента",
     "main.exportTitle": "Экспорт и импорт настроек",
     "main.exportHint":

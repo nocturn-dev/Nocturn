@@ -36,7 +36,7 @@ import { SectionIcon, ExpandWinIcon, CollapseWinIcon, XIcon } from "./settings/p
 import type { Section, ApiStatus } from "./settings/types";
 import type { Appearance } from "../appearance";
 import type { ThemeProfile } from "../themeProfiles";
-import type { NotifyPrefs } from "../notify";
+import type { NotifyPrefs, RunSoundPrefs } from "../notify";
 import type { HardLimits } from "../limits";
 import type { ShortcutBinds, CustomShortcut } from "../shortcuts";
 import type { PromptPreset } from "../presets";
@@ -112,6 +112,9 @@ interface SettingsModalProps {
   /** Уведомления о завершении/подтверждении, когда окно не в фокусе */
   notifyPrefs: NotifyPrefs;
   onNotifyPrefsChange: (p: NotifyPrefs) => void;
+  /** Звуки прогона: фоновая обратная связь в фокусе приложения */
+  runSoundPrefs: RunSoundPrefs;
+  onRunSoundPrefsChange: (p: RunSoundPrefs) => void;
   /** Все чаты: статистика считается по ним, а не по текущему запуску */
   sessions: Session[];
   /** Журнал отправок для «Обзора» (Reflect) */
@@ -277,6 +280,8 @@ export default function SettingsModal({
   onGroupTurnsChange,
   notifyPrefs,
   onNotifyPrefsChange,
+  runSoundPrefs,
+  onRunSoundPrefsChange,
   subConfig,
   onSubConfigChange,
   plugins,
@@ -704,6 +709,8 @@ export default function SettingsModal({
               onBrowserPanelChange={onBrowserPanelChange}
               notifyPrefs={notifyPrefs}
               onNotifyPrefsChange={onNotifyPrefsChange}
+              runSoundPrefs={runSoundPrefs}
+              onRunSoundPrefsChange={onRunSoundPrefsChange}
               limits={limits}
               onLimitsChange={onLimitsChange}
               onImportSessions={onImportSessions}

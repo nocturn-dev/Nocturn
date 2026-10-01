@@ -140,3 +140,59 @@ export async function notifyTaskDone(
     // нет разрешения/плагина — звук уже прозвучал
   }
 }
+
+// ---------- Звуки прогона (opt-in) ----------
+// Отдельный от уведомлений слой: уведомление = «меня нет у окна», звук
+// прогона = фоновая обратная связь, пока страница открыта. Тембр — тот же,
+// что выбран для уведомлений (одна точка кураторства звука; свой пикер и
+// дефолтные мелодии сознательно не плодим — второй источник правды для
+// «как звучит приложение» гарантированно разъезжается). По умолчанию всё
+// выключено: звук легко становится раздражителем, включение — решение юзера.
+
+export type RunSoundEvent = "complete" | "confirm" | "error";
+
+export interface RunSoundPrefs {
+  /** Естественное завершение прогона (не Stop, не ошибка) */
+  complete: boolean;
+  /** Карточка подтверждения инструмента */
+  confirm: boolean;
+  /** Прогон упал с ошибкой */
+  error: boolean;
+}
+
+const RUN_SOUND_KEY = "haloui-run-sounds";
+
+export function loadRunSoundPrefs(): RunSoundPrefs {
+  try {
+    const raw = localStorage.getItem(RUN_SOUND_KEY);
+    if (!raw) return { complete: false, confirm: false, error: false };
+    const p = JSON.parse(raw) as Partial<RunSoundPrefs>;
+    return {
+      complete: p.complete === true,
+      confirm: p.confirm === true,
+      error: p.error === true,
+    };
+  } catch {
+    return { complete: false, confirm: false, error: false };
+  }
+}
+
+export function saveRunSoundPrefs(p: RunSoundPrefs) {
+  localStorage.setItem(RUN_SOUND_KEY, JSON.stringify(p));
+}
+
+/** Анти-шторм: цепочка автоматизаций и очередь поправок финалайзят прогоны
+ *  подряд — чаще одного звука в 3с не играем вовсе */
+let lastRunSoundAt = 0;
+
+export function playRunSound(event: RunSoundEvent): void {
+  if (!loadRunSoundPrefs()[event]) return;
+  // Координация с уведомлениями: когда окно не в фокусе и уведомления
+  // включены, звук уже сыграет notifyTaskDone (плюс системный тост) —
+  // двойной сигнал не нужен. В фокусе играем всегда: это фидбек в приложении
+  if (!document.hasFocus() && loadNotifyPrefs().enabled) return;
+  const now = Date.now();
+  if (now - lastRunSoundAt < 3000) return;
+  lastRunSoundAt = now;
+  playSound(loadNotifyPrefs().sound);
+}

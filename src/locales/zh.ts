@@ -776,6 +776,11 @@ export const zh = {
     "notify.soundPing": "提示音",
     "notify.soundSoft": "柔和",
     "notify.soundCustom": "自定义",
+    "main.runSounds": "运行音效",
+    "main.runSoundsDesc": "用上面选择的声音轻声提示——应用在前台时也会播放",
+    "main.runSoundComplete": "运行完成",
+    "main.runSoundConfirm": "请求确认",
+    "main.runSoundError": "运行出错",
     "main.browserPanel": "智能体浏览器面板",
     "main.exportTitle": "导出与导入设置",
     "main.exportHint":

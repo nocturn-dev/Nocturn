@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import { useLang, type Lang } from "../../locales";
 import type { HardLimits } from "../../limits";
-import { NOTIFY_SOUNDS, playSound, refreshCustomSound, NotifyPrefs } from "../../notify";
+import { NOTIFY_SOUNDS, playSound, refreshCustomSound, NotifyPrefs, type RunSoundPrefs } from "../../notify";
 import { pickSaveFile, pickJsonFile, pickAudioFile, pickCliFile, settingsReadAll, settingsWriteAll, settingsExportWrite, settingsImportRead, soundImport, soundDelete, collectLocal, restoreLocal, autostartIsEnabled, autostartSet, storageStats, storageCleanup, quickentrySetBind, dictationStatus, dictationDownloadModel, dictationSetConfig, voiceStatus, voiceDownloadModels, audioOutputs, type DictationStatus, type VoiceStatus, type StorageStats } from "../../api";
 import type { VoiceSettings } from "../../voice/prefs";
 import { VOICE_MODEL_LABELS } from "../../voice/prefs";
@@ -170,6 +170,8 @@ export function MainSection({
   onGroupTurnsChange,
   notifyPrefs,
   onNotifyPrefsChange,
+  runSoundPrefs,
+  onRunSoundPrefsChange,
   settingsLarge,
   onSettingsLargeChange,
   browserPanel,
@@ -225,6 +227,9 @@ export function MainSection({
   /** Уведомления о завершении/подтверждении, когда окно не в фокусе */
   notifyPrefs: NotifyPrefs;
   onNotifyPrefsChange: (p: NotifyPrefs) => void;
+  /** Звуки прогона: фоновая обратная связь в фокусе приложения */
+  runSoundPrefs: RunSoundPrefs;
+  onRunSoundPrefsChange: (p: RunSoundPrefs) => void;
   settingsLarge: boolean;
   onSettingsLargeChange: (v: boolean) => void;
   /** Автооткрытие панели живого просмотра браузера агента */
@@ -810,6 +815,49 @@ export function MainSection({
               ✕
             </button>
           )}
+        </div>
+      )}
+      {/* Звуки прогона: фоновая обратная связь, пока приложение открыто.
+          Мастер-тумблер + три события; тембр — из выбора уведомлений выше,
+          свой пикер сознательно не дублируем. По умолчанию всё выключено */}
+      <ToggleRow
+        label={t("main.runSounds")}
+        desc={t("main.runSoundsDesc")}
+        on={
+          runSoundPrefs.complete || runSoundPrefs.confirm || runSoundPrefs.error
+        }
+        onChange={(v) =>
+          onRunSoundPrefsChange({ complete: v, confirm: v, error: v })
+        }
+      />
+      {(runSoundPrefs.complete ||
+        runSoundPrefs.confirm ||
+        runSoundPrefs.error) && (
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-halo-line bg-halo-surface/40 px-3 py-2.5">
+          {(
+            [
+              ["complete", "main.runSoundComplete"],
+              ["confirm", "main.runSoundConfirm"],
+              ["error", "main.runSoundError"],
+            ] as const
+          ).map(([event, key]) => (
+            <button
+              key={event}
+              onClick={() => {
+                const next = !runSoundPrefs[event];
+                onRunSoundPrefsChange({ ...runSoundPrefs, [event]: next });
+                // Прослушка при включении — сразу понятно, как звучит
+                if (next) playSound(notifyPrefs.sound);
+              }}
+              className={`rounded-md border px-2.5 py-1 text-xs transition-colors ${
+                runSoundPrefs[event]
+                  ? "border-halo-accent/60 bg-halo-accent/10 text-halo-accent"
+                  : "border-halo-line text-halo-muted hover:text-halo-text"
+              }`}
+            >
+              {t(key)}
+            </button>
+          ))}
         </div>
       )}
       <ToggleRow

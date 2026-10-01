@@ -94,7 +94,7 @@ import {
   type ShortcutBinds,
 } from "./shortcuts";
 import { buildChainPlan, parseNotePrompt, type Note } from "./vault";
-import { loadNotifyPrefs, saveNotifyPrefs, type NotifyPrefs } from "./notify";
+import { loadNotifyPrefs, saveNotifyPrefs, loadRunSoundPrefs, saveRunSoundPrefs, type NotifyPrefs, type RunSoundPrefs } from "./notify";
 import { subagentsLoad, subagentsSave, commandsLoad, pluginsLoad, type Plugin, type UserCommand } from "./api";
 import {
   parseSubagentsConfig,
@@ -897,6 +897,12 @@ export default function App() {
     notifyPrefsRef.current = notifyPrefs;
     saveNotifyPrefs(notifyPrefs);
   }, [notifyPrefs]);
+  // Звуки прогона: стор — localStorage (useAgentRun читает его в момент
+  // события, пропсы в хук не тянут); стейт здесь — только для UI настроек
+  const [runSoundPrefs, setRunSoundPrefs] = useState<RunSoundPrefs>(loadRunSoundPrefs);
+  useEffect(() => {
+    saveRunSoundPrefs(runSoundPrefs);
+  }, [runSoundPrefs]);
   /** Строка «проект · модель» для тела уведомления */
   const notifyMeta = (s: Session | null) => {
     const project = projects.find((p) => p.id === s?.projectId);
@@ -2514,6 +2520,8 @@ export default function App() {
         onGroupTurnsChange={setGroupTurns}
         notifyPrefs={notifyPrefs}
         onNotifyPrefsChange={setNotifyPrefs}
+        runSoundPrefs={runSoundPrefs}
+        onRunSoundPrefsChange={setRunSoundPrefs}
         plugins={plugins}
         onPluginsChange={setPlugins}
         subConfig={subConfigEffective}
