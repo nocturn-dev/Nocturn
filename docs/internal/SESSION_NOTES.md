@@ -1,5 +1,42 @@
 # Nocturn (HaloUI) — handoff (21.09.2026)
 
+## Хэндофф 01.10.2026 — волна аудита №2 (9 коммитов, `21fde0d`…`6a26327`)
+
+Полный read-only аудит (4 субагента + супервизор, каждая находка верифицирована
+по файл:строки): 37 находок (1 крит / 7 выс / 13 сред / 16 низ). Исправлено 35,
+2 — сознательные решения владельца (img-src https: — задокументирован в
+SECURITY.md; ambient-behind поверх sidebar-glass — фидбек 26.09, по дизайну).
+Ключевое:
+- macOS Computer Use: enigo_abs_coords ДЕЛИТ на scale (было умножение — клики
+  уезжали в scale²; xcap-скриншот = физические пиксели, CGEvent = поинты).
+- chat_stream: наружный AbortGuard чистит РЕАЛЬНЫЙ реестр (снапшот-чистка
+  вечно оставляла запись — свежий requestId на каждый прогон; регресс-тест
+  outer_guard_cleans_real_registry_snapshot_was_copy).
+- workflow_run в ask/edit требует подтверждения как subagent_run (отказ
+  пишется tool-сообщением со status "denied").
+- Внешние ссылки: tauri-plugin-opener (opener:default — только http/https/
+  mailto) + общий MarkdownLink в 4 местах; QuickEntry без dialog/updater/
+  autostart/notification; мёртвый global-shortcut:default удалён.
+- ~40 sync-ФС/процессных команд → spawn_blocking (паттерн: sync-тело в
+  `*_blocking`, async-обёртка командой; run_tool зовёт load_settings_blocking
+  внутри своего spawn_blocking — сигнатура команды для invoke не менялась,
+  кроме font_list: Vec → Result<Vec>).
+- Каскад: Official-гашение стекла В КОНЦЕ index.css (при 0-2-1 позиция
+  решает; msg-glass больше не бьёт Official, мёртвый aside.glass-pane заменён
+  рабочими селекторами); z-лестница реально используется (13 модалок →
+  --halo-z-modal, ContextMenu → modal-top); user-CSS — верхний слой
+  (re-append в конце applyAppearance).
+- Гигиена тихих отказов: perm-стейт poison-толерантен, colibri stderr
+  emit_to main, chmod-600 enforced, WAV диктовки 600 с создания, haloui-usage
+  санитизируется с самолечением, проекция терминала сбрасывается при смене
+  задачи, streamingAssistantId — состояние.
+- Новые тесты: pbkdf2_golden_vector, AbortGuard-реестр-регресс, паритет
+  палитры index.css ↔ STYLE_PALETTES (10 полей ×2 темы).
+Владельцу проверить руками: клик по ссылке в ответе модели (системный
+браузер), Computer Use на Mac-железе, светлая тема стартует светлой без
+вспышки, Official + msg-glass (карточки плотные), workflow-сценарий в ask
+(карточка подтверждения), экспорт настроек в EXPORT.JSON (верхний регистр).
+
 ## Хэндофф 27.09.2026 — волна аудита (25 коммитов, `eaf31b5`…`590812a`)
 
 Полный read-only аудит (4 субагента: Rust/Tauri, кроссплатформа, React/TS,
