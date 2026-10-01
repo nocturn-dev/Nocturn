@@ -74,30 +74,6 @@ pub async fn media_control(app: tauri::AppHandle, action: String) -> Result<(), 
     }
 }
 
-/// Режим отслеживания минибара: desktop | browser | off (radio на фронте).
-/// Применяется наблюдателем с ближайшего опроса.
-#[tauri::command(async)]
-pub async fn media_set_mode(
-    app: tauri::AppHandle,
-    mode: Option<String>,
-) -> Result<(), String> {
-    #[cfg(windows)]
-    {
-        let mode = match mode.as_deref() {
-            Some("desktop") => windows_impl::TrackMode::Desktop,
-            Some("browser") => windows_impl::TrackMode::Browser,
-            _ => windows_impl::TrackMode::Desktop,
-        };
-        windows_impl::set_mode(&app, mode);
-        Ok(())
-    }
-    #[cfg(not(windows))]
-    {
-        let _ = (app, mode);
-        Err("media integration is available on Windows only".into())
-    }
-}
-
 /// Текст песни с lrclib.net: synced (LRC с таймкодами) или plain.
 /// Кроссплатформенно (это чистый HTTP); кеш в памяти по ключу трека.
 #[tauri::command(async)]
@@ -135,23 +111,15 @@ mod windows_impl {
         pub dto: MediaStateDto,
     }
 
-    #[derive(Debug, Clone, Copy, PartialEq)]
-    pub enum TrackMode {
-        Desktop,
-        Browser,
-    }
-
     #[derive(Debug)]
     enum Msg {
         Play,
         Pause,
         Next,
         Prev,
-        SetMode(TrackMode),
     }
 
     static STATE: Mutex<Option<MediaSnapshot>> = Mutex::new(None);
-    static MODE: Mutex<TrackMode> = Mutex::new(TrackMode::Desktop);
     static TX: OnceLock<mpsc::Sender<Msg>> = OnceLock::new();
     static START: Once = Once::new();
     static APP: OnceLock<tauri::AppHandle> = OnceLock::new();
@@ -208,19 +176,6 @@ mod windows_impl {
             .map_err(|e| format!("media observer is gone: {e}"))
     }
 
-    /// Режим отслеживания: desktop — только десктопный Spotify, browser —
-    /// медиа во вкладках браузера. Хранится в наблюдателе и применяется
-    /// с ближайшего опроса (≤1с)
-    pub fn set_mode(app: &tauri::AppHandle, mode: TrackMode) {
-        ensure_started(app);
-        if let Ok(mut m) = MODE.lock() {
-            *m = mode;
-        }
-        if let Some(tx) = TX.get() {
-            let _ = tx.send(Msg::SetMode(mode));
-        }
-    }
-
     fn track_hash(title: &str, artist: &str) -> String {
         let mut h = DefaultHasher::new();
         title.hash(&mut h);
@@ -252,39 +207,24 @@ mod windows_impl {
         loop {
             // Канал управления заодно задаёт темп опроса (1 Гц)
             match rx.recv_timeout(Duration::from_secs(1)) {
-                Ok(Msg::SetMode(mode)) => {
-                    // Смена режима уже записана командой в MODE; опрашиваем
-                    // сразу, чтобы минибар переключился без секундной задержки
-                    if let Err(e) = poll(&manager, mode) {
-                        eprintln!("media: poll failed: {e}");
-                    }
-                    continue;
-                }
                 Ok(msg) => apply_control(&manager, &msg),
                 Err(mpsc::RecvTimeoutError::Timeout) => {}
                 Err(mpsc::RecvTimeoutError::Disconnected) => return,
             }
-            let mode = MODE.lock().map(|m| *m).unwrap_or(TrackMode::Desktop);
-            if let Err(e) = poll(&manager, mode) {
+            if let Err(e) = poll(&manager) {
                 eprintln!("media: poll failed: {e}");
             }
         }
     }
 
-    /// Целевая сессия по РЕЖИМУ (взаимоисключающие тумблеры на фронте):
-    /// desktop — только десктопный Spotify (AUMID содержит "spotify"),
-    /// browser — медиа во вкладках браузера (Chrome/Edge/Firefox/Brave/
-    /// Opera/Yandex — web-плеер Spotify, YouTube и др.). Вне фильтра сессии
-    /// игнорируются: включённый «Spotify Desktop» не должен ловить YouTube.
-    /// Среди кандидатов: играющий важнее паузированного, дальше — самый
-    /// свежий таймлайн.
-    fn target_session(
+    /// Целевая сессия: строго десктопный Spotify (AUMID содержит "spotify").
+    /// Браузерные сессии (web-плеер, YouTube) исключены: SMTC не отдаёт URL
+    /// вкладки, отличить spotify.com от youtube.com невозможно — режим
+    /// «Браузерный Spotify» вырезан по решению владельца. Среди кандидатов:
+    /// играющий важнее паузированного, дальше — самый свежий таймлайн.
+    fn spotify_session(
         manager: &GlobalSystemMediaTransportControlsSessionManager,
-        mode: TrackMode,
     ) -> Option<GlobalSystemMediaTransportControlsSession> {
-        const BROWSERS: &[&str] = &[
-            "chrome", "msedge", "edge", "firefox", "brave", "opera", "yandex", "vivaldi",
-        ];
         let view = manager.GetSessions().ok()?;
         let it = view.First().ok()?;
         let mut best: Option<GlobalSystemMediaTransportControlsSession> = None;
@@ -300,11 +240,7 @@ mod windows_impl {
                 .map(|v| v.to_string())
                 .unwrap_or_default()
                 .to_lowercase();
-            let matches = match mode {
-                TrackMode::Desktop => source.contains("spotify"),
-                TrackMode::Browser => BROWSERS.iter().any(|b| source.contains(b)),
-            };
-            if !matches {
+            if !source.contains("spotify") {
                 continue;
             }
             let is_playing = s
@@ -337,24 +273,15 @@ mod windows_impl {
         manager: &GlobalSystemMediaTransportControlsSessionManager,
         msg: &Msg,
     ) {
-        let mode = MODE.lock().map(|m| *m).unwrap_or(TrackMode::Desktop);
-        // В Desktop-режиме при молчащем SMTC управляем окном (WM_APPCOMMAND);
-        // Play/Pause в этом пути — слепой тоггл (состояние придёт опросом)
-        let smtc = target_session(manager, mode);
-        if mode == TrackMode::Desktop && smtc.is_none() {
-            window_control(msg);
-            return;
-        }
-        let Some(session) = smtc else {
-            eprintln!("media: control ignored, no session");
-            return;
-        };
+        // SMTC-сессия Spotify есть → нативное управление; нет (клиент без
+        // SMTC) → WM_APPCOMMAND окну Spotify: Play/Pause — слепой тоггл,
+        // факт применения придёт следующим опросом
+        if let Some(session) = spotify_session(manager) {
         let op = match msg {
             Msg::Play => session.TryPlayAsync(),
             Msg::Pause => session.TryPauseAsync(),
             Msg::Next => session.TrySkipNextAsync(),
             Msg::Prev => session.TrySkipPreviousAsync(),
-            Msg::SetMode(_) => return, // режим применяется в run_observer
         };
         // Блокирующее .get() на потоке наблюдателя (не на tokio-воркере);
         // результат bool: false = плеер отказал — статус придёт опросом
@@ -366,6 +293,9 @@ mod windows_impl {
             }
             Err(e) => eprintln!("media: control failed: {e}"),
         }
+        return;
+        }
+        window_control(msg);
     }
 
     const WM_APPCOMMAND: u32 = 0x0319;
@@ -386,7 +316,6 @@ mod windows_impl {
             Msg::Play | Msg::Pause => APPCOMMAND_MEDIA_PLAY_PAUSE,
             Msg::Next => APPCOMMAND_MEDIA_NEXTTRACK,
             Msg::Prev => APPCOMMAND_MEDIA_PREVTRACK,
-            Msg::SetMode(_) => return,
         };
         unsafe {
             let _ = PostMessageW(
@@ -493,16 +422,12 @@ mod windows_impl {
             .collect()
     }
 
-    fn poll(
-        manager: &GlobalSystemMediaTransportControlsSessionManager,
-        mode: TrackMode,
-    ) -> Result<(), String> {
-        // Desktop-режим при молчащем SMTC: оконный fallback (заголовок окна
-        // несёт «Artist — Track», управление — WM_APPCOMMAND)
-        let dto_opt = match target_session(manager, mode) {
+    fn poll(manager: &GlobalSystemMediaTransportControlsSessionManager) -> Result<(), String> {
+        // SMTC-сессия Spotify есть → нативные метаданные; нет → оконный
+        // fallback (заголовок окна несёт «Artist — Track»)
+        let dto_opt = match spotify_session(manager) {
             Some(session) => Some(smtc_dto(&session)?),
-            None if mode == TrackMode::Desktop => window_dto()?,
-            None => None,
+            None => window_dto()?,
         };
 
         let prev = STATE.lock().map_err(|e| e.to_string())?.clone();
