@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
-import { useLang } from "../../locales";
+import { useLang, type MsgKey } from "../../locales";
 import { isWindows } from "../../platform";
 import { mediaStatus, type MediaStateDto } from "../../api";
-import type { MediaPrefs } from "../../mediaPrefs";
+import { type MediaPrefs, type MediaTrackMode } from "../../mediaPrefs";
 import { SpotifyIcon } from "../cards/icons";
 import { ToggleRow } from "./parts";
 
@@ -22,7 +22,15 @@ export function IntegrationsSection({
 }) {
   const { t } = useLang();
   const unavailable = !isWindows();
-  const on = mediaPrefs.bar;
+  const on = mediaPrefs.mode !== "off";
+
+  // Два взаимоисключающих режима (radio): клик по выбранному = выключить
+  const MODES: { id: MediaTrackMode; label: MsgKey; desc: MsgKey }[] = [
+    { id: "desktop", label: "media.modeDesktop", desc: "media.modeDesktopDesc" },
+    { id: "browser", label: "media.modeBrowser", desc: "media.modeBrowserDesc" },
+  ];
+  const setMode = (m: MediaTrackMode) =>
+    onMediaPrefsChange({ ...mediaPrefs, mode: mediaPrefs.mode === m ? "off" : m });
 
   // Живое состояние плеера прямо на вкладке: юзер сразу видит, что бекенд
   // слышит SMTC (иначе «не работает» невозможно отличить от «не включил»)
@@ -54,10 +62,11 @@ export function IntegrationsSection({
       </p>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        {/* Карточка-иконка: клик = включить/выключить интеграцию */}
+        {/* Карточка-иконка: клик = включить (Desktop-режим) / выключить */}
         <button
           onClick={() => {
-            if (!unavailable) onMediaPrefsChange({ ...mediaPrefs, bar: !on });
+            if (!unavailable)
+              onMediaPrefsChange({ ...mediaPrefs, mode: on ? "off" : "desktop" });
           }}
           disabled={unavailable}
           title={t("media.cardHint")}
@@ -105,6 +114,41 @@ export function IntegrationsSection({
           <p className="mb-1 px-1 text-xs font-medium text-halo-text">
             {t("media.blockTitle")}
           </p>
+          {/* Radio-режимы: включение одного выключает второй */}
+          {MODES.map((m) => {
+            const selected = mediaPrefs.mode === m.id;
+            return (
+              <button
+                key={m.id}
+                onClick={() => setMode(m.id)}
+                className="flex w-full items-start gap-2.5 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-halo-hover"
+              >
+                <span
+                  className={`mt-0.5 flex size-3.5 shrink-0 items-center justify-center rounded-full border transition-colors ${
+                    selected
+                      ? "border-halo-accent"
+                      : "border-halo-muted/50"
+                  }`}
+                >
+                  {selected && (
+                    <span className="size-1.5 rounded-full bg-halo-accent" />
+                  )}
+                </span>
+                <span className="min-w-0">
+                  <span
+                    className={`block text-xs font-medium ${
+                      selected ? "text-halo-text" : "text-halo-muted"
+                    }`}
+                  >
+                    {t(m.label)}
+                  </span>
+                  <span className="block text-[0.6875rem] leading-snug text-halo-muted/70">
+                    {t(m.desc)}
+                  </span>
+                </span>
+              </button>
+            );
+          })}
           <ToggleRow
             label={t("media.lyrics")}
             desc={t("media.lyricsDesc")}

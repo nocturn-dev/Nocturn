@@ -1,6 +1,9 @@
 /**
  * Настройки медиа-минибара (вкладка «Интеграции»). Всё опционально:
- *  - bar — сама полоска над чатом (мастер-тумблер);
+ *  - mode — ЧТО отслеживаем, взаимоисключающе (radio, не два сразу):
+ *      desktop — сессия десктопного Spotify-клиента;
+ *      browser — вкладка браузера (web-плеер Spotify, YouTube и др.);
+ *      off — минибар выключен;
  *  - lyrics — текст песни через lrclib.net: ЕДИНСТВЕННОЕ, что уходит в сеть
  *    (артист + название трека); по умолчанию выключен;
  *  - cover — обложка из системного плеера, чистая ОС, по умолчанию включён.
@@ -8,8 +11,10 @@
  * никаких аккаунтов и облака, концепция Local-only не покидается.
  */
 
+export type MediaTrackMode = "off" | "desktop" | "browser";
+
 export interface MediaPrefs {
-  bar: boolean;
+  mode: MediaTrackMode;
   lyrics: boolean;
   cover: boolean;
 }
@@ -19,15 +24,24 @@ const LS_KEY = "haloui-media";
 export function loadMediaPrefs(): MediaPrefs {
   try {
     const raw = localStorage.getItem(LS_KEY);
-    if (!raw) return { bar: false, lyrics: false, cover: true };
-    const p = JSON.parse(raw) as Partial<MediaPrefs>;
+    if (!raw) return { mode: "off", lyrics: false, cover: true };
+    const p = JSON.parse(raw) as Partial<MediaPrefs> & { bar?: boolean };
+    // Миграция старого булева bar:true → режим desktop
+    const mode: MediaTrackMode =
+      p.mode === "desktop" || p.mode === "browser"
+        ? p.mode
+        : p.mode === "off"
+          ? "off"
+          : p.bar === true
+            ? "desktop"
+            : "off";
     return {
-      bar: p.bar === true,
+      mode,
       lyrics: p.lyrics === true,
       cover: p.cover !== false,
     };
   } catch {
-    return { bar: false, lyrics: false, cover: true };
+    return { mode: "off", lyrics: false, cover: true };
   }
 }
 

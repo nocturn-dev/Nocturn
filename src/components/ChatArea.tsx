@@ -1772,7 +1772,7 @@ export default function ChatArea({
           <div
             className={`relative flex h-full flex-col items-center overflow-hidden px-6 text-center ${
               composerCentered
-                ? "justify-start pt-[9vh]"
+                ? "justify-start pt-[7vh]"
                 : "justify-center"
             }`}
           >
@@ -1792,10 +1792,14 @@ export default function ChatArea({
                 {t("chat.greetingSub")}
               </p>
 
-              {/* Живые статусы локального окружения (MCP/Colibri) — единственный
-                  «help cue» пустого экрана; задачи и чипы-промты убраны по
-                  практике ChatGPT/Claude (унификация 01.10) */}
-              <GreetingDashboard onOpenSettingsSection={onOpenSettingsSection} />
+              {/* Живые статусы локального окружения (MCP/Colibri): в обычном
+                  центрированном режиме уезжают к композеру (блок ниже),
+                  здесь остаются только при открытом терминале */}
+              {!composerCentered && (
+                <div className="mt-7">
+                  <GreetingDashboard onOpenSettingsSection={onOpenSettingsSection} />
+                </div>
+              )}
             </div>
           </div>
         ) : (
@@ -1861,11 +1865,18 @@ export default function ChatArea({
       <div
         className={
           composerCentered
-            ? "absolute inset-x-0 top-[42%] z-30 px-6"
+            ? "absolute inset-x-0 top-[30%] z-30 px-6"
             : "shrink-0 px-6 pb-5"
         }
       >
         <div className={`mx-auto w-full ${composerCentered ? "max-w-2xl" : "max-w-3xl"}`}>
+          {/* Пилюли окружения + селектор проекта — пилюли просятся быть
+              максимально близко к композеру (фидбек владельца) */}
+          {composerCentered && (
+            <div className="mb-2">
+              <GreetingDashboard onOpenSettingsSection={onOpenSettingsSection} />
+            </div>
+          )}
           {/* Селектор проекта — только в центрированном режиме (скрин 2:
               «HaloUI ▾» над композером). Выбор задаёт и контекст чатов,
               и корень работы, если у проекта есть папка */}

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import {
   lyricsFetch,
   mediaControl,
+  mediaSetMode,
   mediaStatus,
   onMediaState,
   type MediaStateDto,
@@ -63,22 +64,29 @@ export function MediaBar({ prefs }: { prefs: MediaPrefs }) {
 
   // Начальный снимок + живые события бекенда (смена трека/пауза/seek)
   useEffect(() => {
-    if (!prefs.bar) return;
+    if (prefs.mode === "off") return;
     let disposed = false;
     let un: (() => void) | null = null;
     void (async () => {
+      // Режим обязателен ДО первого снимка: бекенд фильтрует сессии по нему
       try {
-        const st = await mediaStatus();
-        if (!disposed && st) setState(st);
+        await mediaSetMode(prefs.mode);
       } catch {
         // нет бекенда (браузерное превью) — минибар молчит
+      }
+      try {
+        const st = await mediaStatus();
+        if (!disposed) setState(st);
+      } catch {
+        // нет бекенда — минибар молчит
       }
       try {
         un = await onMediaState(() => {
           if (disposed) return;
           void mediaStatus()
             .then((st) => {
-              if (!disposed && st) setState(st);
+              // st может быть null: в выбранном режиме ничего не играет
+              if (!disposed) setState(st);
             })
             .catch(() => {});
         });
@@ -90,7 +98,7 @@ export function MediaBar({ prefs }: { prefs: MediaPrefs }) {
       disposed = true;
       un?.();
     };
-  }, [prefs.bar]);
+  }, [prefs.mode]);
 
   // Текст песни: по смене трека, только при включённом тумблере (lrclib)
   useEffect(() => {
@@ -122,7 +130,7 @@ export function MediaBar({ prefs }: { prefs: MediaPrefs }) {
     return () => window.clearInterval(iv);
   }, [state?.playing, state?.trackId]);
 
-  if (!prefs.bar || !state || !state.title) return null;
+  if (prefs.mode === "off" || !state || !state.title) return null;
 
   // Прошедшее время: позиция бекенда + локальная интерполяция с момента
   // снимка (пересчёт в теле рендера — тик выше просто перерисовывает)
