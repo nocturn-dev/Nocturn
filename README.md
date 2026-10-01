@@ -74,6 +74,12 @@ but stay at the plain-chat level. Nocturn is the missing middle ground:
 
 ### Voice & media
 
+- **Media mini-bar** — a slim bar over the chat that follows the OS player
+  (Spotify desktop, browser tabs): track, elapsed time, pause and track
+  switching via the system media controls — no accounts, no cloud. Optional
+  synced lyrics from lrclib.net (explicit opt-in: only the track title and
+  artist are looked up), auto-follow highlight in theme accent or a custom
+  color.
 - **Dictation** — push-to-talk via a local whisper.cpp (the model downloads on
   first use, microphone is selectable).
 - **Voice Wake (Jarvis mode)** — optional always-on local wake word
@@ -86,6 +92,10 @@ but stay at the plain-chat level. Nocturn is the missing middle ground:
 
 ### Automation & integration
 
+- **Integrations tab** — a dedicated settings tab for local-only OS
+  integrations (player mini-bar today; YouTube and Telegram planned), gated
+  by a one-time transparency warning: everything runs through WinAPI on your
+  machine, nothing leaves it.
 - **Automations** — scheduled tasks (daily / weekdays / weekly / interval): the
   agent starts a chat and runs the prompt on schedule; optional keep-awake.
 - **MCP** — external Model Context Protocol servers over **stdio and remote
