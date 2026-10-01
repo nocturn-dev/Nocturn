@@ -428,13 +428,16 @@ function AssistantCardBase({
       )}
 
       <div className="markdown text-sm leading-relaxed text-halo-text">
-        <ReactMarkdown
-          remarkPlugins={MD_PLUGINS}
-          rehypePlugins={highlightLive || !isStreaming ? REHYPE_PLUGINS : REHYPE_PLUGINS_NO_HL}
-          components={mdComponents}
-        >
-          {displayContent}
-        </ReactMarkdown>
+        {/* stream-tail только на тексте: каретка ниже остаётся чёткой */}
+        <div className={isStreaming ? "stream-tail" : undefined}>
+          <ReactMarkdown
+            remarkPlugins={MD_PLUGINS}
+            rehypePlugins={highlightLive || !isStreaming ? REHYPE_PLUGINS : REHYPE_PLUGINS_NO_HL}
+            components={mdComponents}
+          >
+            {displayContent}
+          </ReactMarkdown>
+        </div>
         {caret && isStreaming && (
           <span className="animate-pulse align-baseline text-halo-accent">▍</span>
         )}

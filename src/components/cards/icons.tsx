@@ -1,6 +1,42 @@
 import { type PermissionMode } from "../../types";
 import NocturnMark from "../NocturnMark";
 
+/**
+ * 8-лучевой старбёрст «работаю» (паттерн claude.ai): медленное ЛИНЕЙНОЕ
+ * вращение задаёт CSS-класс .work-status-star, а не здесь — анимация обязана
+ * глушиться централизованно обоими reduce-блоками index.css
+ */
+export function StarburstIcon({
+  size = 14,
+  className,
+}: {
+  size?: number;
+  className?: string;
+}) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <line x1="12" y1="7" x2="12" y2="2" />
+      <line x1="15.54" y1="8.46" x2="19.07" y2="4.93" />
+      <line x1="17" y1="12" x2="22" y2="12" />
+      <line x1="15.54" y1="15.54" x2="19.07" y2="19.07" />
+      <line x1="12" y1="17" x2="12" y2="22" />
+      <line x1="8.46" y1="15.54" x2="4.93" y2="19.07" />
+      <line x1="7" y1="12" x2="2" y2="12" />
+      <line x1="8.46" y1="8.46" x2="4.93" y2="4.93" />
+    </svg>
+  );
+}
+
 export function WrenchIcon() {
   return (
     <svg

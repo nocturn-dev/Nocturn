@@ -19,7 +19,7 @@ import { CodeBlock } from "./AssistantCard";
 import { shortModelName } from "../ProviderIcon";
 import ProviderIcon from "../ProviderIcon";
 import { fmtInt } from "./util";
-import { ChevronDownIcon } from "./icons";
+import { ChevronDownIcon, StarburstIcon } from "./icons";
 import ReactMarkdown from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
 import remarkGfm from "remark-gfm";
@@ -181,12 +181,15 @@ function RunRound({
         /* Мягкая подложка под текстом раунда: на «голом» фоне ленты текст
            сливался с ambient/шагами (фидбек владельца) */
         <div className="markdown mt-2 rounded-lg border border-halo-line/40 bg-halo-surface/40 px-3.5 py-2.5 text-sm leading-relaxed text-halo-text">
-          <RoundMarkdown
-            text={text}
-            isStreamingRound={isStreamingRound}
-            highlightLive={highlightLive}
-            mdComponents={mdComponents}
-          />
+          {/* stream-tail только на тексте: каретка ниже остаётся чёткой */}
+          <div className={isStreamingRound ? "stream-tail" : undefined}>
+            <RoundMarkdown
+              text={text}
+              isStreamingRound={isStreamingRound}
+              highlightLive={highlightLive}
+              mdComponents={mdComponents}
+            />
+          </div>
           {caret && isStreamingRound && (
             <span className="animate-pulse align-baseline text-halo-accent">▍</span>
           )}
@@ -405,8 +408,8 @@ function RunCardBase({
         )}
         {isStreaming && hint && (
           <span className="ml-auto flex min-w-0 items-center gap-1.5 text-[0.625rem] text-halo-muted">
-            <span className="typing-dot size-1 shrink-0 rounded-full bg-halo-accent" />
-            <span className="truncate">{hint}</span>
+            <StarburstIcon className="work-status-star shrink-0" />
+            <span className="work-status-text truncate">{hint}</span>
           </span>
         )}
       </div>

@@ -87,18 +87,23 @@ export function StepAccordion({
 
   return (
     <div className={flat ? "w-full space-y-0.5" : "mt-2 w-full space-y-0.5"}>
-      {steps.map((s) => {
+      {steps.map((s, i) => {
         const isOpen = open.has(s.id);
         return (
           <div
             key={s.id}
-            className={
+            className={`anim-fade-up ${
               flat
                 ? `rounded-lg ${s.failed ? "bg-red-400/5" : ""}`
                 : `rounded-lg border bg-halo-deep/30 ${
                     s.failed ? "border-red-400/30" : "border-halo-line/50"
                   }`
-            }
+            }`}
+            // Ряд «распускается» при появлении: CSS-анимация играет только на
+            // монтирование (ключи стабильны — обновления контента не
+            // переигрывают её), задержка по индексу даёт мягкий stagger,
+            // кап 240мс не заставляет поздние ряды ждать
+            style={{ animationDelay: `${Math.min(i * 40, 240)}ms` }}
           >
             <button
               onClick={() => toggle(s.id)}

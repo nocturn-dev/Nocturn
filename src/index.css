@@ -442,7 +442,9 @@ html.zen.voice-listening body::after {
   .search-hit,
   .usage-draw,
   .usage-cell,
-  .usage-arc {
+  .usage-arc,
+  .work-status-star,
+  .work-status-text {
     animation: none;
   }
 }
@@ -462,6 +464,48 @@ html.zen.voice-listening body::after {
     transform: scale(1.06);
     opacity: 1;
   }
+}
+
+/* ---------- Дышащий статус работы (паттерн claude.ai): 8-лучевой
+   старбёрст вращается медленно и ЛИНЕЙНО (непрерывное вращение —
+   единственный легальный случай linear), текст статуса мягко «дышит»
+   opacity 1 → 0.45. Только transform/opacity; бесконечные анимации
+   гасятся в ОБОИХ reduce-блоках ниже ---------- */
+.work-status-star {
+  animation: work-star-spin 10s linear infinite;
+}
+@keyframes work-star-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.work-status-text {
+  animation: work-breathe 2.6s ease-in-out infinite;
+}
+@keyframes work-breathe {
+  50% {
+    opacity: 0.45;
+  }
+}
+
+/* Хвост стримящегося текста мягко проявляется снизу (аналог word-reveal
+   claude.ai): последние ~3.5em блока уходят в прозрачность, новый текст
+   «проявляется» по мере допечатывания, уже напечатанное твердеет при росте
+   блока. Это статичная маска, не анимация — reduce-motion её не глушит.
+   mask читают все три движка; -webkit- префикс — для старых WebKit */
+.stream-tail {
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    #000 calc(100% - 3.5em),
+    rgba(0, 0, 0, 0.35) calc(100% - 1em),
+    transparent
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    #000 calc(100% - 3.5em),
+    rgba(0, 0, 0, 0.35) calc(100% - 1em),
+    transparent
+  );
 }
 
 /* D13: reduce-motion глушит и tailwind-овские бесконечные анимации
@@ -495,6 +539,8 @@ html.motion-reduced .search-hit,
 html.motion-reduced .usage-draw,
 html.motion-reduced .usage-cell,
 html.motion-reduced .usage-arc,
+html.motion-reduced .work-status-star,
+html.motion-reduced .work-status-text,
 html.motion-reduced .animate-pulse,
 html.motion-reduced .animate-ping,
 html.motion-reduced .animate-spin,
