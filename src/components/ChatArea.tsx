@@ -51,6 +51,15 @@ function artifactTitleFromHtml(html: string): string | null {
   return captured ? captured.replace(/<[^>]*>/g, "").trim() || null : null;
 }
 
+/** Единая анатомия чипов нижней панели композера: одна высота, паддинги
+ *  и кегль у всех контролов — раньше каждый чип жил со своими px/py/кеглем,
+ *  и ряд «плясал» по вертикали (фидбек владельца про непропорциональные
+ *  иконки; референсы — Claude Desktop и ZCode) */
+const COMPOSER_CHIP =
+  "flex h-7 shrink-0 items-center gap-1.5 rounded-lg px-2 text-[0.6875rem] font-medium transition duration-150 disabled:cursor-not-allowed disabled:opacity-40";
+const COMPOSER_CHIP_ON = "bg-halo-accent/15 text-halo-accent";
+const COMPOSER_CHIP_OFF = "text-halo-muted hover:bg-halo-hover hover:text-halo-text";
+
 /** Стабильная пустая лента результатов tool-вызовов: `?? []` в рендере
  *  создавал новый массив на каждую пересборку ленты и пробивал поверхностное
  *  сравнение memo AssistantCard — исторические карточки без инструментов
@@ -2038,7 +2047,7 @@ export default function ChatArea({
               <button
                 onClick={() => fileInputRef.current?.click()}
                 title={t("composer.attach")}
-                className="mb-1 flex size-9 shrink-0 items-center justify-center rounded-xl text-halo-muted transition duration-150 hover:bg-halo-hover hover:text-halo-text"
+                className="flex size-9 shrink-0 items-center justify-center rounded-xl text-halo-muted transition duration-150 hover:bg-halo-hover hover:text-halo-text"
               >
                 <PaperclipIcon />
               </button>
@@ -2064,7 +2073,7 @@ export default function ChatArea({
                 }}
                 disabled={dictBusy}
                 title={t("dictation.button")}
-                className={`mb-1 flex size-9 shrink-0 items-center justify-center rounded-xl transition duration-150 hover:bg-halo-hover ${
+                className={`flex size-9 shrink-0 items-center justify-center rounded-xl transition duration-150 hover:bg-halo-hover ${
                   recording
                     ? "bg-red-400/15 text-red-400"
                     : dictBusy
@@ -2127,28 +2136,21 @@ export default function ChatArea({
               </div>
             )}
 
-            {/* Нижняя панель в духе ZCode: модель слева, подсказка справа */}
-            <div className="mt-1 flex items-center gap-2 px-1">
+            {/* Нижняя панель в духе ZCode: режимы слева, модель и настройки
+                справа. Все чипы — единая анатомия COMPOSER_CHIP */}
+            <div className="mt-1.5 flex items-center gap-1.5 px-1">
               <button
                 onClick={onToggleAgent}
                 title={t("agent.toggle")}
-                className={`flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs transition duration-150 disabled:cursor-not-allowed disabled:opacity-40 ${
-                  agentMode
-                    ? "bg-halo-accent/15 text-halo-accent"
-                    : "text-halo-muted hover:bg-halo-hover hover:text-halo-text"
-                }`}
+                className={`${COMPOSER_CHIP} ${agentMode ? COMPOSER_CHIP_ON : COMPOSER_CHIP_OFF}`}
               >
-                <WrenchIcon />
+                <RobotIcon />
                 {t("agent.toggle")}
               </button>
               <button
                 onClick={onToggleTerminal}
                 title={t("terminal.toggle")}
-                className={`flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs transition duration-150 disabled:cursor-not-allowed disabled:opacity-40 ${
-                  terminalOpen
-                    ? "bg-halo-accent/15 text-halo-accent"
-                    : "text-halo-muted hover:bg-halo-hover hover:text-halo-text"
-                }`}
+                className={`${COMPOSER_CHIP} ${terminalOpen ? COMPOSER_CHIP_ON : COMPOSER_CHIP_OFF}`}
               >
                 <TerminalIcon />
                 {t("terminal.toggle")}
@@ -2158,10 +2160,8 @@ export default function ChatArea({
                 <button
                   onClick={() => setPermOpen((v) => !v)}
                   title={t("perms.title")}
-                  className={`flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs transition duration-150 disabled:cursor-not-allowed disabled:opacity-40 ${
-                    permissionMode !== "ask"
-                      ? "bg-halo-accent/15 text-halo-accent"
-                      : "text-halo-muted hover:bg-halo-hover hover:text-halo-text"
+                  className={`${COMPOSER_CHIP} ${
+                    permissionMode !== "ask" ? COMPOSER_CHIP_ON : COMPOSER_CHIP_OFF
                   }`}
                 >
                   <ShieldIcon />
@@ -2228,14 +2228,14 @@ export default function ChatArea({
                 <button
                   onClick={openTools}
                   title={t("tools.title")}
-                  className={`flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs transition duration-150 disabled:cursor-not-allowed disabled:opacity-40 ${
-                    disabledTools.length > 0
-                      ? "bg-halo-accent/15 text-halo-accent"
-                      : "text-halo-muted hover:bg-halo-hover hover:text-halo-text"
+                  className={`${COMPOSER_CHIP} ${
+                    disabledTools.length > 0 ? COMPOSER_CHIP_ON : COMPOSER_CHIP_OFF
                   }`}
                 >
                   <WrenchIcon />
-                  {disabledTools.length > 0 && <span>{disabledTools.length}</span>}
+                  {disabledTools.length > 0 && (
+                    <span className="tabular-nums">{disabledTools.length}</span>
+                  )}
                   <ChevronDownIcon />
                 </button>
                 {toolsOpen && (
@@ -2298,44 +2298,30 @@ export default function ChatArea({
                   </>
                 )}
               </div>
-              <button
-                onClick={onOpenSettings}
-                title={model ? model : t("chat.modelHint")}
-                className="flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-xs text-halo-muted transition duration-150 hover:bg-halo-hover hover:text-halo-text"
-              >
-                <ProviderIcon modelId={model} size={13} />
-                <span className="max-w-28 truncate font-medium">
-                  {model ? brandName(model) : t("chat.modelNotSet")}
-                </span>
-                {isLocal && (
-                  <span className="rounded bg-emerald-400/15 px-1.5 py-0.5 text-[0.5625rem] font-medium text-emerald-400">
-                    {t("chat.modelLocal")}
-                  </span>
-                )}
-                <ChevronDownIcon />
-              </button>
               <span className="flex-1" />
-              <ContextRing
-                used={contextUsed || contextEstimate.msgs + contextEstimate.prompt}
-                limit={contextLimit}
-                rows={contextRows}
-                isEstimate={!contextUsed}
-              />
+              <span className="flex h-7 items-center">
+                <ContextRing
+                  used={contextUsed || contextEstimate.msgs + contextEstimate.prompt}
+                  limit={contextLimit}
+                  rows={contextRows}
+                  isEstimate={!contextUsed}
+                />
+              </span>
               {/* Монитор субагентов: только когда прогоны были/идут */}
               {Object.keys(subRuns ?? {}).length > 0 && (
                 <div className="relative">
                   <button
                     onClick={() => setSubOpen((v) => !v)}
                     title={t("sub.monitor")}
-                    className={`relative flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs transition duration-150 ${
+                    className={`${COMPOSER_CHIP} ${
                       subOpen ||
                       Object.values(subRuns ?? {}).some((r) => r.report === null)
-                        ? "bg-halo-accent/15 text-halo-accent"
-                        : "text-halo-muted hover:bg-halo-hover hover:text-halo-text"
+                        ? COMPOSER_CHIP_ON
+                        : COMPOSER_CHIP_OFF
                     }`}
                   >
                     <RobotIcon />
-                    <span className="text-[0.625rem] tabular-nums">
+                    <span className="tabular-nums">
                       {Object.values(subRuns ?? {}).filter((r) => r.report === null).length ||
                         Object.keys(subRuns ?? {}).length}
                     </span>
@@ -2379,14 +2365,30 @@ export default function ChatArea({
                   )}
                 </div>
               )}
+              {/* Модель — в правом кластере (ZCode/Claude:Capabilities слева,
+                  модель и настройки справа) */}
+              <button
+                onClick={onOpenSettings}
+                title={model ? model : t("chat.modelHint")}
+                className={`${COMPOSER_CHIP} ${COMPOSER_CHIP_OFF}`}
+              >
+                <ProviderIcon modelId={model} size={12} />
+                <span className="max-w-32 truncate">
+                  {model ? brandName(model) : t("chat.modelNotSet")}
+                </span>
+                {isLocal && (
+                  <span className="rounded bg-emerald-400/15 px-1.5 py-0.5 text-[0.5625rem] font-medium text-emerald-400">
+                    {t("chat.modelLocal")}
+                  </span>
+                )}
+                <ChevronDownIcon />
+              </button>
               <div className="relative">
                 <button
                   onClick={() => setQuickOpen((v) => !v)}
                   title={t("qs.title")}
-                  className={`flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs transition duration-150 ${
-                    quickOpen
-                      ? "bg-halo-accent/15 text-halo-accent"
-                      : "text-halo-muted hover:bg-halo-hover hover:text-halo-text"
+                  className={`${COMPOSER_CHIP} ${
+                    quickOpen ? COMPOSER_CHIP_ON : COMPOSER_CHIP_OFF
                   }`}
                 >
                   <SlidersIcon />
