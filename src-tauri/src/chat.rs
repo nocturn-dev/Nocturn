@@ -327,6 +327,16 @@ pub async fn chat_stream(
         }
         f
     };
+    // Наружный guard: чистит запись из РЕАЛЬНОГО реестра при любом исходе
+    // команды. Без него запись жила в managed-стейте вечно (фронт даёт свежий
+    // requestId на каждый прогон) — снапшот-чистка внутри impl карту оригинала
+    // не трогает. Ptr_eq-семантика guard'а безопасна при переиспользовании
+    // request_id: слот трогается, только если там до сих пор наш флаг
+    let _outer_guard = AbortGuard {
+        registry: registry.inner(),
+        request_id: request_id.clone(),
+        flag: flag.clone(),
+    };
     // Паникоизоляция (блок 12 шаг 5, паттерн ZCode): прогон — отдельная
     // tokio-задача. Паника движка превращается в Err → карточка ошибки на
     // фронте, вместо подвешенного промиса и убитого рантайма команды.
@@ -1928,6 +1938,45 @@ mod tests {
         assert!(
             !registry.0.lock().unwrap().contains_key("r"),
             "guard B чистит собственный слот"
+        );
+    }
+
+    /// Регресс: наружный guard chat_stream обязан чистить запись из РЕАЛЬНОГО
+    /// реестра, даже когда внутренний guard уже вычистил снапшот-копию.
+    /// Раньше наружного guard не существовало — запись жила в managed-стейте
+    /// вечно (фронт даёт свежий requestId на каждый прогон)
+    #[test]
+    fn outer_guard_cleans_real_registry_snapshot_was_copy() {
+        let real = AbortRegistry(Mutex::new(HashMap::new()));
+        let flag = Arc::new(AtomicBool::new(false));
+        // chat_stream: регистрация в оригинале...
+        real.0.lock().unwrap().insert("r".into(), flag.clone());
+        {
+            // ...внутренний guard живёт на снапшоте (копия карты, те же Arc)
+            let snapshot = real.snapshot();
+            let inner = AbortGuard {
+                registry: &snapshot,
+                request_id: "r".into(),
+                flag: flag.clone(),
+            };
+            drop(inner);
+        }
+        assert!(
+            real.0.lock().unwrap().contains_key("r"),
+            "снапшот-чистка не должна трогать оригинал"
+        );
+        {
+            // ...наружный guard в chat_stream чистит оригинал
+            let outer = AbortGuard {
+                registry: &real,
+                request_id: "r".into(),
+                flag: flag.clone(),
+            };
+            drop(outer);
+        }
+        assert!(
+            !real.0.lock().unwrap().contains_key("r"),
+            "наружный guard обязан вычистить запись из реального реестра"
         );
     }
 
