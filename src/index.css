@@ -444,7 +444,8 @@ html.zen.voice-listening body::after {
   .usage-cell,
   .usage-arc,
   .work-status-star,
-  .work-status-text {
+  .work-status-text,
+  .shimmer::after {
     animation: none;
   }
 }
@@ -508,6 +509,32 @@ html.zen.voice-listening body::after {
   );
 }
 
+/* ---------- Шиммер загрузки (вуаль живого артефакта, скелетоны): блик
+   едет transform'ом по нейтральной подложке — чистый композитинг без
+   repaint'а. Бесконечная анимация — гасится в ОБОИХ reduce-блоках ---------- */
+.shimmer {
+  position: relative;
+  overflow: hidden;
+}
+.shimmer::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.07),
+    transparent
+  );
+  animation: shimmer-sweep 1.6s ease-in-out infinite;
+}
+@keyframes shimmer-sweep {
+  to {
+    transform: translateX(100%);
+  }
+}
+
 /* D13: reduce-motion глушит и tailwind-овские бесконечные анимации
    (animate-pulse у курсора терминала, PlanPanel, SubagentCard) —
    собственные keyframes гасились, а библиотечные — нет */
@@ -541,6 +568,7 @@ html.motion-reduced .usage-cell,
 html.motion-reduced .usage-arc,
 html.motion-reduced .work-status-star,
 html.motion-reduced .work-status-text,
+html.motion-reduced .shimmer::after,
 html.motion-reduced .animate-pulse,
 html.motion-reduced .animate-ping,
 html.motion-reduced .animate-spin,
