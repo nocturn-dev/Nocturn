@@ -1544,6 +1544,14 @@ export async function settingsImportRead(
 }
 
 /** Диалог «Сохранить как» для экспорта; null — отмена */
+/** Открыть ссылку в системном браузере (plugin opener): вебвью приложения —
+ *  не навигационная поверхность, внешние URL в него не пускаем (фишинг).
+ *  capability opener:default разрешает только http/https/mailto — экзотические
+ *  схемы честно падают на уровне ACL. */
+export function openExternal(url: string): Promise<void> {
+  return invoke("plugin:opener|open_url", { url });
+}
+
 export async function pickSaveFile(
   defaultName: string,
   ext: "json" | "md" | "txt" = "json",

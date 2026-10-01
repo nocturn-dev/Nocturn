@@ -3,8 +3,7 @@
   "identifier": "default",
   "description": "Базовые разрешения окна Nocturn",
   "windows": [
-    "main",
-    "quickentry"
+    "main"
   ],
   "permissions": [
     "core:default",
@@ -17,6 +16,6 @@
     "notification:default",
     "updater:default",
     "autostart:default",
-    "global-shortcut:default"
+    "opener:default"
   ]
 }

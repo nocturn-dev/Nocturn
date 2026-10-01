@@ -5,6 +5,7 @@ import { useLang } from "../../locales";
 import { type Message } from "../../types";
 import type { StepRow } from "../../agent/steps";
 import { StepAccordion } from "./StepAccordion";
+import { MarkdownLink } from "./MarkdownLink";
 import { shortModelName } from "../ProviderIcon";
 import { fmtInt } from "./util";
 import { CollapseButton } from "./CollapseButton";
@@ -19,7 +20,6 @@ import {
   useMemo,
   useRef,
   useState,
-  type ComponentPropsWithoutRef,
   type ReactNode,
 } from "react";
 import { pickSaveFile, runTool } from "../../api";
@@ -35,15 +35,6 @@ const REHYPE_PLUGINS = [rehypeHighlight];
 /** Вариант без highlight для стрима (тумблер «Подсветка при стриме»):
  *  стабильная пустая ссылка, чтобы react-markdown не пересоздавал пайплайн */
 const REHYPE_PLUGINS_NO_HL: typeof REHYPE_PLUGINS = [];
-
-function MarkdownLink({
-  node: _node,
-  ...props
-}: ComponentPropsWithoutRef<"a"> & { node?: unknown }) {
-  // Ссылки из ответа модели — во внешнем окно: обычный <a> уводил
-  // вебвью приложения на произвольный URL (фишинг в доверенном окне)
-  return <a {...props} target="_blank" rel="noopener noreferrer" />;
-}
 
 /** Язык fenced-блока из hast-дерева react-markdown (className="language-x") */
 function codeLanguage(node: unknown): string {
