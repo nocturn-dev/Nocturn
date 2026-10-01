@@ -89,10 +89,6 @@ interface ChatAreaProps {
   onToggleDisabledTool: (name: string) => void;
   /** Ожидающее подтверждение агента */
   pendingConfirm: { requestId: string; call: ToolCallInfo } | null;
-  /** Все сессии: дашборд приветствия показывает незавершённые задачи */
-  sessions: Session[];
-  /** Открыть сессию из дашборда приветствия */
-  onOpenSession: (id: string) => void;
   /** Открыть настройки на конкретной секции (карточки статусов дашборда) */
   onOpenSettingsSection?: (section: "mcp" | "main") => void;
   /** Встроенные роли (Код / Инженер / …) — QuickSettings-поповер композера */
@@ -157,9 +153,6 @@ interface ChatAreaProps {
   /** Размытие фона терминала, px (0 — выключено; S3: blur(0px) всё равно
    *  заставляет движок снапшотить фон каждый кадр) */
   termBlur?: number;
-  /** Стартовые подсказки скрыты (эргономика) */
-  hideStarter: boolean;
-  onToggleStarter: () => void;
   /** Высота терминальной панели, % и drag-хендл */
   terminalHeightPct: number;
   onTerminalResizeStart: () => void;
@@ -262,8 +255,6 @@ export default function ChatArea({
   onOpenSettings,
   onOpenCompare,
   onOpenKnowledge,
-  sessions,
-  onOpenSession,
   onOpenSettingsSection,
   promptPresets,
   customPresets,
@@ -287,8 +278,6 @@ export default function ChatArea({
   termPalette,
   termBlur = 0,
   termShell,
-  hideStarter,
-  onToggleStarter,
   terminalHeightPct,
   onTerminalResizeStart,
   scrollFollow,
@@ -1771,30 +1760,10 @@ export default function ChatArea({
                 {t("chat.greetingSub")}
               </p>
 
-              {/* Динамический дашборд вместо статических подсказок (фидбек
-                  29.09): живые статусы MCP/Colibri, незавершённые задачи,
-                  код-действия. Роли/промты остались в «Настройках» и «/» */}
-              {!hideStarter && (
-                <GreetingDashboard
-                  sessions={sessions}
-                  onOpenSession={onOpenSession}
-                  onOpenSettingsSection={onOpenSettingsSection}
-                  onQuickPrompt={(text) => {
-                    setDraft(text);
-                    if (textareaRef.current) {
-                      autoGrow(textareaRef.current);
-                      textareaRef.current.focus();
-                    }
-                  }}
-                />
-              )}
-
-              <button
-                onClick={onToggleStarter}
-                className="mt-7 rounded-md px-2 py-1 text-[0.6875rem] text-halo-muted/60 transition-colors hover:text-halo-muted"
-              >
-                {hideStarter ? t("chat.showStarter") : t("chat.hideStarter")}
-              </button>
+              {/* Живые статусы локального окружения (MCP/Colibri) — единственный
+                  «help cue» пустого экрана; задачи и чипы-промты убраны по
+                  практике ChatGPT/Claude (унификация 01.10) */}
+              <GreetingDashboard onOpenSettingsSection={onOpenSettingsSection} />
             </div>
           </div>
         ) : (

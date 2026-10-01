@@ -132,8 +132,6 @@ function Group({
 export function MainSection({
   sidebarSide,
   onSidebarSideChange,
-  hideStarter,
-  onHideStarterChange,
   scrollFollow,
   onScrollFollowChange,
   streamSmooth,
@@ -182,8 +180,6 @@ export function MainSection({
 }: {
   sidebarSide: "left" | "right";
   onSidebarSideChange: (side: "left" | "right") => void;
-  hideStarter: boolean;
-  onHideStarterChange: (v: boolean) => void;
   /** Поведение генерации */
   scrollFollow: boolean;
   onScrollFollowChange: (v: boolean) => void;
@@ -486,12 +482,6 @@ export function MainSection({
         desc={t("main.sidebarSideDesc")}
         on={sidebarSide === "right"}
         onChange={(v) => onSidebarSideChange(v ? "right" : "left")}
-      />
-      <ToggleRow
-        label={t("main.hideStarter")}
-        desc={t("main.hideStarterDesc")}
-        on={hideStarter}
-        onChange={onHideStarterChange}
       />
       </Group>
       <Group title={t("main.g2")} desc={t("main.g2Desc")}>

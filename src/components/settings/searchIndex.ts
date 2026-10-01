@@ -17,7 +17,6 @@ export const SETTINGS_SEARCH_INDEX: { section: Section; keys: MsgKey[] }[] = [
       "main.quickEntry",
       "main.language",
       "main.sidebarSide",
-      "main.hideStarter",
       "main.scrollFollow",
       "main.streamSmooth",
       "main.printSpeed",
