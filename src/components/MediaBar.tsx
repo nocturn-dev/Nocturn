@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import {
   lyricsFetch,
   mediaControl,
@@ -156,11 +156,19 @@ export function MediaBar({ prefs }: { prefs: MediaPrefs }) {
   const customColor =
     prefs.lyricColorMode === "custom" ? prefs.lyricColor : null;
 
+  // Пара цветов переливания: var'ы на корне бара, CSS-градиент их читает
+  // (см. .media-text-shimmer в index.css)
+  const shimmerVars = {
+    "--shim-from": prefs.shimmerFrom,
+    "--shim-to": prefs.shimmerTo,
+  } as CSSProperties;
+
   return (
     <div
       className={`anim-fade relative z-20 flex h-9 items-center gap-2.5 border-b border-halo-line/60 bg-halo-deep/60 px-4 backdrop-blur ${
         prefs.textShimmer ? "media-text-shimmer" : ""
       }`}
+      style={shimmerVars}
     >
       {prefs.cover && state.cover && (
         <img

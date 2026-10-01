@@ -176,6 +176,38 @@ export function IntegrationsSection({
             on={mediaPrefs.textShimmer}
             onChange={(v) => onMediaPrefsChange({ ...mediaPrefs, textShimmer: v })}
           />
+          {/* Пара цветов переливания: от → к (поток гоняет эти два цвета) */}
+          {mediaPrefs.textShimmer && (
+            <div className="mb-1 flex items-center gap-2 px-2 pl-6">
+              <span className="text-[0.625rem] text-halo-muted/70">
+                {t("media.shimFrom")}
+              </span>
+              <input
+                type="color"
+                value={mediaPrefs.shimmerFrom}
+                onChange={(e) =>
+                  onMediaPrefsChange({ ...mediaPrefs, shimmerFrom: e.target.value })
+                }
+                className="h-7 w-10 cursor-pointer rounded border border-halo-line bg-transparent"
+                title={t("media.shimFrom")}
+              />
+              <span className="text-[0.625rem] text-halo-muted/70">
+                {t("media.shimTo")}
+              </span>
+              <input
+                type="color"
+                value={mediaPrefs.shimmerTo}
+                onChange={(e) =>
+                  onMediaPrefsChange({ ...mediaPrefs, shimmerTo: e.target.value })
+                }
+                className="h-7 w-10 cursor-pointer rounded border border-halo-line bg-transparent"
+                title={t("media.shimTo")}
+              />
+              <span className="text-[0.625rem] tabular-nums text-halo-muted/50">
+                {mediaPrefs.shimmerFrom} → {mediaPrefs.shimmerTo}
+              </span>
+            </div>
+          )}
         </div>
       )}
     </div>

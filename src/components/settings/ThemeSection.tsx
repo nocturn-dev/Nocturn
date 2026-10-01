@@ -1325,6 +1325,38 @@ export function ThemeSection({
         </button>
       </div>
 
+      {/* Пара цветов переливания: от → к (поток гоняет эти два цвета) */}
+      {appearance.textShimmer && (
+        <div className="mt-2.5 flex items-center gap-3 rounded-xl border border-halo-line px-3.5 py-3">
+          <div className="shrink-0">
+            <p className="whitespace-nowrap text-sm text-halo-text">
+              {t("themes.shimFrom")} → {t("themes.shimTo")}
+            </p>
+          </div>
+          <input
+            type="color"
+            value={appearance.shimmerFrom ?? "#d97757"}
+            onChange={(e) =>
+              onAppearanceChange({ ...appearance, shimmerFrom: e.target.value })
+            }
+            className="h-7 w-10 cursor-pointer rounded border border-halo-line bg-transparent"
+            title={t("themes.shimFrom")}
+          />
+          <input
+            type="color"
+            value={appearance.shimmerTo ?? "#5f87d4"}
+            onChange={(e) =>
+              onAppearanceChange({ ...appearance, shimmerTo: e.target.value })
+            }
+            className="h-7 w-10 cursor-pointer rounded border border-halo-line bg-transparent"
+            title={t("themes.shimTo")}
+          />
+          <span className="ml-auto text-[0.625rem] tabular-nums text-halo-muted/60">
+            {appearance.shimmerFrom} → {appearance.shimmerTo}
+          </span>
+        </div>
+      )}
+
       {/* Motion/Reduced: форс-глушение анимаций поверх системной настройки
           (canvas-сцены ставит на паузу App через paused у AmbientLayer) */}
       <div className="mt-2.5 flex items-center justify-between rounded-xl border border-halo-line px-3.5 py-3">
