@@ -7,14 +7,14 @@
  * сравнивается именно чистая генерация.
  */
 
-import { useEffect, useRef, useState, type ComponentPropsWithoutRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 // Модульные константы вместо литералов в JSX: новые массивы на каждый рендер
 // пересоздавали пайплайн ReactMarkdown (антипаттерн, вылеченный в
 // AssistantCard выносом MD_PLUGINS)
 const MD_PLUGINS = [remarkGfm];
-const MD_COMPONENTS = { a: CompareLink };
+const MD_COMPONENTS = { a: MarkdownLink };
 import { useDelayedUnmount } from "../motion";
 import {
   abortChat,
@@ -26,6 +26,7 @@ import {
 } from "../api";
 import { useLang } from "../locales";
 import ProviderIcon, { shortModelName } from "./ProviderIcon";
+import { MarkdownLink } from "./cards/MarkdownLink";
 
 interface CompareModalProps {
   open: boolean;
@@ -64,11 +65,6 @@ const EMPTY_LANE: LaneState = {
 };
 
 const MAX_LANES = 3;
-
-/** Ссылки из ответа — во внешнее окно (как в карточке ответа) */
-function CompareLink(props: ComponentPropsWithoutRef<"a">) {
-  return <a {...props} target="_blank" rel="noopener noreferrer" />;
-}
 
 export default function CompareModal({ open, onClose, profiles, current }: CompareModalProps) {
   const { t } = useLang();

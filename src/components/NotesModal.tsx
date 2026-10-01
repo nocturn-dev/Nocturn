@@ -5,6 +5,7 @@ import rehypeHighlight from "rehype-highlight";
 import type { Note } from "../vault";
 import { buildBacklinks, extractLinks, resolveLinks } from "../vault";
 import { useLang } from "../locales";
+import { MarkdownLink } from "./cards/MarkdownLink";
 
 /**
  * Редактор заметки (M-N1): markdown с превью, вставка [[ссылок]],
@@ -188,8 +189,8 @@ export default function NotesModal({
                       );
                     }
                     // D4: обычный <a> уводил вебвью приложения на внешний URL (фишинг
-                    // в доверенном окне) — как в AssistantCard, открываем в новом окне
-                    return <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>;
+                    // в доверенном окне) — как в AssistantCard, через системный браузер
+                    return <MarkdownLink href={href}>{children}</MarkdownLink>;
                   },
                 }}
               >

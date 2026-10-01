@@ -48,6 +48,10 @@ tauri-plugin-updater = "2"
 tauri-plugin-single-instance = "2.4.5"
 tauri-plugin-autostart = "2"
 tauri-plugin-global-shortcut = "2"
+# Открытие внешних ссылок в системном браузере: target="_blank" в wry — deny
+# на всех платформах без обработчика new-window, а навигация самого вебвью —
+# фишинг в доверенном окне. Потребитель — MarkdownLink (фронт)
+tauri-plugin-opener = "2"
 url = "2"
 
 [target.'cfg(unix)'.dependencies]

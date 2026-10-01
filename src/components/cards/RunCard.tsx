@@ -12,6 +12,7 @@ import { type Message, type ToolCallInfo } from "../../types";
 import type { StepRow } from "../../agent/steps";
 import { useLang } from "../../locales";
 import { StepAccordion } from "./StepAccordion";
+import { MarkdownLink } from "./MarkdownLink";
 import { SubagentCard } from "./SubagentCard";
 import { ErrorNote } from "./ErrorNote";
 import { CodeBlock } from "./AssistantCard";
@@ -27,13 +28,6 @@ import remarkGfm from "remark-gfm";
 const MD_PLUGINS = [remarkGfm];
 const REHYPE_PLUGINS = [rehypeHighlight];
 const REHYPE_PLUGINS_NO_HL: typeof REHYPE_PLUGINS = [];
-
-function MarkdownLink({
-  node: _node,
-  ...props
-}: ComponentPropsWithoutRef<"a"> & { node?: unknown }) {
-  return <a {...props} target="_blank" rel="noopener noreferrer" />;
-}
 
 /**
  * Лента хода в стиле ZCode (фидбек 30.09): ВЕСЬ ход — один плоский фид

@@ -1,11 +1,13 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "quickentry-window",
-  "description": "Разрешения окна быстрого ввода: подгонка высоты окна под контент (ResizeObserver → setSize). Без allow-set-size ACL резал вызов на всех платформах, и окно навсегда оставалось 104 px из tauri.conf.json",
+  "description": "Разрешения окна быстрого ввода: базовое ядро (события окна/фокус), подгонка высоты под контент (ResizeObserver, setSize), Esc/onBlur, hide. Диалоги/updater/autostart/notification окну не нужны - периметр invoke сужен до необходимого.",
   "windows": [
     "quickentry"
   ],
   "permissions": [
-    "core:window:allow-set-size"
+    "core:default",
+    "core:window:allow-set-size",
+    "core:window:allow-hide"
   ]
 }
