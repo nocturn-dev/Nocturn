@@ -6,6 +6,7 @@ import { ReflectSection } from "./settings/ReflectSection";
 import { WebSearchSection } from "./settings/WebSearchSection";
 import { ProfileSection } from "./settings/ProfileSection";
 import { RestSection, type GameId } from "./settings/RestSection";
+import { IntegrationsSection } from "./settings/IntegrationsSection";
 import { SETTINGS_SEARCH_INDEX } from "./settings/searchIndex";
 import SupportModal from "./SupportModal";
 import SubagentsSection from "./SubagentsSection";
@@ -37,6 +38,7 @@ import type { Section, ApiStatus } from "./settings/types";
 import type { Appearance } from "../appearance";
 import type { ThemeProfile } from "../themeProfiles";
 import type { NotifyPrefs, RunSoundPrefs } from "../notify";
+import type { MediaPrefs } from "../mediaPrefs";
 import type { HardLimits } from "../limits";
 import type { ShortcutBinds, CustomShortcut } from "../shortcuts";
 import type { PromptPreset } from "../presets";
@@ -110,6 +112,9 @@ interface SettingsModalProps {
   /** Уведомления о завершении/подтверждении, когда окно не в фокусе */
   notifyPrefs: NotifyPrefs;
   onNotifyPrefsChange: (p: NotifyPrefs) => void;
+  /** Медиа-минибар (вкладка «Интеграции») */
+  mediaPrefs: MediaPrefs;
+  onMediaPrefsChange: (p: MediaPrefs) => void;
   /** Звуки прогона: фоновая обратная связь в фокусе приложения */
   runSoundPrefs: RunSoundPrefs;
   onRunSoundPrefsChange: (p: RunSoundPrefs) => void;
@@ -219,6 +224,10 @@ const NAV: {
     items: [{ id: "rest", key: "settings.rest", icon: "gamepad" }],
   },
   {
+    group: "nav.integrations",
+    items: [{ id: "integrations", key: "settings.integrations", icon: "spotify" }],
+  },
+  {
     group: "nav.help",
     items: [{ id: "docs", key: "settings.docs", icon: "book" }],
   },
@@ -276,6 +285,8 @@ export default function SettingsModal({
   onGroupTurnsChange,
   notifyPrefs,
   onNotifyPrefsChange,
+  mediaPrefs,
+  onMediaPrefsChange,
   runSoundPrefs,
   onRunSoundPrefsChange,
   subConfig,
@@ -781,6 +792,12 @@ export default function SettingsModal({
           {section === "network" && <NetworkSection />}
           {section === "rest" && (
             <RestSection game={restGame} onGameChange={setRestGame} />
+          )}
+          {section === "integrations" && (
+            <IntegrationsSection
+              mediaPrefs={mediaPrefs}
+              onMediaPrefsChange={onMediaPrefsChange}
+            />
           )}
           {section === "docs" && <DocsSection />}
           {section === "mcp" && <McpSection />}

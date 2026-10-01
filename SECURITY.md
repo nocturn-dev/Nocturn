@@ -65,6 +65,11 @@ session store.
   GET outside the `connect-src` fence. This is an accepted trade-off —
   rendering provider images is a deliberate feature; if you do not need
   remote images, remove `https:` from `img-src` in `src-tauri/tauri.conf.json`.
+- **Lyrics lookups (opt-in, off by default).** The media mini-bar can fetch
+  synced lyrics from lrclib.net — a free, keyless API. When enabled, it
+  sends the track title and artist name (nothing else). Playback state and
+  control never leave the machine: they go through the OS media controls
+  (SMTC on Windows), with no Spotify account or network involved.
 
 ## Reporting
 

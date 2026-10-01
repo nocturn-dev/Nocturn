@@ -26,6 +26,7 @@ export type Section =
   | "reflect"
   | "network"
   | "rest"
+  | "integrations"
   | "docs";
 
 /** Навигация настроек: группы как в агентских CLI (Basics / Agent

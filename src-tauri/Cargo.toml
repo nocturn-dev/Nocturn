@@ -63,6 +63,15 @@ libc = "0.2"
 # умеет только дефолтное устройство. rodio = cpal + декодер; wav —
 # единственный нужный формат (наш собственный рендер)
 rodio = { version = "0.19", default-features = false, features = ["wav"] }
+# Медиа-минибар: состояние и управление плеером через системные SMTC
+# (System Media Transport Controls) — без аккаунтов и облака Spotify
+windows = { version = "0.61", features = [
+    "Foundation",
+    "Foundation_Collections",
+    "Media_Control",
+    "Storage_Streams",
+    "Win32_System_Com",
+] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # Портал GlobalShortcuts — единственный легальный путь глобальных хоткеев на

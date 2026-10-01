@@ -95,6 +95,7 @@ import {
 } from "./shortcuts";
 import { buildChainPlan, parseNotePrompt, type Note } from "./vault";
 import { loadNotifyPrefs, saveNotifyPrefs, loadRunSoundPrefs, saveRunSoundPrefs, type NotifyPrefs, type RunSoundPrefs } from "./notify";
+import { loadMediaPrefs, saveMediaPrefs, type MediaPrefs } from "./mediaPrefs";
 import { subagentsLoad, subagentsSave, commandsLoad, pluginsLoad, type Plugin, type UserCommand } from "./api";
 import {
   parseSubagentsConfig,
@@ -905,6 +906,11 @@ export default function App() {
   useEffect(() => {
     saveRunSoundPrefs(runSoundPrefs);
   }, [runSoundPrefs]);
+  // Медиа-минибар («Интеграции»): стейт для настроек и рендера полоски
+  const [mediaPrefs, setMediaPrefs] = useState<MediaPrefs>(loadMediaPrefs);
+  useEffect(() => {
+    saveMediaPrefs(mediaPrefs);
+  }, [mediaPrefs]);
   /** Строка «проект · модель» для тела уведомления */
   const notifyMeta = (s: Session | null) => {
     const project = projects.find((p) => p.id === s?.projectId);
@@ -2363,6 +2369,7 @@ export default function App() {
         pendingAsk={pendingAsk}
         onAskAnswer={handleAskAnswer}
         onConfirmDecision={handleConfirmDecision}
+        mediaPrefs={mediaPrefs}
         projects={projects}
         activeProjectId={activeProjectId}
         onNewProject={handleNewProjectFromComposer}
@@ -2552,6 +2559,8 @@ export default function App() {
         onGroupTurnsChange={setGroupTurns}
         notifyPrefs={notifyPrefs}
         onNotifyPrefsChange={setNotifyPrefs}
+        mediaPrefs={mediaPrefs}
+        onMediaPrefsChange={setMediaPrefs}
         runSoundPrefs={runSoundPrefs}
         onRunSoundPrefsChange={setRunSoundPrefs}
         plugins={plugins}
