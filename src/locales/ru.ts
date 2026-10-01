@@ -1188,6 +1188,7 @@ export const ru = {
     "media.coverDesc": "Миниатюра из системного плеера, никуда не отправляется",
     "media.unavailable": "Медиа-интеграция доступна только на Windows",
     "media.lyricsColor": "Подсветка текста",
+    "media.lyricsMissing": "Текст отсутствует",
     "media.lyricsTheme": "Текст под тему Nocturn",
     "media.lyricsCustom": "Собственный цвет текста",
     "media.warnTitle": "⚠️ Локальный хардкор",

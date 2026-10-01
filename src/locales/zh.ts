@@ -1200,6 +1200,7 @@ export const zh = {
     "media.coverDesc": "来自系统播放器的缩略图，不会上传到任何地方",
     "media.unavailable": "媒体集成仅在 Windows 上可用",
     "media.lyricsColor": "高亮颜色",
+    "media.lyricsMissing": "歌词缺失",
     "media.lyricsTheme": "文本随主题配色",
     "media.lyricsCustom": "自定义文本颜色",
     "media.warnTitle": "⚠️ 本地硬核",

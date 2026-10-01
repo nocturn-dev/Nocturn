@@ -1171,6 +1171,7 @@ export const en = {
     "media.coverDesc": "Thumbnail from the OS player, never uploaded anywhere",
     "media.unavailable": "The media integration is available on Windows only",
     "media.lyricsColor": "Highlight color",
+    "media.lyricsMissing": "Lyrics unavailable",
     "media.lyricsTheme": "Theme-matched text",
     "media.lyricsCustom": "Custom text color",
     "media.warnTitle": "⚠️ Local hardcore",
