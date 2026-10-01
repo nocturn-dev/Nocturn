@@ -531,3 +531,21 @@ OAuth-аккаунтность, автоапдейтер-phone-home, облач�
 ## Протокол каждого блока
 `node scripts/verify.mjs fast` — перед сдачей; `all` — перед передачей
 пользователю; pre-commit hook (fast) стоит у пользователя автоматически.
+
+## 13. Волна аудита №2 (01.10): 37 находок — закрыты
+Полный read-only аудит (4 субагента + супервизор, каждая находка верифицирована
+по файл:строки). Итог: 1 критическая (Computer Use на macOS Retina — деление
+вместо умножения в enigo_abs_coords), 7 высоких (утечка AbortRegistry, мёртвые
+внешние ссылки на всех платформах, SECURITY-обход workflow_run в ask/edit,
+пробой memo RunCard на тик стрима, 3 дефекта каскада Official/user-CSS),
+13 средних, 16 низких. Исправлено 35, 2 — сознательные решения владельца:
+img-src https: (markdown-картинки провайдеров, решение 26.09) — трейдофф
+задокументирован в SECURITY.md; ambient-behind поверх sidebar-glass — фидбек
+26.09, поведение по дизайну. Системные последствия: ~40 команд переведены на
+spawn_blocking (паттерн `*_blocking` + async-обёртка), capabilities сужены
+(opener:default только main, quickentry — core+setSize+hide), внешний
+MarkdownLink через tauri-plugin-opener, user-CSS — верхний слой head,
+z-лестница реально используется. Новые тесты: PBKDF2 golden-вектор, AbortGuard
+реестр-регресс, паритет палитры index.css ↔ STYLE_PALETTES. Коммиты
+`21fde0d`, `051c507`, `762d9b6`, `06fa74e`, `e96b4f1`, `ebb9be4`, `450dfdf`,
+`c871939`, `6a26327`. verify all зелёный (63.5s).
