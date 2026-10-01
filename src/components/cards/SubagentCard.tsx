@@ -2,6 +2,7 @@ import { useLang } from "../../locales";
 import { type SubRunState } from "../../subagents";
 import { type ToolCallInfo } from "../../types";
 import { memo, useState } from "react";
+import { StarburstIcon } from "./icons";
 
 function SubagentCardBase({
   mid,
@@ -39,7 +40,9 @@ function SubagentCardBase({
         className="flex w-full items-center gap-2 px-3 py-2 text-left"
       >
         {running ? (
-          <span className="size-2 shrink-0 animate-pulse rounded-full bg-halo-accent" />
+          <span className="shrink-0 text-halo-accent">
+            <StarburstIcon size={12} className="work-status-star" />
+          </span>
         ) : (
           <span className="shrink-0 text-[0.6875rem] text-emerald-400">✓</span>
         )}
