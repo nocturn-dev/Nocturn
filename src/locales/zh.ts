@@ -1186,6 +1186,8 @@ export const zh = {
     "agent.rowReviewTitle": "在 Review 面板中查看该文件的差异",
     "agent.rowOpen": "Open",
     "agent.rowOpenTitle": "用系统应用打开文件",
+    "project.pick": "项目",
+    "project.none": "无项目",
     "agent.diffLinesAdded": "+{n} 新增",
     "agent.diffLinesRemoved": "−{n} 删除",
     "agent.errorResult": "错误",

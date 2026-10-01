@@ -1157,6 +1157,8 @@ export const en = {
     "agent.rowReviewTitle": "Open the file diff in the Review panel",
     "agent.rowOpen": "Open",
     "agent.rowOpenTitle": "Open the file with the system app",
+    "project.pick": "Project",
+    "project.none": "No project",
     "agent.diffLinesAdded": "+{n} added",
     "agent.diffLinesRemoved": "−{n} removed",
     "agent.errorResult": "Error",

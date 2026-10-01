@@ -1174,6 +1174,8 @@ export const ru = {
     "agent.rowReviewTitle": "Дифф файла в панели Review",
     "agent.rowOpen": "Open",
     "agent.rowOpenTitle": "Открыть файл системным приложением",
+    "project.pick": "Проект",
+    "project.none": "Без проекта",
     "agent.diffLinesAdded": "+{n} доб.",
     "agent.diffLinesRemoved": "−{n} удал.",
     "agent.errorResult": "Ошибка",
