@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import type { AskQuestion, Attachment, ChangedFile, Message, PermissionMode, PlanTask, Session, ToolCallInfo } from "../types";
+import type { AskQuestion, Attachment, ChangedFile, Message, PermissionMode, PlanTask, Project, Session, ToolCallInfo } from "../types";
 import type { PromptPreset } from "../presets";
 import { normalizePath, parseWriteResult } from "../diff";
 import type { SlashCommand } from "../commands";
@@ -36,7 +36,7 @@ import { ToolStepCard } from "./cards/ToolStepCard";
 import { TypingBubble } from "./cards/TypingBubble";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { UserCard } from "./cards/UserCard";
-import { ArrowUpIcon, BookIcon, ChevronDownIcon, CorrectIcon, MicIcon, PaperclipIcon, PermModeIcon, QueueIcon, QuoteIcon, RobotIcon, ScalesIcon, ShieldIcon, SlidersIcon, SparkIcon, StopIcon, SystemPromptIcon, TerminalIcon, TrashIcon, WrenchIcon, XSmallIcon } from "./cards/icons";
+import { ArrowUpIcon, BookIcon, ChevronDownIcon, CorrectIcon, FolderIcon, MicIcon, PaperclipIcon, PermModeIcon, QueueIcon, QuoteIcon, RobotIcon, ScalesIcon, ShieldIcon, SlidersIcon, SparkIcon, StopIcon, SystemPromptIcon, TerminalIcon, TrashIcon, WrenchIcon, XSmallIcon } from "./cards/icons";
 import { fmtInt, fmtK } from "./cards/util";
 import { CHART_COLORS } from "../chartColors";
 
@@ -54,11 +54,14 @@ function artifactTitleFromHtml(html: string): string | null {
 /** Единая анатомия чипов нижней панели композера: одна высота, паддинги
  *  и кегль у всех контролов — раньше каждый чип жил со своими px/py/кеглем,
  *  и ряд «плясал» по вертикали (фидбек владельца про непропорциональные
- *  иконки; референсы — Claude Desktop и ZCode) */
+ *  иконки; референсы — Claude Desktop и ZCode). Обводка — hairline 1px:
+ *  активный акцент/25, неактивный прозрачный (толстые рамки — фидбек 01.10) */
 const COMPOSER_CHIP =
-  "flex h-7 shrink-0 items-center gap-1.5 rounded-lg px-2 text-[0.6875rem] font-medium transition duration-150 disabled:cursor-not-allowed disabled:opacity-40";
-const COMPOSER_CHIP_ON = "bg-halo-accent/15 text-halo-accent";
-const COMPOSER_CHIP_OFF = "text-halo-muted hover:bg-halo-hover hover:text-halo-text";
+  "flex h-7 shrink-0 items-center gap-1.5 rounded-lg border px-2 text-[0.6875rem] font-medium transition duration-150 disabled:cursor-not-allowed disabled:opacity-40";
+const COMPOSER_CHIP_ON =
+  "border-halo-accent/25 bg-halo-accent/10 text-halo-accent";
+const COMPOSER_CHIP_OFF =
+  "border-transparent text-halo-muted hover:bg-halo-hover hover:text-halo-text";
 
 /** Стабильная пустая лента результатов tool-вызовов: `?? []` в рендере
  *  создавал новый массив на каждую пересборку ленты и пробивал поверхностное
@@ -89,6 +92,10 @@ interface ChatAreaProps {
   onToggleDisabledTool: (name: string) => void;
   /** Ожидающее подтверждение агента */
   pendingConfirm: { requestId: string; call: ToolCallInfo } | null;
+  /** Селектор проекта над центрированным композером (пустой чат) */
+  projects: Project[];
+  activeProjectId: string | null;
+  onSelectProject: (id: string | null) => void;
   /** Открыть настройки на конкретной секции (карточки статусов дашборда) */
   onOpenSettingsSection?: (section: "mcp" | "main") => void;
   /** Встроенные роли (Код / Инженер / …) — QuickSettings-поповер композера */
@@ -264,6 +271,9 @@ export default function ChatArea({
   onConfirmDecision,
   pendingAsk,
   onAskAnswer,
+  projects,
+  activeProjectId,
+  onSelectProject,
   onUndoWrite,
   onReviewChanges,
   onOpenFileExternal,
@@ -343,6 +353,8 @@ export default function ChatArea({
     setSessionChangesOpen(false);
   }, [sessionKey]);
   const [sessionChangesOpen, setSessionChangesOpen] = useState(false);
+  // Селектор проекта над центрированным композером (ZCode-стиль)
+  const [projectOpen, setProjectOpen] = useState(false);
   const [permOpen, setPermOpen] = useState(false);
   // Поповер «Инструменты»: список имён из живых схем, тянется один раз при открытии
   const [toolsOpen, setToolsOpen] = useState(false);
@@ -994,6 +1006,9 @@ export default function ChatArea({
   // раз в минуту ре-рендерил весь ChatArea с сотнями карточек впустую
   const [now, setNow] = useState(() => new Date());
   const greetingVisible = visible.length === 0 && !typing;
+  // Пустой чат без терминала: композер уезжает в центр экрана (ZCode-стиль),
+  // приветствие сдвигается выше, селектор проекта — прямо над композером
+  const composerCentered = greetingVisible && !terminalOpen;
   useEffect(() => {
     if (!greetingVisible) return;
     const iv = window.setInterval(() => setNow(new Date()), 60_000);
@@ -1743,7 +1758,7 @@ export default function ChatArea({
         className="scroll-slim relative z-10 h-full overflow-y-auto"
       >
         {visible.length === 0 && !typing ? (
-          <div className="relative flex h-full flex-col items-center justify-center overflow-hidden px-6 text-center">
+          <div className={`relative flex h-full flex-col items-center justify-center overflow-hidden px-6 text-center ${composerCentered ? "pb-[30vh]" : ""}`}>
             {/* Гигантский призрачный логотип фоном — как в ZCode */}
             <div className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-[64%] select-none opacity-[0.05]">
               <NocturnMark size={480} />
@@ -1821,9 +1836,91 @@ export default function ChatArea({
         onClose={() => setSysOpen(false)}
       />
 
-      {/* Поле ввода с нижней панелью: модель · подсказка · отправка */}
-      <div className="shrink-0 px-6 pb-5">
-        <div className="mx-auto w-full max-w-3xl">
+      {/* Поле ввода с нижней панелью: модель · подсказка · отправка.
+          Пустой чат — композер уезжает в центр (ZCode-стиль), абсолютом:
+          из потока он исчезает, и приветствие центрируется на всей высоте */}
+      <div
+        className={
+          composerCentered
+            ? "absolute inset-x-0 top-[57%] z-30 -translate-y-1/2 px-6"
+            : "shrink-0 px-6 pb-5"
+        }
+      >
+        <div className={`mx-auto w-full ${composerCentered ? "max-w-2xl" : "max-w-3xl"}`}>
+          {/* Селектор проекта — только в центрированном режиме (скрин 2:
+              «HaloUI ▾» над композером). Выбор задаёт и контекст чатов,
+              и корень работы, если у проекта есть папка */}
+          {composerCentered && (
+            <div className="mb-2 flex justify-center gap-1.5">
+              <div className="relative">
+                <button
+                  onClick={() => setProjectOpen((v) => !v)}
+                  title={t("project.pick")}
+                  className={`${COMPOSER_CHIP} ${
+                    activeProjectId ? COMPOSER_CHIP_ON : COMPOSER_CHIP_OFF
+                  }`}
+                >
+                  <FolderIcon />
+                  <span className="max-w-44 truncate">
+                    {activeProjectId
+                      ? (projects.find((p) => p.id === activeProjectId)?.name ??
+                        t("project.none"))
+                      : t("project.none")}
+                  </span>
+                  <ChevronDownIcon />
+                </button>
+                {projectOpen && (
+                  <>
+                    <div
+                      className="fixed inset-0 z-20"
+                      onClick={() => setProjectOpen(false)}
+                    />
+                    <div className="scroll-slim anim-pop absolute bottom-full left-1/2 z-30 mb-2 max-h-64 w-64 -translate-x-1/2 overflow-y-auto rounded-xl border border-halo-line bg-halo-deep/95 p-1.5 shadow-xl backdrop-blur">
+                      <p className="px-2 pb-1 text-[0.625rem] uppercase tracking-wider text-halo-muted/60">
+                        {t("project.pick")}
+                      </p>
+                      <button
+                        onClick={() => {
+                          onSelectProject(null);
+                          setProjectOpen(false);
+                        }}
+                        className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs transition-colors ${
+                          activeProjectId === null
+                            ? "bg-halo-accent/10 text-halo-text"
+                            : "text-halo-muted hover:bg-halo-hover hover:text-halo-text"
+                        }`}
+                      >
+                        {t("project.none")}
+                      </button>
+                      {projects.map((p) => (
+                        <button
+                          key={p.id}
+                          onClick={() => {
+                            onSelectProject(p.id);
+                            setProjectOpen(false);
+                          }}
+                          className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors ${
+                            activeProjectId === p.id
+                              ? "bg-halo-accent/10 text-halo-text"
+                              : "text-halo-muted hover:bg-halo-hover hover:text-halo-text"
+                          }`}
+                        >
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-xs">{p.name}</span>
+                            {p.root && (
+                              <span className="block truncate text-[0.625rem] text-halo-muted/60">
+                                {p.root}
+                              </span>
+                            )}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
           {/* z-30 выше ленты сообщений (z-10): glass-pane создаёт stacking
               context, и палитра slash без этого слоя оказывалась под лентой */}
           <div className="glass-pane relative z-30 rounded-2xl border border-halo-line bg-halo-surface p-2.5 shadow-sm transition duration-200">

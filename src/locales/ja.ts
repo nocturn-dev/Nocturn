@@ -1186,6 +1186,8 @@ export const ja = {
     "agent.rowReviewTitle": "Reviewパネルでこのファイルの差分を開く",
     "agent.rowOpen": "Open",
     "agent.rowOpenTitle": "システムアプリでファイルを開く",
+    "project.pick": "プロジェクト",
+    "project.none": "プロジェクトなし",
     "agent.diffLinesAdded": "+{n} 追加",
     "agent.diffLinesRemoved": "−{n} 削除",
     "agent.errorResult": "エラー",

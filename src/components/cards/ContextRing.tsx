@@ -18,7 +18,7 @@ export function ContextRing({
   const [open, setOpen] = useState(false);
   const pct = limit > 0 ? Math.min(1, used / limit) : 0;
   const color = pct >= 0.85 ? "#d14b4b" : pct >= 0.6 ? "#d4aa50" : "#5fbe82";
-  const R = 7;
+  const R = 6;
   const C = 2 * Math.PI * R;
   const fmt = (n: number) =>
     n >= 1000 ? `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}K` : String(n);
@@ -32,23 +32,24 @@ export function ContextRing({
         title={t("ctx.title")}
         className="flex size-6 items-center justify-center rounded-md transition-colors hover:bg-halo-hover"
       >
-        <svg width="20" height="20" viewBox="0 0 20 20">
-          <circle cx="10" cy="10" r={R} fill="none" stroke="var(--halo-line)" strokeWidth={2.5} />
-          <circle
-            cx="10"
-            cy="10"
-            r={R}
-            fill="none"
-            stroke={color}
-            strokeWidth={2.5}
-            strokeLinecap="round"
-            strokeDasharray={`${C * pct} ${C}`}
-            transform="rotate(-90 10 10)"
-            style={{ transition: "stroke-dasharray 0.4s ease" }}
-          />
-          <text x="10" y="13" textAnchor="middle" fill="var(--halo-muted)" fontSize={7}>
-            {Math.round(pct * 100)}
-          </text>
+        {/* Чистое кольцо заполнения без цифры (фидбек владельца: «0» внутри
+            выпирало) — детали по hover в поповере. Тонкие 2px, как у ZCode */}
+        <svg width="16" height="16" viewBox="0 0 16 16">
+          <circle cx="8" cy="8" r={R} fill="none" stroke="var(--halo-line)" strokeWidth={2} />
+          {pct > 0.005 && (
+            <circle
+              cx="8"
+              cy="8"
+              r={R}
+              fill="none"
+              stroke={color}
+              strokeWidth={2}
+              strokeLinecap="round"
+              strokeDasharray={`${C * pct} ${C}`}
+              transform="rotate(-90 8 8)"
+              style={{ transition: "stroke-dasharray 0.4s ease" }}
+            />
+          )}
         </svg>
       </button>
       {open && (

@@ -2350,6 +2350,15 @@ export default function App() {
         pendingAsk={pendingAsk}
         onAskAnswer={handleAskAnswer}
         onConfirmDecision={handleConfirmDecision}
+        projects={projects}
+        activeProjectId={activeProjectId}
+        onSelectProject={(id) => {
+          setActiveProjectId(id);
+          // Корень работы следует за проектом: выбор над композером задаёт
+          // и контекст новых чатов, и рабочую папку (ZCode-стиль)
+          const p = id ? projects.find((x) => x.id === id) : undefined;
+          if (p?.root) setProjectRoot(p.root);
+        }}
         onOpenSettingsSection={(s) => {
           setSettingsSection(s);
           setSettingsOpen(true);
