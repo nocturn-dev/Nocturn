@@ -1172,6 +1172,8 @@ export const en = {
     "media.cover": "Track artwork",
     "media.coverDesc": "Thumbnail from the OS player, never uploaded anywhere",
     "media.unavailable": "The media integration is available on Windows only",
+    "media.live": "Player state:",
+    "media.liveIdle": "nothing is playing (start Spotify and press play)",
     "media.ttPrev": "Previous track",
     "media.ttPlay": "Pause / play",
     "media.ttNext": "Next track",

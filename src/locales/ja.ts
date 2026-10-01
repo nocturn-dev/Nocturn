@@ -1201,6 +1201,8 @@ export const ja = {
     "media.cover": "曲のアートワーク",
     "media.coverDesc": "OS プレイヤーからのサムネイル。どこにも送信されません",
     "media.unavailable": "メディア統合は Windows でのみ利用できます",
+    "media.live": "プレイヤーの状態：",
+    "media.liveIdle": "再生中のものはありません（Spotify で再生してください）",
     "media.ttPrev": "前の曲",
     "media.ttPlay": "一時停止 / 再生",
     "media.ttNext": "次の曲",
