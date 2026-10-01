@@ -20,10 +20,13 @@ export interface ArtifactView {
 export function ArtifactsPanel({
   open,
   artifact,
+  veil = false,
   onClose,
 }: {
   open: boolean;
   artifact: ArtifactView | null;
+  /** Живой артефакт ещё стримится: шиммер-вуаль поверх iframe */
+  veil?: boolean;
   onClose: () => void;
 }) {
   const { t } = useLang();
@@ -48,14 +51,18 @@ export function ArtifactsPanel({
         </button>
       </div>
       {artifact ? (
-        // sandbox без allow-same-origin: scripts работают, API браузера
-        // (storage/IPC/cookie) — нет; srcdoc изолирован от приложения
-        <iframe
-          title={artifact.title}
-          srcDoc={artifact.html}
-          sandbox="allow-scripts allow-modals"
-          className="min-h-0 flex-1 border-0 bg-white"
-        />
+        <div className="relative min-h-0 flex-1">
+          {/* sandbox без allow-same-origin: scripts работают, API браузера
+              (storage/IPC/cookie) — нет; srcdoc изолирован от приложения.
+              Живой артефакт стримится в ЭТОТ же фрейм — изоляция та же */}
+          <iframe
+            title={artifact.title}
+            srcDoc={artifact.html}
+            sandbox="allow-scripts allow-modals"
+            className="h-full w-full border-0 bg-white"
+          />
+          {veil && <div className="shimmer absolute inset-0 bg-halo-deep/70" />}
+        </div>
       ) : (
         <p className="px-4 py-6 text-center text-xs text-halo-muted/60">
           {t("artifacts.empty")}

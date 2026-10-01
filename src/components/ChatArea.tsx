@@ -40,6 +40,17 @@ import { ArrowUpIcon, BookIcon, ChevronDownIcon, CorrectIcon, MicIcon, Paperclip
 import { fmtInt, fmtK } from "./cards/util";
 import { CHART_COLORS } from "../chartColors";
 
+/** Заголовок артефакта из <title>/<h1> частичного HTML; null — заголовка
+ *  ещё нет (стрим в начале). Единая эвристика для openArtifact и
+ *  живого артефакта — раньше она жила только в openArtifact */
+function artifactTitleFromHtml(html: string): string | null {
+  const m =
+    /<title[^>]*>([\s\S]{1,120}?)<\/title>/i.exec(html) ??
+    /<h1[^>]*>([\s\S]{1,120}?)<\/h1>/i.exec(html);
+  const captured = m?.[1];
+  return captured ? captured.replace(/<[^>]*>/g, "").trim() || null : null;
+}
+
 /** Стабильная пустая лента результатов tool-вызовов: `?? []` в рендере
  *  создавал новый массив на каждую пересборку ленты и пробивал поверхностное
  *  сравнение memo AssistantCard — исторические карточки без инструментов
@@ -360,18 +371,24 @@ export default function ChatArea({
   const [artifactOpen, setArtifactOpen] = useState(false);
   const openArtifact = useCallback(
     (html: string) => {
-      const m =
-        /<title[^>]*>([\s\S]{1,120}?)<\/title>/i.exec(html) ??
-        /<h1[^>]*>([\s\S]{1,120}?)<\/h1>/i.exec(html);
-      const captured = m?.[1];
-      const title = captured
-        ? captured.replace(/<[^>]*>/g, "").trim()
-        : t("artifacts.fallback");
+      const title = artifactTitleFromHtml(html) ?? t("artifacts.fallback");
       setArtifactView({ html, title });
       setArtifactOpen(true);
     },
     [t],
   );
+  // ---------- Живой артефакт ----------
+  // Пока модель стримит ```html-блок, панель Artifacts обновляется живьём:
+  // частичный HTML уезжает в тот же sandbox-iframe с дебаунсом 120мс
+  // (перелив iframe на каждый чанк давал бы постоянные реflow'ы), поверх —
+  // шиммер-вуаль, пока фенс не закрыт. Авто-открытие — один раз на фенс:
+  // закрыл руками — не всплывает до следующего блока/прогона
+  const [artifactVeil, setArtifactVeil] = useState(false);
+  const liveFenceRef = useRef({ start: -1, msgId: "", dismissed: false, timer: 0 });
+  const artifactOpenRef = useRef(artifactOpen);
+  useEffect(() => {
+    artifactOpenRef.current = artifactOpen;
+  }, [artifactOpen]);
   // Диктовка: запись микрофона через вебвью (PCM 16 кГц моно) → whisper-cli
   // в отдельном процессе бекенда. Аудио живёт только в буфере записи и во
   // временном wav на время транскрипции — локально by design
@@ -811,6 +828,59 @@ export default function ChatArea({
     turnCacheRef.current = nextCache;
     return { turns: out, callById };
   }, [messages]);
+
+  // ---------- Живой артефакт (эффект живёт ниже объявления messages) ----------
+  useEffect(() => {
+    const m = streamingMsgId
+      ? messages.find((x) => x.id === streamingMsgId)
+      : undefined;
+    if (!m) {
+      // Стрим завершился: finalize сперва дренирует дельты, поэтому финальный
+      // контент УЖЕ в messages — коммитим его синхронно (на abort вуаль
+      // обязана погаснуть даже посреди фенса)
+      const lastId = liveFenceRef.current.msgId;
+      const lm = lastId ? messages.find((x) => x.id === lastId) : undefined;
+      const match = lm
+        ? /```html[^\n]*\n([\s\S]*?)(```|$)/.exec(lm.content)
+        : null;
+      setArtifactVeil(false);
+      if (match) {
+        const html = match[1] ?? "";
+        setArtifactView((prev) => {
+          const title = artifactTitleFromHtml(html) ?? t("artifacts.fallback");
+          return prev?.html === html && prev?.title === title
+            ? prev
+            : { html, title };
+        });
+      }
+      liveFenceRef.current = { start: -1, msgId: "", dismissed: false, timer: 0 };
+      return;
+    }
+    const match = /```html[^\n]*\n([\s\S]*?)(```|$)/.exec(m.content);
+    if (!match) return;
+    const start = match.index;
+    if (liveFenceRef.current.start !== start) {
+      // Новый фенс (или новый прогон) — «не всплывать» сбрасывается
+      liveFenceRef.current.start = start;
+      liveFenceRef.current.msgId = m.id;
+      liveFenceRef.current.dismissed = false;
+    }
+    window.clearTimeout(liveFenceRef.current.timer);
+    liveFenceRef.current.timer = window.setTimeout(() => {
+      const closed = match[2] === "```";
+      const html = match[1] ?? "";
+      setArtifactVeil(!closed);
+      setArtifactView((prev) => {
+        const title = artifactTitleFromHtml(html) ?? t("artifacts.fallback");
+        return prev?.html === html && prev?.title === title
+          ? prev
+          : { html, title };
+      });
+      if (!closed && !liveFenceRef.current.dismissed && !artifactOpenRef.current) {
+        setArtifactOpen(true);
+      }
+    }, 120);
+  }, [messages, streamingMsgId, t]);
 
   // Контекст окна: prompt последнего ответа ≈ текущее заполнение
   const contextUsed = useMemo(() => {
@@ -1993,36 +2063,49 @@ export default function ChatArea({
               >
                 <MicIcon />
               </button>
-              {streamingMsgId ? (
-                <>
-                  {/* Поправка агенту на ходу: рядом со Stop, пока есть черновик */}
-                  {agentMode && draft.trim() && (
-                    <button
-                      onClick={submit}
-                      title={t("composer.correct")}
-                      className="flex size-9 shrink-0 items-center justify-center rounded-xl border border-halo-line text-halo-text transition duration-150 hover:border-halo-accent/60 hover:text-halo-accent active:scale-95"
-                    >
-                      <CorrectIcon />
-                    </button>
-                  )}
-                  <button
-                    onClick={onStop}
-                    title={t("composer.stop")}
-                    className="flex size-9 shrink-0 items-center justify-center rounded-xl border border-halo-line text-halo-text transition duration-150 hover:border-red-400/60 hover:text-red-400 active:scale-95"
-                  >
-                    <StopIcon />
-                  </button>
-                </>
-              ) : (
+              {/* Поправка агенту на ходу: рядом со Stop, пока есть черновик */}
+              {streamingMsgId && agentMode && draft.trim() && (
                 <button
                   onClick={submit}
-                  disabled={!draft.trim() && pendingImages.length === 0}
-                  title={t("composer.send")}
-                  className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-halo-accent text-halo-on-accent shadow-sm transition duration-150 hover:bg-halo-accent-deep active:scale-95 disabled:cursor-not-allowed disabled:opacity-40"
+                  title={t("composer.correct")}
+                  className="flex size-9 shrink-0 items-center justify-center rounded-xl border border-halo-line text-halo-text transition duration-150 hover:border-halo-accent/60 hover:text-halo-accent active:scale-95"
                 >
-                  <ArrowUpIcon />
+                  <CorrectIcon />
                 </button>
               )}
+              {/* Морф отправка ↔ стоп: одна кнопка, обе иконки живут в ней
+                  и меняются transform'ом (клодовский «перелив» состояния).
+                  transition только по transform/opacity — конвенция дома */}
+              <button
+                onClick={streamingMsgId ? onStop : submit}
+                disabled={!streamingMsgId && !draft.trim() && pendingImages.length === 0}
+                title={t(streamingMsgId ? "composer.stop" : "composer.send")}
+                aria-label={t(streamingMsgId ? "composer.stop" : "composer.send")}
+                className={`relative flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-xl border shadow-sm transition-[background-color,border-color,color] duration-200 active:scale-95 ${
+                  streamingMsgId
+                    ? "border-halo-line bg-transparent text-halo-text hover:border-red-400/60 hover:text-red-400"
+                    : "border-transparent bg-halo-accent text-halo-on-accent hover:bg-halo-accent-deep disabled:cursor-not-allowed disabled:opacity-40"
+                }`}
+              >
+                <span
+                  className={`absolute flex transition-[transform,opacity] duration-200 ${
+                    streamingMsgId
+                      ? "scale-0 -rotate-90 opacity-0"
+                      : "scale-100 rotate-0 opacity-100"
+                  }`}
+                >
+                  <ArrowUpIcon />
+                </span>
+                <span
+                  className={`absolute flex transition-[transform,opacity] duration-200 ${
+                    streamingMsgId
+                      ? "scale-100 rotate-0 opacity-100"
+                      : "scale-0 rotate-90 opacity-0"
+                  }`}
+                >
+                  <StopIcon />
+                </span>
+              </button>
             </div>
 
             {/* Предупреждение: модель не принимает изображения */}
@@ -2326,7 +2409,13 @@ export default function ChatArea({
       <ArtifactsPanel
         open={artifactOpen}
         artifact={artifactView}
-        onClose={() => setArtifactOpen(false)}
+        veil={artifactVeil}
+        onClose={() => {
+          setArtifactOpen(false);
+          // Ручное закрытие во время стрима: не всплывать снова до
+          // следующего фенса (сбрасывается в live-эффекте)
+          liveFenceRef.current.dismissed = true;
+        }}
       />
     </section>
   );
