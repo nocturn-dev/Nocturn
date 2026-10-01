@@ -36,6 +36,10 @@ SECURITY.md; ambient-behind поверх sidebar-glass — фидбек 26.09, �
 браузер), Computer Use на Mac-железе, светлая тема стартует светлой без
 вспышки, Official + msg-glass (карточки плотные), workflow-сценарий в ask
 (карточка подтверждения), экспорт настроек в EXPORT.JSON (верхний регистр).
+Референсы для сверки кода (склонированы владельцем 01.10):
+  `C:\Users\rqxsh\.nocturn-refs\` — claude-code-source-code-full (1342
+  TS-файла декомпилированного src/) и collection-claude-code-source-code
+  (оригинал + claw-code/multi_agent). Как образец паттернов, не копипаста.
 
 ## Хэндофф 27.09.2026 — волна аудита (25 коммитов, `eaf31b5`…`590812a`)
 
