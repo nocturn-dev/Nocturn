@@ -1203,6 +1203,7 @@ export const ru = {
     "media.ytHint": "Свернуть окно: {bind} — видео продолжит играть",
     "media.ytClose": "Свернуть (звук продолжит играть)",
     "media.ytBlocked": "Видео запрещено встраивать — откройте его в браузере",
+    "media.ytBadUrl": "Не похоже на ссылку YouTube — проверьте и попробуйте ещё раз",
     "media.ytNeedEnable": "Сначала включите YouTube в «Интеграциях»",
     "media.shimFrom": "От цвета",
     "media.shimTo": "К цвету",

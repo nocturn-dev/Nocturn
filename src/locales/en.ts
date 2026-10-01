@@ -1186,6 +1186,7 @@ export const en = {
     "media.ytHint": "Collapse window: {bind} — playback continues",
     "media.ytClose": "Collapse (playback continues)",
     "media.ytBlocked": "Embedding is not allowed for this video — open it in a browser",
+    "media.ytBadUrl": "Doesn't look like a YouTube link — check it and try again",
     "media.ytNeedEnable": "Enable YouTube in Integrations first",
     "media.shimFrom": "From color",
     "media.shimTo": "To color",

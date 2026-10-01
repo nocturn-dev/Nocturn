@@ -1215,6 +1215,7 @@ export const ja = {
     "media.ytHint": "ウィンドウを折りたたむ: {bind} — 再生は継続",
     "media.ytClose": "折りたたむ（再生は継続）",
     "media.ytBlocked": "この動画は埋め込みが禁止されています — ブラウザで開いてください",
+    "media.ytBadUrl": "YouTubeのリンクではないようです — 確認して再試行してください",
     "media.ytNeedEnable": "先に「統合」で YouTube を有効にしてください",
     "media.shimFrom": "開始色",
     "media.shimTo": "終了色",
