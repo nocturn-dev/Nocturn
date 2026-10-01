@@ -114,6 +114,40 @@ import { ErrorBoundary } from "./components/ErrorBoundary";
 const clampNum = (v: number, min: number, max: number) =>
   Math.min(max, Math.max(min, v));
 
+/** Санитизация журнала usage из localStorage. Ключ пишем сами, но ручная
+ *  правка в devtools (или сторонний код того же origin) не должна ронять
+ *  flush-таймер и статистику: голый JSON.parse-cast превращал не-массив
+ *  в TypeError внутри setInterval и невосстановимо убивал журнал. Контраст:
+ *  sessions.json проходит sanitizeSession, automations — sanitizeAutomation */
+function sanitizeUsageEvents(raw: string): UsageEvent[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(parsed)) return [];
+  const out: UsageEvent[] = [];
+  for (const e of parsed) {
+    if (typeof e !== "object" || e === null) continue;
+    const u = e as Partial<UsageEvent>;
+    if (
+      typeof u.day === "string" &&
+      /^\d{4}-\d{2}-\d{2}$/.test(u.day) &&
+      typeof u.prompt === "number" &&
+      Number.isFinite(u.prompt) &&
+      typeof u.completion === "number" &&
+      Number.isFinite(u.completion) &&
+      typeof u.model === "string" &&
+      typeof u.workedMs === "number" &&
+      Number.isFinite(u.workedMs)
+    ) {
+      out.push({ day: u.day, prompt: u.prompt, completion: u.completion, model: u.model, workedMs: u.workedMs });
+    }
+  }
+  return out;
+}
+
 export default function App() {
   const { lang, t } = useLang();
   // Проекты: единственный источник истины — projects.json (загружается
@@ -330,12 +364,15 @@ export default function App() {
   const [groupTurns, setGroupTurns] = useBoolPref("haloui-group-turns", true);
   // Журнал использования (раздел «Статистика»): одна запись на отправку
   const [usageLog, setUsageLog] = useState<UsageEvent[]>(() => {
-    try {
-      const raw = localStorage.getItem("haloui-usage");
-      return raw ? (JSON.parse(raw) as UsageEvent[]) : [];
-    } catch {
-      return [];
+    const raw = localStorage.getItem("haloui-usage");
+    if (!raw) return [];
+    const events = sanitizeUsageEvents(raw);
+    if (events.length === 0 && raw.trim() !== "[]") {
+      // Невалидное содержимое стираем: бэкфилл из sessions.json снова увидит
+      // пустой ключ и восстановит журнал (голый cast оставлял поломку навсегда)
+      localStorage.removeItem("haloui-usage");
     }
+    return events;
   });
   // Зеркало для отложенного флаша (flush-эффект монтируется один раз)
   const usageLogRef = useRef(usageLog);

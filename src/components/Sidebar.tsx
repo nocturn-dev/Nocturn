@@ -849,8 +849,8 @@ function Checkpoints({ root }: { root: string }) {
           }`}
         >
           <span
-            className={`absolute top-0.5 size-3 rounded-full bg-halo-on-accent transition-all ${
-              gitOn ? "left-3.5" : "left-0.5"
+            className={`absolute left-0.5 top-0.5 size-3 rounded-full bg-halo-on-accent transition-transform duration-200 ${
+              gitOn ? "translate-x-3" : "translate-x-0"
             }`}
           />
         </span>
