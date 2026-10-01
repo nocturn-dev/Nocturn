@@ -6,7 +6,7 @@ import { ReflectSection } from "./settings/ReflectSection";
 import { WebSearchSection } from "./settings/WebSearchSection";
 import { ProfileSection } from "./settings/ProfileSection";
 import { RestSection, type GameId } from "./settings/RestSection";
-import { IntegrationsSection } from "./settings/IntegrationsSection";
+import { IntegrationsSection, IntegrationWarning } from "./settings/IntegrationsSection";
 import { SETTINGS_SEARCH_INDEX } from "./settings/searchIndex";
 import SupportModal from "./SupportModal";
 import SubagentsSection from "./SubagentsSection";
@@ -38,7 +38,7 @@ import type { Section, ApiStatus } from "./settings/types";
 import type { Appearance } from "../appearance";
 import type { ThemeProfile } from "../themeProfiles";
 import type { NotifyPrefs, RunSoundPrefs } from "../notify";
-import type { MediaPrefs } from "../mediaPrefs";
+import { loadMediaAccepted, saveMediaAccepted, type MediaPrefs } from "../mediaPrefs";
 import type { HardLimits } from "../limits";
 import type { ShortcutBinds, CustomShortcut } from "../shortcuts";
 import type { PromptPreset } from "../presets";
@@ -115,6 +115,8 @@ interface SettingsModalProps {
   /** Медиа-минибар (вкладка «Интеграции») */
   mediaPrefs: MediaPrefs;
   onMediaPrefsChange: (p: MediaPrefs) => void;
+  /** Вернуться на «Основное» из предупреждения интеграций */
+  onWarnCancel: () => void;
   /** Звуки прогона: фоновая обратная связь в фокусе приложения */
   runSoundPrefs: RunSoundPrefs;
   onRunSoundPrefsChange: (p: RunSoundPrefs) => void;
@@ -287,6 +289,7 @@ export default function SettingsModal({
   onNotifyPrefsChange,
   mediaPrefs,
   onMediaPrefsChange,
+  onWarnCancel,
   runSoundPrefs,
   onRunSoundPrefsChange,
   subConfig,
@@ -366,6 +369,9 @@ export default function SettingsModal({
   // Зеркало для Escape-хендлера: апдейтеры setState обязаны быть чистыми —
   // StrictMode зовёт их дважды, и onClose дёргался по два раза
   const restGameRef = useRef<GameId | null>(restGame);
+  // Предупреждение «Локальный хардкор»: принято в этой сессии?
+  const [mediaWarnAccepted, setMediaWarnAccepted] = useState(false);
+  const mediaWarnAcceptedRef = useRef(loadMediaAccepted());
   // Синхронизация зеркала через эффект — как в App/ChatArea/AmbientLayer:
   // запись ref в теле рендера — антипаттерн (React Compiler)
   useEffect(() => {
@@ -793,12 +799,26 @@ export default function SettingsModal({
           {section === "rest" && (
             <RestSection game={restGame} onGameChange={setRestGame} />
           )}
-          {section === "integrations" && (
-            <IntegrationsSection
-              mediaPrefs={mediaPrefs}
-              onMediaPrefsChange={onMediaPrefsChange}
-            />
-          )}
+          {/* Единоразовое предупреждение «Локальный хардкор»: пока не принято
+              (сессия) или пока не отмечено «не показывать» (навсегда) */}
+          {section === "integrations" &&
+            (mediaWarnAccepted || mediaWarnAcceptedRef.current ? (
+              <IntegrationsSection
+                mediaPrefs={mediaPrefs}
+                onMediaPrefsChange={onMediaPrefsChange}
+              />
+            ) : (
+              <IntegrationWarning
+                onAccept={(dontShow) => {
+                  if (dontShow) {
+                    saveMediaAccepted();
+                    mediaWarnAcceptedRef.current = true;
+                  }
+                  setMediaWarnAccepted(true);
+                }}
+                onCancel={onWarnCancel}
+              />
+            ))}
           {section === "docs" && <DocsSection />}
           {section === "mcp" && <McpSection />}
           {section === "imagegen" && <ImageGenSection />}

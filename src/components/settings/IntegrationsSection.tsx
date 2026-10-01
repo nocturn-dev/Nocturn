@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
-import { useLang, type MsgKey } from "../../locales";
+import { useLang } from "../../locales";
 import { isWindows } from "../../platform";
 import { mediaStatus, type MediaStateDto } from "../../api";
-import { type MediaPrefs, type MediaTrackMode } from "../../mediaPrefs";
+import type { MediaPrefs } from "../../mediaPrefs";
 import { SpotifyIcon } from "../cards/icons";
 import { ToggleRow } from "./parts";
 
@@ -22,15 +22,7 @@ export function IntegrationsSection({
 }) {
   const { t } = useLang();
   const unavailable = !isWindows();
-  const on = mediaPrefs.mode !== "off";
-
-  // Два взаимоисключающих режима (radio): клик по выбранному = выключить
-  const MODES: { id: MediaTrackMode; label: MsgKey; desc: MsgKey }[] = [
-    { id: "desktop", label: "media.modeDesktop", desc: "media.modeDesktopDesc" },
-    { id: "browser", label: "media.modeBrowser", desc: "media.modeBrowserDesc" },
-  ];
-  const setMode = (m: MediaTrackMode) =>
-    onMediaPrefsChange({ ...mediaPrefs, mode: mediaPrefs.mode === m ? "off" : m });
+  const on = mediaPrefs.bar;
 
   // Живое состояние плеера прямо на вкладке: юзер сразу видит, что бекенд
   // слышит SMTC (иначе «не работает» невозможно отличить от «не включил»)
@@ -63,11 +55,10 @@ export function IntegrationsSection({
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         {/* Карточка: иконка + название (как в «Отдыхе»); клик = включить
-            (Desktop-режим) / выключить */}
+            / выключить минибар */}
         <button
           onClick={() => {
-            if (!unavailable)
-              onMediaPrefsChange({ ...mediaPrefs, mode: on ? "off" : "desktop" });
+            if (!unavailable) onMediaPrefsChange({ ...mediaPrefs, bar: !on });
           }}
           disabled={unavailable}
           title={t("media.cardHint")}
@@ -122,47 +113,63 @@ export function IntegrationsSection({
           <p className="mb-1 px-1 text-xs font-medium text-halo-text">
             {t("media.blockTitle")}
           </p>
-          {/* Radio-режимы: включение одного выключает второй */}
-          {MODES.map((m) => {
-            const selected = mediaPrefs.mode === m.id;
-            return (
-              <button
-                key={m.id}
-                onClick={() => setMode(m.id)}
-                className="flex w-full items-start gap-2.5 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-halo-hover"
-              >
-                <span
-                  className={`mt-0.5 flex size-3.5 shrink-0 items-center justify-center rounded-full border transition-colors ${
-                    selected
-                      ? "border-halo-accent"
-                      : "border-halo-muted/50"
-                  }`}
-                >
-                  {selected && (
-                    <span className="size-1.5 rounded-full bg-halo-accent" />
-                  )}
-                </span>
-                <span className="min-w-0">
-                  <span
-                    className={`block text-xs font-medium ${
-                      selected ? "text-halo-text" : "text-halo-muted"
-                    }`}
-                  >
-                    {t(m.label)}
-                  </span>
-                  <span className="block text-[0.6875rem] leading-snug text-halo-muted/70">
-                    {t(m.desc)}
-                  </span>
-                </span>
-              </button>
-            );
-          })}
           <ToggleRow
             label={t("media.lyrics")}
             desc={t("media.lyricsDesc")}
             on={mediaPrefs.lyrics}
             onChange={(v) => onMediaPrefsChange({ ...mediaPrefs, lyrics: v })}
           />
+          {/* Подсветка лирики: токены темы или собственный цвет */}
+          {mediaPrefs.lyrics && (
+            <div className="mb-1 flex items-center gap-2 px-2 pl-6">
+              <span className="text-[0.6875rem] text-halo-muted">
+                {t("media.lyricsColor")}
+              </span>
+              <button
+                onClick={() =>
+                  onMediaPrefsChange({ ...mediaPrefs, lyricColorMode: "theme" })
+                }
+                className={`rounded-md border px-2 py-0.5 text-[0.625rem] transition-colors ${
+                  mediaPrefs.lyricColorMode === "theme"
+                    ? "border-halo-accent/50 bg-halo-accent/10 text-halo-accent"
+                    : "border-halo-line text-halo-muted hover:text-halo-text"
+                }`}
+              >
+                {t("media.lyricsTheme")}
+              </button>
+              <button
+                onClick={() =>
+                  onMediaPrefsChange({ ...mediaPrefs, lyricColorMode: "custom" })
+                }
+                className={`rounded-md border px-2 py-0.5 text-[0.625rem] transition-colors ${
+                  mediaPrefs.lyricColorMode === "custom"
+                    ? "border-halo-accent/50 bg-halo-accent/10"
+                    : "border-halo-line text-halo-muted hover:text-halo-text"
+                }`}
+                style={
+                  mediaPrefs.lyricColorMode === "custom"
+                    ? { color: mediaPrefs.lyricColor }
+                    : undefined
+                }
+              >
+                {t("media.lyricsCustom")}
+              </button>
+              {mediaPrefs.lyricColorMode === "custom" && (
+                <input
+                  type="color"
+                  value={mediaPrefs.lyricColor}
+                  onChange={(e) =>
+                    onMediaPrefsChange({
+                      ...mediaPrefs,
+                      lyricColor: e.target.value,
+                    })
+                  }
+                  className="h-6 w-8 cursor-pointer rounded border border-halo-line bg-transparent"
+                  title={t("media.lyricsCustom")}
+                />
+              )}
+            </div>
+          )}
           <ToggleRow
             label={t("media.cover")}
             desc={t("media.coverDesc")}
@@ -171,6 +178,58 @@ export function IntegrationsSection({
           />
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * Единоразовое предупреждение перед содержимым вкладки (вариант владельца
+ * «⚠️ Локальный хардкор»): честно объясняет WinAPI-чтение окон, кнопку
+ * «Принять» и галочку «не показывать». Отмена возвращает в «Основное».
+ */
+export function IntegrationWarning({
+  onAccept,
+  onCancel,
+}: {
+  onAccept: (dontShowAgain: boolean) => void;
+  onCancel: () => void;
+}) {
+  const { t } = useLang();
+  const [dontShow, setDontShow] = useState(false);
+
+  return (
+    <div className="mx-auto max-w-2xl">
+      <div className="rounded-xl border border-amber-400/30 bg-amber-400/5 p-5">
+        <h3 className="text-sm font-semibold text-amber-300">
+          {t("media.warnTitle")}
+        </h3>
+        <p className="mt-2 text-[0.8125rem] leading-relaxed text-halo-text">
+          {t("media.warnBody")}
+        </p>
+        <label className="mt-4 flex cursor-pointer items-center gap-2 text-xs text-halo-muted">
+          <input
+            type="checkbox"
+            checked={dontShow}
+            onChange={(e) => setDontShow(e.target.checked)}
+            className="size-3.5 accent-[var(--halo-accent)]"
+          />
+          {t("media.warnDontShow")}
+        </label>
+        <div className="mt-4 flex items-center justify-end gap-2">
+          <button
+            onClick={onCancel}
+            className="rounded-lg border border-halo-line px-3 py-1.5 text-xs text-halo-muted transition-colors hover:text-halo-text"
+          >
+            {t("media.warnCancel")}
+          </button>
+          <button
+            onClick={() => onAccept(dontShow)}
+            className="rounded-lg border border-halo-accent/50 bg-halo-accent/10 px-3 py-1.5 text-xs font-medium text-halo-accent transition-colors hover:bg-halo-accent/20"
+          >
+            {t("media.warnAccept")}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

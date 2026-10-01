@@ -1,22 +1,21 @@
 /**
  * Настройки медиа-минибара (вкладка «Интеграции»). Всё опционально:
- *  - mode — ЧТО отслеживаем, взаимоисключающе (radio, не два сразу):
- *      desktop — сессия десктопного Spotify-клиента;
- *      browser — вкладка браузера (web-плеер Spotify, YouTube и др.);
- *      off — минибар выключен;
+ *  - bar — сама полоска над чатом (мастер-тумблер, карточка Spotify);
  *  - lyrics — текст песни через lrclib.net: ЕДИНСТВЕННОЕ, что уходит в сеть
  *    (артист + название трека); по умолчанию выключен;
- *  - cover — обложка из системного плеера, чистая ОС, по умолчанию включён.
- * Управление плеером (пауза/переключение) — системные медиа-контролы ОС:
- * никаких аккаунтов и облака, концепция Local-only не покидается.
+ *  - cover — обложка из системного плеера, чистая ОС, по умолчанию включён;
+ *  - lyricColorMode/lyricColor — подсветка текущей строки лирики: токены
+ *    темы Nocturn или собственный цвет.
+ * Управление плеером (пауза/переключение) — системные медиа-контролы ОС
+ * и (Desktop-режим) WM_APPCOMMAND окну Spotify: без аккаунтов и облака.
  */
 
-export type MediaTrackMode = "off" | "desktop" | "browser";
-
 export interface MediaPrefs {
-  mode: MediaTrackMode;
+  bar: boolean;
   lyrics: boolean;
   cover: boolean;
+  lyricColorMode: "theme" | "custom";
+  lyricColor: string;
 }
 
 const LS_KEY = "haloui-media";
@@ -24,27 +23,50 @@ const LS_KEY = "haloui-media";
 export function loadMediaPrefs(): MediaPrefs {
   try {
     const raw = localStorage.getItem(LS_KEY);
-    if (!raw) return { mode: "off", lyrics: false, cover: true };
-    const p = JSON.parse(raw) as Partial<MediaPrefs> & { bar?: boolean };
-    // Миграция старого булева bar:true → режим desktop
-    const mode: MediaTrackMode =
-      p.mode === "desktop" || p.mode === "browser"
-        ? p.mode
-        : p.mode === "off"
-          ? "off"
-          : p.bar === true
-            ? "desktop"
-            : "off";
+    if (!raw) {
+      return {
+        bar: false,
+        lyrics: false,
+        cover: true,
+        lyricColorMode: "theme",
+        lyricColor: "#f4abab",
+      };
+    }
+    const p = JSON.parse(raw) as Partial<MediaPrefs> & { mode?: string };
+    // Миграция: старый mode:"desktop" → bar:true (браузерный режим вырезан)
+    const bar = p.bar === true || p.mode === "desktop";
     return {
-      mode,
+      bar,
       lyrics: p.lyrics === true,
       cover: p.cover !== false,
+      lyricColorMode: p.lyricColorMode === "custom" ? "custom" : "theme",
+      lyricColor:
+        typeof p.lyricColor === "string" && /^#[0-9a-fA-F]{6}$/.test(p.lyricColor)
+          ? p.lyricColor
+          : "#f4abab",
     };
   } catch {
-    return { mode: "off", lyrics: false, cover: true };
+    return {
+      bar: false,
+      lyrics: false,
+      cover: true,
+      lyricColorMode: "theme",
+      lyricColor: "#f4abab",
+    };
   }
 }
 
 export function saveMediaPrefs(p: MediaPrefs) {
   localStorage.setItem(LS_KEY, JSON.stringify(p));
+}
+
+const ACCEPT_KEY = "haloui-media-accepted";
+
+/** Единоразовое предупреждение «Локальный хардкор»: принято навсегда? */
+export function loadMediaAccepted(): boolean {
+  return localStorage.getItem(ACCEPT_KEY) === "1";
+}
+
+export function saveMediaAccepted() {
+  localStorage.setItem(ACCEPT_KEY, "1");
 }

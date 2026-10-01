@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import {
   lyricsFetch,
   mediaControl,
-  mediaSetMode,
   mediaStatus,
   onMediaState,
   type MediaStateDto,
@@ -51,41 +50,36 @@ function parseLyrics(synced: string | null, plain: string | null): LyricLine[] {
 
 /**
  * Мини-бар плеера: тонкая полоска под шапкой чата. Состояние — системный
- * плеер через SMTC (бекенд), время тикает локально от (позиция, метка) —
- * ноль IPC-спама. Текст песни — lrclib.net, листается стрелками вручную.
+ * плеер через SMTC / оконный fallback (бекенд), время тикает локально.
+ * Лирика авто-следит за воспроизведением (строки по LRC-таймкодам),
+ * подсветка текущей строки — токены темы или собственный цвет.
  * Ничего не играет / тумблер выключен — компонент не рендерится вовсе.
  */
 export function MediaBar({ prefs }: { prefs: MediaPrefs }) {
   const { t } = useLang();
   const [state, setState] = useState<MediaStateDto | null>(null);
   const [lyrics, setLyrics] = useState<LyricLine[] | null>(null);
-  const [lyricIdx, setLyricIdx] = useState(0);
+  const [lyricOffset, setLyricOffset] = useState(0);
   const [, setTick] = useState(0);
 
   // Начальный снимок + живые события бекенда (смена трека/пауза/seek)
   useEffect(() => {
-    if (prefs.mode === "off") return;
+    if (!prefs.bar) return;
     let disposed = false;
     let un: (() => void) | null = null;
     void (async () => {
-      // Режим обязателен ДО первого снимка: бекенд фильтрует сессии по нему
-      try {
-        await mediaSetMode(prefs.mode);
-      } catch {
-        // нет бекенда (браузерное превью) — минибар молчит
-      }
       try {
         const st = await mediaStatus();
         if (!disposed) setState(st);
       } catch {
-        // нет бекенда — минибар молчит
+        // нет бекенда (браузерное превью) — минибар молчит
       }
       try {
         un = await onMediaState(() => {
           if (disposed) return;
           void mediaStatus()
             .then((st) => {
-              // st может быть null: в выбранном режиме ничего не играет
+              // st может быть null: плеер закрыт/ничего не играет
               if (!disposed) setState(st);
             })
             .catch(() => {});
@@ -98,7 +92,7 @@ export function MediaBar({ prefs }: { prefs: MediaPrefs }) {
       disposed = true;
       un?.();
     };
-  }, [prefs.mode]);
+  }, [prefs.bar]);
 
   // Текст песни: по смене трека, только при включённом тумблере (lrclib)
   useEffect(() => {
@@ -108,7 +102,7 @@ export function MediaBar({ prefs }: { prefs: MediaPrefs }) {
     }
     let disposed = false;
     setLyrics(null);
-    setLyricIdx(0);
+    setLyricOffset(0);
     void lyricsFetch(state.artist ?? "", state.title, null)
       .then((r) => {
         if (disposed) return;
@@ -130,7 +124,7 @@ export function MediaBar({ prefs }: { prefs: MediaPrefs }) {
     return () => window.clearInterval(iv);
   }, [state?.playing, state?.trackId]);
 
-  if (prefs.mode === "off" || !state || !state.title) return null;
+  if (!prefs.bar || !state || !state.title) return null;
 
   // Прошедшее время: позиция бекенда + локальная интерполяция с момента
   // снимка (пересчёт в теле рендера — тик выше просто перерисовывает)
@@ -139,8 +133,22 @@ export function MediaBar({ prefs }: { prefs: MediaPrefs }) {
     : 0;
   const elapsed = state.positionSecs + drift;
   const mmss = `${Math.floor(elapsed / 60)}:${String(elapsed % 60).padStart(2, "0")}`;
-  const lyric = lyrics?.[Math.min(lyricIdx, lyrics.length - 1)];
-  const nextLyric = lyrics?.[Math.min(lyricIdx + 1, lyrics.length - 1)];
+
+  // Авто-следящая строка: последняя строка с t <= elapsed (синхронная
+  // лирика); смещение стрелками — ручной подвод, сбрасывается на новом треке
+  const autoIdx = lyrics
+    ? lyrics.reduce((acc, l, i) => (l.t >= 0 && l.t <= elapsed ? i : acc), -1)
+    : -1;
+  const viewIdx = lyrics
+    ? Math.min(
+        lyrics.length - 1,
+        Math.max(0, Math.max(autoIdx, 0) + lyricOffset),
+      )
+    : 0;
+  const lyric = lyrics?.[viewIdx];
+  const nextLyric = lyrics?.[viewIdx + 1];
+  const customColor =
+    prefs.lyricColorMode === "custom" ? prefs.lyricColor : null;
 
   return (
     <div className="anim-fade relative z-20 flex h-9 items-center gap-2.5 border-b border-halo-line/60 bg-halo-deep/60 px-4 backdrop-blur">
@@ -154,7 +162,15 @@ export function MediaBar({ prefs }: { prefs: MediaPrefs }) {
       <div className="min-w-0 flex-1 leading-tight">
         {lyric ? (
           <>
-            <p className="truncate text-xs text-halo-text">{lyric.text}</p>
+            {/* Текущая строка: подсветка темой (accent) или своим цветом */}
+            <p
+              className={`truncate text-xs ${
+                customColor ? "" : "text-halo-accent"
+              }`}
+              style={customColor ? { color: customColor } : undefined}
+            >
+              {lyric.text}
+            </p>
             {nextLyric && nextLyric.text !== lyric.text && (
               <p className="truncate text-[0.625rem] text-halo-muted/60">
                 {nextLyric.text}
@@ -171,14 +187,18 @@ export function MediaBar({ prefs }: { prefs: MediaPrefs }) {
       {lyrics && lyrics.length > 1 && (
         <div className="flex shrink-0 flex-col leading-none">
           <button
-            onClick={() => setLyricIdx((v) => Math.max(0, v - 1))}
+            onClick={() => setLyricOffset((v) => Math.max(-Math.max(autoIdx, 0), v - 1))}
             title={t("media.ttLyricsUp")}
             className="rounded px-1 text-[0.5rem] text-halo-muted transition-colors hover:text-halo-text"
           >
             ▲
           </button>
           <button
-            onClick={() => setLyricIdx((v) => Math.min(lyrics.length - 1, v + 1))}
+            onClick={() =>
+              setLyricOffset((v) =>
+                Math.min(lyrics.length - 1 - Math.max(autoIdx, 0), v + 1),
+              )
+            }
             title={t("media.ttLyricsDown")}
             className="rounded px-1 text-[0.5rem] text-halo-muted transition-colors hover:text-halo-text"
           >

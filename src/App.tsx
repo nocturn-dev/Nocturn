@@ -2500,6 +2500,9 @@ export default function App() {
           useDelayedUnmount — иначе exit-анимация недостижима */}
       <SettingsModal
         open={settingsOpen}
+        onWarnCancel={() => {
+          setSettingsSection("main");
+        }}
         usageLog={usageLog}
         theme={theme}
         glass={glass}

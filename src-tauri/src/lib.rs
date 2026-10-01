@@ -285,7 +285,6 @@ pub fn run() {
             open_file_external,
             media::media_status,
             media::media_control,
-            media::media_set_mode,
             media::lyrics_fetch,
             memory::memory_list,
             memory::memory_add,
