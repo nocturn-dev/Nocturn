@@ -160,6 +160,8 @@ export function MainSection({
   onExportChats,
   closeToTray,
   onCloseToTrayChange,
+  autoUpdateCheck,
+  onAutoUpdateCheckChange,
   streamCaret,
   onStreamCaretChange,
   showUserMsgs,
@@ -213,6 +215,10 @@ export function MainSection({
   onExportChats: () => void;
   closeToTray: boolean;
   onCloseToTrayChange: (v: boolean) => void;
+  /** Проверка обновлений при старте — opt-in, гейтит единственный
+   *  несанкционированный ранее сетевой запрос (github latest.json) */
+  autoUpdateCheck: boolean;
+  onAutoUpdateCheckChange: (v: boolean) => void;
   streamCaret: boolean;
   onStreamCaretChange: (v: boolean) => void;
   showUserMsgs: boolean;
@@ -453,6 +459,12 @@ export function MainSection({
       <h3 className="mb-1 text-sm font-semibold text-halo-text">{t("settings.main")}</h3>
       <Group title={t("main.g1")} desc={t("main.g1Desc")}>
       <Row label={t("main.version")} value={versionValue} />
+      <ToggleRow
+        label={t("main.autoUpdate")}
+        desc={t("main.autoUpdateDesc")}
+        on={autoUpdateCheck}
+        onChange={onAutoUpdateCheckChange}
+      />
       <ToggleRow
         label={t("main.autostart")}
         desc={t("main.autostartDesc")}

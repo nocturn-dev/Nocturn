@@ -174,8 +174,13 @@ export default function App() {
     void registerCustomFonts();
   }, []);
 
-  // Автообновление: разовая проверка после старта (native-only, тихо)
+  // Проверка обновлений — строго opt-in (local-first): раньше запрос к
+  // GitHub уходил на каждом старте без всякого спроса
+  const [autoUpdateCheck, setAutoUpdateCheck] = useBoolPref("haloui-auto-update", false);
+  // Автообновление: ТОЛЬКО по тумблеру (haloui-auto-update, дефолт off —
+  // никаких обращений к github без явного согласия пользователя)
   useEffect(() => {
+    if (!autoUpdateCheck) return;
     const timer = window.setTimeout(() => {
       void checkForUpdate({
         available: (v) => window.confirm(t("upd.available", { v })),
@@ -183,10 +188,10 @@ export default function App() {
       });
     }, 8000);
     return () => window.clearTimeout(timer);
-    // mount-only: разовая проверка за сессию — t/addToast сознательно не
-    // в deps, иначе смена языка перезапускала бы проверку обновления
+    // mount-only логика проверки: t/addToast сознательно не в deps (смена
+    // языка не должна перезапускать проверку), тумблер — должен
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [autoUpdateCheck]);
 
   // Экран «Автоматизации»
   const [automationsOpen, setAutomationsOpen] = useState(false);
@@ -2613,6 +2618,8 @@ export default function App() {
         onTermShellChange={setTermShell}
         closeToTray={closeToTray}
         onCloseToTrayChange={setCloseToTray}
+        autoUpdateCheck={autoUpdateCheck}
+        onAutoUpdateCheckChange={setAutoUpdateCheck}
         archiveRetention={archiveRetention}
         onArchiveRetentionChange={setArchiveRetention}
         onArchiveNow={archiveOldNow}

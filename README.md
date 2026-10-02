@@ -187,6 +187,11 @@ Nocturn never sends anything anywhere except the API provider **you** configured
 Prompts, files and tool results go straight to your endpoint; there is no
 analytics, no crash reporting, no phone-home. Concretely:
 
+- **Update checks are opt-in** — the app asks GitHub for a new version only
+  if you enabled it in Settings; otherwise it contacts nothing but your
+  configured endpoints (lyrics lookups, model downloads and web search are
+  equally gated behind their own toggles).
+
 - **Chats, notes, projects, memory** live on your disk in plain, inspectable
   JSON/markdown.
 - **API keys** can be encrypted with a master password (AES-256-GCM + Argon2id);

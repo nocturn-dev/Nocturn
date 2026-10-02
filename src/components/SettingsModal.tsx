@@ -102,6 +102,9 @@ interface SettingsModalProps {
   onExportChats: () => void;
   closeToTray: boolean;
   onCloseToTrayChange: (v: boolean) => void;
+  /** Проверка обновлений при старте — строго opt-in (без тумблера сети нет) */
+  autoUpdateCheck: boolean;
+  onAutoUpdateCheckChange: (v: boolean) => void;
   streamCaret: boolean;
   onStreamCaretChange: (v: boolean) => void;
   /** Показ сообщений пользователя в чате */
@@ -279,6 +282,8 @@ export default function SettingsModal({
   onExportChats,
   closeToTray,
   onCloseToTrayChange,
+  autoUpdateCheck,
+  onAutoUpdateCheckChange,
   streamCaret,
   onStreamCaretChange,
   showUserMsgs,
@@ -708,6 +713,8 @@ export default function SettingsModal({
               onExportChats={onExportChats}
               closeToTray={closeToTray}
               onCloseToTrayChange={onCloseToTrayChange}
+              autoUpdateCheck={autoUpdateCheck}
+              onAutoUpdateCheckChange={onAutoUpdateCheckChange}
               streamCaret={streamCaret}
               onStreamCaretChange={onStreamCaretChange}
               showUserMsgs={showUserMsgs}
