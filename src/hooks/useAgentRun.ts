@@ -32,6 +32,7 @@ import { runPython, CODE_RUN_SCHEMA } from "../codeRun";
 import { StreamDeltaBuffer, applyMainDeltas } from "./streamBuffer";
 import { interpolate, parseWorkflow, type WorkflowDef } from "../workflow";
 import { notifyTaskDone, playRunSound, type NotifyPrefs } from "../notify";
+import { telegramNotify } from "../telegram";
 import { useLang } from "../locales";
 import { dayKeyLocal } from "../time";
 import {
@@ -883,8 +884,15 @@ export function useAgentRun(deps: AgentRunDeps) {
       // карточка и маркер в тексте и так говорят)
       if (runErroredRef.current.has(requestId)) {
         playRunSound("error");
+        // TG-уведомление (opt-in, fire-and-forget): телефон должен знать
+        // об исходе, даже если окно закрыто
+        telegramNotify("error", t("tg.error", { task: text.slice(0, 200) }));
       } else if (!wasAborted) {
         playRunSound("complete");
+        telegramNotify("finish", t("tg.finished", { task: text.slice(0, 200) }));
+      } else {
+        // Остановка/лимит — тоже «конец работы» (требование владельца)
+        telegramNotify("finish", t("tg.stopped", { task: text.slice(0, 200) }));
       }
       // Тост + звук: пользователь мог уйти в другое приложение
       void notifyTaskDone(
@@ -1223,6 +1231,23 @@ export function useAgentRun(deps: AgentRunDeps) {
         // Звук подтверждения (opt-in): юзер мог скроллить ленту и не увидеть
         // карточку; вне фокуса продублирует notifyTaskDone ниже
         playRunSound("confirm");
+        // TG: триггер «ожидает решения» — телефон получает вопрос даже когда
+        // приложение в фоне (управление ответом из TG — фаза 2)
+        const confirmWhat = (() => {
+          try {
+            const p = JSON.parse(call.arguments) as { question?: unknown; command?: unknown };
+            const what =
+              typeof p?.question === "string"
+                ? p.question
+                : typeof p?.command === "string"
+                  ? p.command
+                  : call.name;
+            return what.slice(0, 200);
+          } catch {
+            return call.name;
+          }
+        })();
+        telegramNotify("confirm", t("tg.confirm", { what: confirmWhat }));
         openInteraction(
           { id: uid(), kind: "confirm", requestId, call },
           (r) => resolve(r.kind === "confirm" ? r.decision : "deny"),
@@ -2420,6 +2445,8 @@ ${report}`;
     activeRunRef.current = requestId;
     runStartedRef.current = true;
     const run: RunHandle = { requestId, finalize: null };
+    // TG: «начало работы» (opt-in, fire-and-forget) — по требованию владельца
+    telegramNotify("start", raw.trim().slice(0, 200));
 
     try {
       await sendImpl(

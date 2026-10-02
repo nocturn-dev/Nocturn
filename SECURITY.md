@@ -84,6 +84,15 @@ session store.
   `img-src https:`). You paste links yourself; the queue and volume live
   in localStorage. Playback of the collapsed window continues by design
   (the iframe stays mounted).
+- **Telegram notifications (opt-in, off by default).** You create your own
+  bot via @BotFather and paste the token; it is stored encrypted
+  (`enc:v1:…`) and excluded from settings export. The bot talks ONLY to
+  the chat bound by the first `/start` — messages from any other chat are
+  ignored silently, and a second chat can never take over the binding.
+  Outbound traffic is limited to short text messages to `api.telegram.org`
+  for the events you enabled (task start / finish / error / confirmation
+  request); incoming messages are used for binding only in this phase.
+  With the toggle off the module makes zero network requests.
 
 ## Reporting
 

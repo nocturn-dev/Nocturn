@@ -1,7 +1,17 @@
 import { useEffect, useState } from "react";
 import { useLang, MsgKey } from "../../locales";
 import { isWindows } from "../../platform";
-import { mediaStatus, type MediaStateDto } from "../../api";
+import {
+  mediaStatus,
+  telegramGetConfig,
+  telegramSetConfig,
+  telegramStatus,
+  telegramUnbind,
+  type MediaStateDto,
+  type TelegramConfig,
+  type TelegramStatus,
+} from "../../api";
+import { telegramConfigCacheUpdated } from "../../telegram";
 import { ytPlayUrl, ytSetOpen } from "../../yt/ytPlayer";
 import type { MediaPrefs } from "../../mediaPrefs";
 import { SpotifyIcon, YouTubeIcon } from "../cards/icons";
@@ -25,6 +35,58 @@ export function IntegrationsSection({
   const unavailable = !isWindows();
   const on = mediaPrefs.bar;
   const ytOn = mediaPrefs.youtube;
+
+  // Telegram (уведомления через своего бота): конфиг живёт на бекенде
+  // (telegram.json, токен зашифрован) — секция только читает/пишет его
+  const [tg, setTg] = useState<TelegramConfig | null>(null);
+  const [tgStatus, setTgStatus] = useState<TelegramStatus | null>(null);
+  const [tgOpen, setTgOpen] = useState(false);
+  const [tgBusy, setTgBusy] = useState(false);
+  const [tgError, setTgError] = useState("");
+  const tgOn = tg?.enabled ?? false;
+  useEffect(() => {
+    let disposed = false;
+    void telegramGetConfig()
+      .then((c) => {
+        if (!disposed) setTg(c);
+      })
+      .catch(() => {});
+    void telegramStatus()
+      .then((s) => {
+        if (!disposed) setTgStatus(s);
+      })
+      .catch(() => {});
+    return () => {
+      disposed = true;
+    };
+  }, []);
+  const saveTg = async (next: TelegramConfig) => {
+    setTgBusy(true);
+    setTgError("");
+    try {
+      await telegramSetConfig(next);
+      setTg(next);
+      telegramConfigCacheUpdated(next);
+      const st = await telegramStatus().catch(() => null);
+      if (st) setTgStatus(st);
+    } catch (e) {
+      setTgError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setTgBusy(false);
+    }
+  };
+  const connectTg = () => {
+    if (!tg || tgBusy) return;
+    const token = tg.botToken.trim();
+    // Клиентская проверка формата: грубая опечатка ловится сразу; живую
+    // проверку делает getMe на бекенде
+    if (!/^\d{6,12}:[A-Za-z0-9_-]{30,64}$/.test(token)) {
+      setTgError(t("tg.badToken"));
+      return;
+    }
+    void saveTg({ ...tg, botToken: token, enabled: true });
+  };
+
   // Поле ссылки YouTube прямо во вкладке: вставил → добавилось в плеер.
   // Окно НАСТРОЕК при этом не открываем (владелец: модалка поверх настроек
   // сбивает) — вместо этого честная инструкция: минибар → Play
@@ -132,6 +194,41 @@ export function IntegrationsSection({
           <span
             className={`absolute right-2.5 top-2.5 size-1.5 rounded-full ${
               ytOn ? "bg-emerald-400" : "bg-halo-muted/40"
+            }`}
+          />
+        </button>
+        {/* Карточка Telegram: уведомления через СВОЕГО бота (@BotFather).
+            В радио минибара не входит (не медиа) и работает на всех ОС.
+            Клик: есть токен — вкл/выкл, нет — раскрыть блок настройки */}
+        <button
+          onClick={() => {
+            if (!tg) {
+              setTgOpen(true);
+              return;
+            }
+            if (tg.enabled) void saveTg({ ...tg, enabled: false });
+            else if (tg.botToken) void saveTg({ ...tg, enabled: true });
+            else setTgOpen(true);
+          }}
+          disabled={tgBusy}
+          title={t("tg.cardHint")}
+          className={`relative flex h-28 flex-col items-center justify-center gap-2 rounded-xl border transition-[transform,border-color] duration-200 ${
+            tgOn
+              ? "border-halo-accent/40 bg-halo-surface/70 hover:border-halo-accent/60"
+              : "border-halo-line bg-halo-surface/50 hover:-translate-y-1 hover:border-halo-accent/40"
+          }`}
+        >
+          <TelegramIcon />
+          <span
+            className={`text-sm font-medium ${
+              tgOn ? "text-halo-text" : "text-halo-muted"
+            }`}
+          >
+            Telegram
+          </span>
+          <span
+            className={`absolute right-2.5 top-2.5 size-1.5 rounded-full ${
+              tgOn ? "bg-emerald-400" : "bg-halo-muted/40"
             }`}
           />
         </button>
@@ -359,7 +456,114 @@ export function IntegrationsSection({
           )}
         </div>
       )}
+
+      {/* Telegram: токен + привязка + тумблеры событий. Блок раскрыт и при
+          включённой интеграции — статус привязки должен быть виден всегда */}
+      {tgOpen && (
+        <div className="mt-3 rounded-xl border border-halo-line bg-halo-surface/50 px-3 py-2">
+          <div className="flex items-center justify-between px-2 pb-1">
+            <p className="text-xs font-medium text-halo-text">Telegram</p>
+            <span
+              className={`text-[0.625rem] ${
+                tgOn ? "text-emerald-400" : "text-halo-muted/60"
+              }`}
+            >
+              {tgOn ? t("tg.enabled") : t("tg.disabled")}
+            </span>
+          </div>
+          <div className="flex items-center gap-2 px-2">
+            <input
+              value={tg?.botToken ?? ""}
+              onChange={(e) => {
+                setTg((prev) => prev ? { ...prev, botToken: e.target.value } : prev);
+                setTgError("");
+              }}
+              placeholder={t("tg.tokenPh")}
+              className="h-8 min-w-0 flex-1 rounded-lg border border-halo-line bg-halo-deep px-2.5 font-mono text-xs text-halo-text outline-none placeholder:text-halo-muted/50 focus:border-halo-accent/50"
+            />
+            <button
+              onClick={() => (tgOn ? void saveTg({ ...tg!, enabled: false }) : connectTg())}
+              disabled={tgBusy || !tg}
+              className="h-8 shrink-0 rounded-lg border border-halo-accent/40 bg-halo-accent/10 px-3 text-xs font-medium text-halo-accent transition-colors hover:bg-halo-accent/20 disabled:opacity-40"
+            >
+              {tgOn ? t("tg.disconnect") : t("tg.connect")}
+            </button>
+          </div>
+          {tgError && (
+            <p className="px-2 pt-1 text-[0.625rem] text-halo-error">{tgError}</p>
+          )}
+          <p className="px-2 pt-1.5 text-[0.625rem] text-halo-muted">
+            {tgStatus?.bound ? (
+              <span className="text-emerald-400">✓ {t("tg.bound")}</span>
+            ) : tgOn ? (
+              t("tg.notBound")
+            ) : (
+              <span className="text-halo-muted/60">{t("tg.disabled")}</span>
+            )}
+          </p>
+          <div className="mt-1 border-t border-halo-line/60 pt-2">
+            <p className="mb-0.5 px-2 text-[0.625rem] font-semibold uppercase tracking-[0.14em] text-halo-muted/60">
+              {t("tg.notifyTitle")}
+            </p>
+            <ToggleRow
+              label={t("tg.notifyStart")}
+              desc={t("tg.notifyStartDesc")}
+              on={tg?.notifyStart ?? true}
+              onChange={(v) => tg && void saveTg({ ...tg, notifyStart: v })}
+            />
+            <ToggleRow
+              label={t("tg.notifyFinish")}
+              desc={t("tg.notifyFinishDesc")}
+              on={tg?.notifyFinish ?? true}
+              onChange={(v) => tg && void saveTg({ ...tg, notifyFinish: v })}
+            />
+            <ToggleRow
+              label={t("tg.notifyError")}
+              desc={t("tg.notifyErrorDesc")}
+              on={tg?.notifyError ?? true}
+              onChange={(v) => tg && void saveTg({ ...tg, notifyError: v })}
+            />
+            <ToggleRow
+              label={t("tg.notifyConfirm")}
+              desc={t("tg.notifyConfirmDesc")}
+              on={tg?.notifyConfirm ?? true}
+              onChange={(v) => tg && void saveTg({ ...tg, notifyConfirm: v })}
+            />
+          </div>
+          {tgStatus?.bound && (
+            <div className="px-2 pt-1 text-right">
+              <button
+                onClick={() => {
+                  void telegramUnbind()
+                    .then(() => telegramStatus())
+                    .then((s) => {
+                      setTgStatus(s);
+                      if (tg) setTg({ ...tg, chatId: "" });
+                    })
+                    .catch(() => {});
+                }}
+                className="text-[0.625rem] text-halo-muted transition-colors hover:text-red-400"
+              >
+                {t("tg.unbind")}
+              </button>
+            </div>
+          )}
+          <p className="px-2 pt-1 text-[0.625rem] leading-relaxed text-halo-muted/70">
+            {t("tg.privacy")}
+          </p>
+        </div>
+      )}
     </div>
+  );
+}
+
+/** Самолётик Telegram (брендовый #229ED9): карточке нужен свой вектор —
+    в icons.tsx брендовых иконок TG нет */
+function TelegramIcon() {
+  return (
+    <svg width="28" height="28" viewBox="0 0 24 24" fill="#229ED9" aria-hidden>
+      <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z" />
+    </svg>
   );
 }
 

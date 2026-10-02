@@ -476,6 +476,7 @@ const EXPORT_FILES: &[&str] = &[
     "websearch.json",
     "dictation.json",
     "fonts.json",
+    "telegram.json",
     "crypto.json",
 ];
 
@@ -562,6 +563,13 @@ fn mask_secrets(file: &str, v: &mut serde_json::Value) {
         // а с ключом — утекал в «поделенный» файл
         "websearch.json" => {
             if let Some(k) = v.get_mut("brave_key") {
+                *k = blank();
+            }
+        }
+        // Токен Telegram-бота — та же категория секрета (на диске enc:v1:…):
+        // без ветки уходил бы в «поделенный» экспорт как есть
+        "telegram.json" => {
+            if let Some(k) = v.get_mut("bot_token") {
                 *k = blank();
             }
         }
