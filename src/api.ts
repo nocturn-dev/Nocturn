@@ -1626,6 +1626,37 @@ export async function settingsImportRead(path: string): Promise<unknown> {
   return invoke("settings_import_read", { path });
 }
 
+/** Импорт библиотеки джейлбрейков: сырой текст файла (гардалы пути в Rust) */
+export async function importTextRead(path: string): Promise<string> {
+  if (!inTauri) {
+    throw new Error("Импорт работает в нативном приложении (npm run tauri dev)");
+  }
+  return invoke<string>("import_text_read", { path });
+}
+
+/** Импорт по ссылке: одиночный GET по явному клику (SSRF-гардалы в Rust) */
+export async function importFetchUrl(url: string): Promise<string> {
+  if (!inTauri) {
+    throw new Error("Импорт по ссылке работает в нативном приложении (npm run tauri dev)");
+  }
+  return invoke<string>("import_fetch_url", { url });
+}
+
+/** Диалог выбора файла импорта библиотеки; null — отмена */
+export async function pickImportFile(): Promise<string | null> {
+  if (!inTauri) {
+    throw new Error("Импорт работает в нативном приложении (npm run tauri dev)");
+  }
+  const { open } = await import("@tauri-apps/plugin-dialog");
+  const picked = await open({
+    multiple: false,
+    filters: [
+      { name: "CSV / JSON / TXT", extensions: ["csv", "tsv", "json", "txt", "md", "mkd"] },
+    ],
+  });
+  return typeof picked === "string" ? picked : null;
+}
+
 /** Диалог «Сохранить как» для экспорта; null — отмена */
 /** Открыть ссылку в системном браузере (plugin opener): вебвью приложения —
  *  не навигационная поверхность, внешние URL в него не пускаем (фишинг).

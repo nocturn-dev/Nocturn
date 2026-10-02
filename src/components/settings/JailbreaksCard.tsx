@@ -1,15 +1,19 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useLang } from "../../locales";
 import {
   builtinJailbreaksFor,
+  jbModelFacets,
+  jbYearFacets,
   JB_REASONING_LABEL_KEYS,
   JB_REASONING_LEVELS,
+  searchJailbreaks,
   type JbReasoning,
   type JailbreakEntry,
 } from "../../jailbreaks";
 import { Dropdown, MiniPencilIcon, MiniTrashIcon } from "./parts";
+import { JailbreaksImport } from "./JailbreaksImport";
 
-/** Чип мета-данных записи (модель / уровень мышления) */
+/** Чип мета-данных записи (модель / год / уровень мышления) */
 function JbChip({ children }: { children: ReactNode }) {
   return (
     <span className="shrink-0 rounded-md bg-halo-surface/80 px-1.5 py-0.5 font-mono text-[0.625rem] leading-4 text-halo-muted">
@@ -18,10 +22,13 @@ function JbChip({ children }: { children: ReactNode }) {
   );
 }
 
+const PAGE = 100;
+
 /** Карточка «Джейлбрейки» в разделе «Промпты»: свои записи (название /
- * модель / текст / уровень мышления) + встроенные пресеты-образцы.
- * Применение — только явной кнопкой: запись ДОБАВЛЯЕТСЯ к системному
- * промту задачи (см. appendJailbreak), ничего не отправляет сама. */
+ * модель / текст / уровень мышления / год) + встроенные пресеты-образцы.
+ * Умный поиск — по словам, модели и году: библиотека рассчитана на сотни
+ * и тысячи записей после импорта датасетов. Применение — только явной
+ * кнопкой: запись ДОБАВЛЯЕТСЯ к системному промту задачи. */
 export function JailbreaksCard({
   entries,
   onChange,
@@ -34,18 +41,49 @@ export function JailbreaksCard({
   const { t, lang } = useLang();
   const [name, setName] = useState("");
   const [model, setModel] = useState("");
+  const [year, setYear] = useState("");
   const [reasoning, setReasoning] = useState<JbReasoning>("any");
   const [text, setText] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
   const [editModel, setEditModel] = useState("");
+  const [editYear, setEditYear] = useState("");
   const [editReasoning, setEditReasoning] = useState<JbReasoning>("any");
   const [editText, setEditText] = useState("");
 
+  // Поиск: ввод мгновенный, фильтр — с дебаунсом 120 мс (тысячи записей)
+  const [queryRaw, setQueryRaw] = useState("");
+  const [query, setQuery] = useState("");
+  const [modelF, setModelF] = useState("");
+  const [yearF, setYearF] = useState("");
+  const [sort, setSort] = useState<"relevance" | "newest" | "name">("relevance");
+  const [visible, setVisible] = useState(PAGE);
+  useEffect(() => {
+    const id = setTimeout(() => setQuery(queryRaw.trim()), 120);
+    return () => clearTimeout(id);
+  }, [queryRaw]);
+  useEffect(() => setVisible(PAGE), [query, modelF, yearF, sort]);
+
+  const modelFacets = useMemo(() => jbModelFacets(entries), [entries]);
+  const yearFacets = useMemo(() => jbYearFacets(entries), [entries]);
   const reasoningOptions = JB_REASONING_LEVELS.map((lvl) => ({
     value: lvl,
     label: t(JB_REASONING_LABEL_KEYS[lvl]),
   }));
+
+  // Фасет "any" (пустая/«*» модель) — препроходим пул сами: внутри
+  // searchJailbreaks пустой фильтр модели означает «без фильтра»
+  const results = useMemo(() => {
+    const pool =
+      modelF === "any" ? entries.filter((e) => !e.model || e.model === "*") : entries;
+    return searchJailbreaks(pool, {
+      query,
+      model: modelF === "any" ? "" : modelF,
+      year: yearF,
+      sort,
+    });
+  }, [entries, query, modelF, yearF, sort]);
+  const shown = results.slice(0, visible);
 
   const modelChip = (m: string) => (m && m !== "*" ? m : t("jb.modelAny"));
 
@@ -60,12 +98,14 @@ export function JailbreaksCard({
         model: model.trim(),
         text: text.trim(),
         reasoning,
+        year: year.trim() || undefined,
         createdAt: now,
         updatedAt: now,
       },
     ]);
     setName("");
     setModel("");
+    setYear("");
     setReasoning("any");
     setText("");
   };
@@ -74,6 +114,7 @@ export function JailbreaksCard({
     setEditingId(e.id);
     setEditName(e.name);
     setEditModel(e.model);
+    setEditYear(e.year ?? "");
     setEditReasoning(e.reasoning);
     setEditText(e.text);
   };
@@ -92,6 +133,7 @@ export function JailbreaksCard({
               model: editModel.trim(),
               text: tx,
               reasoning: editReasoning,
+              year: editYear.trim() || undefined,
               updatedAt: Date.now(),
             }
           : e,
@@ -115,32 +157,65 @@ export function JailbreaksCard({
     ]);
   };
 
+  const draftFields = (
+    nameV: string,
+    setNameV: (v: string) => void,
+    modelV: string,
+    setModelV: (v: string) => void,
+    yearV: string,
+    setYearV: (v: string) => void,
+    reasonV: JbReasoning,
+    setReasonV: (v: JbReasoning) => void,
+    namePh: string,
+  ) => (
+    <>
+      <div className="flex gap-2">
+        <input
+          type="text"
+          value={nameV}
+          onChange={(e) => setNameV(e.target.value)}
+          placeholder={namePh}
+          className="min-w-0 flex-1 rounded-lg border border-halo-line bg-halo-surface px-3 py-2 text-sm text-halo-text outline-none transition-colors placeholder:text-halo-muted/60 focus:border-halo-accent/60"
+        />
+        <input
+          type="text"
+          value={modelV}
+          onChange={(e) => setModelV(e.target.value)}
+          placeholder={t("jb.modelPh")}
+          className="min-w-0 flex-1 rounded-lg border border-halo-line bg-halo-surface px-3 py-2 text-sm text-halo-text outline-none transition-colors placeholder:text-halo-muted/60 focus:border-halo-accent/60"
+        />
+      </div>
+      <div className="flex gap-2">
+        <input
+          type="text"
+          value={yearV}
+          onChange={(e) => setYearV(e.target.value)}
+          placeholder={t("jb.yearPh")}
+          className="w-28 shrink-0 rounded-lg border border-halo-line bg-halo-surface px-3 py-2 text-sm text-halo-text outline-none transition-colors placeholder:text-halo-muted/60 focus:border-halo-accent/60"
+        />
+        <Dropdown
+          className="min-w-0 flex-1"
+          value={reasonV}
+          options={reasoningOptions}
+          onSelect={(v) => setReasonV(v as JbReasoning)}
+        />
+      </div>
+    </>
+  );
+
   const entryRow = (e: JailbreakEntry, builtin: boolean) =>
     editingId === e.id ? (
       <div
         key={e.id}
         className="space-y-2 rounded-lg border border-halo-accent/50 bg-halo-surface/50 p-2.5"
       >
-        <div className="flex gap-2">
-          <input
-            autoFocus
-            value={editName}
-            onChange={(ev) => setEditName(ev.target.value)}
-            placeholder={t("jb.namePh")}
-            className="min-w-0 flex-1 rounded-lg border border-halo-line bg-halo-surface px-3 py-2 text-sm text-halo-text outline-none transition-colors focus:border-halo-accent/60"
-          />
-          <input
-            value={editModel}
-            onChange={(ev) => setEditModel(ev.target.value)}
-            placeholder={t("jb.modelPh")}
-            className="min-w-0 flex-1 rounded-lg border border-halo-line bg-halo-surface px-3 py-2 text-sm text-halo-text outline-none transition-colors focus:border-halo-accent/60"
-          />
-        </div>
-        <Dropdown
-          value={editReasoning}
-          options={reasoningOptions}
-          onSelect={(v) => setEditReasoning(v as JbReasoning)}
-        />
+        {draftFields(
+          editName, setEditName,
+          editModel, setEditModel,
+          editYear, setEditYear,
+          editReasoning, setEditReasoning,
+          t("jb.namePh"),
+        )}
         <textarea
           value={editText}
           onChange={(ev) => setEditText(ev.target.value)}
@@ -173,6 +248,7 @@ export function JailbreaksCard({
           <div className="flex flex-wrap items-center gap-1.5">
             <p className="text-sm font-medium text-halo-text">{e.name}</p>
             <JbChip>{modelChip(e.model)}</JbChip>
+            {e.year && <JbChip>{e.year}</JbChip>}
             <JbChip>{t(JB_REASONING_LABEL_KEYS[e.reasoning])}</JbChip>
           </div>
           <p className="mt-0.5 line-clamp-2 text-xs leading-relaxed text-halo-muted">
@@ -237,37 +313,84 @@ export function JailbreaksCard({
       <p className="mb-2 text-xs font-medium text-halo-muted">
         {t("jb.ownTitle")}
       </p>
-      <div className="mb-4 space-y-2">
-        {entries.length === 0 && (
+
+      {/* Умный поиск: слова (AND) + модель + год + сортировка */}
+      <div className="mb-2 space-y-2">
+        <input
+          type="text"
+          value={queryRaw}
+          onChange={(e) => setQueryRaw(e.target.value)}
+          placeholder={t("jb.searchPh")}
+          className="w-full rounded-lg border border-halo-line bg-halo-surface px-3 py-2 text-sm text-halo-text outline-none transition-colors placeholder:text-halo-muted/60 focus:border-halo-accent/60"
+        />
+        <div className="flex gap-2">
+          <Dropdown
+            className="min-w-0 flex-1"
+            value={modelF}
+            options={[
+              { value: "", label: t("jb.filterAllModels") },
+              ...modelFacets.map((f) => ({
+                value: f.value,
+                label: `${f.value === "any" ? t("jb.modelAny") : f.value} · ${f.count}`,
+              })),
+            ]}
+            onSelect={setModelF}
+          />
+          <Dropdown
+            className="w-36 shrink-0"
+            value={yearF}
+            options={[
+              { value: "", label: t("jb.filterAllYears") },
+              ...yearFacets.map((f) => ({ value: f.value, label: `${f.value} · ${f.count}` })),
+            ]}
+            onSelect={setYearF}
+          />
+          <Dropdown
+            className="w-40 shrink-0"
+            value={sort}
+            options={[
+              { value: "relevance", label: t("jb.sortRelevance") },
+              { value: "newest", label: t("jb.sortNewest") },
+              { value: "name", label: t("jb.sortName") },
+            ]}
+            onSelect={(v) => setSort(v as "relevance" | "newest" | "name")}
+          />
+        </div>
+        <p className="text-[0.625rem] text-halo-muted">
+          {t("jb.foundOf", { n: String(results.length), m: String(entries.length) })}
+        </p>
+      </div>
+
+      <div className="space-y-2">
+        {entries.length === 0 ? (
           <p className="rounded-lg border border-halo-line bg-halo-surface/40 px-3 py-3 text-center text-xs text-halo-muted">
             {t("jb.empty")}
           </p>
+        ) : shown.length === 0 ? (
+          <p className="rounded-lg border border-halo-line bg-halo-surface/40 px-3 py-3 text-center text-xs text-halo-muted">
+            {t("jb.searchEmpty")}
+          </p>
+        ) : (
+          shown.map((e) => entryRow(e, false))
         )}
-        {entries.map((e) => entryRow(e, false))}
+        {results.length > visible && (
+          <button
+            onClick={() => setVisible((v) => v + PAGE)}
+            className="w-full rounded-lg border border-halo-line px-3 py-2 text-xs text-halo-muted transition-colors hover:border-halo-accent/50 hover:text-halo-text"
+          >
+            {t("jb.showMore", { n: String(Math.min(PAGE, results.length - visible)) })}
+          </button>
+        )}
       </div>
 
-      <div className="space-y-2 rounded-xl border border-halo-line p-3">
-        <div className="flex gap-2">
-          <input
-            type="text"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder={t("jb.namePh")}
-            className="min-w-0 flex-1 rounded-lg border border-halo-line bg-halo-surface px-3 py-2 text-sm text-halo-text outline-none transition-colors placeholder:text-halo-muted/60 focus:border-halo-accent/60"
-          />
-          <input
-            type="text"
-            value={model}
-            onChange={(e) => setModel(e.target.value)}
-            placeholder={t("jb.modelPh")}
-            className="min-w-0 flex-1 rounded-lg border border-halo-line bg-halo-surface px-3 py-2 text-sm text-halo-text outline-none transition-colors placeholder:text-halo-muted/60 focus:border-halo-accent/60"
-          />
-        </div>
-        <Dropdown
-          value={reasoning}
-          options={reasoningOptions}
-          onSelect={(v) => setReasoning(v as JbReasoning)}
-        />
+      <div className="mt-4 space-y-2 rounded-xl border border-halo-line p-3">
+        {draftFields(
+          name, setName,
+          model, setModel,
+          year, setYear,
+          reasoning, setReasoning,
+          t("jb.namePh"),
+        )}
         <textarea
           value={text}
           onChange={(e) => setText(e.target.value)}
@@ -285,6 +408,8 @@ export function JailbreaksCard({
           </button>
         </div>
       </div>
+
+      <JailbreaksImport entries={entries} onChange={onChange} />
     </div>
   );
 }
