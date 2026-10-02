@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 export interface MenuItem {
   label: string;
@@ -40,7 +41,7 @@ export default function ContextMenu({ x, y, items, onClose }: ContextMenuProps) 
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  return (
+  return createPortal(
     <>
       {/* Невидимый слой: клик/ПКМ мимо меню закрывает его */}
       <div
@@ -75,6 +76,11 @@ export default function ContextMenu({ x, y, items, onClose }: ContextMenuProps) 
           </div>
         ))}
       </div>
-    </>
+    </>,
+    // Portal в body обязателен: fixed внутри модалки настроек якорится К
+    // МОДАЛКЕ (backdrop-filter/transform на .glass-pane создают containing
+    // block для fixed-потомков), координаты клика уходили мимо — меню
+    // «улетало в угол». Из body fixed — честный viewport
+    document.body,
   );
 }
