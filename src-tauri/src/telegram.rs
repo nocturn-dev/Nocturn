@@ -14,6 +14,7 @@
 //! привязка + исходящий канал.
 
 use serde::{Deserialize, Serialize};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::Duration;
 use tauri::Emitter;
@@ -78,8 +79,14 @@ pub fn set_config(cfg: TelegramConfig) {
 }
 
 /// Живой long-polling таск: abort при каждом set_config/unbind (ремап по
-/// образцу portal-сессии — старый цикл не должен переживать новый)
-static POLL_TASK: Mutex<Option<tokio::task::AbortHandle>> = Mutex::new(None);
+/// образцу portal-сессии — старый цикл не должен переживать новый).
+/// Хранится ПОЛНЫЙ JoinHandle: результат spawn терять нельзя — без него
+/// stop_polling вечно no-op и тумблер «выкл» не гасит цикл (найдено по
+/// логам владельца: getUpdates уходили при выключенном Telegram)
+static POLL_TASK: Mutex<Option<tauri::async_runtime::JoinHandle<()>>> = Mutex::new(None);
+/// Живость поллера для telegram_status: tauri-JoinHandle не отдаёт
+/// is_finished, поэтому флаг ведём сами (spawn/выход/abort)
+static POLLING: AtomicBool = AtomicBool::new(false);
 
 fn stop_polling() {
     if let Some(h) = POLL_TASK
@@ -89,6 +96,7 @@ fn stop_polling() {
     {
         h.abort();
     }
+    POLLING.store(false, Ordering::Relaxed);
 }
 
 /// Запустить/остановить polling по текущему статик-конфигу. Вызывается из
@@ -99,9 +107,25 @@ pub fn apply_runtime(app: tauri::AppHandle) {
     if !cfg.enabled || cfg.bot_token.is_empty() {
         return;
     }
+    POLLING.store(true, Ordering::Relaxed);
     // offset начинаем с 0: непривязанный бот получит и старые /start —
     // привязка идempotentна, чужие чаты игнорируются
-    tauri::async_runtime::spawn(polling_loop(app, 0));
+    let handle = tauri::async_runtime::spawn(polling_loop(app, 0));
+    *POLL_TASK
+        .lock()
+        .unwrap_or_else(|p| p.into_inner()) = Some(handle);
+}
+
+/// Пауза между попытками getUpdates после неудач: 5 → 10 → 20 → 30 (кап).
+/// Недоступный Telegram (блокировка/прокси) не должен заспамить консоль —
+/// раньше фиксированные 5 с давали строку ошибки каждые 5 секунд
+fn poll_backoff_secs(failures: u32) -> u64 {
+    match failures {
+        1 => 5,
+        2 => 10,
+        3 => 20,
+        _ => 30,
+    }
 }
 
 /// Токен бота: "<bot_id>:<secret>" — обе части из безопасного алфавита.
@@ -203,14 +227,18 @@ async fn check_token(token: &str) -> Result<(), String> {
 }
 
 /// Долгий poll: держит привязку (первый /start) и живёт, пока включено.
-/// Перезапускается целиком при каждом изменении конфига (см. apply_runtime),
-/// поэтому токен читается один раз на входе в цикл.
+/// Перезапускается целиком при каждом изменении конфига (см. apply_runtime).
+/// Каждая итерация перепроверяет конфиг — выключение гасит цикл максимум
+/// через один poll даже если abort по какой-то причине не дошёл
 async fn polling_loop(app: tauri::AppHandle, mut offset: u64) {
-    let token = config().bot_token;
-    if token.is_empty() {
-        return;
-    }
+    let mut fails: u32 = 0;
     loop {
+        let cfg = config();
+        if !cfg.enabled || cfg.bot_token.is_empty() {
+            POLLING.store(false, Ordering::Relaxed);
+            return;
+        }
+        let token = cfg.bot_token;
         let req = tokio::time::timeout(Duration::from_secs(65), async {
             crate::network::shared_client(Duration::from_secs(15))?
                 .get(format!(
@@ -227,15 +255,19 @@ async fn polling_loop(app: tauri::AppHandle, mut offset: u64) {
         })
         .await;
         let updates = match req {
-            Ok(Ok(v)) => v
-                .get("result")
-                .and_then(|x| x.as_array())
-                .cloned()
-                .unwrap_or_default(),
-            // Сеть/сервер дёрнулись — пауза и ретрай (не busy-loop)
+            Ok(Ok(v)) => {
+                fails = 0;
+                v.get("result")
+                    .and_then(|x| x.as_array())
+                    .cloned()
+                    .unwrap_or_default()
+            }
+            // Сеть/сервер дёрнулись — пауза с нарастающим бэкоффом и ретрай
+            // (не busy-loop и не флуд)
             Ok(Err(e)) => {
                 eprintln!("telegram polling: {e}");
-                tokio::time::sleep(Duration::from_secs(5)).await;
+                fails = fails.saturating_add(1);
+                tokio::time::sleep(Duration::from_secs(poll_backoff_secs(fails))).await;
                 continue;
             }
             Err(_) => {
@@ -455,11 +487,7 @@ pub struct TelegramStatus {
 #[tauri::command(async)]
 pub fn telegram_status() -> TelegramStatus {
     let cfg = config();
-    let polling = POLL_TASK
-        .lock()
-        .unwrap_or_else(|p| p.into_inner())
-        .as_ref()
-        .is_some_and(|h| !h.is_finished());
+    let polling = POLLING.load(Ordering::Relaxed);
     TelegramStatus {
         enabled: cfg.enabled,
         bound: !cfg.chat_id.is_empty(),
@@ -546,6 +574,16 @@ mod tests {
         assert!(!valid_token("123456789:short"));
         assert!(!valid_token("123456789:AAHdqTcvbCHG0jK!hASdeOQ8vDoOvBOiO"));
         assert!(!valid_token(""));
+    }
+
+    #[test]
+    fn poll_backoff_grows_and_caps() {
+        // 5 → 10 → 20 → 30 (кап): недоступный Telegram не спамит консоль
+        assert_eq!(poll_backoff_secs(1), 5);
+        assert_eq!(poll_backoff_secs(2), 10);
+        assert_eq!(poll_backoff_secs(3), 20);
+        assert_eq!(poll_backoff_secs(4), 30);
+        assert_eq!(poll_backoff_secs(50), 30);
     }
 
     #[test]
