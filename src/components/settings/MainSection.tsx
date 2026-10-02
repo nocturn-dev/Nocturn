@@ -458,13 +458,16 @@ export function MainSection({
     <div className="space-y-1">
       <h3 className="mb-1 text-sm font-semibold text-halo-text">{t("settings.main")}</h3>
       <Group title={t("main.g1")} desc={t("main.g1Desc")}>
-      <Row label={t("main.version")} value={versionValue} />
+      {/* Тумблер обновлений — САМЫЙ первый контрол секции: кто хочет получать
+          версии, найдёт его сразу и не останется на старой; кому не нужно —
+          просто не включает (дефолт off, опционально) */}
       <ToggleRow
         label={t("main.autoUpdate")}
         desc={t("main.autoUpdateDesc")}
         on={autoUpdateCheck}
         onChange={onAutoUpdateCheckChange}
       />
+      <Row label={t("main.version")} value={versionValue} />
       <ToggleRow
         label={t("main.autostart")}
         desc={t("main.autostartDesc")}
