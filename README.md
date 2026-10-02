@@ -132,19 +132,20 @@ but stay at the plain-chat level. Nocturn is the missing middle ground:
 
 Nocturn keeps its power in settings rather than in your face:
 
-- **20+ sections in 5 groups** — Основное / Профиль / Кастомизация / API /
+- **20+ sections in 6 groups** — Основное / Профиль / Кастомизация / API /
   Browser Use / Computer Use / Горячие клавиши · Память / Субагенты / Плагины /
   MCP / Изображения / Промпты / Скиллы / Команды / Хуки · Сеть / Обзор · Отдых ·
   Справка — plus standalone surfaces (knowledge bases, knowledge graph,
   automations, model comparison, usage statistics, storage manager).
-- **25+ settings in Customization alone**: 8 dark theme styles + light +
-  **Official** monochrome (with OLED and contrast options), 6 accent presets +
-  custom color + per-project accent, glass effects with a blur slider, ambient
-  backgrounds, wallpapers, UI scale, radius, message scale, motion speed,
-  smooth streaming with adjustable print speed, fonts for UI / code / terminal
-  (including local font import), custom CSS, terminal shell and palette, app
-  mark, **theme profiles** — and mini-games (2048, Minesweeper, Snake) in the
-  "Отдых" tab for good measure.
+- **Dozens of settings in Customization alone**: 12 dark theme styles + light +
+  **Official**
+  monochrome (with OLED and contrast options), 6 accent presets +
+  custom color + per-project accent, glass effects with a blur slider,
+  ambient backgrounds, wallpapers, UI scale, radius, message scale, motion
+  speed, smooth streaming with adjustable print speed, fonts for UI / code /
+  terminal (including local font import), custom CSS, terminal shell and
+  palette, app mark, **theme profiles** — and mini-games (2048, Minesweeper,
+  Snake) in the "Отдых" tab for good measure.
 - **Search across all settings** — type a few letters, jump to the exact
   section with the item highlighted.
 
@@ -165,7 +166,7 @@ instantly and is remembered.
 
 | Theme | What it is |
 |---|---|
-| **Halo** (default) | Warm dark palette in the spirit of Claude: 8 dark styles + light, 6 accent presets + custom color, glass effects, theme profiles. |
+| **Halo** (default) | Warm dark palette in the spirit of Claude: 12 dark styles + light, 6 accent presets + custom color, glass effects, theme profiles. |
 | **Official** | Strict black / grey / white monochrome in the Linear-Vercel spirit. Hierarchy comes from brightness and borders, color is reserved for semantics — diffs, tool statuses, errors. Extras: true-black OLED background, higher-contrast mode, greyscale code highlighting. Always dark, opt-in. |
 
 Ambient backgrounds come in two flavours: the CSS "breathing accent" glow, or
@@ -230,7 +231,7 @@ platform:
 src/            React frontend (App, ChatArea, Sidebar, SettingsModal, …)
 src-tauri/      Rust side: agent tools, MCP, browser (CDP), PTY, crypto,
                 hooks, knowledge bases, dictation, memory
-locales/        ru / en / zh / ja dictionaries (compiler-checked)
+src/locales/    ru / en / zh / ja dictionaries (compiler-checked)
 docs/           screenshots, internal dev notes
 .github/        CI: frontend build + cargo tests on Windows/Linux/macOS
 ```
