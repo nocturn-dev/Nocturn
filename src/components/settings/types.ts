@@ -30,4 +30,5 @@ export type Section =
   | "docs";
 
 /** Навигация настроек: группы как в агентских CLI (Basics / Agent
-    capabilities / Data). id: null — раздел-заглушка, будет реализован позже */
+    capabilities / Data / Rest / Integrations / Help). Сами группы и их
+    порядок объявлены в SettingsModal (NAV) — здесь только тип Section */

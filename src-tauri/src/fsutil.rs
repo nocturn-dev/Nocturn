@@ -93,7 +93,14 @@ pub fn read_capped_string(path: &Path, limit: usize) -> Result<String, String> {
             limit
         ));
     }
-    fs::read_to_string(path).map_err(|e| format!("cannot read {}: {e}", path.display()))
+    let mut data = fs::read_to_string(path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
+    // BOM-толерантность: файлы, пересохранённые редакторами «UTF-8 с BOM»
+    // (частый кейс на Windows), раньше отваливались в serde_json как
+    // «corrupted» без причины — срезаем префикс один раз
+    if data.starts_with('\u{FEFF}') {
+        data.replace_range(0..'\u{FEFF}'.len_utf8(), "");
+    }
+    Ok(data)
 }
 
 /// 8 hex-символов из случайных байтов (32 бита энтропии) — короткое имя
