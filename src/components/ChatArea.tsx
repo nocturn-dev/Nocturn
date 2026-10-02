@@ -143,7 +143,10 @@ interface ChatAreaProps {
   onReviewChanges?: (files: ChangedFile[], focusPath?: string) => void;
   /** Open на строке карточки изменений: системное открытие файла (App
    *  резолвит корень проекта и показывает ошибку тостом) */
-  onOpenFileExternal?: (path: string) => void;
+  onOpenFileExternal?: (
+    path: string,
+    mode?: "open" | "explorer" | "vscode",
+  ) => void;
   /** Редактирование отправленного сообщения (карандаш): правка + перезапрос */
   onEditMessage?: (msgId: string, newText: string) => void;
   /** Живые прогоны субагентов (ключ — tool call id) */
@@ -358,9 +361,7 @@ export default function ChatArea({
   const sessionKey = session?.id ?? null;
   useEffect(() => {
     setShowOldTurns(false); // смена задачи — снова сворачиваем историю
-    setSessionChangesOpen(false);
   }, [sessionKey]);
-  const [sessionChangesOpen, setSessionChangesOpen] = useState(false);
   // Селектор проекта над центрированным композером (ZCode-стиль)
   const [projectOpen, setProjectOpen] = useState(false);
   const [permOpen, setPermOpen] = useState(false);
@@ -1371,33 +1372,6 @@ export default function ChatArea({
               const visibleFrom = showOldTurns
                 ? 0
                 : Math.max(0, turns.length - RENDER_TURN_WINDOW);
-              if (sessionWrites.length > 0) {
-                if (sessionChangesOpen) {
-                  nodes.push(
-                    <ChangedFilesCard
-                      key="session-changes"
-                      files={sessionWrites}
-                      onUndo={onUndoWrite}
-                      onReview={
-                        onReviewChanges
-                          ? (fp) => onReviewChanges(sessionWrites, fp)
-                          : undefined
-                      }
-                      onOpenExternal={onOpenFileExternal}
-                    />,
-                  );
-                } else {
-                  nodes.push(
-                    <button
-                      key="session-changes-open"
-                      onClick={() => setSessionChangesOpen(true)}
-                      className="mx-auto my-1 rounded-full border border-halo-line px-3 py-1 text-[0.6875rem] text-halo-muted transition-colors hover:border-halo-accent/50 hover:text-halo-text"
-                    >
-                      {t("changes.task", { n: sessionWrites.length })}
-                    </button>,
-                  );
-                }
-              }
 
               if (visibleFrom > 0) {
                 nodes.push(
@@ -1568,25 +1542,26 @@ export default function ChatArea({
                   }
                 }
 
-                // Сводка изменённых файлов — ТОЛЬКО когда весь запрос закончился
-                // (фидбек владельца: во время работы вместо карточки живой
-                // счётчик «+N −M» в шапке хода — RunCard)
-                if (derived.writesFiles.length > 0 && !typing && !streamingMsgId) {
-                  nodes.push(
-                    <ChangedFilesCard
-                      key={`changes-${turn.user?.id ?? ti}`}
-                      files={derived.writesFiles}
-                      onUndo={onUndoWrite}
-                      onReview={
-                        onReviewChanges
-                          ? (fp) => onReviewChanges(derived.writesFiles, fp)
-                          : undefined
-                      }
-                      onOpenExternal={onOpenFileExternal}
-                    />,
-                  );
-                }
               });
+              // Сводка изменённых файлов — ОДНА карточка, внизу ленты, после
+              // всего запроса (фидбек владельца: не сверху, не по одной на
+              // ход; во время работы вместо неё живой «+N −M» в шапке хода)
+              if (sessionWrites.length > 0 && !typing && !streamingMsgId) {
+                nodes.push(
+                  <ChangedFilesCard
+                    key="session-changes"
+                    files={sessionWrites}
+                    onUndo={onUndoWrite}
+                    onReview={
+                      onReviewChanges
+                        ? (fp) => onReviewChanges(sessionWrites, fp)
+                        : undefined
+                    }
+                    onOpenExternal={onOpenFileExternal}
+                    projectRoot={projectRoot}
+                  />,
+                );
+              }
               // Живые карточки субагентов: прогон идёт, tool-сообщения ещё нет
               {
                 const doneSubs = new Set(
@@ -1642,7 +1617,6 @@ export default function ChatArea({
       printSpeed,
       reuseAttachment,
       ribbon,
-      sessionChangesOpen,
       sessionWrites,
       showMsgTime,
       showOldTurns,
@@ -1654,6 +1628,7 @@ export default function ChatArea({
       subRuns,
       t,
       typing,
+      projectRoot,
     ],
   );
   return (

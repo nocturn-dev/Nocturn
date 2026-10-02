@@ -123,6 +123,32 @@ export function IntegrationsSection({
     };
   }, [unavailable]);
 
+  // Живой статус привязки: /start в TG обновляет бекенд БЕЗ ведома UI —
+  // без опроса карточка вечно показывала «не привязан» при фактической
+  // привязке (фидбек владельца). Конфиг тоже: chat_id доезжает с диска
+  useEffect(() => {
+    if (!tgOn) return;
+    let disposed = false;
+    const read = () => {
+      void telegramStatus()
+        .then((s) => {
+          if (!disposed) setTgStatus(s);
+        })
+        .catch(() => {});
+      void telegramGetConfig()
+        .then((c) => {
+          if (!disposed) setTg(c);
+        })
+        .catch(() => {});
+    };
+    void read();
+    const iv = window.setInterval(read, 3000);
+    return () => {
+      disposed = true;
+      window.clearInterval(iv);
+    };
+  }, [tgOn]);
+
   return (
     <div className="mx-auto max-w-2xl">
       <h3 className="mb-1 text-sm font-semibold text-halo-text">
@@ -544,6 +570,12 @@ export function IntegrationsSection({
           </p>
         </div>
       )}
+
+      {/* Честный дисклеймер (запрос владельца): экспериментальность +
+          что именно может уходить в сеть у не-локальных интеграций */}
+      <p className="mt-3 px-1 text-[0.625rem] leading-relaxed text-halo-muted/70">
+        {t("integrations.experimental")}
+      </p>
     </div>
   );
 }

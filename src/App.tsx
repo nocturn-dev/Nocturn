@@ -479,6 +479,14 @@ export default function App() {
     projectsRef,
   });
 
+  // Pre-toggle «Agent» до создания чата: без него клик по чипу создавал
+  // сессию и стирал набранный черновик (запрос при этом не отправлялся).
+  // Сбрасывается, когда появляется активная сессия (режим поглощён ей)
+  const [pendingAgentMode, setPendingAgentMode] = useState(false);
+  useEffect(() => {
+    if (activeId) setPendingAgentMode(false);
+  }, [activeId]);
+
   // Домен «Подключение к ИИ»: настройки, профили, шифрование, статус соединения
   const {
     apiSettings,
@@ -993,6 +1001,7 @@ export default function App() {
     addToast,
     setUsageLog,
     chainRunning,
+    pendingAgentMode,
     askAutoContinue,
     notifyMeta,
     activeProjectId,
@@ -1326,8 +1335,8 @@ export default function App() {
   // Корень проекта — для относительных путей fs_write; ошибка — тостом,
   // а не молча (open_path фейлится на файлах без ассоциации)
   const handleOpenFileExternal = useCallback(
-    (path: string) => {
-      openFileExternal(projectRootRef.current, path).catch((e) =>
+    (path: string, mode: "open" | "explorer" | "vscode" = "open") => {
+      openFileExternal(projectRootRef.current, path, mode).catch((e) =>
         addToast(String(e)),
       );
     },
@@ -2524,7 +2533,7 @@ export default function App() {
           apiStatus.models?.find((m) => m.id === apiSettings.model)?.vision
         }
         isLocal={/localhost|127\.0\.0\.1/.test(apiSettings.base_url)}
-        agentMode={activeSession?.agentMode ?? false}
+        agentMode={activeSession?.agentMode ?? pendingAgentMode}
         permissionMode={activeSession?.permissionMode ?? "ask"}
         onPermissionModeChange={(m) => {
           // «План» — панель плана открывается сама (и из поповера, и при
@@ -2601,7 +2610,7 @@ export default function App() {
         }
         onApplyPreset={handleApplyPreset}
         onToggleAgent={() =>
-          activeId ? handleToggleAgent() : createChat({ agentMode: true })
+          activeId ? handleToggleAgent() : setPendingAgentMode((v) => !v)
         }
         terminalOpen={terminalOpen}
         onToggleTerminal={() => setTerminalOpen((v) => !v)}

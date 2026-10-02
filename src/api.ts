@@ -1698,8 +1698,10 @@ export function onMediaState(
 export function openFileExternal(
   root: string | null,
   path: string,
+  /** "open" (дефолт) | "explorer" — показать в папке | "vscode" — VS Code */
+  mode: "open" | "explorer" | "vscode" = "open",
 ): Promise<void> {
-  return invoke("open_file_external", { root, path });
+  return invoke("open_file_external", { root, path, mode });
 }
 
 export async function pickSaveFile(

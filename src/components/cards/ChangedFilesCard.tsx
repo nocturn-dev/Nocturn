@@ -1,16 +1,29 @@
 import { diffLines, diffStats, normalizePath } from "../../diff";
 import { langFromPath } from "../../highlight";
 import { useLang } from "../../locales";
+import { clipboardWrite } from "../../api";
+import { isWindows } from "../../platform";
 import { type ChangedFile } from "../../types";
 import { DiffView } from "./DiffView";
 import { ChevronDownIcon, ToolIcon } from "./icons";
+import ContextMenu, { type MenuItem } from "../ContextMenu";
 import { memo, useMemo, useState } from "react";
+
+/** Абсолютный путь для «Копировать путь»: путь от fs_write может быть
+ *  относительным (корень проекта) — склейка по платформе */
+function absolutePath(root: string | null | undefined, path: string): string {
+  if (/^([a-zA-Z]:[\\/]|\\\\|\/)/.test(path)) return path;
+  if (!root) return path;
+  const sep = isWindows() ? "\\" : "/";
+  return `${root.replace(/[\\/]+$/, "")}${sep}${path.replace(/^[\\/]+/, "")}`;
+}
 
 function ChangedFilesCardBase({
   files,
   onUndo,
   onReview,
   onOpenExternal,
+  projectRoot,
 }: {
   files: ChangedFile[];
   onUndo: (f: ChangedFile) => void;
@@ -19,12 +32,53 @@ function ChangedFilesCardBase({
    *  (ZCode-стиль: у каждого файла своя кнопка). Без колбэка не рендерится */
   onReview?: (focusPath?: string) => void;
   /** Open: открыть файл системным приложением (бекенд резолвит root) */
-  onOpenExternal?: (path: string) => void;
+  onOpenExternal?: (path: string, mode: "open" | "explorer" | "vscode") => void;
+  /** Корень проекта — для «Копировать абсолютный путь» */
+  projectRoot?: string | null;
 }) {
   const { t } = useLang();
   const [open, setOpen] = useState(false);
   const [openFile, setOpenFile] = useState<string | null>(null);
   const [undone, setUndone] = useState<Set<string>>(new Set());
+  /** Меню Open-кнопки (Проводник/VS Code/копирование путей) — координаты
+   *  клика, рендер через портал ContextMenu */
+  const [menu, setMenu] = useState<{ x: number; y: number; path: string } | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  const menuItems = (path: string): MenuItem[] => {
+    const abs = absolutePath(projectRoot, path);
+    const copy = (s: string) => {
+      void clipboardWrite(s)
+        .then(() => {
+          setCopied(true);
+          window.setTimeout(() => setCopied(false), 1600);
+        })
+        .catch(() => {});
+    };
+    return [
+      {
+        label: t("changes.openSystem"),
+        onSelect: () => onOpenExternal?.(path, "open"),
+      },
+      {
+        label: t("changes.explorer"),
+        onSelect: () => onOpenExternal?.(path, "explorer"),
+      },
+      {
+        label: t("changes.vscode"),
+        onSelect: () => onOpenExternal?.(path, "vscode"),
+      },
+      {
+        label: t("changes.copyAbs"),
+        separator: true,
+        onSelect: () => copy(abs),
+      },
+      {
+        label: t("changes.copyRel"),
+        onSelect: () => copy(path),
+      },
+    ];
+  };
 
   const stats = useMemo(
     () =>
@@ -144,16 +198,29 @@ function ChangedFilesCardBase({
                     </button>
                   )}
                   {onOpenExternal && !isUndone && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onOpenExternal(f.path);
-                      }}
-                      title={t("agent.rowOpenTitle")}
-                      className="shrink-0 rounded-md border border-halo-line px-2 py-0.5 text-[0.625rem] text-halo-muted transition-colors hover:border-halo-accent/50 hover:text-halo-text"
-                    >
-                      {t("agent.rowOpen")}
-                    </button>
+                    <span className="flex shrink-0 items-center overflow-hidden rounded-md border border-halo-line">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onOpenExternal(f.path, "open");
+                        }}
+                        title={t("agent.rowOpenTitle")}
+                        className="px-2 py-0.5 text-[0.625rem] text-halo-muted transition-colors hover:bg-halo-hover hover:text-halo-text"
+                      >
+                        {t("agent.rowOpen")}
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                          setMenu({ x: r.left, y: r.bottom + 4, path: f.path });
+                        }}
+                        title={t("changes.menuHint")}
+                        className="border-l border-halo-line px-1 py-0.5 text-[0.625rem] text-halo-muted transition-colors hover:bg-halo-hover hover:text-halo-text"
+                      >
+                        ▾
+                      </button>
+                    </span>
                   )}
                   {isUndone ? (
                     <span className="shrink-0 text-[0.625rem] text-halo-muted/70">
@@ -184,6 +251,15 @@ function ChangedFilesCardBase({
             );
           })}
         </div>
+      )}
+      {/* Меню Open-кнопки: Проводник / VS Code / копирование путей */}
+      {menu && (
+        <ContextMenu x={menu.x} y={menu.y} items={menuItems(menu.path)} onClose={() => setMenu(null)} />
+      )}
+      {copied && (
+        <span className="anim-fade-up fixed bottom-4 left-1/2 z-[var(--halo-z-toast)] -translate-x-1/2 rounded-full border border-halo-line bg-halo-raised px-3 py-1 text-xs text-halo-text shadow-lg">
+          {t("changes.copied")}
+        </span>
       )}
     </div>
   );

@@ -501,12 +501,16 @@ fn hide_to_tray(app: tauri::AppHandle) -> Result<(), String> {
 /// открываем; файлы проекта агента — легитимная пользовательская цель.
 /// Команда, а не прямое opener-разрешение вебвью: capability opener:default
 /// остаётся только на http/https — вебвью не получает право открыть
-/// произвольный путь
+/// произвольный путь.
+/// mode: "open" (дефолт) — системное приложение; "explorer" — показать в
+/// папке (Проводник с выделением); "vscode" — открыть в VS Code
+/// (`code <path>`, честная ошибка если не установлен)
 #[tauri::command(async)]
 async fn open_file_external(
     app: tauri::AppHandle,
     root: Option<String>,
     path: String,
+    mode: Option<String>,
 ) -> Result<(), String> {
     let owned;
     let target: &std::path::Path = {
@@ -522,13 +526,79 @@ async fn open_file_external(
         }
     };
     crate::settings::rejects_sensitive_path(&target.to_string_lossy())?;
-    if !target.is_file() {
+    let mode = mode.as_deref().unwrap_or("open");
+    // VS Code открывает и несуществующий путь (новый файл) — проверка
+    // существования только для open/explorer
+    if mode != "vscode" && !target.is_file() {
         return Err(format!("file does not exist: {}", target.display()));
     }
-    use tauri_plugin_opener::OpenerExt;
-    app.opener()
-        .open_path(target.to_string_lossy().to_string(), None::<String>)
-        .map_err(|e| e.to_string())
+    let target_str = target.to_string_lossy().to_string();
+    match mode {
+        "explorer" => {
+            // Показать файл в папке: Проводник с выделением (Windows),
+            // Reveal в Finder (macOS), xdg-open каталога (Linux)
+            #[cfg(windows)]
+            {
+                use std::os::windows::process::CommandExt;
+                let mut c = std::process::Command::new("explorer");
+                // /select, требует запятую и обратные слэши
+                c.raw_arg(format!("/select,\"{}\"", target_str.replace('/', "\\")));
+                crate::proc::run_command_opts(&mut c, std::time::Duration::from_secs(10), None, None)
+                    .map_err(|e| format!("explorer failed: {e}"))?;
+                Ok(())
+            }
+            #[cfg(target_os = "macos")]
+            {
+                let mut c = std::process::Command::new("open");
+                c.arg("-R").arg(&target_str);
+                crate::proc::run_command_opts(&mut c, std::time::Duration::from_secs(10), None, None)
+                    .map_err(|e| format!("reveal failed: {e}"))?;
+                Ok(())
+            }
+            #[cfg(all(unix, not(target_os = "macos")))]
+            {
+                let dir = target
+                    .parent()
+                    .map(|p| p.to_string_lossy().to_string())
+                    .unwrap_or_else(|| target_str.clone());
+                let mut c = std::process::Command::new("xdg-open");
+                c.arg(&dir);
+                crate::proc::run_command_opts(&mut c, std::time::Duration::from_secs(10), None, None)
+                    .map_err(|e| format!("xdg-open failed: {e}"))?;
+                Ok(())
+            }
+        }
+        "vscode" => {
+            // `code` — .cmd-шим на Windows: только через cmd /C с raw_arg
+            // (конвенция проекта). Не установлен — честная ошибка наружу
+            #[cfg(windows)]
+            {
+                use std::os::windows::process::CommandExt;
+                const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+                let mut c = std::process::Command::new("cmd");
+                c.args(["/C"])
+                    .raw_arg(format!("code \"{}\"", target_str.replace('"', "")))
+                    .creation_flags(CREATE_NO_WINDOW);
+                crate::proc::run_command_opts(&mut c, std::time::Duration::from_secs(20), None, None)
+                    .map_err(|e| format!("vscode failed: {e}"))?;
+                Ok(())
+            }
+            #[cfg(not(windows))]
+            {
+                let mut c = std::process::Command::new("code");
+                c.arg(&target_str);
+                crate::proc::run_command_opts(&mut c, std::time::Duration::from_secs(20), None, None)
+                    .map_err(|e| format!("vscode failed: {e}"))?;
+                Ok(())
+            }
+        }
+        _ => {
+            use tauri_plugin_opener::OpenerExt;
+            app.opener()
+                .open_path(target_str, None::<String>)
+                .map_err(|e| e.to_string())
+        }
+    }
 }
 
 /// Развернуть/свернуть главное окно. Нативный maximize: DWM сам играет
