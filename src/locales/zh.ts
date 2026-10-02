@@ -1290,6 +1290,11 @@ export const zh = {
     "media.cardHint": "播放器迷你条：曲目、时间、暂停与切歌。点击开启或关闭",
     "media.blockTitle": "系统播放器（Spotify 等）",
     "media.lyrics": "歌词（lrclib.net）",
+    "media.ribbon": "歌词横幅",
+    "media.ribbonDesc":
+      "歌词行以动态排版风格大字浮于聊天背景上。文本同样来自 lrclib — 不产生额外网络请求。滑块用于调整字号。",
+    "media.ribbonScale": "字号大小",
+    "media.ribbonScaleDesc": "从紧凑条幅到近乎全屏",
     "media.lyricsDesc": "按曲名和歌手查找歌词——这是唯一离开本机的数据",
     "media.cover": "曲目封面",
     "media.coverDesc": "来自系统播放器的缩略图，不会上传到任何地方",

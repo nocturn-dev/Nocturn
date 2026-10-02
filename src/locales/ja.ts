@@ -1290,6 +1290,11 @@ export const ja = {
     "media.cardHint": "プレイヤーミニバー：曲・経過時間・一時停止・曲送り。クリックで切り替え",
     "media.blockTitle": "OS プレイヤー（Spotify など）",
     "media.lyrics": "歌詞（lrclib.net）",
+    "media.ribbon": "歌詞リボン",
+    "media.ribbonDesc":
+      "歌詞行をキネティック・タイポグラフィのようにチャット背景に大きく浮かせます。テキストは同じく lrclib — 追加の通信はありません。スライダーで行サイズを調整。",
+    "media.ribbonScale": "行サイズ",
+    "media.ribbonScaleDesc": "コンパクトな帯からほぼ全画面まで",
     "media.lyricsDesc": "曲名とアーティストで歌詞を検索——ネットに出るのはこのデータだけです",
     "media.cover": "曲のアートワーク",
     "media.coverDesc": "OS プレイヤーからのサムネイル。どこにも送信されません",

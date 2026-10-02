@@ -75,6 +75,7 @@ import ResetConfirmModal from "./components/ResetConfirmModal";
 
 
 import ChatArea from "./components/ChatArea";
+import { LyricsRibbon } from "./components/LyricsRibbon";
 import { YouTubeLayer } from "./components/YouTubeLayer";
 import { ytToggleOpen } from "./yt/ytPlayer";
 import SettingsModal, { type Section } from "./components/SettingsModal";
@@ -2482,17 +2483,22 @@ export default function App() {
             paused={appearance.reduceMotion === true}
             gradFrom={appearance.ambientGradFrom}
             gradTo={appearance.ambientGradTo}
-            // Ambient Lyrics (волна 1): лента строк лирики поверх сцены.
-            // Данные поднимает MediaBar; гейт по наличию — нет музыки/
-            // лирики, сцена рисуется как обычно
-            lyrics={mediaLyrics}
+            gradAngle={appearance.ambientGradAngle}
+          />
+        )}
+        {/* Ambient Lyrics: лента строк лирики — режим Spotify/YouTube-
+            интеграции (mediaPrefs.ribbon), НЕ зависит от ambient-фона;
+            z-[1] — поверх ambient-behind, под контентом чата (z-10) */}
+        {mediaPrefs.ribbon && (
+          <LyricsRibbon
+            snap={mediaLyrics}
+            scale={mediaPrefs.ribbonScale}
             composerCentered={
               (activeSession?.messages.length ?? 0) === 0 &&
               !typing &&
               !terminalOpen
             }
             contentLeft={sidebarWidth}
-            gradAngle={appearance.ambientGradAngle}
           />
         )}
         <button

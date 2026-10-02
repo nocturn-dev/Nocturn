@@ -35,6 +35,11 @@ export interface MediaPrefs {
   ytAutoCollapse: boolean;
   /** Повтор очереди: кончилась — начинать с первого */
   ytLoopQueue: boolean;
+  /** Ambient Lyrics: лента строк лирики поверх фона чата (режим
+   *  Spotify/YouTube-интеграции, НЕ модификация ambient-сцен) */
+  ribbon: boolean;
+  /** Размер строк ленты: 0.3–1.0 — от компактной полоски до «на весь экран» */
+  ribbonScale: number;
   /** Перетаскивание окна плеера за шапку */
   ytDraggable: boolean;
   /** Клик по фону/чату не сворачивает окно (закрывать крестиком/биндом) */
@@ -80,6 +85,8 @@ export function loadMediaPrefs(): MediaPrefs {
         ytAutoCollapse: false,
         ytLoopQueue: false,
         ytDraggable: false,
+        ribbon: false,
+        ribbonScale: 0.6,
         ytKeepOpen: false,
         ytSize: "m",
         ...shimPair({}),
@@ -102,6 +109,11 @@ export function loadMediaPrefs(): MediaPrefs {
       ytAutoCollapse: p.ytAutoCollapse === true,
       ytLoopQueue: p.ytLoopQueue === true,
       ytDraggable: p.ytDraggable === true,
+      ribbon: p.ribbon === true,
+      ribbonScale:
+        typeof p.ribbonScale === "number"
+          ? Math.min(1, Math.max(0.3, p.ribbonScale))
+          : 0.6,
       ytKeepOpen: p.ytKeepOpen === true,
       ytSize: p.ytSize === "s" || p.ytSize === "l" ? p.ytSize : "m",
       ...shimPair(p),
@@ -118,6 +130,8 @@ export function loadMediaPrefs(): MediaPrefs {
       ytAutoCollapse: false,
       ytLoopQueue: false,
       ytDraggable: false,
+      ribbon: false,
+      ribbonScale: 0.6,
       ytKeepOpen: false,
       ytSize: "m",
       ...shimPair({}),
