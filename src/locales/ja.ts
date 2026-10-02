@@ -723,6 +723,8 @@ export const ja = {
       "まだコマンドを許可したタスクはありません。エージェントのダイアログで「このタスクでは常に」を押すと、リストがここに現れます。",
     "main.version": "バージョン",
     "main.autostart": "ログイン時に起動",
+    "main.autoUpdate": "起動時に更新を確認",
+    "main.autoUpdateDesc": "起動のたびに GitHub へ新バージョンを静かに確認します。オフの場合は API エンドポイントと有効な統合以外、通信を行いません。",
     "main.autostartDesc": "PC の起動時に Nocturn を自動で開きます。自動化タスクと併用すると便利です。",
     "main.quickEntry": "クイック入力",
     "main.quickEntryDesc": "グローバルショートカット — どのアプリの上でも新規タスクウィンドウを開きます（既定は Ctrl+Alt+Space）",

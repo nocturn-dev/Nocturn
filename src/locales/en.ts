@@ -694,6 +694,8 @@ export const en = {
       "No task has allowed commands yet. Press “Always for this task” in agent dialogs and the list will appear here.",
     "main.version": "Version",
     "main.autostart": "Run at login",
+    "main.autoUpdate": "Check for updates at startup",
+    "main.autoUpdateDesc": "Once per launch the app quietly asks GitHub whether a new version exists. Off — no network requests at all, except your API endpoints and enabled integrations.",
     "main.autostartDesc": "Open Nocturn automatically when your computer starts. Pairs well with automations.",
     "main.quickEntry": "Quick entry",
     "main.quickEntryDesc": "Global shortcut — new-task window on top of any app (default Ctrl+Alt+Space)",

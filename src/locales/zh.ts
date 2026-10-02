@@ -723,6 +723,8 @@ export const zh = {
       "还没有任务放行过命令。在代理对话中点击「本任务总是允许」，列表会出现在这里。",
     "main.version": "版本",
     "main.autostart": "开机自启",
+    "main.autoUpdate": "启动时检查更新",
+    "main.autoUpdateDesc": "每次启动时静默询问 GitHub 是否有新版本。关闭时 — 除你的 API 端点和已启用的集成外，不发起任何网络请求。",
     "main.autostartDesc": "电脑启动时自动打开 Nocturn。与自动化任务配合使用效果最佳。",
     "main.quickEntry": "快速输入",
     "main.quickEntryDesc": "全局快捷键 — 在任何应用上方打开新任务窗口（默认 Ctrl+Alt+Space）",
