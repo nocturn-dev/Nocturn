@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { AskQuestion, Attachment, ChangedFile, Message, PermissionMode, PlanTask, Project, Session, ToolCallInfo } from "../types";
-import type { MediaPrefs } from "../mediaPrefs";
+import type { MediaPrefs, MediaLyricsSnapshot } from "../mediaPrefs";
 import { MediaBar } from "./MediaBar";
 import type { PromptPreset } from "../presets";
 import type { JailbreakEntry } from "../jailbreaks";
@@ -111,6 +111,8 @@ interface ChatAreaProps {
   customPresets: PromptPreset[];
   /** Библиотека джейлбрейков — пикер в системном промте задачи */
   jailbreaks: JailbreakEntry[];
+  /** Снимок лирики наверх (AmbientLayer): MediaBar отдаёт колбэком */
+  onMediaLyrics?: (snap: MediaLyricsSnapshot | null) => void;
   onSend: (
     text: string,
     attachments?: Attachment[],
@@ -278,6 +280,7 @@ export default function ChatArea({
   promptPresets,
   customPresets,
   jailbreaks,
+  onMediaLyrics,
   onSetSystemPrompt,
   onApplyPreset,
   onToggleAgent,
@@ -1745,7 +1748,7 @@ export default function ChatArea({
       {plan && plan.length > 0 && <PlanPanel plan={plan} />}
       {/* Мини-бар плеера: тонкая полоска под шапкой, только когда включён
           и что-то играет (вкладка «Интеграции») */}
-      <MediaBar prefs={mediaPrefs} />
+      <MediaBar prefs={mediaPrefs} onLyrics={onMediaLyrics} />
       <div
         ref={scrollRef}
         className="scroll-slim relative z-10 h-full overflow-y-auto"
