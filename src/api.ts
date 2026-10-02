@@ -1534,9 +1534,11 @@ export async function chatExportWrite(path: string, content: string): Promise<vo
   return invoke("chat_export_write", { path, content });
 }
 
-export async function settingsImportRead(
-  path: string,
-): Promise<{ files?: Record<string, unknown>; local?: Record<string, string> }> {
+// ВАЖНО: бекенд (settings_import_read) возвращает СЫРОЙ JSON любого файла —
+// не wrapper {files, local}. Для собственного экспорта это wrapper, для
+// внешних файлов (ChatGPT/Gemini) — содержимое файла. Сужение формы —
+// на месте вызова, здесь тип сознательно unknown
+export async function settingsImportRead(path: string): Promise<unknown> {
   if (!inTauri) {
     throw new Error("Импорт настроек работает в нативном приложении (npm run tauri dev)");
   }
@@ -1581,11 +1583,6 @@ export function mediaControl(
 export function clipboardWrite(text: string): Promise<void> {
   if (!inTauri) return Promise.reject(new Error("not in tauri"));
   return invoke("clipboard_write", { text });
-}
-
-/** Режим отслеживания минибара: desktop | browser | off (radio, один активен) */
-export function mediaSetMode(mode: "desktop" | "browser" | "off"): Promise<void> {
-  return invoke("media_set_mode", { mode });
 }
 
 export interface LyricsDto {

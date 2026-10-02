@@ -27,7 +27,7 @@ import {
 import { buildHistory, buildMemoryBlock } from "../agent/history";
 import { buildProfileBlock } from "../userProfile";
 import { evalHardLimit } from "../limits";
-import { filterToolSchemas } from "../agent/toolFilter";
+import { filterToolSchemas, isMutatingTool } from "../agent/toolFilter";
 import { runPython, CODE_RUN_SCHEMA } from "../codeRun";
 import { StreamDeltaBuffer, applyMainDeltas } from "./streamBuffer";
 import { interpolate, parseWorkflow, type WorkflowDef } from "../workflow";
@@ -337,11 +337,12 @@ export function useAgentRun(deps: AgentRunDeps) {
         .map((i) => i.id),
     );
     for (const id of ids) interactionsRef.current.resolve(id, { kind: "cancel" });
-    setInteractions((prev) => {
-      const next = prev.filter((x) => !ids.has(x.id));
-      interactionsLatest.current = next;
-      return next;
-    });
+    // next считаем от зеркала-рефа, а не внутри updater: запись в ref внутри
+    // setState-updater — сайд-эффект вне модели (StrictMode зовёт апдейтер
+    // дважды), и ref получил бы значение из устаревшего prev
+    const next = interactionsLatest.current.filter((x) => !ids.has(x.id));
+    interactionsLatest.current = next;
+    setInteractions(next);
   }, []);
 
   // requestId → id ассистентского сообщения в активном стриме
@@ -459,10 +460,21 @@ export function useAgentRun(deps: AgentRunDeps) {
     const text = raw.trim();
     const images = attachments ?? [];
     const requestId = run.requestId;
-    // Освобождение движка на путях отказа ниже (валидация, блокировка хуком)
+    // Освобождение движка на путях отказа (валидация, блокировка хуком).
+    // UI-стейт занятости сбрасываем здесь же: пути ДО setTyping — чтобы
+    // выставленный на входе стейт не залипал, пути ПОСЛЕ (битая сессия) —
+    // чтобы индикаторы не горели вечно
     const releaseRun = () => {
       if (activeRunRef.current === requestId) activeRunRef.current = null;
+      setStreamingId(null);
+      setTyping(false);
     };
+    // UI-стейт занятости — ДО первого await. Раньше он ставился после хуков
+    // SessionStart/UserPromptSubmit (2 IPC): в окне 0.1–2 с submit уходил в
+    // onSend, guard молча отбрасывал его, а черновик был уже очищен — текст
+    // терялся без всякой обратной связи
+    setStreamingId(requestId);
+    setTyping(true);
 
     // Первое сообщение создаёт задачу, если активной ещё нет
     let targetId = overrideTargetId ?? activeId;
@@ -629,11 +641,8 @@ export function useAgentRun(deps: AgentRunDeps) {
       }
     }
 
-    // requestId захвачен выше (C1, сразу после guard'а) — здесь только UI-стейт
-    // requestId → id ассистентского сообщения выставляется при его создании
-    // (в агентном режиме — на каждый шаг цикла)
-    setStreamingId(requestId);
-    setTyping(true);
+    // UI-стейт занятости выставлен на входе в sendImpl (до первого await) —
+    // здесь остаётся только статус
     setActivity(t("activity.thinking"));
     const startedAt = Date.now();
     // Накопитель расхода: для звена цепочки очереди стартует с расхода
@@ -643,6 +652,9 @@ export function useAgentRun(deps: AgentRunDeps) {
       prompt: budgetCarry?.prompt ?? 0,
       completion: budgetCarry?.completion ?? 0,
     };
+    // Фактическая модель прогона: fallback меняет её на лету — журнал
+    // расхода раньше писал всё под имя основной, статистика по моделям врала
+    let modelUsed = apiSettings.model;
     // Уже записанное в журнал использования (расход предыдущих звеньев
     // записан их finalize): пишем только дельту, без двойного учёта
     let loggedPrompt = usageAcc.prompt;
@@ -659,7 +671,7 @@ export function useAgentRun(deps: AgentRunDeps) {
           day: dayKeyLocal(new Date()),
           prompt,
           completion,
-          model: apiSettings.model,
+          model: modelUsed,
           workedMs,
         },
       ]);
@@ -1120,6 +1132,7 @@ export function useAgentRun(deps: AgentRunDeps) {
           fallbackModel: apiSettings.fallback_model || undefined,
           onFallback: (fb) => {
             // Бейдж «переключено на X»: на карточке — фактическая модель
+            modelUsed = fb;
             setSessions((prev) =>
               prev.map((s) =>
                 s.id === targetId
@@ -1261,6 +1274,7 @@ export function useAgentRun(deps: AgentRunDeps) {
           fallbackModel: apiSettings.fallback_model || undefined,
           onFallback: (fb) => {
             // Бейдж «переключено на X»: на карточке — фактическая модель
+            modelUsed = fb;
             setSessions((prev) =>
               prev.map((s) =>
                 s.id === targetId
@@ -2249,20 +2263,10 @@ ${report}`;
         // MCP-инструменты тоже трогают внешние системы — подтверждаем по умолчанию.
         // Browser/Computer: чтение и скриншоты безопасны, действия — подтверждаются.
         // image_generate — mutating: расход API-кредита + запись файлов,
-        // раньше исполнялся в Plan-режиме без всякого спроса
-        const mutating =
-          call.name === "shell_run" ||
-          call.name === "fs_write" ||
-          call.name === "fs_delete" ||
-          call.name === "vault_write" ||
-          call.name === "memory_save" ||
-          call.name === "image_generate" ||
-          call.name.startsWith("mcp__") ||
-          (call.name.startsWith("browser_") &&
-            call.name !== "browser_read" &&
-            call.name !== "browser_screenshot") ||
-          (call.name.startsWith("computer_") &&
-            call.name !== "computer_screenshot");
+        // раньше исполнялся в Plan-режиме без всякого спроса.
+        // Предикат вынесен в agent/toolFilter (isMutatingTool): он ЗЕРКАЛО
+        // perm.rs, и стык закрыт тестом золотого списка
+        const mutating = isMutatingTool(call.name);
         const session = sessionsRef.current.find((s) => s.id === targetId);
         const grantKey = allowKey(call);
         const allowed =
@@ -2400,9 +2404,11 @@ ${report}`;
     // Guard от параллельных прогонов: движок однопоточный, второй вызов
     // (цепочка заметок, таймер автоматизаций, edit-message) перезаписывал
     // activeRunRef, и finalize первого прогона гасил индикаторы живого
-    // второго. UI-пути (ChatArea) уже маршрутизируют в очередь/поправку —
-    // это защита для остальных точек входа
+    // второго. UI-пути (ChatArea) маршрутизируют в очередь/поправку — это
+    // защита для остальных точек входа; не молчим: черновик к этому моменту
+    // уже очищен, тихий отказ выглядел как «отправилось»
     if (activeRunRef.current !== null) {
+      addToast(t("composer.engineBusy"));
       return;
     }
 

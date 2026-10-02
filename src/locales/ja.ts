@@ -243,6 +243,7 @@ export const ja = {
     "composer.attach": "画像を添付",
     "composer.quoteRemove": "引用を削除",
     "composer.queued": "待機中 — エージェントの返信後に送信されます",
+    "composer.engineBusy": "エージェントが実行中です — メッセージは送信されませんでした。返信後に再度お試しください",
     "composer.queuedRemove": "キューから削除",
 "chat.aiDisclaimer": "この回答は AI が生成しました。参考用です。",
 "chat.showOldTurns": "以前のメッセージを表示（{n}件）",
@@ -1355,7 +1356,7 @@ export const ja = {
       "[[ウィキリンク]]、リンクグラフ、バックリンクを備えた個人用 markdown ボールト。「⛓ チェーン」ボタンはリンクされたノートを別タスクで一連のステップとして実行します。frontmatter の agent: true でそのステップのツールが有効になります。",
     "docs.customize.title": "カスタマイズ",
     "docs.customize.body":
-      "ダーク/ライトテーマ、3 種類のダークスタイル、アクセントカラー、インターフェース倍率、ガラス効果、ターミナルのフォント。サイドバーは左右どちらにも配置でき、ドラッグでリサイズ、枠なしウィンドウ。",
+      "ダーク/ライトテーマ、豊富なダークスタイル、アクセントカラー、インターフェース倍率、ガラス効果、ターミナルのフォント。サイドバーは左右どちらにも配置でき、ドラッグでリサイズ、枠なしウィンドウ。",
     "docs.keys.title": "ホットキーとコマンド",
     "docs.keys.body":
       "Ctrl+N — 新しいタスク · Ctrl+K — 検索 · Ctrl+V — スクリーンショットを貼り付け · Enter — 送信、Shift+Enter — 改行。入力欄のスラッシュコマンド：/new /clear /agent /terminal /theme /glass /provider /prompt /note /chain。",

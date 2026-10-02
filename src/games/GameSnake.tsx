@@ -160,7 +160,13 @@ export default function GameSnake() {
         ctx.globalAlpha = i === 0 ? 1 : 0.45 + (0.5 * (snake.length - i)) / snake.length;
         ctx.fillStyle = accent.current;
         ctx.beginPath();
-        ctx.roundRect(s.x * CELL + 1, s.y * CELL + 1, CELL - 2, CELL - 2, 4);
+        // roundRect — WebKit 16.4+/Chromium 99: TypeError на старом WebKitGTK
+        // убивал rAF-цикл навсегда (игра замирала); фолбэк — обычный rect
+        if (typeof ctx.roundRect === "function") {
+          ctx.roundRect(s.x * CELL + 1, s.y * CELL + 1, CELL - 2, CELL - 2, 4);
+        } else {
+          ctx.rect(s.x * CELL + 1, s.y * CELL + 1, CELL - 2, CELL - 2);
+        }
         ctx.fill();
       }
       ctx.globalAlpha = 1;

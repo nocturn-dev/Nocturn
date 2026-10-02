@@ -109,6 +109,13 @@ export function parseProfile(raw: unknown): ThemeProfile | null {
       termBlur: num(a.termBlur, 0, 0, 20),
       uiFont: typeof a.uiFont === "string" ? a.uiFont : "",
       monoFont: typeof a.monoFont === "string" ? a.monoFont : "",
+      // Авто-тема: поля появились позже сериализатора, и без них применение
+      // профиля молча выключало переключение день/ночь (дефолты — как в
+      // appearance.loadAppearance)
+      themeAuto:
+        a.themeAuto === "system" || a.themeAuto === "schedule" ? a.themeAuto : "off",
+      autoDay: typeof a.autoDay === "string" ? a.autoDay : "08:00",
+      autoNight: typeof a.autoNight === "string" ? a.autoNight : "20:00",
     },
   };
 }

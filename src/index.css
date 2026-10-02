@@ -14,10 +14,10 @@ body[data-resizing] aside {
 
 /* ---------- Стекло: полупрозрачный фон у панелей с glass-pane ----------
    backdrop-filter размывает то, что ЗА элементом: с непрозрачным
-   bg-halo-deep слайдер размытия не виден вовсе */
-html.glass .glass-pane {
-  background: color-mix(in srgb, var(--halo-deep) 70%, transparent);
-}
+   bg-halo-deep слайдер размытия не виден вовсе.
+   Фон glass-pane объединён с html.glass .bg-halo-deep ниже (та же
+   color-mix декларация) — единая точка правды, раньше дубль здесь и
+   в «Полупрозрачность панелей» рассинхронивался бы молча */
 
 /* ---------- Знак приложения: переключение classic/bold (Кастомизация) ---------- */
 .nocturn-mark .mark-classic {
@@ -39,7 +39,9 @@ html[data-mark="classic"] .nocturn-mark .mark-bold {
   --halo-text: #e8e6dc; /* основной текст */
   --halo-muted: #9b9890; /* вторичный текст */
   --halo-accent: #d97757; /* терракота Claude */
-  --halo-accent-deep: #bd5d3a;
+  --halo-accent-deep: #b26247; /* = darken(#d97757, 0.82) из applyAppearance:
+                                  рантайм всегда пишет инлайн, статика —
+                                  дефолт до первого применения */
   --halo-on-accent: #ffffff; /* цвет контента ПОВЕРХ акцента (в Official — тёмный) */
   --halo-hover: rgba(255, 255, 255, 0.055);
   --halo-hover-strong: rgba(255, 255, 255, 0.085);
@@ -49,6 +51,8 @@ html[data-mark="classic"] .nocturn-mark .mark-bold {
      читает переменные здесь, TSX — утилиты z-[var(--halo-z-*)] */
   --halo-z-behind: -1; /* ambient-сцена «за интерфейсом» */
   --halo-z-ambient: 30; /* ambient-слой/сцены поверх контента */
+  --halo-z-ambient-front: 50; /* ambient «поверх интерфейса»: выше панелей
+                                 (z-40), ниже модалок */
   --halo-z-toast: 70; /* тосты, voice pill, прогресс загрузки */
   --halo-z-modal: 80; /* модальные окна поверх контента */
   --halo-z-modal-top: 90; /* вложенный оверлей внутри модалки (QR-зум) */
@@ -66,7 +70,7 @@ html.light {
   --halo-text: #262524;
   --halo-muted: #7c786e;
   --halo-accent: #d97757;
-  --halo-accent-deep: #bd5d3a;
+  --halo-accent-deep: #b26247; /* = darken(accent, 0.82), см. :root */
   --halo-hover: rgba(0, 0, 0, 0.05);
   --halo-hover-strong: rgba(0, 0, 0, 0.085);
   --halo-code-bg: #1a1918;
@@ -337,6 +341,9 @@ html.accent-gradient [role="button"].bg-halo-accent:hover {
   0%, 100% { transform: translateX(0); }
   50% { transform: translateX(6px); }
 }
+/* Глушители ПОЛНЫМ селектором (0-4-0 / 0-3-0): короткая форма проигрывала
+   hover-правилу (0-3-0) — reduce-motion не глушил ползание при наведении */
+html.motion-reduced .group:hover .snake-preview-seg,
 html.motion-reduced .snake-preview-seg {
   animation: none;
 }
@@ -499,6 +506,9 @@ html.zen.voice-listening body::after {
   /* змейка и search-hit глушились и тумблером html.motion-reduced —
      список ниже обязан совпадать с этим */
   .snake-preview-seg,
+  /* hover-правило (0-3-0) специфичностью бьёт короткую форму (0-1-0) —
+     глушим полным селектором */
+  .group:hover .snake-preview-seg,
   .search-hit,
   .usage-draw,
   .usage-cell,
@@ -631,6 +641,11 @@ html.motion-reduced .work-status-star,
 html.motion-reduced .work-status-text,
 html.motion-reduced .shimmer::after,
 html.motion-reduced .shimmer-text,
+/* Змейка-превью: без этой строки hover-правило (0-3-0) переигрывало
+   короткую форму ниже (!important блок уже перебивает, но селектор
+   обязан быть в списке — комментарий списка требует синхронности) */
+html.motion-reduced .group:hover .snake-preview-seg,
+html.motion-reduced .snake-preview-seg,
 html.motion-reduced .animate-pulse,
 html.motion-reduced .animate-ping,
 html.motion-reduced .animate-spin,
@@ -913,9 +928,11 @@ html.glass body {
       var(--halo-bg);
   }
 }
-/* Полупрозрачность панелей */
-html.glass .bg-halo-bg {
-  background: color-mix(in srgb, var(--halo-bg) 68%, transparent);
+/* Полупрозрачность панелей. glass-pane здесь же: тот же тинт deep/70%,
+   что у bg-halo-deep (бывший дубль в начале файла объединён) */
+html.glass .bg-halo-deep,
+html.glass .glass-pane {
+  background: color-mix(in srgb, var(--halo-deep) 70%, transparent);
 }
 html.glass .bg-halo-deep {
   background: color-mix(in srgb, var(--halo-deep) 70%, transparent);
@@ -953,8 +970,11 @@ html.glass .anim-fade-out {
 }
 
 /* Отдельное стекло на сайдбаре (тумблер в «Темах», работает и без общего стекла).
-   Фон делаем полупрозрачным — иначе blur не видно сквозь непрозрачный цвет */
-html.sidebar-glass aside {
+   Фон делаем полупрозрачным — иначе blur не видно сквозь непрозрачный цвет.
+   Селектор с классом элемента (0-2-2): короткая форма (0-1-2) проигрывала
+   html.glass .bg-halo-deep (0-2-1), и при общем стекле независимый тинт
+   сайдбара молча подменялся общим */
+html.sidebar-glass aside.bg-halo-deep {
   background-color: color-mix(in srgb, var(--halo-surface, #30302e) 42%, transparent);
   backdrop-filter: blur(calc(var(--halo-blur, 14px) * 1.6)) saturate(1.35);
   -webkit-backdrop-filter: blur(calc(var(--halo-blur, 14px) * 1.6)) saturate(1.35);
@@ -1126,8 +1146,11 @@ input[type="range"]::-webkit-slider-thumb:active {
 }
 
 /* ---------- Тема Official: строгий монохром (Кастомизация → тумблер).
-   Палитра (--halo-*) задаётся инлайн в applyAppearance и перекрывает
-   html.light и data-style; здесь — только структурные отличия ----------
+   Палитра задаётся тегом <style id="halo-official"> с !important
+   (appearance.ts, officialCss) — инлайн на корне убран: зачистка
+   предпросмотных переменных в ThemeSection сносила её при каждом входе
+   в настройки; тег бьёт и html.light, и data-style-палитры (0-2-1).
+   Здесь — только структурные отличия ----------
    Иерархия поверхностей = ступени яркости, цвет остаётся семантикой:
    diff, статусы инструментов, ошибки не обесцвечиваются. */
 
@@ -1164,7 +1187,9 @@ html.ambient:not([data-ambient-scene]) body::before {
   to { transform: translate3d(2%, 2%, 0) scale(1.06); }
 }
 @media (prefers-reduced-motion: reduce) {
-  html.ambient body::before { animation: none; }
+  /* Полный селектор базы: короткая форма (0-1-3) проигрывала базе (0-2-3)
+     и системный reduce-motion не глушил дыхание glow */
+  html.ambient:not([data-ambient-scene]) body::before { animation: none; }
 }
 
 /* ---------- Ambient: слой сцен/видео (fog, snow, city, stars, video).
@@ -1178,6 +1203,12 @@ html.ambient:not([data-ambient-scene]) body::before {
   pointer-events: none;
   overflow: hidden;
   opacity: var(--ambient-alpha, 0.7);
+}
+/* «Поверх интерфейса»: выше панелей (z-40) и поздних поповеров чата (z-30),
+   ниже модалок/тостов. Короткая форма (z=30) обрывала сцену на всех
+   приподнятых поверхностях */
+html[data-ambient-render="front"] .ambient-layer {
+  z-index: var(--halo-z-ambient-front);
 }
 .ambient-canvas,
 .ambient-video {

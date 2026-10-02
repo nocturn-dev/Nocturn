@@ -66,14 +66,15 @@ export default function HardTerminal({ cwd, combo }: { cwd?: string; combo: stri
           fontSize: 12,
           cursorBlink: true,
           theme: {
-            // фолбэк — дефолтный акцент проекта (#d97757): #7c5cff в палитрах
-            // не существовал и при достижимости делал курсор чужим цветом
-            background: pick("--halo-deep", "#1f1f1e"),
-            foreground: pick("--halo-text", "#e8e6e3"),
+            // Фолбэки = байты палитры claude из index.css (:root): константы
+            // дрейфовали от палитры (#1f1f1e против #1f1e1d и пр.) —
+            // синхронизированы, чтобы деградация была неотличима от темы
+            background: pick("--halo-deep", "#1f1e1d"),
+            foreground: pick("--halo-text", "#e8e6dc"),
             cursor: pick("--halo-accent", "#d97757"),
-            cursorAccent: pick("--halo-deep", "#1f1f1e"),
+            cursorAccent: pick("--halo-deep", "#1f1e1d"),
             selectionBackground: pick("--halo-accent", "#d97757") + "55",
-            black: pick("--halo-line", "#3a3936"),
+            black: pick("--halo-line", "#3d3c38"),
           },
         });
         termRef.current = term;
