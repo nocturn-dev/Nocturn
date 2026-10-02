@@ -1652,6 +1652,8 @@ export interface MediaStateDto {
   positionSecs: number;
   updatedAtMs: number;
   trackId: string;
+  /** Длительность трека из таймлайна (нет — поток/оконный фолбэк) */
+  durationSecs?: number | null;
   cover?: string | null;
   /** AUMID источника: диагностика, кого слышит минибар */
   source?: string | null;
