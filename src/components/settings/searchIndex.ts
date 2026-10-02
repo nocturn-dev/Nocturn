@@ -43,6 +43,8 @@ export const SETTINGS_SEARCH_INDEX: { section: Section; keys: MsgKey[] }[] = [
       "integrations.desc",
       "media.blockTitle",
       "media.lyrics",
+      "media.ribbon",
+      "media.ribbonScale",
       "media.lyricsColor",
       "media.cover",
       "media.textShimmer",

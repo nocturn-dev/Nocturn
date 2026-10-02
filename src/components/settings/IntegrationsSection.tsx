@@ -14,7 +14,7 @@ import {
 import { ytPlayUrl, ytSetOpen } from "../../yt/ytPlayer";
 import type { MediaPrefs } from "../../mediaPrefs";
 import { SpotifyIcon, YouTubeIcon } from "../cards/icons";
-import { ToggleRow } from "./parts";
+import { Row, ToggleRow } from "./parts";
 
 /**
  * Вкладка «Интеграции»: сетка карточек по образцу «Отдыха», у каждой
@@ -381,6 +381,42 @@ export function IntegrationsSection({
             on={mediaPrefs.lyrics}
             onChange={(v) => onMediaPrefsChange({ ...mediaPrefs, lyrics: v })}
           />
+          {/* Лента лирики (Ambient Lyrics): текст песни крупно поверх фона
+              чата — режим Spotify/YouTube, ambient-фон не трогает */}
+          <ToggleRow
+            label={t("media.ribbon")}
+            desc={t("media.ribbonDesc")}
+            on={mediaPrefs.ribbon}
+            onChange={(v) => onMediaPrefsChange({ ...mediaPrefs, ribbon: v })}
+          />
+          {mediaPrefs.ribbon && (
+            <Row
+              label={t("media.ribbonScale")}
+              desc={t("media.ribbonScaleDesc")}
+              value=""
+              extra={
+                <div className="flex items-center gap-2">
+                  <input
+                    type="range"
+                    min={0.3}
+                    max={1}
+                    step={0.05}
+                    value={mediaPrefs.ribbonScale}
+                    onChange={(e) =>
+                      onMediaPrefsChange({
+                        ...mediaPrefs,
+                        ribbonScale: Number(e.target.value),
+                      })
+                    }
+                    className="w-36 accent-[var(--halo-accent)]"
+                  />
+                  <span className="w-9 shrink-0 text-right text-xs tabular-nums text-halo-muted">
+                    {Math.round(mediaPrefs.ribbonScale * 100)}%
+                  </span>
+                </div>
+              }
+            />
+          )}
           {/* Подсветка лирики: токены темы или собственный цвет —
               полноценные строки со switch (чуточку больше) */}
           {mediaPrefs.lyrics && (

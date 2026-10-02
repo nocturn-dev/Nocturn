@@ -1262,6 +1262,11 @@ export const en = {
     "media.cardHint": "Player mini-bar: track, elapsed time, pause and track switching. Click to enable or disable",
     "media.blockTitle": "OS player (Spotify and others)",
     "media.lyrics": "Lyrics (lrclib.net)",
+    "media.ribbon": "Lyrics ribbon",
+    "media.ribbonDesc":
+      "Lyric lines floating large across the chat background, kinetic-typography style. Texts come from the same lrclib — no extra network requests. The slider sets the line size.",
+    "media.ribbonScale": "Line size",
+    "media.ribbonScaleDesc": "From a compact strip to nearly full screen",
     "media.lyricsDesc": "Looks up lyrics by title and artist — the only data that leaves the machine",
     "media.cover": "Track artwork",
     "media.coverDesc": "Thumbnail from the OS player, never uploaded anywhere",
