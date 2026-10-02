@@ -4,6 +4,8 @@ import {
   builtinJailbreaksFor,
   jbModelFacets,
   jbYearFacets,
+  jbWarnSuppressed,
+  suppressJbWarn,
   JB_REASONING_LABEL_KEYS,
   JB_REASONING_LEVELS,
   searchJailbreaks,
@@ -11,7 +13,8 @@ import {
   type JailbreakEntry,
 } from "../../jailbreaks";
 import { Dropdown, MiniPencilIcon, MiniTrashIcon } from "./parts";
-import { JailbreaksImport } from "./JailbreaksImport";
+import { JailbreaksLiveSearch } from "./JailbreaksLiveSearch";
+import JbWarnModal from "../JbWarnModal";
 
 /** Чип мета-данных записи (модель / год / уровень мышления) */
 function JbChip({ children }: { children: ReactNode }) {
@@ -58,6 +61,8 @@ export function JailbreaksCard({
   const [yearF, setYearF] = useState("");
   const [sort, setSort] = useState<"relevance" | "newest" | "name">("relevance");
   const [visible, setVisible] = useState(PAGE);
+  // Предупреждение при применении (решение владельца): гейт перед onApply
+  const [warnEntry, setWarnEntry] = useState<JailbreakEntry | null>(null);
   useEffect(() => {
     const id = setTimeout(() => setQuery(queryRaw.trim()), 120);
     return () => clearTimeout(id);
@@ -267,7 +272,13 @@ export function JailbreaksCard({
           ) : (
             <>
               <button
-                onClick={() => onApply(e)}
+                onClick={() => {
+                  if (jbWarnSuppressed()) {
+                    onApply(e);
+                  } else {
+                    setWarnEntry(e);
+                  }
+                }}
                 title={t("jb.apply")}
                 className="rounded-md border border-halo-line px-2 py-1 text-[0.625rem] text-halo-muted transition-colors hover:border-halo-accent/50 hover:text-halo-text"
               >
@@ -409,7 +420,18 @@ export function JailbreaksCard({
         </div>
       </div>
 
-      <JailbreaksImport entries={entries} onChange={onChange} />
+      <JailbreaksLiveSearch entries={entries} onChange={onChange} />
+
+      {warnEntry && (
+        <JbWarnModal
+          onConfirm={(dontShow) => {
+            if (dontShow) suppressJbWarn();
+            onApply(warnEntry);
+            setWarnEntry(null);
+          }}
+          onCancel={() => setWarnEntry(null)}
+        />
+      )}
     </div>
   );
 }

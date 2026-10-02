@@ -93,17 +93,16 @@ session store.
   for the events you enabled (task start / finish / error / confirmation
   request); incoming messages are used for binding only in this phase.
   With the toggle off the module makes zero network requests.
-- **Jailbreak library importer (local by default; network only on click).**
-  Library entries are user content in localStorage. Importing from a file
-  reuses the settings-import path guards (sensitive-path check with symlink
-  re-validation, 32 MB cap). Importing from a URL performs a single GET on
-  an explicit button press, to a **public** http/https host only:
-  private/loopback/metadata addresses are rejected by the same SSRF filter
-  that guards Browser Use, redirects follow the SSRF-aware policy, and the
-  body is capped at 32 MB. There are no automatic updates and no background
-  fetching — the library never contacts anything on its own. Imported text
-  is inert data: it is sent nowhere except to the provider you configured,
-  as part of your own prompt.
+- **Jailbreak live search (opt-in, explicit click only).** The library can
+  fetch files from a small, curated whitelist of public GitHub repositories
+  when the user presses "Search sources" — nothing is contacted otherwise
+  and there are no background updates. The user's search query **never
+  leaves the machine**: repository files are downloaded in full (public
+  http/https only, the same SSRF filter that guards Browser Use, 32 MB
+  body cap), then parsed and filtered locally. Imported entries are inert
+  user content: they go nowhere except to the provider you configured, as
+  part of your own prompt. Applying a jailbreak shows a standing risk
+  warning (provider ToS / account bans) unless the user opted out of it.
 
 ## Reporting
 

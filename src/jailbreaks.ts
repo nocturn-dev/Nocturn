@@ -84,6 +84,21 @@ export function sanitizeJailbreaks(parsed: unknown): JailbreakEntry[] {
   return out;
 }
 
+const JB_WARN_KEY = "haloui-jb-warn-dontshow";
+
+/** Предупреждение при применении джейлбрейка (решение владельца — «лишний
+ * раз огородиться»): показывается при КАЖДОМ применении, пока пользователь
+ * не попросил больше не показывать */
+export function jbWarnSuppressed(): boolean {
+  if (typeof localStorage === "undefined") return true;
+  return localStorage.getItem(JB_WARN_KEY) === "1";
+}
+
+export function suppressJbWarn(): void {
+  if (typeof localStorage === "undefined") return;
+  localStorage.setItem(JB_WARN_KEY, "1");
+}
+
 const LS_KEY = "haloui-jailbreaks";
 
 export function loadJailbreaks(): JailbreakEntry[] {
@@ -216,11 +231,13 @@ function relevance(e: JailbreakEntry, words: string[]): number {
 }
 
 /** Поиск + фильтры + сортировка. Модель/год — точные совпадения,
- * слова — AND по подстрокам (стемминга нет: ищут «DAN», а не словоформы). */
-export function searchJailbreaks(
-  all: JailbreakEntry[],
+ * слова — AND по подстрокам (стемминга нет: ищут «DAN», а не словоформы).
+ * Дженерик: расширенные записи (sourceLabel у живого поиска) не теряют
+ * своих полей на выходе. */
+export function searchJailbreaks<T extends JailbreakEntry>(
+  all: T[],
   opts: JbSearchOptions,
-): JailbreakEntry[] {
+): T[] {
   const words = opts.query.toLowerCase().split(/\s+/).filter(Boolean);
   let items = all;
   if (opts.model) items = items.filter((e) => e.model === opts.model);
