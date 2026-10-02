@@ -1,27 +1,13 @@
-//! Импорт библиотеки джейлбрейков: чтение файла и скачивание по URL.
-//! Гардалы переиспользуют существующие поверхности: sensitive-path для
-//! чтения (как settings_import_read) и SSRF-фильтр браузера для URL —
-//! обе операции запускаются ТОЛЬКО явным кликом пользователя из UI.
+//! Живой поиск библиотеки джейлбрейков: скачивание файлов источников по URL.
+//! Текстовый импорт из локального файла убран (живой поиск заменил) — здесь
+//! остался единственный сетевой примитив: одиночный GET по явному клику.
+//! SSRF-фильтр браузера режет приватные/loopback/метаданные хосты, редиректы
+//! — ssrf-aware политика network.rs, тело капится по чанкам.
 
 use crate::browser::url_is_public_http;
-use crate::settings::rejects_sensitive_path;
 use std::time::Duration;
 
 const MAX_BODY: usize = 32 * 1024 * 1024;
-
-/// Синхронное ядро чтения: guards + канонизация + кап. Выделено из команды,
-/// чтобы регресс-тесты гоняли гардалы без tokio-рантайма.
-pub(crate) fn import_text_read_blocking(path: &str) -> Result<String, String> {
-    rejects_sensitive_path(path)?;
-    // Канонизация + ревалидация здесь же: симлинк не должен обходить
-    // блок-лист, а metadata на сетевом пути блокирующ (паттерн
-    // settings_import_read — сам вызов живёт в spawn_blocking)
-    let canon = std::fs::canonicalize(path)
-        .map(|p| p.to_string_lossy().into_owned())
-        .unwrap_or_else(|_| path.to_string());
-    rejects_sensitive_path(&canon)?;
-    crate::fsutil::read_capped_string(std::path::Path::new(path), 0)
-}
 
 /// Синхронный гардал URL: только публичный http/https (SSRF-фильтр browser.rs).
 pub(crate) fn validate_import_url(url: &str) -> Result<(), String> {
@@ -33,19 +19,9 @@ pub(crate) fn validate_import_url(url: &str) -> Result<(), String> {
     }
 }
 
-/// Прочитать текстовый файл импорта (CSV/JSON/TXT/MD) целиком.
-/// Лимит 32 МБ общий с settings_import_read: больше в библиотеку всё равно
-/// не влезет, а поверх лимита read_capped_string сам вернёт понятную ошибку.
-#[tauri::command(async)]
-pub async fn import_text_read(path: String) -> Result<String, String> {
-    tauri::async_runtime::spawn_blocking(move || import_text_read_blocking(&path))
-        .await
-        .map_err(|e| format!("import read task failed: {e}"))?
-}
-
-/// Скачать текст (CSV/MD) по URL для импорта. Редиректы — ssrf-aware
-/// политика из network.rs; тело капится по ходу чтения чанков, чтобы
-/// не буферизовать чужой гигабайт целиком.
+/// Скачать текст (файл источника / trees-JSON GitHub) для живого поиска.
+/// Вызывается ТОЛЬКО явным кликом пользователя; тело капится по ходу
+/// чтения чанков, чтобы не буферизовать чужой гигабайт целиком.
 #[tauri::command(async)]
 pub async fn import_fetch_url(url: String) -> Result<String, String> {
     validate_import_url(&url)?;
@@ -100,23 +76,5 @@ mod tests {
     #[test]
     fn fetch_url_guard_accepts_public_https() {
         assert!(validate_import_url("https://raw.githubusercontent.com/x/y/main/a.csv").is_ok());
-    }
-
-    #[test]
-    fn text_read_rejects_sensitive_paths() {
-        for p in ["/etc/passwd", "../settings-export.json", "export/file.csv"] {
-            assert!(import_text_read_blocking(p).is_err(), "must reject: {p}");
-        }
-    }
-
-    #[test]
-    fn text_read_roundtrip_temp_file() {
-        let dir = std::env::temp_dir().join(format!("jb-import-test-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let file = dir.join("sample.csv");
-        std::fs::write(&file, "name,text\na,\"b,c\"\n").unwrap();
-        let got = import_text_read_blocking(file.to_str().unwrap()).unwrap();
-        assert!(got.contains("\"b,c\""));
-        std::fs::remove_dir_all(&dir).ok();
     }
 }

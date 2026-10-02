@@ -4,9 +4,12 @@ import { useLang } from "../locales";
 import {
   allJailbreaksFor,
   appendJailbreak,
+  jbWarnSuppressed,
   searchJailbreaks,
+  suppressJbWarn,
   type JailbreakEntry,
 } from "../jailbreaks";
+import JbWarnModal from "./JbWarnModal";
 
 interface SystemPromptModalProps {
   open: boolean;
@@ -28,6 +31,7 @@ export default function SystemPromptModal({
   const [draft, setDraft] = useState(initial);
   const [pickOpen, setPickOpen] = useState(false);
   const [pickQuery, setPickQuery] = useState("");
+  const [warnEntry, setWarnEntry] = useState<JailbreakEntry | null>(null);
   const pickRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -46,14 +50,23 @@ export default function SystemPromptModal({
     return () => document.removeEventListener("mousedown", onDown);
   }, [pickOpen]);
 
+  const insertJailbreak = (entry: JailbreakEntry) => {
+    // Текст виден в черновике до сохранения — ничего не подмешивается молча
+    setDraft((prev) => appendJailbreak(prev, entry.text));
+    setPickOpen(false);
+  };
+
   const pickJailbreak = (id: string) => {
     const entry = allJailbreaksFor(lang, jailbreaks ?? []).find(
       (x) => x.id === id,
     );
     if (!entry) return;
-    // Текст виден в черновике до сохранения — ничего не подмешивается молча
-    setDraft((prev) => appendJailbreak(prev, entry.text));
-    setPickOpen(false);
+    // Предупреждение о рисках перед применением (пока не подавлено)
+    if (jbWarnSuppressed()) {
+      insertJailbreak(entry);
+    } else {
+      setWarnEntry(entry);
+    }
   };
 
   const pickResults = searchJailbreaks(allJailbreaksFor(lang, jailbreaks ?? []), {
@@ -86,6 +99,17 @@ export default function SystemPromptModal({
       className={`fixed inset-0 z-[var(--halo-z-modal)] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm ${open ? "anim-fade" : "anim-fade-out"}`}
       onClick={onClose}
     >
+      {warnEntry && (
+        <JbWarnModal
+          onConfirm={(dontShow) => {
+            if (dontShow) suppressJbWarn();
+            const e = warnEntry;
+            setWarnEntry(null);
+            if (e) insertJailbreak(e);
+          }}
+          onCancel={() => setWarnEntry(null)}
+        />
+      )}
       <div
         className={`glass-pane w-full max-w-xl rounded-2xl border border-halo-line bg-halo-deep p-5 shadow-2xl ${open ? "anim-pop" : "anim-pop-out"}`}
         onClick={(e) => e.stopPropagation()}

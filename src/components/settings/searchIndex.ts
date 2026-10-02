@@ -183,9 +183,10 @@ export const SETTINGS_SEARCH_INDEX: { section: Section; keys: MsgKey[] }[] = [
       "jb.filterAllModels",
       "jb.filterAllYears",
       "jb.importTitle",
-      "jb.importFile",
-      "jb.importUrl",
-      "jb.importHint",
+      "jb.liveTitle",
+      "jb.liveSearch",
+      "jb.liveRefresh",
+      "jb.liveHint",
     ],
   },
   {
