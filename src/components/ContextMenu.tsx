@@ -43,9 +43,12 @@ export default function ContextMenu({ x, y, items, onClose }: ContextMenuProps) 
 
   return createPortal(
     <>
-      {/* Невидимый слой: клик/ПКМ мимо меню закрывает его */}
+      {/* Невидимый слой: клик/ПКМ мимо меню закрывает его. Z — на единицу
+          ниже меню и ВЫШЕ модалок: после портала в body слой соревнуется
+          с модалкой (z-modal) глобально, и на z-40 клики по модалке
+          проходили мимо — меню не закрывалось */}
       <div
-        className="fixed inset-0 z-40"
+        className="fixed inset-0 z-[calc(var(--halo-z-modal-top)-1)]"
         onClick={onClose}
         onContextMenu={(e) => {
           e.preventDefault();
