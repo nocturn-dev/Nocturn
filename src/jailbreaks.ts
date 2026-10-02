@@ -19,6 +19,11 @@ export interface JailbreakEntry {
   /** Уровень мышления, на котором промт работает; "any" — не критично.
    * Значения совпадают с усилием размышлений (QuickSettings). */
   reasoning: "any" | "off" | "low" | "high" | "max";
+  /** Год происхождения промта ("2024" | "2025-2026" | …) — решает владелец
+   * библиотеки, насколько промту можно доверять; пусто = неизвестен */
+  year?: string;
+  /** Теги техник из датасетов ("no-limits;persona-dan") — индекс поиска */
+  tags?: string;
   createdAt: number;
   updatedAt: number;
 }
@@ -70,6 +75,8 @@ export function sanitizeJailbreaks(parsed: unknown): JailbreakEntry[] {
       model: typeof r.model === "string" ? r.model : "",
       text: r.text,
       reasoning: isReasoning(r.reasoning) ? r.reasoning : "any",
+      year: typeof r.year === "string" ? r.year : undefined,
+      tags: typeof r.tags === "string" ? r.tags : undefined,
       createdAt: typeof r.createdAt === "number" ? r.createdAt : Date.now(),
       updatedAt: typeof r.updatedAt === "number" ? r.updatedAt : Date.now(),
     });
@@ -169,4 +176,96 @@ export function allJailbreaksFor(
   userEntries: JailbreakEntry[],
 ): JailbreakEntry[] {
   return [...userEntries, ...builtinJailbreaksFor(lang)];
+}
+
+// ---------- Умный поиск (чистые функции — тесты и два потребителя) ----------
+
+export interface JbSearchOptions {
+  /** Многословный запрос: каждое слово должно найтись в name/model/text/tags */
+  query: string;
+  /** Точный фильтр по модели ("" — все) */
+  model: string;
+  /** Точный фильтр по году ("" — все) */
+  year: string;
+  sort: "relevance" | "newest" | "name";
+}
+
+export interface JbFacet {
+  value: string;
+  count: number;
+}
+
+function haystack(e: JailbreakEntry): string {
+  return `${e.name}\n${e.model}\n${e.text}\n${e.tags ?? ""}`.toLowerCase();
+}
+
+function relevance(e: JailbreakEntry, words: string[]): number {
+  const name = e.name.toLowerCase();
+  const model = e.model.toLowerCase();
+  const text = e.text.toLowerCase();
+  const tags = (e.tags ?? "").toLowerCase();
+  let score = 0;
+  for (const w of words) {
+    // очко на каждое ПОЛЕ, не на слово: «no» в тексте и в теге — два очка
+    if (name.includes(w)) score += 3;
+    if (model.includes(w)) score += 2;
+    if (text.includes(w)) score += 1;
+    if (tags.includes(w)) score += 1;
+  }
+  return score;
+}
+
+/** Поиск + фильтры + сортировка. Модель/год — точные совпадения,
+ * слова — AND по подстрокам (стемминга нет: ищут «DAN», а не словоформы). */
+export function searchJailbreaks(
+  all: JailbreakEntry[],
+  opts: JbSearchOptions,
+): JailbreakEntry[] {
+  const words = opts.query.toLowerCase().split(/\s+/).filter(Boolean);
+  let items = all;
+  if (opts.model) items = items.filter((e) => e.model === opts.model);
+  if (opts.year) items = items.filter((e) => (e.year ?? "") === opts.year);
+  if (words.length > 0) {
+    items = items.filter((e) => {
+      const h = haystack(e);
+      return words.every((w) => h.includes(w));
+    });
+  }
+  if (opts.sort === "newest") {
+    items = [...items].sort(
+      (a, b) => (b.year ?? "").localeCompare(a.year ?? "") || b.updatedAt - a.updatedAt,
+    );
+  } else if (opts.sort === "name") {
+    items = [...items].sort((a, b) => a.name.localeCompare(b.name));
+  } else if (words.length > 0) {
+    items = [...items].sort(
+      (a, b) =>
+        relevance(b, words) - relevance(a, words) || b.updatedAt - a.updatedAt,
+    );
+  }
+  return items;
+}
+
+/** Фасеты моделей для фильтра: ""/"*" нормализуются в "any" */
+export function jbModelFacets(all: JailbreakEntry[]): JbFacet[] {
+  const counts = new Map<string, number>();
+  for (const e of all) {
+    const v = !e.model || e.model === "*" ? "any" : e.model;
+    counts.set(v, (counts.get(v) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .map(([value, count]) => ({ value, count }))
+    .sort((a, b) => b.count - a.count || a.value.localeCompare(b.value));
+}
+
+/** Фасеты годов (непустые), новее — выше */
+export function jbYearFacets(all: JailbreakEntry[]): JbFacet[] {
+  const counts = new Map<string, number>();
+  for (const e of all) {
+    if (!e.year) continue;
+    counts.set(e.year, (counts.get(e.year) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .map(([value, count]) => ({ value, count }))
+    .sort((a, b) => b.value.localeCompare(a.value) || b.count - a.count);
 }

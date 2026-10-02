@@ -23,6 +23,7 @@ mod files;
 mod fonts;
 mod fsutil;
 pub mod hooks;
+mod importer;
 pub mod imagegen;
 mod media;
 mod memory;
@@ -249,6 +250,8 @@ pub fn run() {
             settings::settings_export_write,
             settings::chat_export_write,
             settings::settings_import_read,
+            importer::import_text_read,
+            importer::import_fetch_url,
             chat::test_connection,
             chat::chat_once,
             chat::chat_stream,
