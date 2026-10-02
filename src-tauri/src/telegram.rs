@@ -16,6 +16,7 @@
 use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
 use std::time::Duration;
+use tauri::Emitter;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -241,7 +242,13 @@ async fn polling_loop(app: tauri::AppHandle, mut offset: u64) {
             }
             let cfg = config();
             if cfg.chat_id == chat_id {
-                continue; // уже привязан к этому чату
+                // Фаза 2: текст от владельца — на фронт. Диспетчер в App
+                // разводит: /stop, поправка в идущий прогон, новая задача,
+                // текстовое да/нет для подтверждений. /start повторно — no-op
+                if !text.is_empty() && !text.starts_with("/start") {
+                    let _ = app.emit_to("main", "telegram-command", text.clone());
+                }
+                continue;
             }
             if !cfg.chat_id.is_empty() {
                 // Привязка однозначна: бот уже знает владельца. Второй чат

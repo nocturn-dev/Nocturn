@@ -45,6 +45,7 @@ import {
   quickentryStatus,
   factoryReset,
   dictationTranscribe,
+  onTelegramCommand,
   pickFolder,
 } from "./api";
 import { stopSpeaking, speak } from "./tts";
@@ -149,6 +150,17 @@ function sanitizeUsageEvents(raw: string): UsageEvent[] {
     }
   }
   return out;
+}
+
+/** Текстовое решение по подтверждению из Telegram (фаза 2): «да/нет/всегда»
+ *  на ru/en + утилитарные (1/2/0, +/-). Не-решение (null) — текст пойдёт
+ *  как задача/поправка */
+function confirmDecisionFromText(text: string): "once" | "always" | "deny" | null {
+  const s = text.trim().toLowerCase();
+  if (/^(всегда|always|2)\s*[!.]*$/.test(s)) return "always";
+  if (/^(нет|no|n|отклонить|deny|0|-)\s*[!.]*$/.test(s)) return "deny";
+  if (/^(да|yes|y|ок|ok|окей|разрешить|1|\+)\s*[!.]*$/.test(s)) return "once";
+  return null;
 }
 
 export default function App() {
@@ -1066,6 +1078,70 @@ export default function App() {
       un?.();
     };
   }, [activeRunRef, addToast, t, stableHandleSend]);
+
+  // Telegram фаза 2: команда/текст от привязанного чата. Диспетчер через
+  // реф (паттерн dispatchShortcutRef): подписка mount-only, замыкание
+  // всегда свежее
+  const telegramDispatchRef = useRef<(text: string) => void>(() => {});
+  useEffect(() => {
+    telegramDispatchRef.current = (raw: string) => {
+      const text = raw.trim();
+      if (!text) return;
+      // /stop — остановить идущий прогон
+      if (/^\/stop\b/i.test(text)) {
+        stableHandleStop();
+        return;
+      }
+      // Текстовое решение по ожидающемуся подтверждению (да/нет/всегда)
+      const decision = confirmDecisionFromText(text);
+      if (decision) {
+        if (interactions.some((i) => i.kind === "confirm")) {
+          handleConfirmDecision(decision);
+          return;
+        }
+        // подтверждения нет — текст пойдёт как задача/поправка
+      }
+      // Поправка в идущий прогон — тот же путь, что кнопка «Поправить»
+      const rid = streamingIdRef.current;
+      if (rid) {
+        // Реф синхронно: агентный цикл читает поправки между шагами
+        pendingCorrectionsRef.current = {
+          ...pendingCorrectionsRef.current,
+          [rid]: [...(pendingCorrectionsRef.current[rid] ?? []), text],
+        };
+        setPendingCorrections((prev) => ({
+          ...prev,
+          [rid]: [...(prev[rid] ?? []), text],
+        }));
+        addToast(t("tg.correctionSent"));
+        return;
+      }
+      // Движок занят (окно подготовки) — в очередь, как чипы композера
+      if (activeRunRef.current !== null) {
+        setQueuedMsgs((prev) => [...prev, { id: uid(), text }]);
+        addToast(t("tg.taskQueued"));
+        return;
+      }
+      // Новая задача (создаст сессию, если активной нет)
+      void stableHandleSend(text);
+    };
+  });
+
+  useEffect(() => {
+    let disposed = false;
+    let un: (() => void) | undefined;
+    void onTelegramCommand((text) => {
+      if (disposed) return;
+      telegramDispatchRef.current(text);
+    }).then((u) => {
+      if (disposed) u();
+      else un = u;
+    });
+    return () => {
+      disposed = true;
+      un?.();
+    };
+  }, []);
 
   // Quick Entry: применить сохранённый ремап комбо (дефолт уже зарегистрирован
   // на бекенде в setup; промах — комбо занято другим приложением, бэк вернёт

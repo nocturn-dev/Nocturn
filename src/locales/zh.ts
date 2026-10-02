@@ -1222,6 +1222,8 @@ export const zh = {
     "tg.notifyConfirm": "确认请求",
     "tg.notifyConfirmDesc": "当代理等待你的决定时发送消息。",
     "tg.unbind": "解绑聊天",
+    "tg.correctionSent": "来自 Telegram 的修正已发送到正在运行的任务",
+    "tg.taskQueued": "来自 Telegram 的任务已加入队列",
     "tg.privacy": "令牌加密存储且不会进入设置导出；机器人只写 入绑定的聊天；关闭开关后 — 零请求。",
     "tg.started": "▶️ 任务已启动：{task}",
     "tg.finished": "✅ 任务已完成：{task}",
