@@ -243,6 +243,7 @@ export const zh = {
     "composer.attach": "附加图片",
     "composer.quoteRemove": "移除引用",
     "composer.queued": "已排队 — 将在代理回复后发送",
+    "composer.engineBusy": "代理仍在运行 — 消息未发送，请在其回复后重试",
     "composer.queuedRemove": "从队列移除",
 "chat.aiDisclaimer": "本回复由 AI 生成，仅供参考。",
 "chat.showOldTurns": "显示更早的消息（{n}）",
@@ -1355,7 +1356,7 @@ export const zh = {
       "个人 markdown 笔记库，支持 [[维基链接]]、关联图谱和反向链接。「⛓ 链式」按钮将关联笔记作为一系列步骤在单独任务中依次执行；frontmatter 中的 agent: true 为该步骤启用工具。",
     "docs.customize.title": "个性化",
     "docs.customize.body":
-      "深色/浅色主题、三种深色风格、强调色、界面缩放、玻璃效果、终端字体。侧边栏可左可右，拖拽调整大小，无边框窗口。",
+      "深色/浅色主题、十余种深色风格、强调色、界面缩放、玻璃效果、终端字体。侧边栏可左可右，拖拽调整大小，无边框窗口。",
     "docs.keys.title": "快捷键与命令",
     "docs.keys.body":
       "Ctrl+N — 新建任务 · Ctrl+K — 搜索 · Ctrl+V — 粘贴截图 · Enter — 发送，Shift+Enter — 换行。输入框中的斜杠命令：/new /clear /agent /terminal /theme /glass /provider /prompt /note /chain。",

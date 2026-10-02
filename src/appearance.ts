@@ -625,6 +625,11 @@ function fullClaudeCss(a: Appearance): string {
 /** Применяем кастомизацию к <html>; theme нужен дляrem-масштаба (не конфликтует) */
 export function applyAppearance(a: Appearance) {
   const root = document.documentElement;
+  // Снимаем инлайн-фон, поставленный boot-theme.js (анти-FOUC до загрузки
+  // CSS). Инлайн сильнее ЛЮБОГО авторского правила — из-за него градиент
+  // html.glass из index.css никогда не применялся. Здесь бандл уже исполнен,
+  // стили загружены: фон дальше ведут правила (glass-градиент / body bg)
+  root.style.removeProperty("background");
   // Палитры стилей генерируются из данных (themeStyles.ts) и инжектируются
   // один раз: светлые варианты стилей живут наравне с тёмными
   let styleCss = document.getElementById("halo-theme-styles");

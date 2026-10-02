@@ -462,10 +462,10 @@ export function ThemeSection({
         </button>
       </div>
 
-      {/* Full Claude: заглушка будущей полной темы Claude Desktop. Живёт своей
-          карточкой рядом с Official и в каскад кастомизации не входит:
-          ни глобальные контролы, ни Official на неё не действуют (и она —
-          пока ни на что). Тумблер хранит состояние, ничего не применяя */}
+      {/* Full Claude — третья жёсткая тема (вне каскада кастомизации): класс
+          html.full-claude + тег #halo-full-claude с палитрой и пинами
+          (appearance.ts, fullClaudeCss). Настройки темы — в карточке ниже;
+          глобальные контролы и Official на неё не действуют */}
       <div className="mt-1.5 mb-4 flex items-center justify-between rounded-xl border border-halo-line px-3.5 py-3">
         <div className="min-w-0 pr-3">
           <p className="text-sm text-halo-text">{t("themes.fullClaude")}</p>
@@ -1394,12 +1394,25 @@ export function ThemeSection({
               {t("themes.codePickHint")}
             </p>
           </div>
-          {/* Светлый/тёмный код: компактный переключатель в шапке блока */}
+          {/* Светлый/тёмный код: компактный переключатель в шапке блока.
+              Связан с код-темой: раздельные контролы давали светлую гамму
+              синтаксиса на тёмном фоне (и наоборот) — нечитаемые блоки */}
           <div className="flex shrink-0 gap-1">
             {(["light", "dark"] as const).map((v) => (
               <button
                 key={v}
-                onClick={() => onAppearanceChange({ ...appearance, codeStyle: v })}
+                onClick={() => {
+                  const lightTheme = (appearance.codeTheme ?? "midnight") === "light";
+                  const nextTheme =
+                    v === "light"
+                      ? lightTheme
+                        ? appearance.codeTheme
+                        : "light"
+                      : lightTheme
+                        ? "midnight"
+                        : appearance.codeTheme;
+                  onAppearanceChange({ ...appearance, codeStyle: v, codeTheme: nextTheme });
+                }}
                 className={`rounded-md border px-2 py-1 text-xs transition-colors ${
                   (appearance.codeStyle ?? "dark") === v
                     ? "border-halo-accent/60 bg-halo-accent/10 text-halo-accent"
@@ -1423,7 +1436,14 @@ export function ThemeSection({
                 </span>
               ),
             }))}
-            onSelect={(v) => onAppearanceChange({ ...appearance, codeTheme: v })}
+            onSelect={(v) =>
+              // Синхронный codeStyle: светлые код-темы требуют светлый фон
+              onAppearanceChange({
+                ...appearance,
+                codeTheme: v,
+                codeStyle: v === "light" ? "light" : "dark",
+              })
+            }
             className="w-full"
           />
         </div>

@@ -2181,7 +2181,7 @@ export default function ChatArea({
                 }}
                 onKeyDown={handleKeyDown}
                 placeholder={t("composer.placeholder")}
-                className="composer-field max-h-44 flex-1 resize-none bg-transparent px-2 py-1.5 text-sm leading-relaxed text-halo-text outline-none placeholder:text-halo-muted"
+                className="max-h-44 flex-1 resize-none bg-transparent px-2 py-1.5 text-sm leading-relaxed text-halo-text outline-none placeholder:text-halo-muted"
               />
               <button
                 onClick={() => {

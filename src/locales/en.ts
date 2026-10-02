@@ -223,6 +223,7 @@ export const en = {
     "composer.attach": "Attach image",
     "composer.quoteRemove": "Remove quote",
     "composer.queued": "Queued — will be sent after the agent replies",
+    "composer.engineBusy": "Agent is still running — message not sent, try again after it replies",
     "composer.queuedRemove": "Remove from queue",
 "chat.aiDisclaimer": "This response is AI-generated, for reference only.",
 "chat.showOldTurns": "Show earlier messages ({n})",
@@ -1326,7 +1327,7 @@ export const en = {
       "A personal markdown vault with [[wiki-links]], a link graph and backlinks. The “⛓ Chain” button runs linked notes as a sequence of steps in a separate task; frontmatter agent: true enables tools for a step.",
     "docs.customize.title": "Customization",
     "docs.customize.body":
-      "Dark/light theme, three dark styles, accent color, interface scale, glass effect, terminal font. Sidebar on the left or right, drag-to-resize, frameless window.",
+      "Dark/light theme, a dozen dark styles, accent color, interface scale, glass effect, terminal font. Sidebar on the left or right, drag-to-resize, frameless window.",
     "docs.keys.title": "Hotkeys & commands",
     "docs.keys.body":
       "Ctrl+N — new task · Ctrl+K — search · Ctrl+V — paste a screenshot · Enter — send, Shift+Enter — new line. Slash commands in the input: /new /clear /agent /terminal /theme /glass /provider /prompt /note /chain.",

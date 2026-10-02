@@ -10,7 +10,8 @@ import { useEffect, useRef, useState } from "react";
 import { useLang } from "../locales";
 
 interface DownloadEvent {
-  file: string;
+  /** dictation-progress (whisper) поле не шлёт — показываем общий тайтл */
+  file?: string;
   received: number;
   total: number;
 }
@@ -72,7 +73,7 @@ export default function DownloadProgress() {
     >
       <p className="text-xs font-medium text-halo-text">{done ? t("dl.done") : t("dl.title")}</p>
       <p className="mt-0.5 truncate text-[0.625rem] text-halo-muted" title={progress.file}>
-        {progress.file}
+        {progress.file || t("dl.title")}
       </p>
       <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-halo-deep">
         <div className="h-full rounded-full bg-halo-accent" style={{ width: `${pct}%` }} />

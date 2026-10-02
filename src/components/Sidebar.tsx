@@ -5,7 +5,7 @@ import { pickFolder, pickAnyFile, listDir, gitStatus, checkpointList, checkpoint
 import { normalizePath } from "../diff";
 import { copyText } from "../clipboard";
 import { ACCENT_PRESETS } from "../appearance";
-import { useLang, type MsgKey } from "../locales";
+import { useLang, type MsgKey, type Lang, type TFn } from "../locales";
 import NocturnMark from "./NocturnMark";
 
 interface SidebarProps {
@@ -62,6 +62,181 @@ interface SidebarProps {
 }
 
 const PROJECT_DOTS = ["bg-halo-accent", "bg-sky-400/80", "bg-emerald-400/80", "bg-amber-400/80"];
+
+/** Обработчики строки задачи. Живут в стабильном боксе (см. Sidebar):
+ *  колбэки из App приходят инлайн-стрелками, и memo(SessionRow) разбивался
+ *  бы новой идентичностью пропсов на каждом рендере */
+interface SessionRowHandlers {
+  onSelect: (id: string) => void;
+  onSessionMenu: (id: string, x: number, y: number) => void;
+  onRenameCommit: (id: string, title: string) => void;
+  onRenameCancel: () => void;
+  onTagSession: (id: string, tag?: string) => void;
+  onTogglePin: (id: string) => void;
+  onArchiveSession: (id: string, archived: boolean) => void;
+  onDeleteSession: (id: string) => void;
+  setTaggingId: (id: string | null) => void;
+}
+
+/** Строка задачи: общий рендер для обоих режимов списка; на ховере —
+ *  быстрые действия: архив (или вернуть), тег, удалить.
+ *  memo: во время стрима App перерисовывается на каждый флеш дельт
+ *  (setSessions → новый массив), и немемоизированные строки перестраивались
+ *  десятками на кадр. s у нетронутых сессий сохраняет ссылку (flushDeltas
+ *  клонирует только целевую сессию), booleans — примитивы, бокс h стабилен */
+const SessionRow = memo(function SessionRow({
+  s,
+  active,
+  renaming,
+  tagging,
+  h,
+  t,
+  lang,
+}: {
+  s: Session;
+  active: boolean;
+  renaming: boolean;
+  tagging: boolean;
+  h: SessionRowHandlers;
+  t: TFn;
+  lang: Lang;
+}) {
+  return (
+    <li className="group/row">
+      {renaming ? (
+        <RenameInput
+          initial={s.title}
+          onCommit={(value) => h.onRenameCommit(s.id, value)}
+          onCancel={h.onRenameCancel}
+        />
+      ) : tagging ? (
+        // FIX: тег вводится инлайн в строке списка (как переименование);
+        // allowEmpty — пустой ввод снимает тег
+        <RenameInput
+          initial={s.tag ?? ""}
+          placeholder={t("sidebar.tagPrompt")}
+          allowEmpty
+          onCommit={(value) => {
+            h.onTagSession(s.id, value || undefined);
+            h.setTaggingId(null);
+          }}
+          onCancel={() => h.setTaggingId(null)}
+        />
+      ) : (
+        <button
+          onClick={() => h.onSelect(s.id)}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            h.onSessionMenu(s.id, e.clientX, e.clientY);
+          }}
+          title={s.tag ? `[${s.tag}] ${s.title}` : s.title}
+          className={`flex w-full items-center gap-1.5 rounded-md px-2 py-2 text-left text-sm transition duration-150 ${
+            active
+              ? "bg-halo-hover-strong text-halo-text"
+              : "text-halo-muted hover:bg-halo-hover hover:text-halo-text"
+          }`}
+        >
+          {s.pinned && (
+            <span className="shrink-0 text-halo-accent/80">
+              <PinIcon />
+            </span>
+          )}
+          {/* Ветка edit-and-resend: оригинал в списке рядом, возврат кликом */}
+          {s.branchedFrom && (
+            <span title={t("branch.badge")} className="shrink-0 text-halo-accent/80">
+              ↳
+            </span>
+          )}
+          <span className="min-w-0 flex-1 truncate">{s.title}</span>
+          {/* Тег-метка чата */}
+          {s.tag && (
+            <span className="shrink-0 rounded border border-halo-line px-1 py-px text-[0.625rem] text-halo-muted">
+              {s.tag}
+            </span>
+          )}
+          <span className="shrink-0 text-[0.6875rem] tabular-nums text-halo-muted/50 group-hover/row:hidden">
+            {relTime(s.createdAt, lang)}
+          </span>
+          {/* Быстрые действия — только на ховере. Закрепление — первое:
+              pinned-строки всплывают наверх списка (и в проектах, и в задачах) */}
+          <span className="hidden shrink-0 items-center gap-0.5 group-hover/row:flex">
+            <span
+              role="button"
+              tabIndex={0}
+              onClick={(e) => {
+                e.stopPropagation();
+                h.onTogglePin(s.id);
+              }}
+              title={s.pinned ? t("menu.unpin") : t("menu.pin")}
+              className={`rounded p-0.5 transition-colors hover:text-halo-text ${
+                s.pinned
+                  ? "text-halo-accent"
+                  : "text-halo-muted opacity-0 group-hover/row:opacity-100"
+              }`}
+            >
+              <PinIcon />
+            </span>
+            {s.archived ? (
+              <span
+                role="button"
+                tabIndex={0}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  h.onArchiveSession(s.id, false);
+                }}
+                title={t("sidebar.unarchive")}
+                className="rounded p-0.5 text-halo-muted transition-colors hover:text-halo-text"
+              >
+                <ArchiveIcon />
+              </span>
+            ) : (
+              <span
+                role="button"
+                tabIndex={0}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  h.onArchiveSession(s.id, true);
+                }}
+                title={t("sidebar.archive")}
+                className="rounded p-0.5 text-halo-muted opacity-0 transition-colors hover:text-halo-text group-hover/row:opacity-100"
+              >
+                <ArchiveIcon />
+              </span>
+            )}
+            <span
+              role="button"
+              tabIndex={0}
+              onClick={(e) => {
+                e.stopPropagation();
+                // FIX: было window.prompt — в Tauri WebView возвращал null
+                // (недоступен), тег молча не ставился
+                h.setTaggingId(s.id);
+              }}
+              title={t("sidebar.tag")}
+              className={`rounded p-0.5 transition-colors hover:text-halo-text ${
+                s.tag ? "text-halo-accent/80" : "text-halo-muted opacity-0 group-hover/row:opacity-100"
+              }`}
+            >
+              <TagIcon />
+            </span>
+            <span
+              role="button"
+              tabIndex={0}
+              onClick={(e) => {
+                e.stopPropagation();
+                h.onDeleteSession(s.id);
+              }}
+              title={t("menu.delete")}
+              className="rounded p-0.5 text-halo-muted opacity-0 transition-colors hover:text-red-400 group-hover/row:opacity-100"
+            >
+              <XSmallIcon />
+            </span>
+          </span>
+        </button>
+      )}
+    </li>
+  );
+});
 
 export default function Sidebar({
   sessions,
@@ -190,142 +365,52 @@ export default function Sidebar({
       if (rest.length > 0) groups.push({ project: null, items: rest });
       return groups;
     }, [sorted, projects]);
-  // Строка задачи: общий рендер для обоих режимов списка; на ховере —
-  // быстрые действия: архив (или вернуть), тег, удалить
+  // Стабильный бокс обработчиков строки: identity не меняется между
+  // рендерами (поля обновляются эффектом), иначе memo(SessionRow) разбивался
+  // бы инлайн-стрелками App. Обработчикам свежесть критична (замыкания над
+  // стейтом App) — эффект без deps обновляет поля после каждого рендера
+  const rowHandlersRef = useRef<SessionRowHandlers | null>(null);
+  if (rowHandlersRef.current === null) {
+    rowHandlersRef.current = {
+      onSelect,
+      onSessionMenu,
+      onRenameCommit,
+      onRenameCancel,
+      onTagSession,
+      onTogglePin,
+      onArchiveSession,
+      onDeleteSession,
+      // setTaggingId из useState стабилен — первым рендером и остаётся
+      setTaggingId,
+    };
+  }
+  useEffect(() => {
+    // Только колбэки из пропсов: setState-функции стабильны, их в refresh
+    // не включаем (правило exhaustive-deps справедливо — смысла нет)
+    Object.assign(rowHandlersRef.current as SessionRowHandlers, {
+      onSelect,
+      onSessionMenu,
+      onRenameCommit,
+      onRenameCancel,
+      onTagSession,
+      onTogglePin,
+      onArchiveSession,
+      onDeleteSession,
+    });
+  });
+
+  const rowHandlers = rowHandlersRef.current;
   const sessionRow = (s: Session) => (
-    <li key={s.id} className="group/row">
-      {s.id === renamingId ? (
-        <RenameInput
-          initial={s.title}
-          onCommit={(value) => onRenameCommit(s.id, value)}
-          onCancel={onRenameCancel}
-        />
-      ) : s.id === taggingId ? (
-        // FIX: тег вводится инлайн в строке списка (как переименование);
-        // allowEmpty — пустой ввод снимает тег
-        <RenameInput
-          initial={s.tag ?? ""}
-          placeholder={t("sidebar.tagPrompt")}
-          allowEmpty
-          onCommit={(value) => {
-            onTagSession(s.id, value || undefined);
-            setTaggingId(null);
-          }}
-          onCancel={() => setTaggingId(null)}
-        />
-      ) : (
-        <button
-          onClick={() => onSelect(s.id)}
-          onContextMenu={(e) => {
-            e.preventDefault();
-            onSessionMenu(s.id, e.clientX, e.clientY);
-          }}
-          title={s.tag ? `[${s.tag}] ${s.title}` : s.title}
-          className={`flex w-full items-center gap-1.5 rounded-md px-2 py-2 text-left text-sm transition duration-150 ${
-            s.id === activeId
-              ? "bg-halo-hover-strong text-halo-text"
-              : "text-halo-muted hover:bg-halo-hover hover:text-halo-text"
-          }`}
-        >
-          {s.pinned && (
-            <span className="shrink-0 text-halo-accent/80">
-              <PinIcon />
-            </span>
-          )}
-          {/* Ветка edit-and-resend: оригинал в списке рядом, возврат кликом */}
-          {s.branchedFrom && (
-            <span title={t("branch.badge")} className="shrink-0 text-halo-accent/80">
-              ↳
-            </span>
-          )}
-          <span className="min-w-0 flex-1 truncate">{s.title}</span>
-          {/* Тег-метка чата */}
-          {s.tag && (
-            <span className="shrink-0 rounded border border-halo-line px-1 py-px text-[0.625rem] text-halo-muted">
-              {s.tag}
-            </span>
-          )}
-          <span className="shrink-0 text-[0.6875rem] tabular-nums text-halo-muted/50 group-hover/row:hidden">
-            {relTime(s.createdAt, lang)}
-          </span>
-          {/* Быстрые действия — только на ховере. Закрепление — первое:
-              pinned-строки всплывают наверх списка (и в проектах, и в задачах) */}
-          <span className="hidden shrink-0 items-center gap-0.5 group-hover/row:flex">
-            <span
-              role="button"
-              tabIndex={0}
-              onClick={(e) => {
-                e.stopPropagation();
-                onTogglePin(s.id);
-              }}
-              title={s.pinned ? t("menu.unpin") : t("menu.pin")}
-              className={`rounded p-0.5 transition-colors hover:text-halo-text ${
-                s.pinned
-                  ? "text-halo-accent"
-                  : "text-halo-muted opacity-0 group-hover/row:opacity-100"
-              }`}
-            >
-              <PinIcon />
-            </span>
-            {s.archived ? (
-              <span
-                role="button"
-                tabIndex={0}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onArchiveSession(s.id, false);
-                }}
-                title={t("sidebar.unarchive")}
-                className="rounded p-0.5 text-halo-muted transition-colors hover:text-halo-text"
-              >
-                <ArchiveIcon />
-              </span>
-            ) : (
-              <span
-                role="button"
-                tabIndex={0}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onArchiveSession(s.id, true);
-                }}
-                title={t("sidebar.archive")}
-                className="rounded p-0.5 text-halo-muted opacity-0 transition-colors hover:text-halo-text group-hover/row:opacity-100"
-              >
-                <ArchiveIcon />
-              </span>
-            )}
-            <span
-              role="button"
-              tabIndex={0}
-              onClick={(e) => {
-                e.stopPropagation();
-                // FIX: было window.prompt — в Tauri WebView возвращал null
-                // (недоступен), тег молча не ставился
-                setTaggingId(s.id);
-              }}
-              title={t("sidebar.tag")}
-              className={`rounded p-0.5 transition-colors hover:text-halo-text ${
-                s.tag ? "text-halo-accent/80" : "text-halo-muted opacity-0 group-hover/row:opacity-100"
-              }`}
-            >
-              <TagIcon />
-            </span>
-            <span
-              role="button"
-              tabIndex={0}
-              onClick={(e) => {
-                e.stopPropagation();
-                onDeleteSession(s.id);
-              }}
-              title={t("menu.delete")}
-              className="rounded p-0.5 text-halo-muted opacity-0 transition-colors hover:text-red-400 group-hover/row:opacity-100"
-            >
-              <XSmallIcon />
-            </span>
-          </span>
-        </button>
-      )}
-    </li>
+    <SessionRow
+      key={s.id}
+      s={s}
+      active={s.id === activeId}
+      renaming={s.id === renamingId}
+      tagging={s.id === taggingId}
+      h={rowHandlers}
+      t={t}
+      lang={lang}
+    />
   );
 
   return (

@@ -688,6 +688,10 @@ export default function App() {
                   profileId:
                     typeof rec.profile_id === "string" ? rec.profile_id : undefined,
                   accent: typeof rec.accent === "string" ? rec.accent : undefined,
+                  // root — критичное поле: сессии проекта хранятся в
+                  // <root>/.nocturn, а без него loadHistory пропускает партицию
+                  // (чаты проекта исчезают после рестарта)
+                  root: typeof rec.root === "string" ? rec.root : undefined,
                 },
               ];
             }),
@@ -721,6 +725,10 @@ export default function App() {
           name: p.name,
           profile_id: p.profileId ?? "",
           accent: p.accent ?? null,
+          // root обязан уезжать на диск: без него Rust-сторона (ProjectRec,
+          // serde default None) затирала бы файл, и партиция сессий проекта
+          // переставала читаться после рестарта
+          root: p.root ?? null,
         })),
       ).catch(() => {});
     }, 400);
@@ -1499,6 +1507,14 @@ export default function App() {
     const lastAssistant = [...(sess?.messages ?? [])]
       .reverse()
       .find((m) => m.role === "assistant");
+    // Прогон упал с ошибкой (пустой content + error): раньше ранний return
+    // оставлял voiceSessionRef и фазу «выполняет» висеть до следующего
+    // успешного голосового прогона
+    if (lastAssistant && lastAssistant.error) {
+      voiceSessionRef.current = null;
+      setVoicePhase(voiceWakeOn ? "listen" : "idle");
+      return;
+    }
     if (!lastAssistant?.content?.trim()) return;
     voiceSessionRef.current = null;
     setVoicePhase("done");
@@ -1511,6 +1527,28 @@ export default function App() {
     speak(lastAssistant.content, () => {});
     return () => window.clearTimeout(toListen);
   }, [streamingId, sessions, voiceWakeOn]);
+
+  // onClose модалок мемоизированы: инлайн-стрелки пересоздавались на каждый
+  // флеш стрима (~60/с), и Escape-эффекты модалок пере-подписывали listener
+  // на каждый рендер (паттерн рефов для колбэков уже используется ниже)
+  const closeChainMonitor = useCallback(() => setChainMonitorOpen(false), []);
+  const closeGraph = useCallback(() => setGraphOpen(false), []);
+  const closeNote = useCallback(() => setOpenNoteFile(null), []);
+  const closeAutomations = useCallback(() => setAutomationsOpen(false), []);
+  const closeCompare = useCallback(() => setCompareOpen(false), []);
+  const closeKnowledge = useCallback(() => setKnowledgeOpen(false), []);
+  const closeBrowserPanel = useCallback(() => setBrowserPanelOpen(false), []);
+  const closeDiffReview = useCallback(
+    () => setDiffReview((p) => ({ ...p, open: false })),
+    [],
+  );
+  const closePlanPanel = useCallback(() => setPlanPanelOpen(false), []);
+  const closeResetConfirm = useCallback(() => setResetOpen(false), []);
+  const closeSearch = useCallback(
+    () => withViewTransition(() => setSearchOpen(false)),
+    [],
+  );
+  const closeContextMenu = useCallback(() => setMenu(null), []);
 
   // Диспетчер действий биндов — актуальные обработчики через реф.
   // Эффект без deps вместо присваивания в теле рендера (React Compiler)
@@ -2303,6 +2341,11 @@ export default function App() {
             <NocturnMark size={18} />
           </span>
         </button>
+      {/* Сайдбар, оверлеи и панели — под одним boundary: render-исключение
+          в любом из них (SVG-математика графа, сторонний плагин-скин) раньше
+          выносило приложение в белый экран — boundary стоял только на ленте
+          и SettingsModal. Внутренний boundary ленты срабатывает первым */}
+      <ErrorBoundary title={t("err.boundary")} action={t("err.boundaryRetry")}>
       <Sidebar
         collapsed={sidebarCollapsed}
         sessions={sessions}
@@ -2490,7 +2533,7 @@ export default function App() {
       {chainMonitorOpen && (
         <ChainMonitor
           chain={chain}
-          onClose={() => setChainMonitorOpen(false)}
+          onClose={closeChainMonitor}
         />
       )}
       {graphOpen && (
@@ -2500,7 +2543,7 @@ export default function App() {
             setGraphOpen(false);
             void handleOpenNote(f);
           }}
-          onClose={() => setGraphOpen(false)}
+          onClose={closeGraph}
         />
       )}
       {openNoteFile !== null && (
@@ -2512,7 +2555,7 @@ export default function App() {
           onRunChain={(f, c) => void handleRunChain(f, c)}
           onDelete={(f) => void handleDeleteNote(f)}
           onOpenNote={(f) => void handleOpenNote(f)}
-          onClose={() => setOpenNoteFile(null)}
+          onClose={closeNote}
         />
       )}
       <ErrorBoundary title={t("err.boundary")} action={t("err.boundaryRetry")}>
@@ -2650,17 +2693,17 @@ export default function App() {
       {/* Без условного монтажа — см. комментарий у SettingsModal */}
       <AutomationsModal
         open={automationsOpen}
-        onClose={() => setAutomationsOpen(false)}
+        onClose={closeAutomations}
       />
       <CompareModal
         open={compareOpen}
-        onClose={() => setCompareOpen(false)}
+        onClose={closeCompare}
         profiles={profiles}
         current={apiSettings}
       />
       <KnowledgeModal
         open={knowledgeOpen}
-        onClose={() => setKnowledgeOpen(false)}
+        onClose={closeKnowledge}
         attachedKbId={activeSession?.kbId ?? null}
         onAttach={(kbId) =>
           setSessions((prev) =>
@@ -2673,14 +2716,14 @@ export default function App() {
       />
       <BrowserPanel
         open={browserPanelOpen}
-        onClose={() => setBrowserPanelOpen(false)}
+        onClose={closeBrowserPanel}
       />
       <DiffPanel
         open={diffReview.open}
         files={diffReview.files}
         focusPath={diffReview.focus}
         onQuote={handleDiffQuote}
-        onClose={() => setDiffReview((p) => ({ ...p, open: false }))}
+        onClose={closeDiffReview}
       />
       <PlanSidePanel
         open={planPanelOpen}
@@ -2691,7 +2734,7 @@ export default function App() {
           setPlanPanelOpen(false);
         }}
         onCopied={() => addToast(t("plan.copied"))}
-        onClose={() => setPlanPanelOpen(false)}
+        onClose={closePlanPanel}
       />
       {/* Hard-Mode: полноэкранный живой терминал поверх «спящего» UI.
           Значения из state, а не ref.current в JSX: реф обновляется в
@@ -2730,7 +2773,7 @@ export default function App() {
         <ResetConfirmModal
           busy={resetBusy}
           onConfirm={() => void handleFactoryReset()}
-          onCancel={() => setResetOpen(false)}
+          onCancel={closeResetConfirm}
         />
       )}
       {accentEdit && (
@@ -2776,7 +2819,7 @@ export default function App() {
           open={searchOpen}
           sessions={sessions}
           onSelect={handleSearchSelect}
-          onClose={() => withViewTransition(() => setSearchOpen(false))}
+          onClose={closeSearch}
         />
       )}
       {menu && (menuSession || menuProject || menuNote) && (
@@ -2784,9 +2827,10 @@ export default function App() {
           x={menu.x}
           y={menu.y}
           items={menuItems}
-          onClose={() => setMenu(null)}
+          onClose={closeContextMenu}
         />
       )}
+      </ErrorBoundary>
       {/* Сплэш: поверх всего, убирается после фейда (onGone из Splash) */}
       {splashVisible && (
         <Splash done={splashDone} onGone={() => setSplashVisible(false)} />

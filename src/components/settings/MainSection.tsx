@@ -709,12 +709,16 @@ export function MainSection({
               </div>
             }
           />
-          <ToggleRow
-            label={t("voice.ttsReply")}
-            desc={t("voice.ttsReplyDesc")}
-            on={voice.ttsReply}
-            onChange={(v) => onVoiceChange({ ttsReply: v })}
-          />
+          {/* Гейт isWindows: бекенд (SAPI) вне Windows вернёт Err, а тумблер
+              с молча гаснущим индикатором обманывал бы (паттерн кнопки TTS) */}
+          {isWindows() && (
+            <ToggleRow
+              label={t("voice.ttsReply")}
+              desc={t("voice.ttsReplyDesc")}
+              on={voice.ttsReply}
+              onChange={(v) => onVoiceChange({ ttsReply: v })}
+            />
+          )}
           {isWindows() && (
             <Row
               label={t("voice.outputLabel")}
@@ -989,7 +993,12 @@ export function MainSection({
                 const path = await pickJsonFile();
                 if (!path) return;
                 if (!window.confirm(t("main.importConfirm"))) return;
-                const data = await settingsImportRead(path);
+                // settings_import_read отдаёт сырой JSON (см. api.ts): форма
+                // wrapper-а — только у нашего экспорта, сужаем на месте
+                const data = (await settingsImportRead(path)) as {
+                  files?: Record<string, unknown>;
+                  local?: Record<string, string>;
+                };
                 let n = 0;
                 if (data.files && Object.keys(data.files).length > 0) {
                   // hooks.json/mcp.json исполняют произвольные команды:

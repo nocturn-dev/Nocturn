@@ -101,7 +101,9 @@ export default function ProviderIcon({ modelId, size = 18 }: ProviderIconProps) 
     return (
       <span
         style={circleStyle}
-        title={family || "провайдер"}
+        // title только при известном семействе: жёсткая русская заглушка
+        // «провайдер» показывалась на всех языках
+        title={family || undefined}
         className="flex shrink-0 items-center justify-center rounded-full bg-halo-raised font-semibold uppercase text-halo-text"
       >
         <span style={color ? { color } : undefined}>{(family || "?").charAt(0)}</span>

@@ -22,3 +22,26 @@ export function filterToolSchemas(
     return !disabled.has(name);
   });
 }
+
+/**
+ * Мутирующий ли инструмент (plan-режим блокирует, ask — спрашивает).
+ * ЗЕРКАЛО perm.rs (is_mutating, perm.rs:74-81): классификация обязана
+ * совпадать на обеих сторонах, иначе ask/plan-гардал бекенда и подтверждение
+ * фронта расходятся. Стык держится на этом тесте + комментарии-зеркале:
+ * при добавлении инструмента обнови ОБЕ стороны и тест ниже.
+ */
+export function isMutatingTool(name: string): boolean {
+  return (
+    name === "shell_run" ||
+    name === "fs_write" ||
+    name === "fs_delete" ||
+    name === "vault_write" ||
+    name === "memory_save" ||
+    name === "image_generate" ||
+    name.startsWith("mcp__") ||
+    (name.startsWith("browser_") &&
+      name !== "browser_read" &&
+      name !== "browser_screenshot") ||
+    (name.startsWith("computer_") && name !== "computer_screenshot")
+  );
+}

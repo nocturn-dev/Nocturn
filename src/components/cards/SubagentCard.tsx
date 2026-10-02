@@ -18,10 +18,13 @@ function SubagentCardBase({
   const { t } = useLang();
   const [open, setOpen] = useState(false);
   const running = run ? run.report === null : false;
-  // Из аргументов достаём бриф (task) для подзаголовка
+  // Из аргументов достаём бриф (task) для подзаголовка. Проверяем typeof:
+  // объект/массив от модели раньше проезжал как task и ронял рендер ленты
+  // («Objects are not valid as a React child») на {task}
   let task = "";
   try {
-    task = call ? (JSON.parse(call.arguments).task as string ?? "") : "";
+    const parsed = call ? JSON.parse(call.arguments) : null;
+    task = typeof parsed?.task === "string" ? parsed.task : "";
   } catch {
     task = "";
   }
