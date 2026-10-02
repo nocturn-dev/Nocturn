@@ -94,7 +94,8 @@ export function MediaBar({
   const [lyrics, setLyrics] = useState<LyricLine[] | null>(null);
   const [lyricsLoading, setLyricsLoading] = useState(false);
   const [lyricOffset, setLyricOffset] = useState(0);
-  const [, setTick] = useState(0);
+  // Тик времени: перерисовывает бар и перевычисляет снапшот лирики
+  const [tick, setTick] = useState(0);
   // Лирика YouTube-режима (отдельно от Spotify-лирики)
   const [ytLyrics, setYtLyrics] = useState<LyricLine[] | null>(null);
   const yt = useSyncExternalStore(subscribeYt, getYtState);
@@ -198,8 +199,11 @@ export function MediaBar({
   // (rules-of-hooks). Источник — активная интеграция: YouTube-режим берёт
   // лирику embed-плеера и его же currentTime, иначе SMTC-лирика системного
   // плеера с локальной интерполяцией позиции. Индекс — последняя строка
-  // с t <= elapsed; ручной подвод бара в ленту не тащим. Вызов — только
-  // на смене строки или набора строк: тики позиции дёргали бы App.
+  // с t <= elapsed; ручной подвод бара в ленту не тащим. tick в deps —
+  // продвижение индекса между событиями бекенда (интерполяция живёт в
+  // рендере, без тика лента замирает до следующего события SMTC).
+  // Вызов — только на смене строки или набора строк: дедуп не даёт
+  // секундным тикам дёргать App.
   // Дедуп по ИДЕНТИЧНОСТИ набора + индексу, не по {длина, индекс}:
   // у нового трека совпадение длины и стартового индекса — не редкость
   const lyricsSnapRef = useRef<{ lines: LyricLine[] | null; i: number } | null>(
@@ -239,7 +243,7 @@ export function MediaBar({
       -1,
     );
     push(lyrics, idx);
-  }, [onLyrics, prefs.youtube, ytLyrics, yt.currentTime, lyrics, state]);
+  }, [onLyrics, prefs.youtube, ytLyrics, yt.currentTime, lyrics, state, tick]);
   // Размонтирование бара — лента гаснет
   useEffect(() => () => onLyrics?.(null), [onLyrics]);
 
