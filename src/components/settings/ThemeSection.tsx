@@ -421,7 +421,11 @@ export function ThemeSection({
                     onClick={() => onApplyThemeProfile(pr)}
                     onContextMenu={(e) => {
                       e.preventDefault();
-                      setProfileMenu({ x: e.clientX, y: e.clientY, id: pr.id });
+                      // Открываем ПОД чипом (по его прямоугольнику), а не в
+                      // точке курсора: меню в точке клика наезжало на
+                      // название профиля
+                      const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                      setProfileMenu({ x: r.left, y: r.bottom + 6, id: pr.id });
                     }}
                     title={`${t("themes.profileApply")}\n${t("themes.profileMenuHint")}`}
                     className={`rounded-md border py-1 pl-2.5 pr-10 text-xs transition-colors ${
