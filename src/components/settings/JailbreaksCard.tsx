@@ -39,7 +39,9 @@ export function JailbreaksCard({
 }: {
   entries: JailbreakEntry[];
   onChange: (list: JailbreakEntry[]) => void;
-  onApply: (entry: JailbreakEntry) => void;
+  /** Возвращает, куда встал промт: инлайн-статус в карточке — тост из
+   * настроек не виден (z-toast ниже z-modal) */
+  onApply: (entry: JailbreakEntry) => "task" | "new";
 }) {
   const { t, lang } = useLang();
   const [name, setName] = useState("");
@@ -63,6 +65,8 @@ export function JailbreaksCard({
   const [visible, setVisible] = useState(PAGE);
   // Предупреждение при применении (решение владельца): гейт перед onApply
   const [warnEntry, setWarnEntry] = useState<JailbreakEntry | null>(null);
+  // Инлайн-результат применения: тост из настроек не виден — дублируем тут
+  const [appliedMsg, setAppliedMsg] = useState("");
   useEffect(() => {
     const id = setTimeout(() => setQuery(queryRaw.trim()), 120);
     return () => clearTimeout(id);
@@ -274,7 +278,12 @@ export function JailbreaksCard({
               <button
                 onClick={() => {
                   if (jbWarnSuppressed()) {
-                    onApply(e);
+                    setAppliedMsg(
+                      t(
+                        onApply(e) === "task" ? "jb.applied" : "jb.appliedNew",
+                        { name: e.name },
+                      ),
+                    );
                   } else {
                     setWarnEntry(e);
                   }
@@ -422,11 +431,22 @@ export function JailbreaksCard({
 
       <JailbreaksLiveSearch entries={entries} onChange={onChange} />
 
+      {appliedMsg && (
+        <p className="mt-2 text-xs leading-relaxed text-emerald-400">
+          {appliedMsg}
+        </p>
+      )}
+
       {warnEntry && (
         <JbWarnModal
           onConfirm={(dontShow) => {
             if (dontShow) suppressJbWarn();
-            onApply(warnEntry);
+            setAppliedMsg(
+              t(
+                onApply(warnEntry) === "task" ? "jb.applied" : "jb.appliedNew",
+                { name: warnEntry.name },
+              ),
+            );
             setWarnEntry(null);
           }}
           onCancel={() => setWarnEntry(null)}

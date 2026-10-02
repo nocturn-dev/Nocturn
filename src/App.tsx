@@ -1837,17 +1837,20 @@ export default function App() {
 
   // Применение джейлбрейка: ДОБАВЛЯЕТ текст к системному промту активной
   // задачи (не затирая роль); без активной задачи — новая задача с этим
-  // промтом, как у применения пресета роли. Тостом подтверждаем, куда встал.
-  const handleApplyJailbreak = (entry: JailbreakEntry) => {
+  // промтом, как у применения пресета роли. Возвращает, куда встал промт:
+  // тост НЕ виден из открытых настроек (z-toast ниже z-modal), карточка
+  // дублирует результат инлайн-строкой
+  const handleApplyJailbreak = (entry: JailbreakEntry): "task" | "new" => {
     if (activeSession) {
       handleSetSystemPrompt(
         appendJailbreak(activeSession.systemPrompt ?? "", entry.text),
       );
       addToast(t("jb.applied", { name: entry.name }));
-      return;
+      return "task";
     }
     handleApplyPreset(entry.text);
     addToast(t("jb.appliedNew", { name: entry.name }));
+    return "new";
   };
 
 

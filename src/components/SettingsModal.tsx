@@ -170,7 +170,7 @@ interface SettingsModalProps {
   /** Библиотека джейлбрейков: карточка на вкладке «Промпты» */
   jailbreaks: JailbreakEntry[];
   onChangeJailbreaks: (list: JailbreakEntry[]) => void;
-  onApplyJailbreak: (entry: JailbreakEntry) => void;
+  onApplyJailbreak: (entry: JailbreakEntry) => "task" | "new";
   ollamaModels: string[] | null;
   /** Allowlist активной задачи (M5.2) + её название */
   allowedCommands: string[];

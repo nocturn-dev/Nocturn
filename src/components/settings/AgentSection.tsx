@@ -138,7 +138,7 @@ export function PromptsSection({
   onChangeLibrary: (list: PromptPreset[]) => void;
   jailbreaks: JailbreakEntry[];
   onChangeJailbreaks: (list: JailbreakEntry[]) => void;
-  onApplyJailbreak: (entry: JailbreakEntry) => void;
+  onApplyJailbreak: (entry: JailbreakEntry) => "task" | "new";
 }) {
   const { t } = useLang();
   const [name, setName] = useState("");
