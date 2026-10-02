@@ -18,7 +18,8 @@ use tauri::{Emitter, Manager};
 const MODEL_URL: &str =
     "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base-q5_1.bin";
 const MODEL_FILE: &str = "ggml-base-q5_1.bin";
-/// ~3 минуты звука 16 кГц int16 — потолок на один запрос диктовки
+/// ~6,5 минуты звука 16 кГц int16 (12 МБ / 2 байта / 16000 Гц) — потолок
+/// на один запрос диктовки
 const MAX_AUDIO_BYTES: usize = 12 * 1024 * 1024;
 const CLI_TIMEOUT: Duration = Duration::from_secs(180);
 
@@ -156,7 +157,15 @@ pub async fn dictation_download_model(app: tauri::AppHandle) -> Result<(), Strin
     if DOWNLOADING.swap(true, Ordering::Relaxed) {
         return Err("model download already in progress".into());
     }
-    let result = do_download(&app).await;
+    let result = match tokio::time::timeout(std::time::Duration::from_secs(600), do_download(&app))
+        .await
+    {
+        Ok(r) => r,
+        // Total-таймаут: shared_client ставит только connect_timeout —
+        // stalled-соединение висело вечно, а DOWNLOADING сбрасывался только
+        // по возврату do_download, т.е. флаг залипал до рестарта приложения
+        Err(_) => Err("model download timed out after 600s".into()),
+    };
     DOWNLOADING.store(false, Ordering::Relaxed);
     result
 }

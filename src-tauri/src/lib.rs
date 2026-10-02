@@ -7,6 +7,12 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
+/// Жив ли трей. На Linux DE без StatusNotifier (GNOME без AppIndicator,
+/// часть Wayland-композиторов) построение трея падает — а «скрыть в трей»
+/// без иконки делает приложение недостижимым (Alt+Tab скрытое окно не
+/// показывает). hide_to_tray деградирует в minimize, пока флаг false
+static TRAY_AVAILABLE: AtomicBool = AtomicBool::new(false);
+
 pub mod browser;
 pub mod chat;
 mod colibri;
@@ -93,6 +99,11 @@ pub fn run() {
                 // в generate()/imagegen_get_config, когда хранилище уже разблокировано
                 imagegen::set_config(serde_json::from_value(v).unwrap_or_default());
             }
+            if let Some(v) = read("websearch.json") {
+                // Раньше websearch.json писался, но никогда не читался на
+                // старте: тумблер и ключи молча сбрасывались каждым рестартом
+                websearch::set_config(serde_json::from_value(v).unwrap_or_default());
+            }
             // Сгенерированные картинки показываются в чате через asset-протокол:
             // каталог images разрешается целиком один раз (пишет туда только
             // само приложение) — пофайловое разрешение потребовало бы тянуть
@@ -147,8 +158,9 @@ pub fn run() {
             // Трей не критичен для запуска: на Linux DE без StatusNotifier
             // (GNOME без AppIndicator, часть Wayland-композиторов) его
             // построение падает — не разваливаем весь старт приложения
-            if let Err(e) = build_tray(app.handle()) {
-                eprintln!("tray unavailable: {e}");
+            match build_tray(app.handle()) {
+                Ok(()) => TRAY_AVAILABLE.store(true, Ordering::Relaxed),
+                Err(e) => eprintln!("tray unavailable: {e}"),
             }
             // Тёмный фон окна/вебвью: дефолт WebView2 — белый, и при ресайзах
             // (maximize/restore) непрокрашенный кадр вспыхивал белым каркасом
@@ -183,6 +195,10 @@ pub fn run() {
             // когда два экземпляра чистили профили друг друга
             use tauri::Manager;
             if let Some(w) = app.get_webview_window("main") {
+                // show обязателен: скрытое (close-to-tray) окно unminimize+focus
+                // не возвращает — второй запуск был единственным способом
+                // поднять его, и тот тоже молчал
+                let _ = w.show();
                 let _ = w.unminimize();
                 let _ = w.set_focus();
             }
@@ -451,11 +467,16 @@ fn set_tray_variant(app: tauri::AppHandle, kind: String) -> Result<(), String> {
 }
 
 /// «Скрывать в трей»: крестик и системная кнопка закрытия прячут окно;
-/// настоящий выход — из меню трея (там RunEvent::Exit гасит дочерние процессы)
+/// настоящий выход — из меню трея (там RunEvent::Exit гасит дочерние процессы).
+/// Если трея нет (см. TRAY_AVAILABLE) — сворачиваем вместо скрытия: окно
+/// остаётся достижимым через таскбар
 #[tauri::command]
 fn hide_to_tray(app: tauri::AppHandle) -> Result<(), String> {
     use tauri::Manager;
     if let Some(w) = app.get_webview_window("main") {
+        if !TRAY_AVAILABLE.load(Ordering::Relaxed) {
+            return w.minimize().map_err(|e| e.to_string());
+        }
         w.hide().map_err(|e| e.to_string())
     } else {
         Ok(())
@@ -889,8 +910,6 @@ fn build_tray(app: &tauri::AppHandle) -> Result<(), String> {
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| {
             let id = event.id().as_ref().to_string();
-            // Диагностика: пункт меню диспатчится? (видно в консоли tauri dev)
-            eprintln!("[tray] menu event: {id}");
             match id.as_str() {
                 "open" | "clear-data" => {
                     if let Some(w) = app.get_webview_window("main") {
@@ -902,14 +921,6 @@ fn build_tray(app: &tauri::AppHandle) -> Result<(), String> {
                         let _ = w.set_always_on_top(true);
                         let _ = w.set_always_on_top(false);
                         let _ = w.set_focus();
-                        eprintln!(
-                            "[tray] window: visible={} minimized={} focused={}",
-                            w.is_visible().unwrap_or(false),
-                            w.is_minimized().unwrap_or(false),
-                            w.is_focused().unwrap_or(false),
-                        );
-                    } else {
-                        eprintln!("[tray] main window NOT found");
                     }
                     if id == "clear-data" {
                         // Деструктив сам по себе не исполняется: окно показано,

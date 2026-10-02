@@ -119,49 +119,58 @@ async fn do_download(app: &tauri::AppHandle, wake_model: &str) -> Result<(), Str
             continue; // уже скачана — повторное включение безвредно
         }
         let url = format!("{MODEL_BASE}/{name}");
-        let resp = client
-            .get(&url)
-            .send()
-            .await
-            .map_err(|e| format!("model download failed: {e}"))?;
-        if !resp.status().is_success() {
-            return Err(format!("model download {name}: HTTP {}", resp.status().as_u16()));
-        }
-        let total = resp.content_length().unwrap_or(0);
-        let tmp = dir.join(format!("{name}.tmp"));
-        let mut file = tokio::fs::File::create(&tmp)
-            .await
-            .map_err(|e| e.to_string())?;
-        let mut received: u64 = 0;
-        let mut last_emit: u64 = 0;
-        let mut stream = resp;
-        while let Some(chunk) = stream
-            .chunk()
-            .await
-            .map_err(|e| format!("model download interrupted: {e}"))?
-        {
-            file.write_all(&chunk).await.map_err(|e| e.to_string())?;
-            received += chunk.len() as u64;
-            // Файлы ~1 МБ: прогресс шлём дважды — начало и конец
-            if received - last_emit >= 512 * 1024 {
-                last_emit = received;
-                let _ = app.emit(
-                    "voice-progress",
-                    json!({ "file": name, "received": received, "total": total }),
-                );
+        // Total-таймаут на файл: connect_timeout не спасает от stalled-
+        // соединения (молчащий прокси, NAT без RST) — включение wake
+        // висело вечно
+        let dl = async {
+            let resp = client
+                .get(&url)
+                .send()
+                .await
+                .map_err(|e| format!("model download failed: {e}"))?;
+            if !resp.status().is_success() {
+                return Err(format!("model download {name}: HTTP {}", resp.status().as_u16()));
             }
-        }
-        file.flush().await.map_err(|e| e.to_string())?;
-        drop(file);
-        if received == 0 {
-            let _ = std::fs::remove_file(&tmp);
-            return Err(format!("model download {name}: empty response"));
-        }
-        std::fs::rename(&tmp, &final_path).map_err(|e| e.to_string())?;
-        let _ = app.emit(
-            "voice-progress",
-            json!({ "file": name, "received": received, "total": received }),
-        );
+            let total = resp.content_length().unwrap_or(0);
+            let tmp = dir.join(format!("{name}.tmp"));
+            let mut file = tokio::fs::File::create(&tmp)
+                .await
+                .map_err(|e| e.to_string())?;
+            let mut received: u64 = 0;
+            let mut last_emit: u64 = 0;
+            let mut stream = resp;
+            while let Some(chunk) = stream
+                .chunk()
+                .await
+                .map_err(|e| format!("model download interrupted: {e}"))?
+            {
+                file.write_all(&chunk).await.map_err(|e| e.to_string())?;
+                received += chunk.len() as u64;
+                // Файлы ~1 МБ: прогресс шлём дважды — начало и конец
+                if received - last_emit >= 512 * 1024 {
+                    last_emit = received;
+                    let _ = app.emit(
+                        "voice-progress",
+                        json!({ "file": name, "received": received, "total": total }),
+                    );
+                }
+            }
+            file.flush().await.map_err(|e| e.to_string())?;
+            drop(file);
+            if received == 0 {
+                let _ = std::fs::remove_file(&tmp);
+                return Err(format!("model download {name}: empty response"));
+            }
+            std::fs::rename(&tmp, &final_path).map_err(|e| e.to_string())?;
+            let _ = app.emit(
+                "voice-progress",
+                json!({ "file": name, "received": received, "total": received }),
+            );
+            Ok::<(), String>(())
+        };
+        tokio::time::timeout(std::time::Duration::from_secs(120), dl)
+            .await
+            .map_err(|_| format!("model download {name}: timed out after 120s"))??;
     }
     Ok(())
 }

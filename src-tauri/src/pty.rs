@@ -309,7 +309,8 @@ pub async fn pty_create(
                 Err(_) => return, // читатель умер, не прислав EOF: сессия мертва
             }
         }
-        let _ = app_out.emit("pty-exit", exit_id.clone());
+        // emit_to, не broadcast: канал PTY приватный, как и pty-output выше
+        let _ = app_out.emit_to("main", "pty-exit", exit_id.clone());
         // Мёртвая сессия покидает реестр: записи раньше копились до
         // перезапуска, а pty_create с тем же id молча возвращал «ок»
         // для мёртвой сессии. Удаляем только если child действительно

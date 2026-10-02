@@ -322,8 +322,15 @@ pub(crate) fn rekey_all(
             continue;
         }
         let data = fs::read_to_string(&path).map_err(|e| e.to_string())?;
-        let mut v: serde_json::Value =
-            serde_json::from_str(&data).unwrap_or(serde_json::json!({}));
+        // Fail-closed: битый JSON не «превращается в {}» — иначе rekey молча
+        // перезаписал бы частично восстановимый файл пустышкой и убил бы
+        // хранимые ключи (аборт миграции честнее тихой потери).
+        let mut v: serde_json::Value = serde_json::from_str(&data).map_err(|e| {
+            format!(
+                "cannot parse {} — rekey aborted, nothing written: {e}",
+                path.display()
+            )
+        })?;
         let mut fields: Vec<&mut serde_json::Value> = Vec::new();
         if name == "settings.json" {
             if let Some(f) = v.get_mut("api_key") {
@@ -415,8 +422,10 @@ pub async fn crypto_reset(app: tauri::AppHandle, confirm: String) -> Result<(), 
                 continue;
             }
             let data = fs::read_to_string(&path).map_err(|e| e.to_string())?;
-            let mut v: serde_json::Value =
-                serde_json::from_str(&data).unwrap_or(serde_json::json!({}));
+            // Fail-closed: RESET разрушает только зашифрованные поля,
+            // а не весь файл — битый JSON отдаём ошибкой, не пустышкой.
+            let mut v: serde_json::Value = serde_json::from_str(&data)
+                .map_err(|e| format!("cannot parse {} — reset aborted: {e}", path.display()))?;
             if path.ends_with("settings.json") {
                 v["api_key"] = serde_json::Value::String(String::new());
                 v["encrypt_keys"] = serde_json::Value::Bool(false);
@@ -442,6 +451,9 @@ pub async fn crypto_reset(app: tauri::AppHandle, confirm: String) -> Result<(), 
 
 /// Конфиг-файлы, входящие в экспорт. crypto.json включён: без той же соли
 /// и check зашифрованные ключи не оживут на другой машине.
+/// fonts.json входит (манифест имён семейств), сами файлы шрифтов — нет:
+/// машинно-специфичные бинари, а несуществующее семейство деградирует
+/// в системный стек (fonts.ts).
 /// memory.json (личная память агента) сознательно НЕ входит: приватные
 /// данные пользователя, перенос — только руками, как у sessions.json
 /// в «поделенный» экспорт без секретов.
@@ -463,6 +475,7 @@ const EXPORT_FILES: &[&str] = &[
     "network.json",
     "websearch.json",
     "dictation.json",
+    "fonts.json",
     "crypto.json",
 ];
 
@@ -923,7 +936,9 @@ fn set_key_encryption_blocking(app: &tauri::AppHandle, enable: bool) -> Result<(
     let spath = config_file(app, "settings.json")?;
     if spath.exists() {
         let data = fs::read_to_string(&spath).map_err(|e| e.to_string())?;
-        let mut v: serde_json::Value = serde_json::from_str(&data).unwrap_or(serde_json::json!({}));
+        // Fail-closed: битый JSON не перезаписываем — см. rekey_all
+        let mut v: serde_json::Value = serde_json::from_str(&data)
+            .map_err(|e| format!("cannot parse settings.json — toggle aborted: {e}"))?;
         if let Some(key) = v.get("api_key").and_then(|x| x.as_str()).map(String::from) {
             let new_key = if enable && !key.is_empty() && !crypto::is_encrypted(&key) {
                 crypto::encrypt(&key)?
@@ -955,7 +970,9 @@ fn set_key_encryption_blocking(app: &tauri::AppHandle, enable: bool) -> Result<(
     let ppath = config_file(app, "profiles.json")?;
     if ppath.exists() {
         let data = fs::read_to_string(&ppath).map_err(|e| e.to_string())?;
-        let mut v: serde_json::Value = serde_json::from_str(&data).unwrap_or(serde_json::json!({}));
+        // Fail-closed: битый JSON не перезаписываем — см. rekey_all
+        let mut v: serde_json::Value = serde_json::from_str(&data)
+            .map_err(|e| format!("cannot parse profiles.json — toggle aborted: {e}"))?;
         if let Some(arr) = v.get_mut("profiles").and_then(|x| x.as_array_mut()) {
             for p in arr {
                 if let Some(key) = p.get("api_key").and_then(|x| x.as_str()).map(String::from) {

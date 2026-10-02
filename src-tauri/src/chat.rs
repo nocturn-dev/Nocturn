@@ -2273,4 +2273,52 @@ mod tests {
             second[0]
         );
     }
+
+    // Золотые векторы маршрутизации провайдеров: регресс этих функций молча
+    // менял бы форму запроса (Gemini /openai) или адаптер авторизации
+    #[test]
+    fn base_url_normalization_golden() {
+        assert_eq!(
+            normalize_base_url("https://generativelanguage.googleapis.com/v1beta/"),
+            "https://generativelanguage.googleapis.com/v1beta/openai"
+        );
+        // Уже с /openai — не дублируем
+        assert_eq!(
+            normalize_base_url("https://generativelanguage.googleapis.com/v1beta/openai"),
+            "https://generativelanguage.googleapis.com/v1beta/openai"
+        );
+        assert_eq!(
+            normalize_base_url(" https://api.openai.com/v1/ "),
+            "https://api.openai.com/v1"
+        );
+        assert_eq!(normalize_base_url(""), "");
+    }
+
+    #[test]
+    fn anthropic_detection_golden() {
+        assert!(is_anthropic_base("https://api.anthropic.com"));
+        assert!(is_anthropic_base("https://api.anthropic.com/v1"));
+        assert!(!is_anthropic_base("https://api.openai.com/v1"));
+        // Эвристика подстрочная: "anthropic" без "api." префикса — не основание
+        assert!(!is_anthropic_base("https://proxy.example.com/anthropic/v1"));
+    }
+
+    #[test]
+    fn provider_error_golden() {
+        let status = reqwest::StatusCode::from_u16(429).unwrap();
+        assert_eq!(
+            provider_error(status, r#"{"error":{"message":"rate limited"}}"#),
+            "HTTP 429: rate limited"
+        );
+        // error-строка вместо объекта
+        assert_eq!(
+            provider_error(status, r#"{"error":"quota exceeded"}"#),
+            "HTTP 429: quota exceeded"
+        );
+        // Не-JSON — фрагмент сырого тела
+        assert_eq!(
+            provider_error(status, "<html>502</html>"),
+            "HTTP 429: <html>502</html>"
+        );
+    }
 }
