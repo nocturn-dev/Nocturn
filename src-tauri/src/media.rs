@@ -142,6 +142,11 @@ mod windows_impl {
     /// Момент начала текущего трека оконного режима: позицию SMTC не даёт,
     /// тикаем локально от старта
     static TRACK_START: Mutex<Option<(String, std::time::Instant)>> = Mutex::new(None);
+    /// Последний удачный UIA-скан оконного пути: (track_id, момент скана,
+    /// позиция, длительность). Скан дорогой (~200мс) — не чаще раза в 5с,
+    /// между сканами позицию компенсирует время с момента скана
+    static UIA_CACHE: Mutex<Option<(String, std::time::Instant, u64, u64)>> =
+        Mutex::new(None);
 
     /// Ленивый старт наблюдателя: первый media_status/media_control.
     /// AppHandle нужен, чтобы эмитить события только в main (канал приватный
@@ -568,7 +573,7 @@ mod windows_impl {
                 && !title.eq_ignore_ascii_case("Spotify")
         });
         let now = now_ms();
-        let Some((_, _pid, window_title)) = track_window else {
+        let Some((track_hwnd, _pid, window_title)) = track_window else {
             // Пауза: заголовок "Spotify" → липкий трек со статусом ⏸
             let sticky = LAST_TRACK.lock().ok().and_then(|g| g.clone());
             return Ok(sticky.map(|st| MediaStateDto {
@@ -591,38 +596,60 @@ mod windows_impl {
             return Ok(None);
         };
         let track_id = track_hash(&title, &artist);
-        // Позиция: локальный тик от старта трека (см. комментарий выше)
-        let mut start = TRACK_START.lock().map_err(|e| e.to_string())?;
-        let position_secs = match start.as_ref() {
-            Some((id, at)) if id == &track_id => at.elapsed().as_secs(),
-            _ => {
-                // Переход SMTC→window посреди трека: продолжаем позицию с
-                // последнего SMTC-снимка (позиция + время с LastUpdatedTime
-                // — та же компенсация, что у фронта), иначе elapsed
-                // сбрасывался в 0 и лирика отставала на всё время,
-                // проигранное до переключения. Seed только если SMTC играл
-                // (заголовок окна = играющий трек) и трек совпадает; при
-                // паузе в SMTC позиция неизвестно как устарела — с нуля
-                let seed_ms = STATE.lock().ok().and_then(|g| g.clone()).and_then(|p| {
-                    let d = p.dto;
-                    if d.track_id != track_id || !d.playing {
-                        return None;
-                    }
-                    let drift = now_ms().saturating_sub(d.updated_at_ms);
-                    Some(d.position_secs.saturating_mul(1000).saturating_add(drift))
-                });
-                match seed_ms.and_then(|ms| {
-                    std::time::Instant::now().checked_sub(Duration::from_millis(ms))
-                }) {
-                    Some(at) => {
+        // Позиция/длительность: UI Spotify через UIA (см. uia_playback) —
+        // заголовок окна позицию не даёт, а трек, стартовавший до
+        // обнаружения фолбэком (запуск приложения mid-track, потеря SMTC
+        // до смены трека), вечно отставал: локальный тик шёл от момента
+        // обнаружения. UIA недоступен — прежняя логика (тик + seed)
+        let (position_secs, duration_secs) = match uia_lookup(&track_id, track_hwnd) {
+            Some((pos, dur)) => {
+                // Держим TRACK_START в согласии с UIA — при отказе UIA
+                // локальный тик продолжится с фактического места
+                if let Ok(mut start) = TRACK_START.lock() {
+                    if let Some(at) = std::time::Instant::now().checked_sub(Duration::from_secs(pos)) {
                         *start = Some((track_id.clone(), at));
-                        at.elapsed().as_secs()
-                    }
-                    None => {
-                        *start = Some((track_id.clone(), std::time::Instant::now()));
-                        0
                     }
                 }
+                (pos, if dur > 0 { Some(dur) } else { None })
+            }
+            None => {
+                let position_secs = {
+                    let mut start = TRACK_START.lock().map_err(|e| e.to_string())?;
+                    match start.as_ref() {
+                        Some((id, at)) if id == &track_id => at.elapsed().as_secs(),
+                        _ => {
+                            // Переход SMTC→window посреди трека: продолжаем позицию с
+                            // последнего SMTC-снимка (позиция + время с LastUpdatedTime
+                            // — та же компенсация, что у фронта), иначе elapsed
+                            // сбрасывался в 0 и лирика отставала на всё время,
+                            // проигранное до переключения. Seed только если SMTC играл
+                            // (заголовок окна = играющий трек) и трек совпадает; при
+                            // паузе в SMTC позиция неизвестно как устарела — с нуля
+                            let seed_ms =
+                                STATE.lock().ok().and_then(|g| g.clone()).and_then(|p| {
+                                    let d = p.dto;
+                                    if d.track_id != track_id || !d.playing {
+                                        return None;
+                                    }
+                                    let drift = now_ms().saturating_sub(d.updated_at_ms);
+                                    Some(d.position_secs.saturating_mul(1000).saturating_add(drift))
+                                });
+                            match seed_ms.and_then(|ms| {
+                                std::time::Instant::now().checked_sub(Duration::from_millis(ms))
+                            }) {
+                                Some(at) => {
+                                    *start = Some((track_id.clone(), at));
+                                    at.elapsed().as_secs()
+                                }
+                                None => {
+                                    *start = Some((track_id.clone(), std::time::Instant::now()));
+                                    0
+                                }
+                            }
+                        }
+                    }
+                };
+                (position_secs, None)
             }
         };
         *LAST_TRACK.lock().map_err(|e| e.to_string())? = Some(StickyTrack {
@@ -638,10 +665,133 @@ mod windows_impl {
             position_secs,
             updated_at_ms: now,
             track_id,
-            duration_secs: None,
+            duration_secs,
             cover: None,
             source: Some("Spotify (window)".into()),
         }))
+    }
+
+    /// Строка «мм:сс» / «ч:мм:сс» (с минусом = остаток) → секунды
+    fn parse_time_label(s: &str) -> Option<(u64, bool)> {
+        let t = s.trim();
+        let negative = t.starts_with('-');
+        let t = t.strip_prefix('-').unwrap_or(t);
+        let parts: Vec<&str> = t.split(':').collect();
+        let (h, m, sec) = match parts.as_slice() {
+            [mm, ss] if !mm.is_empty() && mm.len() <= 2 => (0u64, *mm, *ss),
+            [hh, mm, ss] if !hh.is_empty() => (hh.parse::<u64>().unwrap_or(0), *mm, *ss),
+            _ => return None,
+        };
+        if m.is_empty() || m.len() > 2 || sec.len() != 2 {
+            return None;
+        }
+        let secs = h * 3600 + m.parse::<u64>().ok()? * 60 + sec.parse::<u64>().ok()?;
+        Some((secs, negative))
+    }
+
+    /// Позиция и длительность из UI Spotify через UI Automation: в дереве
+    /// плеера метки времени стоят впритык к слайдеру прогресса
+    /// (elapsed — до, длительность — после). Дерево Chromium строится
+    /// лениво — первые сканы почти пусты, это не ошибка. Дорого
+    /// (~200мс): зовётся только с оконного пути и не чаще раза в 5с
+    fn uia_playback(hwnd: isize) -> Option<(u64, u64)> {
+        use windows::core::Interface;
+        use windows::Win32::Foundation::HWND;
+        use windows::Win32::System::Com::{CoCreateInstance, CLSCTX_INPROC_SERVER};
+        use windows::Win32::UI::Accessibility::{
+            CUIAutomation, IUIAutomation, IUIAutomationRangeValuePattern, TreeScope_Subtree,
+            UIA_ControlTypePropertyId, UIA_NamePropertyId, UIA_RangeValuePatternId,
+            UIA_SliderControlTypeId,
+        };
+        enum Item {
+            Time(u64, bool),
+            Slider { value: f64, max: f64 },
+        }
+        unsafe {
+            let uia: IUIAutomation =
+                CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER).ok()?;
+            let root = uia.ElementFromHandle(HWND(hwnd as *mut _)).ok()?;
+            // TrueCondition + кэш Name/ControlType: VARIANT-условия в
+            // windows 0.61 неудобны, фильтр по типам — в расте по кэшу
+            let cond = uia.CreateTrueCondition().ok()?;
+            let cache = uia.CreateCacheRequest().ok()?;
+            cache.AddProperty(UIA_NamePropertyId).ok()?;
+            cache.AddProperty(UIA_ControlTypePropertyId).ok()?;
+            let arr = root.FindAllBuildCache(TreeScope_Subtree, &cond, &cache).ok()?;
+            let len = arr.Length().ok()?;
+            // Потолок на размер дерева: аномалия лучше многосекундного
+            // скана в потоке-наблюдателе
+            if len <= 0 || len > 5000 {
+                return None;
+            }
+            let mut items: Vec<(i32, Item)> = Vec::new();
+            for i in 0..len {
+                let el = arr.GetElement(i).ok()?;
+                let ct = el.CachedControlType().map(|t| t.0).unwrap_or(0);
+                if ct == UIA_SliderControlTypeId.0 {
+                    let pattern = el
+                        .GetCurrentPattern(UIA_RangeValuePatternId)
+                        .ok()?
+                        .cast::<IUIAutomationRangeValuePattern>()
+                        .ok()?;
+                    let value = pattern.CurrentValue().ok()?;
+                    let max = pattern.CurrentMaximum().ok()?;
+                    items.push((i, Item::Slider { value, max }));
+                } else if let Ok(name) = el.CachedName() {
+                    if let Some((secs, neg)) = parse_time_label(&name.to_string()) {
+                        items.push((i, Item::Time(secs, neg)));
+                    }
+                }
+            }
+            // Пара «метка до слайдера, метка после» — elapsed/длительность
+            // плеера; минус у правой метки — она про остаток
+            for (idx, item) in &items {
+                let Item::Slider { .. } = item else { continue };
+                let before = items.iter().rev().find(|(j, it)| {
+                    *j < *idx && matches!(it, Item::Time(..)) && idx - j <= 8
+                });
+                let after = items.iter().find(|(j, it)| {
+                    *j > *idx && matches!(it, Item::Time(..)) && j - idx <= 8
+                });
+                if let (Some((_, Item::Time(el, false))), Some((_, Item::Time(du, neg)))) =
+                    (before, after)
+                {
+                    let dur = if *neg { el + du } else { *du };
+                    if *el <= dur && (30..=14400).contains(&dur) {
+                        return Some((*el, dur));
+                    }
+                }
+            }
+            // Меток нет — слайдер с большим максимумом это прогресс:
+            // миллисекунды либо секунды
+            for (_, item) in &items {
+                let Item::Slider { value, max } = item else { continue };
+                if *max >= 100_000.0 && *value <= *max {
+                    return Some(((*value / 1000.0) as u64, (*max / 1000.0) as u64));
+                }
+                if (30.0..=10_000.0).contains(max) && *value <= *max {
+                    return Some((*value as u64, *max as u64));
+                }
+            }
+            None
+        }
+    }
+
+    /// UIA-скан с троттлингом: не чаще раза в 5с на трек, между сканами
+    /// позиция дотягивается временем с последнего скана
+    fn uia_lookup(track_id: &str, hwnd: isize) -> Option<(u64, u64)> {
+        let mut cache = UIA_CACHE.lock().ok()?;
+        if let Some((id, at, pos, dur)) = cache.as_ref() {
+            if id == track_id {
+                let elapsed = at.elapsed();
+                if elapsed < Duration::from_secs(5) {
+                    return Some((pos + elapsed.as_secs(), *dur));
+                }
+            }
+        }
+        let (pos, dur) = uia_playback(hwnd)?;
+        *cache = Some((track_id.to_string(), std::time::Instant::now(), pos, dur));
+        Some((pos, dur))
     }
 
     /// Обложка: RandomAccessStream → байты → base64 data URL. Неудача —
@@ -688,6 +838,26 @@ mod windows_impl {
                 "media-state",
                 serde_json::json!({ "hasTrack": has_track }),
             );
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::parse_time_label;
+
+        #[test]
+        fn time_labels_parse() {
+            // метки плеера: elapsed / total / остаток (с минусом)
+            assert_eq!(parse_time_label("1:26"), Some((86, false)));
+            assert_eq!(parse_time_label("12:05"), Some((725, false)));
+            assert_eq!(parse_time_label("3:50"), Some((230, false)));
+            assert_eq!(parse_time_label("-2:30"), Some((150, true)));
+            assert_eq!(parse_time_label("1:02:03"), Some((3723, false)));
+            // не метки: пусто, без секунд, мусор
+            assert_eq!(parse_time_label(""), None);
+            assert_eq!(parse_time_label("1:2"), None);
+            assert_eq!(parse_time_label("a:b"), None);
+            assert_eq!(parse_time_label("Spotify Premium"), None);
         }
     }
 }

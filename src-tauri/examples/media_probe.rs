@@ -1,8 +1,10 @@
 //! Зонд SMTC + окон Spotify: диагностика медиа-минибара на живой машине.
-//! `cargo run --example media_probe` — SMTC-сессии + заголовки окон
-//! spotify.exe. `cargo run --example media_probe -- --toggle` — проверить
-//! управление без SMTC (WM_APPCOMMAND PLAY_PAUSE; Spotify визуально
-//! переключит воспроизведение).
+//! `cargo run --example media_probe` — SMTC-сессии (с таймлайнами) +
+//! заголовки окон spotify.exe. `--toggle` — проверить управление без SMTC
+//! (WM_APPCOMMAND PLAY_PAUSE; Spotify визуально переключит воспроизведение).
+//! `--uia` — UI Automation по окнам Spotify: тексты времени и слайдеры
+//! (проверка читаемости позиции плеера без SMTC; дерево Chromium строится
+//! лениво — первый прогон почти пуст, второй полный).
 
 #[cfg(windows)]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -43,6 +45,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .map(|st| st == GlobalSystemMediaTransportControlsSessionPlaybackStatus::Playing)
             .unwrap_or(false);
         println!("  #{n} source={source:?} playing={playing} title={title:?} artist={artist:?}");
+        // Таймлайн: жива ли Position во время воспроизведения, что с End
+        if let Ok(tl) = s.GetTimelineProperties() {
+            let pos = tl.Position().map(|t| t.Duration / 10_000_000).unwrap_or(-1);
+            let end = tl.EndTime().map(|t| t.Duration / 10_000_000).unwrap_or(-1);
+            let lut = tl
+                .LastUpdatedTime()
+                .map(|dt| dt.UniversalTime / 10_000 - 11_644_473_600_000)
+                .unwrap_or(-1);
+            let now_unix = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis() as i64)
+                .unwrap_or(0);
+            println!(
+                "      timeline pos={pos}s end={end}s lastUpdated-возраст={}мс",
+                now_unix - lut
+            );
+        }
     }
     println!("[3] SMTC-сессий: {n}");
 
@@ -66,6 +85,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // --toggle: WM_APPCOMMAND PLAY_PAUSE окну с треком — проверка
         // управления без SMTC (Spotify визуально тогглит воспроизведение)
         let toggle = std::env::args().any(|a| a == "--toggle");
+        // --uia: UI Automation по окну с треком — тексты времени и слайдеры
+        let uia = std::env::args().any(|a| a == "--uia");
         if toggle {
             let track_hwnd = windows
                 .iter()
@@ -86,6 +107,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
                 None => println!("  (окно с треком не найдено)"),
+            }
+        }
+        if uia {
+            for (hwnd, pid, title) in &windows {
+                println!("[4d] UIA-скан hwnd={hwnd:#x} pid={pid} title={title:?}");
+                match uia_scan(*hwnd) {
+                    Ok(()) => {}
+                    Err(e) => println!("  UIA ошибка: {e}"),
+                }
+            }
+            if windows.is_empty() {
+                println!("  (окон нет — сканировать нечего)");
             }
         }
     }
@@ -175,6 +208,81 @@ fn spotify_windows(pids: &[u32]) -> Vec<(isize, u32, String)> {
             pids.contains(pid)
         })
         .collect()
+}
+
+/// UIA-скан окна: все тексты вида «мм:сс» и все слайдеры с RangeValue.
+/// Цель — понять, читаются ли из Spotify время воспроизведения и полоса
+/// прогресса без SMTC
+#[cfg(windows)]
+fn uia_scan(hwnd: isize) -> Result<(), String> {
+    use windows::core::Interface;
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::System::Com::{CLSCTX_INPROC_SERVER, CoCreateInstance};
+    use windows::Win32::UI::Accessibility::{
+        CUIAutomation, IUIAutomation, IUIAutomationRangeValuePattern, TreeScope_Subtree,
+        UIA_ControlTypePropertyId, UIA_NamePropertyId, UIA_RangeValuePatternId,
+        UIA_SliderControlTypeId,
+    };
+
+    unsafe {
+        let uia: IUIAutomation =
+            CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER).map_err(|e| e.to_string())?;
+        let root = uia
+            .ElementFromHandle(HWND(hwnd as *mut _))
+            .map_err(|e| e.to_string())?;
+
+        // TrueCondition + кэш Name/ControlType: VARIANT-условия в windows
+        // 0.61 неудобны, фильтр по типам делаем в расте по кэшу
+        let cond = uia.CreateTrueCondition().map_err(|e| e.to_string())?;
+        let cache = uia.CreateCacheRequest().map_err(|e| e.to_string())?;
+        cache
+            .AddProperty(UIA_NamePropertyId)
+            .map_err(|e| e.to_string())?;
+        cache
+            .AddProperty(UIA_ControlTypePropertyId)
+            .map_err(|e| e.to_string())?;
+
+        let t0 = std::time::Instant::now();
+        let arr = root
+            .FindAllBuildCache(TreeScope_Subtree, &cond, &cache)
+            .map_err(|e| e.to_string())?;
+        let len = arr.Length().map_err(|e| e.to_string())?;
+        println!("  элементов: {}, скан {:?}", len, t0.elapsed());
+        for i in 0..len {
+            let el = arr.GetElement(i).map_err(|e| e.to_string())?;
+            let name = el
+                .CachedName()
+                .map(|v| v.to_string())
+                .unwrap_or_default();
+            let ct = el.CachedControlType().map(|t| t.0).unwrap_or(0);
+            if ct == UIA_SliderControlTypeId.0 {
+                let val = el
+                    .GetCurrentPattern(UIA_RangeValuePatternId)
+                    .ok()
+                    .and_then(|p| p.cast::<IUIAutomationRangeValuePattern>().ok())
+                    .and_then(|p| p.CurrentValue().ok());
+                println!("  [{i}] SLIDER value={val:?}");
+            } else if is_time_label(&name) {
+                println!("  [{i}] TIME {name:?}");
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Строка вида «мм:сс» (с минусом или без) — метка времени плеера
+#[cfg(windows)]
+fn is_time_label(s: &str) -> bool {
+    let b = s.trim().strip_prefix('-').unwrap_or(s.trim());
+    let (mm, ss) = match b.split_once(':') {
+        Some(v) => v,
+        None => return false,
+    };
+    !mm.is_empty()
+        && mm.len() <= 3
+        && mm.bytes().all(|c| c.is_ascii_digit())
+        && ss.len() == 2
+        && ss.bytes().all(|c| c.is_ascii_digit())
 }
 
 /// WM_APPCOMMAND (0x319) PLAY_PAUSE → окну Spotify: исторический путь
