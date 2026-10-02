@@ -1,5 +1,12 @@
 # UPDATE.md — журнал изменений Nocturn
 
+## 2026-10-02 · [global-fix · update-backend] Telegram: getUpdates уходили при выключенной интеграции — цикл поллинга не гасился
+- **Причина (лог владельца: флуд getUpdates при выключенном Telegram)**: apply_runtime спавнил polling_loop, но терял JoinHandle — stop_polling вечно находил None и abort был no-op. Выключение тумблера не останавливало цикл, повторные включения насаживали поллеры друг на друга.
+- **Фикс тройной**: полный JoinHandle хранится в POLL_TASK (abort реально гасит); цикл перепроверяет конфиг КАЖДУЮ итерацию — выключение останавливает поллинг максимум через один poll даже без abort (самотерминация); telegram_status «polling» теперь честный (AtomicBool, tauri-JoinHandle не отдаёт is_finished).
+- **Попутно**: бэкофф ошибок getUpdates 5→10→20→30 с (кап) вместо фиксированных 5 с — недоступный Telegram (блокировка/прокси) больше не спамит консоль строкой каждые 5 секунд.
+- Тесты: poll_backoff_grows_and_caps; telegram-тесты 4/4, clippy чист.
+- Коммит: `74bc0d5`.
+
 # UPDATE.md — журнал изменений Nocturn
 
 ## 2026-10-02 · [new-feature · update-frontend · update-backend] Джейлбрейк-библиотека: импортёр (файл/URL), умный поиск по словам/модели/году, теги года
