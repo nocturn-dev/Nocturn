@@ -697,14 +697,19 @@ export async function onQuickEntryTask(
   return await listen<string>("quickentry-task", (e) => cb(e.payload));
 }
 
+/** Команда из Telegram: текст владельца или нажатие inline-кнопки */
+export type TelegramCommand =
+  | { type: "text"; text: string }
+  | { type: "callback"; data: string };
+
 /** Команда/сообщение из Telegram (фаза 2): текст от привязанного чата —
  *  диспетчер в App разводит /stop, поправки, новые задачи и да/нет */
 export async function onTelegramCommand(
-  cb: (text: string) => void,
+  cb: (cmd: TelegramCommand) => void,
 ): Promise<() => void> {
   if (!inTauri) return () => {};
   const { listen } = await import("@tauri-apps/api/event");
-  return await listen<string>("telegram-command", (e) => cb(e.payload));
+  return await listen<TelegramCommand>("telegram-command", (e) => cb(e.payload));
 }
 
 // ---------- Долговременная память агента (memory.json) ----------
@@ -1095,12 +1100,25 @@ export async function telegramUnbind(): Promise<void> {
 }
 
 /** Fire-and-forget: событие прогона; бекенд сам перепроверяет гейты */
+/** Кнопка inline-клавиатуры под уведомлением (фаза 3): «Разрешить/Всегда/
+ *  Отклонить» для подтверждений, опции ask_user. data — непрозрачная строка
+ *  для диспетчера: "confirm:once", "ask:<msgId>:<i>" */
+export interface TgButton {
+  label: string;
+  data: string;
+}
+
+export type TelegramNotifyKind = "start" | "finish" | "error" | "confirm" | "ask";
+
+/** Fire-and-forget: событие прогона; бекенд сам перепроверяет гейты.
+ *  buttons — inline-клавиатура под уведомлением */
 export async function telegramNotify(
-  kind: "start" | "finish" | "error" | "confirm",
+  kind: TelegramNotifyKind,
   text: string,
+  buttons: TgButton[] = [],
 ): Promise<void> {
   if (!inTauri) return;
-  return invoke("telegram_notify", { kind, text });
+  return invoke("telegram_notify", { kind, text, buttons });
 }
 
 // ---------- Свои звуки уведомлений ----------

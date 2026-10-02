@@ -1218,6 +1218,7 @@ export const ru = {
     "tg.stopped": "⏹ Задача остановлена: {task}",
     "tg.error": "⛔ Ошибка задачи: {task}",
     "tg.confirm": "❓ Ожидает подтверждения: {what}",
+    "tg.ask": "❓ Вопрос от агента: {question}",
     "media.cardHint": "Мини-бар плеера: трек, время, пауза и переключение треков. Нажмите, чтобы включить или выключить",
     "media.blockTitle": "Плеер ОС (Spotify и другие)",
     "media.lyrics": "Текст песен (lrclib.net)",

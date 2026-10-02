@@ -1230,6 +1230,7 @@ export const zh = {
     "tg.stopped": "⏹ 任务已停止：{task}",
     "tg.error": "⛔ 任务出错：{task}",
     "tg.confirm": "❓ 等待确认：{what}",
+    "tg.ask": "❓ 代理提问：{question}",
     "media.cardHint": "播放器迷你条：曲目、时间、暂停与切歌。点击开启或关闭",
     "media.blockTitle": "系统播放器（Spotify 等）",
     "media.lyrics": "歌词（lrclib.net）",

@@ -196,19 +196,11 @@ export function IntegrationsSection({
           />
         </button>
         {/* Карточка Telegram: уведомления через СВОЕГО бота (@BotFather).
-            В радио минибара не входит (не медиа) и работает на всех ОС.
-            Клик: есть токен — вкл/выкл, нет — раскрыть блок настройки */}
+            Клик РАСКРЫВАЕТ/сворачивает блок настройки (включение/выключение —
+            кнопкой в блоке): раньше клик по включённой карточке выключал
+            интеграцию, и блок с токеном/статусом был недостижим */}
         <button
-          onClick={() => {
-            if (!tg) {
-              setTgOpen(true);
-              return;
-            }
-            if (tg.enabled) void saveTg({ ...tg, enabled: false });
-            else if (tg.botToken) void saveTg({ ...tg, enabled: true });
-            else setTgOpen(true);
-          }}
-          disabled={tgBusy}
+          onClick={() => setTgOpen((v) => !v)}
           title={t("tg.cardHint")}
           className={`relative flex h-28 flex-col items-center justify-center gap-2 rounded-xl border transition-[transform,border-color] duration-200 ${
             tgOn
@@ -455,9 +447,10 @@ export function IntegrationsSection({
         </div>
       )}
 
-      {/* Telegram: токен + привязка + тумблеры событий. Блок раскрыт и при
-          включённой интеграции — статус привязки должен быть виден всегда */}
-      {tgOpen && (
+      {/* Telegram: токен + привязка + тумблеры событий. Блок раскрыт при
+          включённой интеграции (статус привязки виден всегда) или по клику
+          на карточку */}
+      {(tgOpen || tgOn) && (
         <div className="mt-3 rounded-xl border border-halo-line bg-halo-surface/50 px-3 py-2">
           <div className="flex items-center justify-between px-2 pb-1">
             <p className="text-xs font-medium text-halo-text">Telegram</p>

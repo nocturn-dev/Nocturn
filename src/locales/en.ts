@@ -1201,6 +1201,7 @@ export const en = {
     "tg.stopped": "⏹ Task stopped: {task}",
     "tg.error": "⛔ Task error: {task}",
     "tg.confirm": "❓ Awaiting confirmation: {what}",
+    "tg.ask": "❓ Agent question: {question}",
     "media.cardHint": "Player mini-bar: track, elapsed time, pause and track switching. Click to enable or disable",
     "media.blockTitle": "OS player (Spotify and others)",
     "media.lyrics": "Lyrics (lrclib.net)",
