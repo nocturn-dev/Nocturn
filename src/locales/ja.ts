@@ -1222,6 +1222,8 @@ export const ja = {
     "tg.notifyConfirm": "確認リクエスト",
     "tg.notifyConfirmDesc": "エージェントが判断を待っているときにメッセージを送ります。",
     "tg.unbind": "チャットのバインド解除",
+    "tg.correctionSent": "Telegram からの修正を実行中のタスクに送信しました",
+    "tg.taskQueued": "Telegram からのタスクをキューに追加しました",
     "tg.privacy": "トークンは暗号化して保存され、設定エクスポートには含まれません。ボットはバインドされたチャットにのみ書き込み、オフなら通信はゼロです。",
     "tg.started": "▶️ タスク開始：{task}",
     "tg.finished": "✅ タスク完了：{task}",

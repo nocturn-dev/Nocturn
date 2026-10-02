@@ -697,6 +697,16 @@ export async function onQuickEntryTask(
   return await listen<string>("quickentry-task", (e) => cb(e.payload));
 }
 
+/** Команда/сообщение из Telegram (фаза 2): текст от привязанного чата —
+ *  диспетчер в App разводит /stop, поправки, новые задачи и да/нет */
+export async function onTelegramCommand(
+  cb: (text: string) => void,
+): Promise<() => void> {
+  if (!inTauri) return () => {};
+  const { listen } = await import("@tauri-apps/api/event");
+  return await listen<string>("telegram-command", (e) => cb(e.payload));
+}
+
 // ---------- Долговременная память агента (memory.json) ----------
 
 export interface MemoryFact {

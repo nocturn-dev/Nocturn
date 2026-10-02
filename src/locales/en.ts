@@ -1193,6 +1193,8 @@ export const en = {
     "tg.notifyConfirm": "Confirmation requests",
     "tg.notifyConfirmDesc": "A message when the agent waits for your decision.",
     "tg.unbind": "Unbind chat",
+    "tg.correctionSent": "Correction from Telegram sent to the running task",
+    "tg.taskQueued": "Task from Telegram added to the queue",
     "tg.privacy": "The token is stored encrypted and never leaves via settings export; the bot writes only to the bound chat; with the toggle off — zero requests.",
     "tg.started": "▶️ Task started: {task}",
     "tg.finished": "✅ Task finished: {task}",
