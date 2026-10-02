@@ -136,7 +136,7 @@ export function LyricsRibbon({
   }, [snap, scale, composerCentered, contentLeft, repaint]);
 
   return (
-    <div className="pointer-events-none fixed inset-0 z-[1]" aria-hidden>
+    <div className="lyrics-ribbon pointer-events-none fixed inset-0" aria-hidden>
       <canvas ref={canvasRef} className="h-full w-full" />
     </div>
   );

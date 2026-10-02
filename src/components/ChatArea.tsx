@@ -1639,7 +1639,7 @@ export default function ChatArea({
     ],
   );
   return (
-    <section className="relative flex h-full min-w-0 flex-1 flex-col bg-halo-bg">
+    <section className="chat-surface relative flex h-full min-w-0 flex-1 flex-col bg-halo-bg">
       {/* Drag&drop: оверлей на время перетаскивания файлов (поверх всего) */}
       {dragActive && (
         <div

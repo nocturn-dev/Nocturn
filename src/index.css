@@ -1259,6 +1259,28 @@ html.has-wallpaper aside.bg-halo-deep {
   background: color-mix(in srgb, var(--halo-deep) 86%, transparent);
 }
 
+/* Лента лирики (Ambient Lyrics) «за интерфейсом»: тот же слот z-behind,
+   что у ambient-слоя (поверх него по порядку DOM — LyricsRibbon
+   монтируется позже). Корень чата прозрачнее, чем у ambient (55% против
+   86%): сквозь него читается текст ленты. Правило целится в маркер
+   .chat-surface, НЕ во все .bg-halo-bg: иначе прозрачнятся полноэкранные
+   CryptoGate/Onboarding и pre в AskUserCard — сквозь экран блокировки
+   vault'а читалась бы лента. Гейт :not(.glass) — как у ambient: у стекла
+   своя политика прозрачности, там лента не видна */
+.lyrics-ribbon {
+  z-index: var(--halo-z-behind);
+}
+html[data-media-ribbon="1"]:not(.glass) .chat-surface {
+  background: color-mix(in srgb, var(--halo-bg) 55%, transparent);
+}
+/* Лента + ambient «за интерфейсом»: специфичность (0,5,1) выше
+   ambient-правила (0,4,1) — при обеих включённых побеждает лента
+   (текст важнее глубины сцены), сцена продолжает рисоваться под ней */
+html[data-media-ribbon="1"][data-ambient-render="behind"].ambient:not(.glass)
+  .chat-surface {
+  background: color-mix(in srgb, var(--halo-bg) 55%, transparent);
+}
+
 /* Стекло выключено → карточка ответа строго плотная: html.glass-правила
    (.bg-halo-surface и пр.) не должны делать её полупрозрачной без blur */
 .ai-card-solid {

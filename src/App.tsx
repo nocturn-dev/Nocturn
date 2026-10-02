@@ -964,6 +964,15 @@ export default function App() {
   useEffect(() => {
     saveMediaPrefs(mediaPrefs);
   }, [mediaPrefs]);
+  // Лента «за интерфейсом» (CSS читает data-attr): ставим по тумблеру,
+  // не по наличию снапшота — иначе завеса корня чата мигала бы на паузе
+  useEffect(() => {
+    if (mediaPrefs.ribbon) {
+      document.documentElement.dataset.mediaRibbon = "1";
+    } else {
+      delete document.documentElement.dataset.mediaRibbon;
+    }
+  }, [mediaPrefs.ribbon]);
   // Включил YouTube — всплывающая инструкция «как этим пользоваться»
   // (реф-гард: один тост на включение, без deps-эффекта — паттерн дома)
   const ytHowToShownRef = useRef(false);
