@@ -1343,6 +1343,7 @@ export const ru = {
     "common.nothingFound": "Ничего не найдено",
     "session.copy": "(копия)",
     "chat.worked": "Работал {s} сек",
+    "chat.diffLive": "Изменено строк в ходе задачи",
     "chat.runWorking": "Работает {d}",
     "chat.runWorked": "Работал {d}",
     "chat.workedUnit": "сек",

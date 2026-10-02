@@ -1326,6 +1326,7 @@ export const en = {
     "common.nothingFound": "Nothing found",
     "session.copy": "(copy)",
     "chat.worked": "Worked for {s} s",
+    "chat.diffLive": "Lines changed in this run",
     "chat.runWorking": "Working for {d}",
     "chat.runWorked": "Worked for {d}",
     "chat.workedUnit": "s",

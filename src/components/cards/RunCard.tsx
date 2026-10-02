@@ -375,6 +375,22 @@ function RunCardBase({
   const switched = rounds.find((a) => a.switchedTo)?.switchedTo;
   const firstTs = rounds[0]?.ts;
 
+  // Живой счётчик строк правок по всем шагам хода («+N −M» в шапке, как
+  // в ZCode): виден ВО ВРЕМЯ работы; карточка файлов появляется после
+  // завершения всего запроса (ChatArea гейтит по streaming/typing)
+  const diffTotals = useMemo(() => {
+    let added = 0;
+    let removed = 0;
+    for (const rows of stepsOf.values()) {
+      for (const r of rows) {
+        if (!r.stats) continue;
+        added += r.stats.added;
+        removed += r.stats.removed;
+      }
+    }
+    return added + removed > 0 ? { added, removed } : null;
+  }, [stepsOf]);
+
   return (
     <div data-mid={runKey} className="anim-fade-up mr-auto w-full max-w-[85%]">
       {/* Шапка хода: модель + живой таймер, hairline снизу — как в ZCode */}
@@ -404,6 +420,15 @@ function RunCardBase({
               hour: "2-digit",
               minute: "2-digit",
             })}
+          </span>
+        )}
+        {diffTotals && (
+          <span
+            title={t("chat.diffLive")}
+            className="shrink-0 font-mono text-[0.625rem] tabular-nums"
+          >
+            <span className="text-emerald-400">+{fmtInt(diffTotals.added, lang)}</span>{" "}
+            <span className="text-halo-error">−{fmtInt(diffTotals.removed, lang)}</span>
           </span>
         )}
         {isStreaming && hint && (

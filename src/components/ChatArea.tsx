@@ -1568,8 +1568,10 @@ export default function ChatArea({
                   }
                 }
 
-                // Сводка изменённых файлов — в конце хода
-                if (derived.writesFiles.length > 0) {
+                // Сводка изменённых файлов — ТОЛЬКО когда весь запрос закончился
+                // (фидбек владельца: во время работы вместо карточки живой
+                // счётчик «+N −M» в шапке хода — RunCard)
+                if (derived.writesFiles.length > 0 && !typing && !streamingMsgId) {
                   nodes.push(
                     <ChangedFilesCard
                       key={`changes-${turn.user?.id ?? ti}`}
@@ -1651,6 +1653,7 @@ export default function ChatArea({
       streamingMsgId,
       subRuns,
       t,
+      typing,
     ],
   );
   return (
