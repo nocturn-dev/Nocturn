@@ -18,6 +18,15 @@ use std::sync::Mutex;
 use std::time::Duration;
 use tauri::Emitter;
 
+/// Кнопка inline-клавиатуры под уведомлением (фаза 3): «Разрешить/Всегда/
+/// Отклонить» для подтверждений, опции ask_user. data — непрозрачная строка
+/// для фронта ("confirm:once", "ask:<msgId>:<index>")
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TgButton {
+    pub label: String,
+    pub data: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct TelegramConfig {
@@ -112,7 +121,8 @@ pub fn valid_token(token: &str) -> bool {
 
 /// Кому отправлять: включённость + привязка + тумблер события. Чистая
 /// функция — тесты; Rust перепроверяет ALWAYS (фронтовый кэш — только
-/// оптимизация, истина здесь)
+/// оптимизация, истина здесь). ask_user и подтверждение инструмента
+/// делят один тумблер notify_confirm (обе категории — «ждёт решения»)
 pub fn should_notify(cfg: &TelegramConfig, kind: &str) -> bool {
     if !cfg.enabled || cfg.chat_id.is_empty() || cfg.bot_token.is_empty() {
         return false;
@@ -121,24 +131,40 @@ pub fn should_notify(cfg: &TelegramConfig, kind: &str) -> bool {
         "start" => cfg.notify_start,
         "finish" => cfg.notify_finish,
         "error" => cfg.notify_error,
-        "confirm" => cfg.notify_confirm,
+        "confirm" | "ask" => cfg.notify_confirm,
         _ => false,
     }
 }
 
-async fn send_message(token: &str, chat_id: &str, text: &str) -> Result<(), String> {
+async fn send_message(
+    token: &str,
+    chat_id: &str,
+    text: &str,
+    buttons: &[TgButton],
+) -> Result<(), String> {
     let client = crate::network::shared_client(Duration::from_secs(15))?;
     // Total-таймаут обязателен (аудит: connect_timeout не спасает от
     // stalled-соединения); Telegram сам отвечает быстро на sendMessage
+    let mut body = serde_json::json!({
+        "chat_id": chat_id,
+        "text": text,
+        // plain text: без parse_mode юзерские задачи/ошибки со скобками
+        // и подчёркиваниями не ломают отправку
+        "disable_web_page_preview": true,
+    });
+    if !buttons.is_empty() {
+        // Inline-клавиатура: callback_data вернётся в callback_query и
+        // уйдёт на фронт как решение
+        body["reply_markup"] = serde_json::json!({
+            "inline_keyboard": [buttons
+                .iter()
+                .map(|b| serde_json::json!({"text": b.label, "callback_data": b.data}))
+                .collect::<Vec<_>>()],
+        });
+    }
     let fut = client
         .post(format!("https://api.telegram.org/bot{token}/sendMessage"))
-        .json(&serde_json::json!({
-            "chat_id": chat_id,
-            "text": text,
-            // plain text: без parse_mode юзерские задачи/ошибки со скобками
-            // и подчёркиваниями не ломают отправку
-            "disable_web_page_preview": true,
-        }))
+        .json(&body)
         .send();
     let resp = tokio::time::timeout(Duration::from_secs(20), fut)
         .await
@@ -188,7 +214,9 @@ async fn polling_loop(app: tauri::AppHandle, mut offset: u64) {
         let req = tokio::time::timeout(Duration::from_secs(65), async {
             crate::network::shared_client(Duration::from_secs(15))?
                 .get(format!(
-                    "https://api.telegram.org/bot{token}/getUpdates?timeout=50&allowed_updates=%5B%22message%22%5D&offset={offset}"
+                    // message (фаза 2: команды владельца) + callback_query
+                    // (фаза 3: нажатия inline-кнопок)
+                    "https://api.telegram.org/bot{token}/getUpdates?timeout=50&allowed_updates=%5B%22message%22%2C%22callback_query%22%5D&offset={offset}"
                 ))
                 .send()
                 .await
@@ -220,8 +248,75 @@ async fn polling_loop(app: tauri::AppHandle, mut offset: u64) {
                 continue;
             };
             offset = offset.max(id + 1);
-            // Фаза 1: слушаем ТОЛЬКО /start для привязки. Другие тексты
-            // молча пропускаются (управление — фаза 2)
+            let cfg = config();
+
+            // Фаза 3: нажатие inline-кнопки — решение по подтверждению или
+            // выбор опции ask_user. Только от привязанного чата и только
+            // при включённой интеграции
+            if let Some(cq) = u.get("callback_query") {
+                let Some(data) = cq.get("data").and_then(|x| x.as_str()).map(String::from)
+                else {
+                    continue;
+                };
+                let Some(chat_id) = cq
+                    .pointer("/message/chat/id")
+                    .and_then(|x| x.as_i64())
+                    .map(|n| n.to_string())
+                else {
+                    continue;
+                };
+                if !cfg.enabled || cfg.chat_id != chat_id {
+                    continue;
+                }
+                // Ack: гасим спиннер на кнопке и снимаем клавиатуру
+                // (best-effort — решение уже уехало на фронт)
+                let cq_id = cq.get("id").cloned().unwrap_or(serde_json::Value::Null);
+                let mid = cq
+                    .pointer("/message/message_id")
+                    .and_then(|x| x.as_i64())
+                    .unwrap_or(0);
+                let ack = tokio::time::timeout(Duration::from_secs(10), async {
+                    crate::network::shared_client(Duration::from_secs(15))?
+                        .post(format!(
+                            "https://api.telegram.org/bot{token}/answerCallbackQuery"
+                        ))
+                        .json(&serde_json::json!({ "callback_query_id": cq_id }))
+                        .send()
+                        .await
+                        .map_err(|e| e.to_string())
+                })
+                .await;
+                if let Err(e) = ack {
+                    eprintln!("telegram callback ack failed: {e:?}");
+                }
+                if mid != 0 {
+                    let clear = tokio::time::timeout(Duration::from_secs(10), async {
+                        crate::network::shared_client(Duration::from_secs(15))?
+                            .post(format!(
+                                "https://api.telegram.org/bot{token}/editMessageReplyMarkup"
+                            ))
+                            .json(&serde_json::json!({
+                                "chat_id": chat_id,
+                                "message_id": mid,
+                                "reply_markup": { "inline_keyboard": [] }
+                            }))
+                            .send()
+                            .await
+                            .map_err(|e| e.to_string())
+                    })
+                    .await;
+                    if let Err(e) = clear {
+                        eprintln!("telegram clear keyboard failed: {e:?}");
+                    }
+                }
+                let _ = app.emit_to(
+                    "main",
+                    "telegram-command",
+                    serde_json::json!({ "type": "callback", "data": data }),
+                );
+                continue;
+            }
+
             let Some(msg) = u.get("message") else { continue };
             let Some(chat_id) = msg
                 .get("chat")
@@ -237,48 +332,62 @@ async fn polling_loop(app: tauri::AppHandle, mut offset: u64) {
                 .unwrap_or("")
                 .trim()
                 .to_string();
-            if !text.starts_with("/start") {
+            if text.is_empty() {
                 continue;
             }
-            let cfg = config();
-            if cfg.chat_id == chat_id {
-                // Фаза 2: текст от владельца — на фронт. Диспетчер в App
-                // разводит: /stop, поправка в идущий прогон, новая задача,
-                // текстовое да/нет для подтверждений. /start повторно — no-op
-                if !text.is_empty() && !text.starts_with("/start") {
-                    let _ = app.emit_to("main", "telegram-command", text.clone());
-                }
+
+            // Повторный /start от уже привязанного чата — no-op
+            if cfg.chat_id == chat_id && text.starts_with("/start") {
                 continue;
             }
-            if !cfg.chat_id.is_empty() {
-                // Привязка однозначна: бот уже знает владельца. Второй чат
-                // НЕ перебивает — иначе любой, узнавший токен, угонял бы бота
-                let _ = send_message(
-                    &token,
-                    &chat_id,
-                    "This bot is already bound to another chat.",
-                )
-                .await;
-                continue;
-            }
-            // Привязка: chat_id в статик + на диск (токен остаётся в дисковой
-            // копии зашифрованным — читаем файл, правим только поле chat_id)
-            let mut disk = crate::settings::read_json_config(&app, "telegram.json")
-                .unwrap_or_else(|_| serde_json::json!({}));
-            disk["chat_id"] = serde_json::Value::String(chat_id.clone());
-            match crate::settings::save_json_config(&app, "telegram.json", &disk) {
-                Ok(()) => {
-                    let mut cfg = cfg;
-                    cfg.chat_id = chat_id.clone();
-                    set_static(cfg);
+
+            // /start от НЕ привязанного чата — привязка
+            if text.starts_with("/start") {
+                if !cfg.chat_id.is_empty() {
+                    // Привязка однозначна: бот уже знает владельца. Второй чат
+                    // НЕ перебивает — иначе любой, узнавший токен, угонял бы бота
                     let _ = send_message(
                         &token,
                         &chat_id,
-                        "✅ Nocturn bound to this chat. Notifications will arrive here.",
+                        "This bot is already bound to another chat.",
+                        &[],
                     )
                     .await;
+                    continue;
                 }
-                Err(e) => eprintln!("telegram bind save failed: {e}"),
+                // Привязка: chat_id в статик + на диск (токен остаётся в
+                // дисковой копии зашифрованным — читаем файл, правим только
+                // поле chat_id)
+                let mut disk = crate::settings::read_json_config(&app, "telegram.json")
+                    .unwrap_or_else(|_| serde_json::json!({}));
+                disk["chat_id"] = serde_json::Value::String(chat_id.clone());
+                match crate::settings::save_json_config(&app, "telegram.json", &disk) {
+                    Ok(()) => {
+                        let mut cfg = cfg;
+                        cfg.chat_id = chat_id.clone();
+                        set_static(cfg);
+                        let _ = send_message(
+                            &token,
+                            &chat_id,
+                            "✅ Nocturn bound to this chat. Notifications will arrive here.",
+                            &[],
+                        )
+                        .await;
+                    }
+                    Err(e) => eprintln!("telegram bind save failed: {e}"),
+                }
+                continue;
+            }
+
+            // Фаза 2: текст от владельца — на фронт. Диспетчер в App разводит:
+            // /stop, поправка в идущий прогон, новая задача, текстовое да/нет.
+            // Тексты чужих чатов молча игнорируются
+            if cfg.chat_id == chat_id && cfg.enabled {
+                let _ = app.emit_to(
+                    "main",
+                    "telegram-command",
+                    serde_json::json!({ "type": "text", "text": text }),
+                );
             }
         }
     }
@@ -377,10 +486,11 @@ pub async fn telegram_unbind(app: tauri::AppHandle) -> Result<(), String> {
 
 /// Уведомление о событии прогона. Fire-and-forget: вызов возвращается
 /// сразу, отправка — в фоне; ошибки только в eprintln (чат не должен
-/// зависеть от доступности Telegram). Фронт кэширует конфиг ради
-/// экономии IPC, но РЕШЕНИЕ о отправке всегда здесь.
+/// зависеть от доступности Telegram). Фронт кэша конфига больше нет —
+/// РЕШЕНИЕ о отправке всегда здесь. buttons — inline-клавиатура
+/// (фаза 3: решения по подтверждениям/ask_user одним тапом)
 #[tauri::command(async)]
-pub fn telegram_notify(kind: String, text: String) {
+pub fn telegram_notify(kind: String, text: String, buttons: Option<Vec<TgButton>>) {
     let cfg = config();
     if !should_notify(&cfg, &kind) {
         return;
@@ -397,8 +507,9 @@ pub fn telegram_notify(kind: String, text: String) {
     } else {
         cfg.bot_token.clone()
     };
+    let buttons = buttons.unwrap_or_default();
     tauri::async_runtime::spawn(async move {
-        if let Err(e) = send_message(&token_plain, &chat_id, &text).await {
+        if let Err(e) = send_message(&token_plain, &chat_id, &text, &buttons).await {
             eprintln!("telegram notify: {e}");
         }
     });

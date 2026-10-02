@@ -9,10 +9,19 @@
  * telegram_notify на каждый вызов); лишний IPC дешевле потерянных
  * уведомлений. Отказы тихие: чат не зависит от доступности Telegram.
  */
-import { telegramNotify as notifyInvoke } from "./api";
+import { telegramNotify as notifyInvoke, type TgButton } from "./api";
 
-export type TelegramNotifyKind = "start" | "finish" | "error" | "confirm";
+export type TelegramNotifyKind =
+  | "start"
+  | "finish"
+  | "error"
+  | "confirm"
+  | "ask";
 
-export function telegramNotify(kind: TelegramNotifyKind, text: string): void {
-  void notifyInvoke(kind, text).catch(() => {});
+export function telegramNotify(
+  kind: TelegramNotifyKind,
+  text: string,
+  buttons: TgButton[] = [],
+): void {
+  void notifyInvoke(kind, text, buttons).catch(() => {});
 }

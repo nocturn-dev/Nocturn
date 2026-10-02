@@ -46,6 +46,7 @@ import {
   factoryReset,
   dictationTranscribe,
   onTelegramCommand,
+  type TelegramCommand,
   pickFolder,
 } from "./api";
 import { stopSpeaking, speak } from "./tts";
@@ -1079,13 +1080,40 @@ export default function App() {
     };
   }, [activeRunRef, addToast, t, stableHandleSend]);
 
-  // Telegram фаза 2: команда/текст от привязанного чата. Диспетчер через
-  // реф (паттерн dispatchShortcutRef): подписка mount-only, замыкание
-  // всегда свежее
-  const telegramDispatchRef = useRef<(text: string) => void>(() => {});
+  // Telegram фаза 2/3: команда от привязанного чата (текст или нажатие
+  // inline-кнопки). Диспетчер через реф (паттерн dispatchShortcutRef):
+  // подписка mount-only, замыкание всегда свежее
+  const telegramDispatchRef = useRef<(cmd: TelegramCommand) => void>(() => {});
   useEffect(() => {
-    telegramDispatchRef.current = (raw: string) => {
-      const text = raw.trim();
+    telegramDispatchRef.current = (cmd: TelegramCommand) => {
+      // Фаза 3: нажатие inline-кнопки — решение по подтверждению или выбор
+      // опции ask_user, одним тапом с телефона
+      if (cmd.type === "callback") {
+        if (cmd.data.startsWith("confirm:")) {
+          const d = cmd.data.slice("confirm:".length);
+          if (
+            (d === "once" || d === "always" || d === "deny") &&
+            interactions.some((i) => i.kind === "confirm")
+          ) {
+            handleConfirmDecision(d);
+          }
+          return;
+        }
+        if (cmd.data.startsWith("ask:")) {
+          const [, mid, idxRaw] = cmd.data.split(":");
+          if (!mid) return;
+          const idx = Number(idxRaw);
+          const ask = interactions.find((i) => i.kind === "ask" && i.msgId === mid);
+          if (ask && ask.kind === "ask" && Number.isInteger(idx)) {
+            const opt = ask.spec.options[idx];
+            if (opt) handleAskAnswer(mid, { answers: [opt.label] });
+          }
+          return;
+        }
+        return;
+      }
+
+      const text = cmd.text.trim();
       if (!text) return;
       // /stop — остановить идущий прогон
       if (/^\/stop\b/i.test(text)) {
@@ -1130,9 +1158,9 @@ export default function App() {
   useEffect(() => {
     let disposed = false;
     let un: (() => void) | undefined;
-    void onTelegramCommand((text) => {
+    void onTelegramCommand((cmd) => {
       if (disposed) return;
-      telegramDispatchRef.current(text);
+      telegramDispatchRef.current(cmd);
     }).then((u) => {
       if (disposed) u();
       else un = u;

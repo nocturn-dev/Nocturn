@@ -1230,6 +1230,7 @@ export const ja = {
     "tg.stopped": "⏹ タスク停止：{task}",
     "tg.error": "⛔ タスクエラー：{task}",
     "tg.confirm": "❓ 確認待ち：{what}",
+    "tg.ask": "❓ エージェントからの質問：{question}",
     "media.cardHint": "プレイヤーミニバー：曲・経過時間・一時停止・曲送り。クリックで切り替え",
     "media.blockTitle": "OS プレイヤー（Spotify など）",
     "media.lyrics": "歌詞（lrclib.net）",

@@ -1247,7 +1247,11 @@ export function useAgentRun(deps: AgentRunDeps) {
             return call.name;
           }
         })();
-        telegramNotify("confirm", t("tg.confirm", { what: confirmWhat }));
+        telegramNotify("confirm", t("tg.confirm", { what: confirmWhat }), [
+          { label: t("agent.allow"), data: "confirm:once" },
+          { label: t("agent.allowAlways"), data: "confirm:always" },
+          { label: t("agent.deny"), data: "confirm:deny" },
+        ]);
         openInteraction(
           { id: uid(), kind: "confirm", requestId, call },
           (r) => resolve(r.kind === "confirm" ? r.decision : "deny"),
@@ -1708,6 +1712,16 @@ export function useAgentRun(deps: AgentRunDeps) {
                     ? "timeout"
                     : null,
               ),
+          );
+          // TG фаза 3: вопрос с кнопками опций — ответ одним тапом с
+          // телефона; callback_data несёт msgId + индекс опции
+          telegramNotify(
+            "ask",
+            t("tg.ask", { question: (spec.question ?? "").slice(0, 200) }),
+            spec.options.map((o, i) => ({
+              label: o.label.slice(0, 30),
+              data: `ask:${askMsgId}:${i}`,
+            })),
           );
           // Автопродолжение: вопрос без ответа N минут — продолжаем сами.
           // Таймер отменяется в finalize: ответили раньше — он больше не нужен
