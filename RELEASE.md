@@ -15,9 +15,9 @@
 2. In the GitHub repo → Settings → Secrets and variables → Actions, add:
    - `TAURI_SIGNING_PRIVATE_KEY` — contents of `.keys/nocturn-private.key`;
    - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` — contents of `.keys/PASSWORD.txt`.
-4. Update the updater endpoint in `tauri.conf.json` if the repository is not
-   `nocturn-app/nocturn` (it points to
-   `https://github.com/<org>/<repo>/releases/latest/download/latest.json`).
+3. The updater endpoint in `tauri.conf.json` points to
+   `https://github.com/nocturn-lab/Nocturn-AI/releases/latest/download/latest.json`
+   — update it if the repository moves.
 
 ## Cutting a release
 
@@ -40,12 +40,16 @@
   `bundle.createUpdaterArtifacts` is enabled. Without
   `TAURI_SIGNING_PRIVATE_KEY` the build step fails — that is intentional
   (unsigned updater artifacts must not ship).
-- The `pubkey` placeholder must be replaced before the first tagged release.
+- The signing keypair is real and the pubkey in `tauri.conf.json` matches it
+  (the old "replace the placeholder" step is done).
 - **macOS builds**: the updater requires a signed (and ideally notarized)
   app bundle — ad-hoc signatures will not pass Gatekeeper when applying an
-  update. Configure `signingIdentity` + notarization in the CI job before
-  shipping any macOS artifact; until then macOS releases must be
-  distributed as manual downloads, not via the in-app updater.
+  update. KNOWN GAP: the release job builds macOS too and tauri-action with
+  `includeUpdaterJson: true` merges macOS artifacts into the same
+  `latest.json`, so macOS users may be offered an update that Gatekeeper
+  will reject. Before shipping to macOS users: either configure
+  `signingIdentity` + notarization, or exclude macOS artifacts from
+  `latest.json` until then (owner decision).
 - **Linux builds**: auto-discovery for Browser Use expects Edge binaries in
   PATH as `microsoft-edge` / `microsoft-edge-stable`; ambient video playback
   depends on GStreamer codecs (gst-libav for mp4/mov) being installed.

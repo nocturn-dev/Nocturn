@@ -24,16 +24,18 @@ Tailwind 4, бекенд Rust в `src-tauri/`. Без облаков: ключи
 - `App.tsx` — композиция и состояние верхнего уровня; `hooks/useAgentRun.ts` —
   агентный цикл; `api.ts` — типизированные invoke-обёртки (единственная точка IPC)
 - `components/cards/` — карточки сообщений; `components/settings/` — разделы
-  настроек (сплит из монолита); `locales/{ru,en,zh,ja}.ts` — `MsgKey = keyof ru`
+  настроек (сплит из монолита); `src/locales/{ru,en,zh,ja}.ts` —
+  `MsgKey = keyof ru`
 
 ## Команды
 
 - `npm run tauri dev` — запуск (UI существует только в нативном окне)
 - `npm run build` — tsc + vite build; `npm run lint` — eslint src
-- `npm run test` — vitest; `npm run bench` — перф-бюджеты горячих функций
+- `npm run test` — vitest, включая перф-бюджеты горячих функций
+  (`*.perf.test.ts`; отдельного скрипта `bench` нет)
 - `cargo test` и `cargo clippy --all-targets -- -D warnings` — в `src-tauri/`
 - `node scripts/verify.mjs fast` — tsc + eslint + vitest (~16 с)
-- `node scripts/verify.mjs all` — + bench + clippy + cargo test + сборка
+- `node scripts/verify.mjs all` — + clippy + cargo test + сборка
 
 ## Ритуалы
 
@@ -48,7 +50,8 @@ Tailwind 4, бекенд Rust в `src-tauri/`. Без облаков: ключи
 ## Конвенции
 
 - Новый инструмент агента: схема в `tools.rs`/`tooling.rs`, мутирующий —
-  в mutating-списке `useAgentRun` и в `perm.rs`. Гардалы вызова ставятся
+  в `isMutatingTool` (`src/agent/toolFilter.ts`, золотой список в тесте) и в
+  `perm.rs`. Гардалы вызова ставятся
   ДО PreToolUse-хуков (образцы: `ensure_not_user_disabled`, `perm::decide`).
 - Любая запись файлов по пути с фронтенда — только через
   `ensure_export_target` (sensitive-path, вне конфиг-каталога, atomic_write).

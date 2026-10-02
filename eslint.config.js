@@ -3,7 +3,9 @@ import reactHooks from 'eslint-plugin-react-hooks';
 import reactRefresh from 'eslint-plugin-react-refresh';
 
 export default tseslint.config(
-  { ignores: ['dist', 'dist-web', 'src-tauri', 'locales', 'eslint.config.js'] },
+  // dist/target — артефакты сборки; src-tauri — Rust. Каталоги locales
+  // (корневой) и dist-web не существуют — из списка убраны
+  { ignores: ['dist', 'src-tauri', 'eslint.config.js'] },
   {
     files: ['**/*.{ts,tsx}'],
     extends: [...tseslint.configs.recommended],
@@ -12,7 +14,8 @@ export default tseslint.config(
       globals: { window: 'readonly', document: 'readonly', navigator: 'readonly', localStorage: 'readonly', fetch: 'readonly' },
     },
     rules: {
-      // Track as warnings: adding deps wholesale risks behavior regressions
+      // Ошибки: регресс в них ломает поведение (пропущенные deps — стейл),
+      // а не только стиль
       'react-hooks/exhaustive-deps': 'error',
       'react-hooks/rules-of-hooks': 'error',
       // Compiler-era rules: architecture-level findings, tracked as warnings for now
