@@ -580,8 +580,33 @@ mod windows_impl {
         let position_secs = match start.as_ref() {
             Some((id, at)) if id == &track_id => at.elapsed().as_secs(),
             _ => {
-                *start = Some((track_id.clone(), std::time::Instant::now()));
-                0
+                // Переход SMTC→window посреди трека: продолжаем позицию с
+                // последнего SMTC-снимка (позиция + время с LastUpdatedTime
+                // — та же компенсация, что у фронта), иначе elapsed
+                // сбрасывался в 0 и лирика отставала на всё время,
+                // проигранное до переключения. Seed только если SMTC играл
+                // (заголовок окна = играющий трек) и трек совпадает; при
+                // паузе в SMTC позиция неизвестно как устарела — с нуля
+                let seed_ms = STATE.lock().ok().and_then(|g| g.clone()).and_then(|p| {
+                    let d = p.dto;
+                    if d.track_id != track_id || !d.playing {
+                        return None;
+                    }
+                    let drift = now_ms().saturating_sub(d.updated_at_ms);
+                    Some(d.position_secs.saturating_mul(1000).saturating_add(drift))
+                });
+                match seed_ms.and_then(|ms| {
+                    std::time::Instant::now().checked_sub(Duration::from_millis(ms))
+                }) {
+                    Some(at) => {
+                        *start = Some((track_id.clone(), at));
+                        at.elapsed().as_secs()
+                    }
+                    None => {
+                        *start = Some((track_id.clone(), std::time::Instant::now()));
+                        0
+                    }
+                }
             }
         };
         *LAST_TRACK.lock().map_err(|e| e.to_string())? = Some(StickyTrack {
