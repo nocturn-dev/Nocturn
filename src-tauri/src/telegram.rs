@@ -493,6 +493,21 @@ pub async fn telegram_unbind(app: tauri::AppHandle) -> Result<(), String> {
 pub fn telegram_notify(kind: String, text: String, buttons: Option<Vec<TgButton>>) {
     let cfg = config();
     if !should_notify(&cfg, &kind) {
+        // Диагностика «нуля уведомлений» (фидбек владельца): каждая причина
+        // дропа видна в консоли. Токен НЕ печатаем — только его состояние
+        eprintln!(
+            "telegram notify dropped: kind={} enabled={} bound={} token={}",
+            kind,
+            cfg.enabled,
+            !cfg.chat_id.is_empty(),
+            if cfg.bot_token.is_empty() {
+                "empty"
+            } else if crate::crypto::is_encrypted(&cfg.bot_token) {
+                "encrypted(vault locked?)"
+            } else {
+                "plain"
+            },
+        );
         return;
     }
     let chat_id = cfg.chat_id;

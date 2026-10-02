@@ -110,6 +110,9 @@ export interface AgentRunDeps {
   askAutoContinue: boolean;
   notifyMeta: (s: Session | null) => string;
   activeProjectId: string | null;
+  /** Pre-toggle «Agent» в композере до создания чата: первая отправка
+   *  создаёт сессию сразу в агентном режиме (черновик не теряется) */
+  pendingAgentMode?: boolean;
   setActiveId: React.Dispatch<React.SetStateAction<string | null>>;
   limitsRef: { current: HardLimits };
   memoryEnabled: boolean;
@@ -133,6 +136,7 @@ export function useAgentRun(deps: AgentRunDeps) {
     askAutoContinue,
     notifyMeta,
     activeProjectId,
+    pendingAgentMode,
     setActiveId,
     limitsRef,
     memoryEnabled,
@@ -491,6 +495,8 @@ export function useAgentRun(deps: AgentRunDeps) {
         createdAt: Date.now(),
         messages: [],
         projectId: activeProjectId ?? undefined,
+        // Pre-toggle «Agent»: черновик не теряется и чат сразу агентный
+        agentMode: pendingAgentMode ?? false,
       };
       setSessions((prev) => [session, ...prev]);
       setActiveId(session.id);
