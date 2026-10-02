@@ -143,7 +143,9 @@ export function MediaBar({
     setLyrics(null);
     setLyricOffset(0);
     setLyricsLoading(true);
-    void lyricsFetch(state.artist ?? "", state.title, null)
+    // Длительность — ключ выбора записи lrclib: без неё берётся самая
+    // короткая выдача (часто джанк-таймлайн)
+    void lyricsFetch(state.artist ?? "", state.title, state.durationSecs ?? null)
       .then((r) => {
         if (disposed) return;
         const lines = parseLyrics(r.synced, r.plain);
@@ -158,7 +160,7 @@ export function MediaBar({
     return () => {
       disposed = true;
     };
-  }, [prefs.lyrics, state?.title, state?.artist, state?.trackId]);
+  }, [prefs.lyrics, state?.title, state?.artist, state?.trackId, state?.durationSecs]);
 
   // Локальный тик времени: раз в секунду, только пока играет
   useEffect(() => {
@@ -173,6 +175,7 @@ export function MediaBar({
   const ytTrackId = yt.track?.videoId ?? null;
   const ytTrackAuthor = yt.track?.author ?? "";
   const ytTrackTitle = yt.track?.title ?? "";
+  const ytTrackDuration = yt.duration;
   useEffect(() => {
     if (!prefs.youtube || !prefs.lyrics || !ytTrackId) {
       setYtLyrics(null);
@@ -181,7 +184,11 @@ export function MediaBar({
     let disposed = false;
     const artist = ytTrackAuthor.replace(/\s*-\s*Topic$/i, "").trim();
     const title = cleanYtTitle(ytTrackTitle);
-    void lyricsFetch(artist, title, null)
+    void lyricsFetch(
+      artist,
+      title,
+      ytTrackDuration > 0 ? Math.round(ytTrackDuration) : null,
+    )
       .then((r) => {
         if (disposed) return;
         const lines = parseLyrics(r.synced, r.plain);
@@ -193,7 +200,7 @@ export function MediaBar({
     return () => {
       disposed = true;
     };
-  }, [prefs.youtube, prefs.lyrics, ytTrackId, ytTrackAuthor, ytTrackTitle]);
+  }, [prefs.youtube, prefs.lyrics, ytTrackId, ytTrackAuthor, ytTrackTitle, ytTrackDuration]);
 
   // Снимок лирики наверх (LyricsRibbon) — ДО ранних return'ов компонента
   // (rules-of-hooks). Источник — активная интеграция: YouTube-режим берёт

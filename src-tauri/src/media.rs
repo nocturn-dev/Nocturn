@@ -26,6 +26,10 @@ pub struct MediaStateDto {
     pub updated_at_ms: u64,
     /// Хеш (title|artist): дедуп событий и ключ лирики на фронте
     pub track_id: String,
+    /// Длительность трека из таймлайна (End). Нет (поток/фолбэк) — None:
+    /// лирика тогда выбирается без сверки длительности
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub duration_secs: Option<u64>,
     /// data:image/...;base64 — только при смене трека (тяжёлый payload)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cover: Option<String>,
@@ -486,6 +490,12 @@ mod windows_impl {
                 ((dt.UniversalTime / 10_000) - EPOCH_DIFF_MS).max(0) as u64
             })
             .unwrap_or(0);
+        // End таймлайна: длительность трека для выбора записи лирики.
+        // 0 — радио/поток/неизвестно → None
+        let duration_secs = timeline
+            .EndTime()
+            .map(|ts| (ts.Duration / 10_000_000).max(0) as u64)
+            .unwrap_or(0);
         let track_id = track_hash(&title, &artist);
         let source_app = session
             .SourceAppUserModelId()
@@ -509,6 +519,11 @@ mod windows_impl {
             position_secs,
             updated_at_ms,
             track_id,
+            duration_secs: if duration_secs > 0 {
+                Some(duration_secs)
+            } else {
+                None
+            },
             cover,
             source: if source_app.is_empty() {
                 None
@@ -567,6 +582,7 @@ mod windows_impl {
                 position_secs: st.position_secs,
                 updated_at_ms: now,
                 track_id: track_hash(&st.title, &st.artist),
+                duration_secs: None,
                 cover: st.cover.clone(),
                 source: Some("Spotify (window)".into()),
             }));
@@ -622,6 +638,7 @@ mod windows_impl {
             position_secs,
             updated_at_ms: now,
             track_id,
+            duration_secs: None,
             cover: None,
             source: Some("Spotify (window)".into()),
         }))
