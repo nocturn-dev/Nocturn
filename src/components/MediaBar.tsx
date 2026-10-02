@@ -1,4 +1,4 @@
-import { useEffect, useState, useSyncExternalStore, type CSSProperties } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from "react";
 import {
   getYtState,
   subscribeYt,
@@ -16,8 +16,7 @@ import {
   type MediaStateDto,
 } from "../api";
 import { useLang } from "../locales";
-import type { MediaPrefs } from "../mediaPrefs";
-import {
+import type { MediaPrefs, MediaLyricsSnapshot } from "../mediaPrefs";import {
   NextTrackIcon,
   PauseIcon,
   PlayIcon,
@@ -80,7 +79,15 @@ function cleanYtTitle(raw: string): string {
  * подсветка текущей строки — токены темы или собственный цвет.
  * Ничего не играет / тумблер выключен — компонент не рендерится вовсе.
  */
-export function MediaBar({ prefs }: { prefs: MediaPrefs }) {
+export function MediaBar({
+  prefs,
+  onLyrics,
+}: {
+  prefs: MediaPrefs;
+  /** Снимок лирики наверх (AmbientLayer): смена строки/текста, null —
+   *  лирики нет или компонент размонтирован */
+  onLyrics?: (snap: MediaLyricsSnapshot | null) => void;
+}) {
   const { t } = useLang();
   const [state, setState] = useState<MediaStateDto | null>(null);
   const [lyrics, setLyrics] = useState<LyricLine[] | null>(null);
@@ -185,6 +192,37 @@ export function MediaBar({ prefs }: { prefs: MediaPrefs }) {
       disposed = true;
     };
   }, [prefs.youtube, prefs.lyrics, ytTrackId, ytTrackAuthor, ytTrackTitle]);
+
+  // Снимок лирики наверх (AmbientLayer) — ДО ранних return'ов компонента
+  // (rules-of-hooks). Индекс считается по тем же правилам, что лента в
+  // баре (последняя строка с t <= elapsed); ручной подвод бара в ленту
+  // не тащим. Вызов — только на смене строки: тик позиции дёргал бы App
+  const lyricsSnapReady = !!lyrics && lyrics.length > 1;
+  const lyricsSnapRef = useRef<{ n: number; i: number } | null>(null);
+  useEffect(() => {
+    if (!onLyrics) return;
+    if (!lyricsSnapReady || !lyrics) {
+      if (lyricsSnapRef.current) {
+        lyricsSnapRef.current = null;
+        onLyrics(null);
+      }
+      return;
+    }
+    const driftNow = state?.playing
+      ? Math.max(0, Math.floor((Date.now() - state.updatedAtMs) / 1000))
+      : 0;
+    const el = (state?.positionSecs ?? 0) + driftNow;
+    const idx = lyrics.reduce(
+      (acc, l, i) => (l.t >= 0 && l.t <= el ? i : acc),
+      -1,
+    );
+    const prev = lyricsSnapRef.current;
+    if (prev && prev.n === lyrics.length && prev.i === idx) return;
+    lyricsSnapRef.current = { n: lyrics.length, i: idx };
+    onLyrics({ lines: lyrics, index: Math.max(0, idx) });
+  }, [onLyrics, lyricsSnapReady, lyrics, state]);
+  // Размонтирование бара — лента в ambient гаснет
+  useEffect(() => () => onLyrics?.(null), [onLyrics]);
 
   // Режим YouTube: интеграция — радио с Spotify (bar=false), минибар
   // показывает трек embed-плеера; без трека — узкая полоска-вход в плеер

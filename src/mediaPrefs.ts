@@ -10,6 +10,14 @@
  * и (Desktop-режим) WM_APPCOMMAND окну Spotify: без аккаунтов и облака.
  */
 
+/** Снимок лирики для AmbientLayer (режим «Ambient Lyrics»): строки с
+ *  таймкодами + индекс активной. Поднимается из MediaBar колбэком —
+ *  слой рисует ленту строк поверх сцены */
+export interface MediaLyricsSnapshot {
+  lines: { t: number; text: string }[];
+  index: number;
+}
+
 export interface MediaPrefs {
   bar: boolean;
   lyrics: boolean;

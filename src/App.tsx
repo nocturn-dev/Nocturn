@@ -105,7 +105,7 @@ import {
 } from "./shortcuts";
 import { buildChainPlan, parseNotePrompt, type Note } from "./vault";
 import { loadNotifyPrefs, saveNotifyPrefs, loadRunSoundPrefs, saveRunSoundPrefs, type NotifyPrefs, type RunSoundPrefs } from "./notify";
-import { loadMediaPrefs, saveMediaPrefs, type MediaPrefs } from "./mediaPrefs";
+import { loadMediaPrefs, saveMediaPrefs, type MediaPrefs, type MediaLyricsSnapshot } from "./mediaPrefs";
 import { subagentsLoad, subagentsSave, commandsLoad, pluginsLoad, type Plugin, type UserCommand } from "./api";
 import {
   parseSubagentsConfig,
@@ -955,6 +955,11 @@ export default function App() {
   }, [runSoundPrefs]);
   // Медиа-минибар («Интеграции»): стейт для настроек и рендера полоски
   const [mediaPrefs, setMediaPrefs] = useState<MediaPrefs>(loadMediaPrefs);
+  // Ambient Lyrics (волна 1): снимок лирики от MediaBar — лента строк
+  // поверх ambient-сцены; пусто, когда музыки нет или лирика выключена
+  const [mediaLyrics, setMediaLyrics] = useState<MediaLyricsSnapshot | null>(
+    null,
+  );
   useEffect(() => {
     saveMediaPrefs(mediaPrefs);
   }, [mediaPrefs]);
@@ -2477,6 +2482,16 @@ export default function App() {
             paused={appearance.reduceMotion === true}
             gradFrom={appearance.ambientGradFrom}
             gradTo={appearance.ambientGradTo}
+            // Ambient Lyrics (волна 1): лента строк лирики поверх сцены.
+            // Данные поднимает MediaBar; гейт по наличию — нет музыки/
+            // лирики, сцена рисуется как обычно
+            lyrics={mediaLyrics}
+            composerCentered={
+              (activeSession?.messages.length ?? 0) === 0 &&
+              !typing &&
+              !terminalOpen
+            }
+            contentLeft={sidebarWidth}
             gradAngle={appearance.ambientGradAngle}
           />
         )}
@@ -2602,6 +2617,7 @@ export default function App() {
         promptPresets={builtinPresetsFor(lang)}
         customPresets={promptLibrary}
         jailbreaks={jailbreaks}
+        onMediaLyrics={setMediaLyrics}
         onSend={stableHandleSend}
         pendingQuote={diffQuote}
         queued={queuedProps}
