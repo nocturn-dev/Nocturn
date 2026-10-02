@@ -3,6 +3,7 @@ import type { AskQuestion, Attachment, ChangedFile, Message, PermissionMode, Pla
 import type { MediaPrefs } from "../mediaPrefs";
 import { MediaBar } from "./MediaBar";
 import type { PromptPreset } from "../presets";
+import type { JailbreakEntry } from "../jailbreaks";
 import { normalizePath, parseWriteResult } from "../diff";
 import type { SlashCommand } from "../commands";
 import QuickSettings from "./QuickSettings";
@@ -108,6 +109,8 @@ interface ChatAreaProps {
   promptPresets: PromptPreset[];
   /** Пользовательские роли из библиотеки */
   customPresets: PromptPreset[];
+  /** Библиотека джейлбрейков — пикер в системном промте задачи */
+  jailbreaks: JailbreakEntry[];
   onSend: (
     text: string,
     attachments?: Attachment[],
@@ -274,6 +277,7 @@ export default function ChatArea({
   onOpenSettingsSection,
   promptPresets,
   customPresets,
+  jailbreaks,
   onSetSystemPrompt,
   onApplyPreset,
   onToggleAgent,
@@ -1841,6 +1845,7 @@ export default function ChatArea({
         initial={session?.systemPrompt ?? ""}
         onSave={(v) => onSetSystemPrompt(v)}
         onClose={() => setSysOpen(false)}
+        jailbreaks={jailbreaks}
       />
 
       {/* Поле ввода с нижней панелью: модель · подсказка · отправка.

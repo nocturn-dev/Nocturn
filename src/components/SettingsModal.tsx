@@ -42,6 +42,7 @@ import { loadMediaAccepted, saveMediaAccepted, type MediaPrefs } from "../mediaP
 import type { HardLimits } from "../limits";
 import type { ShortcutBinds, CustomShortcut } from "../shortcuts";
 import type { PromptPreset } from "../presets";
+import type { JailbreakEntry } from "../jailbreaks";
 import type { SubagentsConfig } from "../subagents";
 export type { Section } from "./settings/types";
 
@@ -166,6 +167,10 @@ interface SettingsModalProps {
   onApplyProfile: (id: string) => void;
   onDeleteProfile: (id: string) => void;
   promptLibrary: PromptPreset[];
+  /** Библиотека джейлбрейков: карточка на вкладке «Промпты» */
+  jailbreaks: JailbreakEntry[];
+  onChangeJailbreaks: (list: JailbreakEntry[]) => void;
+  onApplyJailbreak: (entry: JailbreakEntry) => void;
   ollamaModels: string[] | null;
   /** Allowlist активной задачи (M5.2) + её название */
   allowedCommands: string[];
@@ -327,6 +332,9 @@ export default function SettingsModal({
   onApplyProfile,
   onDeleteProfile,
   promptLibrary,
+  jailbreaks,
+  onChangeJailbreaks,
+  onApplyJailbreak,
   ollamaModels,
   allowedCommands,
   allowedCommandsTitle,
@@ -777,6 +785,9 @@ export default function SettingsModal({
             <PromptsSection
               library={promptLibrary}
               onChangeLibrary={onPromptLibraryChange}
+              jailbreaks={jailbreaks}
+              onChangeJailbreaks={onChangeJailbreaks}
+              onApplyJailbreak={onApplyJailbreak}
             />
           )}
           {section === "commands" && (

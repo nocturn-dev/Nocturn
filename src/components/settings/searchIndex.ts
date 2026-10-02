@@ -169,7 +169,17 @@ export const SETTINGS_SEARCH_INDEX: { section: Section; keys: MsgKey[] }[] = [
   },
   {
     section: "prompts",
-    keys: ["prompts.desc", "prompts.add", "prompts.empty"],
+    keys: [
+      "prompts.desc",
+      "prompts.add",
+      "prompts.empty",
+      "jb.title",
+      "jb.desc",
+      "jb.builtinTitle",
+      "jb.ownTitle",
+      "jb.empty",
+      "jb.add",
+    ],
   },
   {
     section: "skills",
