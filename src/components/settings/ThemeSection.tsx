@@ -21,6 +21,7 @@ import {
   settingsImportRead,
 } from "../../api";
 import { parseProfile } from "../../themeProfiles";
+import ContextMenu from "../ContextMenu";
 import { readUserCss, writeUserCss } from "../../userCss";
 import {
   CUSTOM_FIELDS,
@@ -90,6 +91,10 @@ export function ThemeSection({
   // Инлайн-ввод имени нового профиля (окно prompt недоступно в sandbox)
   const [profileSaveOpen, setProfileSaveOpen] = useState(false);
   const [profileNameDraft, setProfileNameDraft] = useState("");
+  // ПКМ-меню профиля и инлайн-переименование (см. карточку «Профили темы»)
+  const [profileMenu, setProfileMenu] = useState<{ x: number; y: number; id: string } | null>(null);
+  const [profileRenamingId, setProfileRenamingId] = useState<string | null>(null);
+  const [profileRenameDraft, setProfileRenameDraft] = useState("");
   // Конструктор собственных тёмных стилей (идея №3): список + редактор
   const [customStyles, setCustomStyles] = useState<CustomStyleDef[]>(() => loadCustomStyles());
   const [editor, setEditor] = useState<{ draft: CustomStyleDef; isNew: boolean } | null>(null);
@@ -316,6 +321,24 @@ export function ThemeSection({
     setProfileSaveOpen(false);
   };
 
+  // Правка существующего профиля (ПКМ по чипу): раньше смена пары тумблеров
+  // требовала «создать новый + удалить старый»
+  // Перезаписать профиль текущими Theme+Appearance: id и имя сохраняются,
+  // снимок обновляется целиком (тот же контракт, что у «Сохранить текущий»)
+  const overwriteThemeProfile = (id: string) => {
+    onThemeProfilesChange(
+      themeProfiles.map((pr) => (pr.id === id ? { ...pr, theme, appearance } : pr)),
+    );
+  };
+  const renameThemeProfile = (id: string) => {
+    const name = profileRenameDraft.trim();
+    if (!name) return;
+    onThemeProfilesChange(
+      themeProfiles.map((pr) => (pr.id === id ? { ...pr, name } : pr)),
+    );
+    setProfileRenamingId(null);
+  };
+
   return (
     // Компактная ширина по центру: контент не липнет к краям большого окна
     <div className="mx-auto max-w-2xl">
@@ -375,40 +398,100 @@ export function ThemeSection({
         )}
         {themeProfiles.length > 0 && (
           <div className="mt-2.5 flex flex-wrap items-center gap-2">
-            {themeProfiles.map((pr) => (
-              <span key={pr.id} className="relative inline-flex items-center">
-                <button
-                  onClick={() => onApplyThemeProfile(pr)}
-                  title={t("themes.profileApply")}
-                  className={`rounded-md border py-1 pl-2.5 pr-10 text-xs transition-colors ${
-                    activeProfileId === pr.id
-                      ? "border-halo-accent/60 bg-halo-accent/10 text-halo-accent"
-                      : "border-halo-line text-halo-muted hover:text-halo-text"
-                  }`}
-                >
-                  {pr.name}
-                </button>
-                <button
-                  onClick={() => void exportThemeProfile(pr)}
-                  title={t("themes.profileExport")}
-                  className="absolute right-5 top-1/2 -translate-y-1/2 rounded px-0.5 text-[0.625rem] leading-none text-halo-muted/70 transition-colors hover:text-halo-accent"
-                >
-                  ↓
-                </button>
-                <button
-                  onClick={() =>
-                    onThemeProfilesChange(themeProfiles.filter((x) => x.id !== pr.id))
-                  }
-                  title={t("themes.profileDelete")}
-                  className="absolute right-1 top-1/2 -translate-y-1/2 rounded px-0.5 text-[0.625rem] leading-none text-halo-muted/70 transition-colors hover:text-red-400"
-                >
-                  ✕
-                </button>
-              </span>
-            ))}
+            {themeProfiles.map((pr) =>
+              profileRenamingId === pr.id ? (
+                // Инлайн-переименование (из ПКМ-меню): Enter — сохранить
+                // (isComposing!), Esc/блюр — отмена
+                <input
+                  key={pr.id}
+                  type="text"
+                  autoFocus
+                  value={profileRenameDraft}
+                  onChange={(e) => setProfileRenameDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.nativeEvent.isComposing) renameThemeProfile(pr.id);
+                    if (e.key === "Escape") setProfileRenamingId(null);
+                  }}
+                  onBlur={() => setProfileRenamingId(null)}
+                  className="w-36 rounded-md border border-halo-accent/60 bg-halo-surface px-2 py-1 text-xs text-halo-text outline-none"
+                />
+              ) : (
+                <span key={pr.id} className="relative inline-flex items-center">
+                  <button
+                    onClick={() => onApplyThemeProfile(pr)}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      setProfileMenu({ x: e.clientX, y: e.clientY, id: pr.id });
+                    }}
+                    title={`${t("themes.profileApply")}\n${t("themes.profileMenuHint")}`}
+                    className={`rounded-md border py-1 pl-2.5 pr-10 text-xs transition-colors ${
+                      activeProfileId === pr.id
+                        ? "border-halo-accent/60 bg-halo-accent/10 text-halo-accent"
+                        : "border-halo-line text-halo-muted hover:text-halo-text"
+                    }`}
+                  >
+                    {pr.name}
+                  </button>
+                  <button
+                    onClick={() => void exportThemeProfile(pr)}
+                    title={t("themes.profileExport")}
+                    className="absolute right-5 top-1/2 -translate-y-1/2 rounded px-0.5 text-[0.625rem] leading-none text-halo-muted/70 transition-colors hover:text-halo-accent"
+                  >
+                    ↓
+                  </button>
+                  <button
+                    onClick={() =>
+                      onThemeProfilesChange(themeProfiles.filter((x) => x.id !== pr.id))
+                    }
+                    title={t("themes.profileDelete")}
+                    className="absolute right-1 top-1/2 -translate-y-1/2 rounded px-0.5 text-[0.625rem] leading-none text-halo-muted/70 transition-colors hover:text-red-400"
+                  >
+                    ✕
+                  </button>
+                </span>
+              ),
+            )}
           </div>
         )}
       </div>
+
+      {/* ПКМ-меню профиля: правка существующего снимка вместо
+          «создать новый + удалить старый» */}
+      {profileMenu && (
+        <ContextMenu
+          x={profileMenu.x}
+          y={profileMenu.y}
+          onClose={() => setProfileMenu(null)}
+          items={[
+            {
+              label: t("themes.profileRename"),
+              onSelect: () => {
+                const pr = themeProfiles.find((p) => p.id === profileMenu.id);
+                setProfileRenameDraft(pr?.name ?? "");
+                setProfileRenamingId(profileMenu.id);
+              },
+            },
+            {
+              label: t("themes.profileOverwrite"),
+              onSelect: () => overwriteThemeProfile(profileMenu.id),
+            },
+            {
+              label: t("themes.profileExport"),
+              onSelect: () => {
+                const pr = themeProfiles.find((p) => p.id === profileMenu.id);
+                if (pr) void exportThemeProfile(pr);
+              },
+            },
+            {
+              label: t("themes.profileDelete"),
+              danger: true,
+              separator: true,
+              onSelect: () =>
+                onThemeProfilesChange(themeProfiles.filter((x) => x.id !== profileMenu.id)),
+            },
+          ]}
+        />
+      )}
 
       {/* Тема из профиля и акцент проекта: оба opt-in */}
       <div className="mt-2.5 rounded-xl border border-halo-line px-3.5 py-3">
