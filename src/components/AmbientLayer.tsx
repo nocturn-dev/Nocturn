@@ -20,7 +20,6 @@
 import { useEffect, useRef, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { ambientGradientDefaults } from "../appearance";
-import type { MediaLyricsSnapshot } from "../mediaPrefs";
 
 export type AmbientScene = "fog" | "snow" | "city" | "stars" | "video" | "gradient";
 
@@ -88,9 +87,6 @@ export function AmbientLayer({
   gradFrom,
   gradTo,
   gradAngle,
-  lyrics,
-  composerCentered,
-  contentLeft,
 }: {
   scene: AmbientScene;
   videoPath: string;
@@ -101,38 +97,15 @@ export function AmbientLayer({
   /** Плотность сцены: множитель числа частиц/пятен/окон, 0.3–1.5 */
   density: number;
   paused: boolean;
-  /** Ambient Lyrics (волна 1): снимок лирики от MediaBar; null —
-   *  рисуется обычная сцена */
-  lyrics?: MediaLyricsSnapshot | null;
-  /** Композер центрирован (пустой чат): лента строк обходит центр */
-  composerCentered?: boolean;
-  /** Отступ контента слева (ширина сайдбара) — строки центрируются
-   *  по зоне чата, не по окну */
-  contentLeft?: number;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const [videoError, setVideoError] = useState(false);
   const pausedRef = useRef(paused);
-  // Ambient Lyrics: пропсы — через реф (rAF-эффект не пересоздаётся на
-  // каждый тик строки); смена данных форсит один кадр для reduce-motion
-  const lyricsRef = useRef(lyrics);
-  const composerRef = useRef(!!composerCentered);
-  const contentLeftRef = useRef(contentLeft ?? 0);
-  const forceRenderRef = useRef<(() => void) | null>(null);
   // Синхронизация через эффект: запись ref во время рендера — антипаттерн
   useEffect(() => {
     pausedRef.current = paused;
   }, [paused]);
-  useEffect(() => {
-    lyricsRef.current = lyrics;
-    forceRenderRef.current?.();
-  }, [lyrics]);
-  useEffect(() => {
-    composerRef.current = !!composerCentered;
-    contentLeftRef.current = contentLeft ?? 0;
-    forceRenderRef.current?.();
-  }, [composerCentered, contentLeft]);
 
   const isVideo = scene === "video";
   const src = isVideo && videoPath ? convertFileSrc(videoPath) : "";
@@ -377,97 +350,6 @@ export function AmbientLayer({
     };
     window.addEventListener("resize", onResize);
 
-    // ----- Ambient Lyrics (волна 1): лента строк лирики поверх сцены -----
-    // Текст живёт в оффскрине: строки статичны между тиками таймлайна,
-    // перерисовка только на смене активной строки/размере; в кадре —
-    // один drawImage. Фикс-слоты (решение владельца): активная строка
-    // в якорной зоне НАД полосой композера, соседние строки таймлайна —
-    // выше/ниже с затуханием альфы и блюром по удалённости
-    let textLayer: HTMLCanvasElement | null = null;
-    let textKey = "";
-    const drawTextLayer = () => {
-      const off = document.createElement("canvas");
-      off.width = Math.round(w * dpr);
-      off.height = Math.round(h * dpr);
-      const tctx = off.getContext("2d");
-      if (!tctx) return;
-      tctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      const snap = lyricsRef.current;
-      if (snap && snap.lines.length > 1) {
-        // ВОЛНА 1: фикс-масштаб (0.72), слайдер размера — волна 2
-        const scale = 0.72;
-        const kegel = Math.max(16, h * 0.05 * scale);
-        const spacing = kegel * 1.95;
-        // Полоса композера: центрирован (пустой чат) — середина, иначе низ
-        const composerCenteredNow = composerRef.current;
-        const bandTop = composerCenteredNow ? h * 0.4 : h - kegel * 3.4;
-        const bandBottom = composerCenteredNow ? h * 0.63 : h;
-        const anchorY = Math.max(kegel, bandTop - kegel * 0.7);
-        const cx = contentLeftRef.current + (w - contentLeftRef.current) / 2;
-        const maxW = Math.min(w - contentLeftRef.current - 48, w * 0.9);
-        const family =
-          getComputedStyle(document.body).fontFamily || "system-ui, sans-serif";
-        const a = Math.max(0, Math.min(snap.index, snap.lines.length - 1));
-        const slots: { text: string; y: number; dist: number }[] = [];
-        for (let k = 3; k >= 1; k--) {
-          const line = snap.lines[a - k];
-          const y = anchorY - k * spacing;
-          if (line && y > kegel * 0.8) slots.push({ text: line.text, y, dist: k });
-        }
-        const active = snap.lines[a];
-        if (active) slots.push({ text: active.text, y: anchorY, dist: 0 });
-        for (let k = 1; k <= 3; k++) {
-          const line = snap.lines[a + k];
-          const y = bandBottom + kegel * 0.4 + (k - 1) * spacing;
-          if (line && y < h - kegel * 0.4) slots.push({ text: line.text, y, dist: k });
-        }
-        const ALPHA = [0.95, 0.5, 0.3, 0.16];
-        const BLUR = [0, 2, 5, 9];
-        tctx.textAlign = "center";
-        tctx.textBaseline = "middle";
-        const filterOk = "filter" in tctx;
-        for (const s of slots) {
-          // Референс владельца — капсовый текст; для кириллицы тоже ок
-          const text = s.text.toUpperCase();
-          let size = s.dist === 0 ? kegel : kegel * 0.86;
-          tctx.font = `600 ${size}px ${family}`;
-          const tw = tctx.measureText(text).width;
-          if (tw > maxW) {
-            size = Math.max(kegel * 0.45, size * (maxW / tw));
-            tctx.font = `600 ${size}px ${family}`;
-          }
-          const dist = Math.min(s.dist, 3);
-          const blurPx = BLUR[dist] ?? 0;
-          tctx.filter = filterOk && blurPx > 0 ? `blur(${blurPx}px)` : "none";
-          if (s.dist === 0) {
-            // Активная строка: тёплый свет как на референсе
-            tctx.shadowColor = "rgba(255, 214, 165, 0.35)";
-            tctx.shadowBlur = kegel * 0.55;
-            tctx.fillStyle = "rgba(243, 236, 226, 0.95)";
-          } else {
-            tctx.shadowColor = "transparent";
-            tctx.shadowBlur = 0;
-            tctx.fillStyle = `rgba(214, 208, 198, ${ALPHA[dist]})`;
-          }
-          tctx.fillText(text, cx, s.y);
-          tctx.filter = "none";
-          tctx.shadowBlur = 0;
-        }
-      }
-      textLayer = off;
-    };
-    const drawLyrics = () => {
-      const snap = lyricsRef.current;
-      const key = snap
-        ? `${snap.index}|${snap.lines.length}|${w}x${h}|${composerRef.current}|${contentLeftRef.current}`
-        : "";
-      if (key !== textKey) {
-        textKey = key;
-        drawTextLayer();
-      }
-      if (textLayer) ctx.drawImage(textLayer, 0, 0, w, h);
-    };
-
     const drawFog = () => {
       if (bgLayer) ctx.drawImage(bgLayer, 0, 0, w, h);
       for (const b of blobs) {
@@ -541,9 +423,6 @@ export function AmbientLayer({
       else if (scene === "snow") drawSnow(now);
       else if (scene === "city") drawCity(now);
       else drawStars(now);
-      // Лента лирики — поверх сцены (пусто без музыки/лирики: текстовый
-      // слой пуст, drawImage пропускается)
-      drawLyrics();
     };
 
     const loop = (now: number) => {
@@ -559,11 +438,6 @@ export function AmbientLayer({
     } else {
       raf = requestAnimationFrame(loop);
     }
-    // Reduce-motion: цикла нет — смена строки форсит один статичный кадр
-    // (в цикле dirty-кадр подхватывается сам на ближайших 33 мс)
-    forceRenderRef.current = () => {
-      if (reduceMotion) render(performance.now());
-    };
 
     return () => {
       alive = false;

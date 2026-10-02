@@ -956,8 +956,8 @@ export default function App() {
   }, [runSoundPrefs]);
   // Медиа-минибар («Интеграции»): стейт для настроек и рендера полоски
   const [mediaPrefs, setMediaPrefs] = useState<MediaPrefs>(loadMediaPrefs);
-  // Ambient Lyrics (волна 1): снимок лирики от MediaBar — лента строк
-  // поверх ambient-сцены; пусто, когда музыки нет или лирика выключена
+  // Лента лирики (LyricsRibbon): снимок от MediaBar — режим интеграции
+  // Spotify/YouTube, ambient-фон не трогается; пусто без музыки/лирики
   const [mediaLyrics, setMediaLyrics] = useState<MediaLyricsSnapshot | null>(
     null,
   );
