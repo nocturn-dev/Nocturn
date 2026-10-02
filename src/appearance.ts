@@ -599,23 +599,33 @@ function fullClaudeCss(a: Appearance): string {
     // Поверхности «наполнения»: в Nocturn сайдбар и модалки делят
     // --halo-deep, а в референсе сайдбар темнее фона, модалки — светлее.
     // deep остаётся сайдбару (aside.bg-halo-deep), модалки/панели
-    // (glass-pane, правые панели с shadow-2xl) приподнимаются до surface
+    // (glass-pane, правые панели с shadow-2xl) приподнимаются до surface.
+    // Непрозрачные варианты гейтятся :not(.glass): панель настроек несёт
+    // glass-pane + bg-halo-deep + shadow-2xl — ungated opaque-правило
+    // шло в теге позже стеклянных и при равной специфичности убивало
+    // полупрозрачность (blur был, фон непрозрачный — «стекло не видать»)
     [
       "html.full-claude:not(.glass) .glass-pane {",
       `  background: ${FULL_CLAUDE_PALETTE.surface};`,
       "}",
-      // Конвенция C5 (WebKitGTK < 2.40 отбрасывает декларацию color-mix
-      // ЦЕЛИКОМ, правило «пустеет»): сперва плотный фолбэк, полупрозрачность
-      // — только под @supports
+      // Стекло (fcGlass): сперва плотный фолбэк, полупрозрачность — только
+      // под @supports (конвенция C5: WebKitGTK < 2.40 отбрасывает
+      // декларацию color-mix ЦЕЛИКОМ, правило «пустеет»)
       "html.full-claude.glass .glass-pane {",
+      `  background: ${FULL_CLAUDE_PALETTE.surface};`,
+      "}",
+      "html.full-claude.glass .bg-halo-deep.shadow-2xl {",
       `  background: ${FULL_CLAUDE_PALETTE.surface};`,
       "}",
       "@supports (background: color-mix(in srgb, red, transparent)) {",
       "  html.full-claude.glass .glass-pane {",
       `    background: color-mix(in srgb, ${FULL_CLAUDE_PALETTE.surface} 70%, transparent);`,
       "  }",
+      "  html.full-claude.glass .bg-halo-deep.shadow-2xl {",
+      `    background: color-mix(in srgb, ${FULL_CLAUDE_PALETTE.surface} 70%, transparent);`,
+      "  }",
       "}",
-      "html.full-claude .bg-halo-deep.shadow-2xl {",
+      "html.full-claude:not(.glass) .bg-halo-deep.shadow-2xl {",
       `  background: ${FULL_CLAUDE_PALETTE.surface};`,
       "}",
     ],
