@@ -61,6 +61,12 @@ import {
   builtinPresetsFor,
   type PromptPreset,
 } from "./presets";
+import {
+  loadJailbreaks,
+  saveJailbreaks,
+  appendJailbreak,
+  type JailbreakEntry,
+} from "./jailbreaks";
 import Sidebar from "./components/Sidebar";
 import NocturnMark from "./components/NocturnMark";
 import Splash from "./components/Splash";
@@ -530,6 +536,11 @@ export default function App() {
   }, [effort]);
   const [promptLibrary, setPromptLibrary] = useState<PromptPreset[]>(() =>
     loadPromptLibrary(),
+  );
+  // Библиотека джейлбрейков: свои записи в localStorage; применяется
+  // только явным кликом (карточка «Промптов» / пикер системного промта)
+  const [jailbreaks, setJailbreaks] = useState<JailbreakEntry[]>(() =>
+    loadJailbreaks(),
   );
   // Корневая папка проекта для файлового менеджера (M4.2), помнит выбор
   const [projectRoot, setProjectRoot] = useState<string | null>(() =>
@@ -1819,6 +1830,26 @@ export default function App() {
     savePromptLibrary(list);
   };
 
+  const handleSaveJailbreaks = (list: JailbreakEntry[]) => {
+    setJailbreaks(list);
+    saveJailbreaks(list);
+  };
+
+  // Применение джейлбрейка: ДОБАВЛЯЕТ текст к системному промту активной
+  // задачи (не затирая роль); без активной задачи — новая задача с этим
+  // промтом, как у применения пресета роли. Тостом подтверждаем, куда встал.
+  const handleApplyJailbreak = (entry: JailbreakEntry) => {
+    if (activeSession) {
+      handleSetSystemPrompt(
+        appendJailbreak(activeSession.systemPrompt ?? "", entry.text),
+      );
+      addToast(t("jb.applied", { name: entry.name }));
+      return;
+    }
+    handleApplyPreset(entry.text);
+    addToast(t("jb.appliedNew", { name: entry.name }));
+  };
+
 
   // Открыть заметку. Принимает имя файла ИЛИ заголовок: как в Obsidian,
   // клик по ссылке на ещё не созданную заметку — создаёт её
@@ -2567,6 +2598,7 @@ export default function App() {
         }}
         promptPresets={builtinPresetsFor(lang)}
         customPresets={promptLibrary}
+        jailbreaks={jailbreaks}
         onSend={stableHandleSend}
         pendingQuote={diffQuote}
         queued={queuedProps}
@@ -2793,6 +2825,9 @@ export default function App() {
         onApplyProfile={handleApplyProfile}
         onDeleteProfile={handleDeleteProfile}
         promptLibrary={promptLibrary}
+        jailbreaks={jailbreaks}
+        onChangeJailbreaks={handleSaveJailbreaks}
+        onApplyJailbreak={handleApplyJailbreak}
         ollamaModels={ollamaModels}
         allowedCommands={activeSession?.allowedCommands ?? []}
         allowedCommandsTitle={activeSession?.title ?? null}

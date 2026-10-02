@@ -1,12 +1,20 @@
 import { useEffect, useState } from "react";
 import { useDelayedUnmount } from "../motion";
 import { useLang } from "../locales";
+import {
+  allJailbreaksFor,
+  appendJailbreak,
+  type JailbreakEntry,
+} from "../jailbreaks";
+import { Dropdown } from "./settings/parts";
 
 interface SystemPromptModalProps {
   open: boolean;
   initial: string;
   onSave: (prompt: string | null) => void;
   onClose: () => void;
+  /** Библиотека джейлбрейков: пикер добавляет текст к черновику на виду */
+  jailbreaks?: JailbreakEntry[];
 }
 
 export default function SystemPromptModal({
@@ -14,13 +22,23 @@ export default function SystemPromptModal({
   initial,
   onSave,
   onClose,
+  jailbreaks,
 }: SystemPromptModalProps) {
-  const { t } = useLang();
+  const { t, lang } = useLang();
   const [draft, setDraft] = useState(initial);
 
   useEffect(() => {
     if (open) setDraft(initial);
   }, [open, initial]);
+
+  const pickJailbreak = (id: string) => {
+    const entry = allJailbreaksFor(lang, jailbreaks ?? []).find(
+      (x) => x.id === id,
+    );
+    if (!entry) return;
+    // Текст виден в черновике до сохранения — ничего не подмешивается молча
+    setDraft((prev) => appendJailbreak(prev, entry.text));
+  };
 
   useEffect(() => {
     if (!open) return;
@@ -55,6 +73,25 @@ export default function SystemPromptModal({
         <p className="mb-3 mt-1 text-xs leading-relaxed text-halo-muted">
           {t("sysprompt.desc")}
         </p>
+        {(jailbreaks?.length ?? 0) > 0 && (
+          <div className="mb-2 flex items-center gap-2">
+            <Dropdown
+              className="max-w-64"
+              value=""
+              options={[
+                { value: "", label: t("jb.pick") },
+                ...allJailbreaksFor(lang, jailbreaks ?? []).map((e) => ({
+                  value: e.id,
+                  label: e.name,
+                })),
+              ]}
+              onSelect={pickJailbreak}
+            />
+            <span className="min-w-0 flex-1 text-[0.625rem] leading-tight text-halo-muted/70">
+              {t("jb.pickHint")}
+            </span>
+          </div>
+        )}
         <textarea
           autoFocus
           value={draft}

@@ -1,7 +1,9 @@
 import { useState } from "react";
 import { useLang } from "../../locales";
 import type { PromptPreset } from "../../presets";
+import type { JailbreakEntry } from "../../jailbreaks";
 import { MiniPencilIcon, MiniTrashIcon } from "./parts";
+import { JailbreaksCard } from "./JailbreaksCard";
 
 export function AgentSection({
   commands,
@@ -124,12 +126,19 @@ export function AgentSection({
   );
 }
 
-/** Библиотека системных промтов: свои роли для быстрых вызовов */export function PromptsSection({
+/** Библиотека системных промтов: свои роли для быстрых вызовов */
+export function PromptsSection({
   library,
   onChangeLibrary,
+  jailbreaks,
+  onChangeJailbreaks,
+  onApplyJailbreak,
 }: {
   library: PromptPreset[];
   onChangeLibrary: (list: PromptPreset[]) => void;
+  jailbreaks: JailbreakEntry[];
+  onChangeJailbreaks: (list: JailbreakEntry[]) => void;
+  onApplyJailbreak: (entry: JailbreakEntry) => void;
 }) {
   const { t } = useLang();
   const [name, setName] = useState("");
@@ -276,6 +285,12 @@ export function AgentSection({
           </button>
         </div>
       </div>
+
+      <JailbreaksCard
+        entries={jailbreaks}
+        onChange={onChangeJailbreaks}
+        onApply={onApplyJailbreak}
+      />
     </div>
   );
 }
