@@ -16,7 +16,8 @@ import {
   type MediaStateDto,
 } from "../api";
 import { useLang } from "../locales";
-import type { MediaPrefs, MediaLyricsSnapshot } from "../mediaPrefs";import {
+import type { MediaPrefs, MediaLyricsSnapshot } from "../mediaPrefs";
+import {
   NextTrackIcon,
   PauseIcon,
   PlayIcon,
@@ -84,7 +85,7 @@ export function MediaBar({
   onLyrics,
 }: {
   prefs: MediaPrefs;
-  /** Снимок лирики наверх (AmbientLayer): смена строки/текста, null —
+  /** Снимок лирики наверх (LyricsRibbon): смена строки/текста, null —
    *  лирики нет или компонент размонтирован */
   onLyrics?: (snap: MediaLyricsSnapshot | null) => void;
 }) {
@@ -193,21 +194,42 @@ export function MediaBar({
     };
   }, [prefs.youtube, prefs.lyrics, ytTrackId, ytTrackAuthor, ytTrackTitle]);
 
-  // Снимок лирики наверх (AmbientLayer) — ДО ранних return'ов компонента
-  // (rules-of-hooks). Индекс считается по тем же правилам, что лента в
-  // баре (последняя строка с t <= elapsed); ручной подвод бара в ленту
-  // не тащим. Вызов — только на смене строки: тик позиции дёргал бы App
-  const lyricsSnapReady = !!lyrics && lyrics.length > 1;
-  const lyricsSnapRef = useRef<{ n: number; i: number } | null>(null);
+  // Снимок лирики наверх (LyricsRibbon) — ДО ранних return'ов компонента
+  // (rules-of-hooks). Источник — активная интеграция: YouTube-режим берёт
+  // лирику embed-плеера и его же currentTime, иначе SMTC-лирика системного
+  // плеера с локальной интерполяцией позиции. Индекс — последняя строка
+  // с t <= elapsed; ручной подвод бара в ленту не тащим. Вызов — только
+  // на смене строки или набора строк: тики позиции дёргали бы App.
+  // Дедуп по ИДЕНТИЧНОСТИ набора + индексу, не по {длина, индекс}:
+  // у нового трека совпадение длины и стартового индекса — не редкость
+  const lyricsSnapRef = useRef<{ lines: LyricLine[] | null; i: number } | null>(
+    null,
+  );
   useEffect(() => {
     if (!onLyrics) return;
-    if (!lyricsSnapReady || !lyrics) {
-      if (lyricsSnapRef.current) {
+    const push = (lines: LyricLine[] | null, idx: number) => {
+      const prev = lyricsSnapRef.current;
+      if (!lines) {
+        // Повторный null не отправляем: App и так без снапшота
+        if (!prev) return;
         lyricsSnapRef.current = null;
         onLyrics(null);
+        return;
       }
+      if (prev && prev.lines === lines && prev.i === idx) return;
+      lyricsSnapRef.current = { lines, i: idx };
+      onLyrics({ lines, index: Math.max(0, idx) });
+    };
+    if (prefs.youtube) {
+      if (!ytLyrics || ytLyrics.length < 2) return push(null, -1);
+      const idx = ytLyrics.reduce(
+        (acc, l, i) => (l.t >= 0 && l.t <= yt.currentTime ? i : acc),
+        -1,
+      );
+      push(ytLyrics, idx);
       return;
     }
+    if (!lyrics || lyrics.length < 2) return push(null, -1);
     const driftNow = state?.playing
       ? Math.max(0, Math.floor((Date.now() - state.updatedAtMs) / 1000))
       : 0;
@@ -216,12 +238,9 @@ export function MediaBar({
       (acc, l, i) => (l.t >= 0 && l.t <= el ? i : acc),
       -1,
     );
-    const prev = lyricsSnapRef.current;
-    if (prev && prev.n === lyrics.length && prev.i === idx) return;
-    lyricsSnapRef.current = { n: lyrics.length, i: idx };
-    onLyrics({ lines: lyrics, index: Math.max(0, idx) });
-  }, [onLyrics, lyricsSnapReady, lyrics, state]);
-  // Размонтирование бара — лента в ambient гаснет
+    push(lyrics, idx);
+  }, [onLyrics, prefs.youtube, ytLyrics, yt.currentTime, lyrics, state]);
+  // Размонтирование бара — лента гаснет
   useEffect(() => () => onLyrics?.(null), [onLyrics]);
 
   // Режим YouTube: интеграция — радио с Spotify (bar=false), минибар

@@ -1,14 +1,23 @@
 import { useEffect, useRef, useState } from "react";
 import type { MediaLyricsSnapshot } from "../mediaPrefs";
+import { cssVarColor, rgbCss } from "../appearance";
+
+/** Затухание по удалённости слота от активной строки; блюр соседей */
+const ALPHA = [0.95, 0.5, 0.3, 0.16];
+const BLUR = [0, 2, 5, 9];
+// Фолбэки на случай пустых переменных (до первого applyAppearance)
+const ACCENT_FALLBACK = "#d97757";
+const MUTED_FALLBACK = "#9b9890";
 
 /**
  * Лента строк лирики (Ambient Lyrics): большой текст песни поверх фона
  * чата — режим Spotify/YouTube-интеграции, НЕ модификация ambient-сцен
- * (фон остаётся как настроен). Референс владельца: активная строка ярко
- * с тёплым светом, соседние гаснут и расплываются по удалённости.
- * Фикс-слоты (рандом отброшен — вылезает за поля), полоса композера
- * резервируется. Статичный canvas БЕЗ rAF: перерисовка только на смене
- * строки/размере/ресайзе.
+ * (фон остаётся как настроен). Референс: активная строка ярко со светом,
+ * соседние гаснут и расплываются по удалённости. Цвета — из живой темы
+ * (accent/muted): canvas не видит Tailwind-классы, читаем CSS-переменные
+ * при каждой отрисовке. Фикс-слоты (рандом отброшен — вылезает за поля),
+ * полоса композера резервируется. Статичный canvas БЕЗ rAF: перерисовка
+ * только на смене строки/размере/ресайзе/теме.
  */
 export function LyricsRibbon({
   snap,
@@ -26,12 +35,22 @@ export function LyricsRibbon({
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
-  // Ресайз — перерисовка (width/height ставятся в эффекте отрисовки)
-  const [vp, setVp] = useState(0);
+  // Счётчик перерисовки (не размер вьюпорта): ресайз и смена темы
+  // инкрементят его, эффект отрисовки перезапускается
+  const [repaint, setRepaint] = useState(0);
   useEffect(() => {
-    const onResize = () => setVp((v) => v + 1);
+    const onResize = () => setRepaint((v) => v + 1);
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
+  }, []);
+  // Тема применяется инлайн-стилем/классами на корне: без наблюдателя
+  // цвета ленты оставались бы от прежней темы до следующей строки
+  useEffect(() => {
+    const mo = new MutationObserver(() => setRepaint((v) => v + 1));
+    mo.observe(document.documentElement, {
+      attributeFilter: ["class", "style"],
+    });
+    return () => mo.disconnect();
   }, []);
 
   useEffect(() => {
@@ -48,6 +67,8 @@ export function LyricsRibbon({
     ctx.clearRect(0, 0, w, h);
     if (!snap || snap.lines.length < 2) return;
 
+    const accent = rgbCss(cssVarColor("--halo-accent", ACCENT_FALLBACK));
+    const muted = rgbCss(cssVarColor("--halo-muted", MUTED_FALLBACK));
     const kegel = Math.max(16, h * 0.05 * scale);
     const spacing = kegel * 1.95;
     // Полоса композера: центрирован (пустой чат) — середина, иначе низ.
@@ -73,13 +94,11 @@ export function LyricsRibbon({
       const y = bandBottom + kegel * 0.4 + (k - 1) * spacing;
       if (line && y < h - kegel * 0.4) slots.push({ text: line.text, y, dist: k });
     }
-    const ALPHA = [0.95, 0.5, 0.3, 0.16];
-    const BLUR = [0, 2, 5, 9];
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     const filterOk = "filter" in ctx;
     for (const s of slots) {
-      // Референс владельца — капсовый текст; для кириллицы тоже ок
+      // Референс — капсовый текст; для кириллицы тоже ок
       const text = s.text.toUpperCase();
       let size = s.dist === 0 ? kegel : kegel * 0.86;
       ctx.font = `600 ${size}px ${family}`;
@@ -92,20 +111,29 @@ export function LyricsRibbon({
       const blurPx = BLUR[dist] ?? 0;
       ctx.filter = filterOk && blurPx > 0 ? `blur(${blurPx}px)` : "none";
       if (s.dist === 0) {
-        // Активная строка: тёплый свет как на референсе
-        ctx.shadowColor = "rgba(255, 214, 165, 0.35)";
+        // Активная строка: свет — отдельным проходом (globalAlpha
+        // умножает и тень, и заливку), начертание — поверх вторым
+        ctx.fillStyle = accent;
+        ctx.shadowColor = accent;
         ctx.shadowBlur = kegel * 0.55;
-        ctx.fillStyle = "rgba(243, 236, 226, 0.95)";
+        ctx.globalAlpha = 0.35;
+        ctx.fillText(text, cx, s.y);
+        ctx.shadowBlur = 0;
+        ctx.globalAlpha = ALPHA[0] ?? 0.95;
+        ctx.fillText(text, cx, s.y);
+        ctx.globalAlpha = 1;
       } else {
         ctx.shadowColor = "transparent";
         ctx.shadowBlur = 0;
-        ctx.fillStyle = `rgba(214, 208, 198, ${ALPHA[dist]})`;
+        ctx.fillStyle = muted;
+        ctx.globalAlpha = ALPHA[dist] ?? 0.3;
+        ctx.fillText(text, cx, s.y);
+        ctx.globalAlpha = 1;
       }
-      ctx.fillText(text, cx, s.y);
       ctx.filter = "none";
       ctx.shadowBlur = 0;
     }
-  }, [snap, scale, composerCentered, contentLeft, vp]);
+  }, [snap, scale, composerCentered, contentLeft, repaint]);
 
   return (
     <div className="pointer-events-none fixed inset-0 z-[1]" aria-hidden>
