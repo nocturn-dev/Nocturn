@@ -109,6 +109,7 @@ mod windows_impl {
     };
     use windows::Storage::Streams::DataReader;
     use windows::Win32::System::Com::{CoInitializeEx, COINIT_MULTITHREADED};
+    use windows::Win32::UI::Accessibility::IUIAutomationRangeValuePattern;
 
     #[derive(Clone)]
     pub struct MediaSnapshot {
@@ -142,11 +143,6 @@ mod windows_impl {
     /// Момент начала текущего трека оконного режима: позицию SMTC не даёт,
     /// тикаем локально от старта
     static TRACK_START: Mutex<Option<(String, std::time::Instant)>> = Mutex::new(None);
-    /// Последний удачный UIA-скан оконного пути: (track_id, момент скана,
-    /// позиция, длительность). Скан дорогой (~200мс) — не чаще раза в 5с,
-    /// между сканами позицию компенсирует время с момента скана
-    static UIA_CACHE: Mutex<Option<(String, std::time::Instant, u64, u64)>> =
-        Mutex::new(None);
 
     /// Ленивый старт наблюдателя: первый media_status/media_control.
     /// AppHandle нужен, чтобы эмитить события только в main (канал приватный
@@ -689,12 +685,27 @@ mod windows_impl {
         Some((secs, negative))
     }
 
-    /// Позиция и длительность из UI Spotify через UI Automation: в дереве
-    /// плеера метки времени стоят впритык к слайдеру прогресса
-    /// (elapsed — до, длительность — после). Дерево Chromium строится
-    /// лениво — первые сканы почти пусты, это не ошибка. Дорого
-    /// (~200мс): зовётся только с оконного пути и не чаще раза в 5с
-    fn uia_playback(hwnd: isize) -> Option<(u64, u64)> {
+    /// Слайдер прогресса, найденный полным сканом. Значение перечитывается
+    /// дёшево (один COM-вызов) каждый опрос — перемотка видна в пределах
+    /// секунды; полный скан (~200мс) — на смене трека, протухе слайдера
+    /// и раз в 30с на перекалибровку
+    struct UiaSlider {
+        track_id: String,
+        pattern: IUIAutomationRangeValuePattern,
+        /// Делитель значения слайдера: 1000 (мс) или 1 (сек) — калибруется
+        /// по метке времени при полном скане
+        factor: f64,
+        dur: u64,
+        scanned: std::time::Instant,
+    }
+
+    /// Полный UIA-скан окна: в дереве плеера метки времени стоят впритык
+    /// к слайдеру прогресса (elapsed — до, длительность — после). Дерево
+    /// Chromium строится лениво — первые сканы почти пусты, это не ошибка.
+    /// Возвращает позицию, длительность, слайдер прогресса и его единицы
+    fn uia_full_scan(
+        hwnd: isize,
+    ) -> Option<(u64, u64, IUIAutomationRangeValuePattern, f64)> {
         use windows::core::Interface;
         use windows::Win32::Foundation::HWND;
         use windows::Win32::System::Com::{CoCreateInstance, CLSCTX_INPROC_SERVER};
@@ -705,7 +716,11 @@ mod windows_impl {
         };
         enum Item {
             Time(u64, bool),
-            Slider { value: f64, max: f64 },
+            Slider {
+                value: f64,
+                max: f64,
+                pattern: IUIAutomationRangeValuePattern,
+            },
         }
         unsafe {
             let uia: IUIAutomation =
@@ -736,7 +751,7 @@ mod windows_impl {
                         .ok()?;
                     let value = pattern.CurrentValue().ok()?;
                     let max = pattern.CurrentMaximum().ok()?;
-                    items.push((i, Item::Slider { value, max }));
+                    items.push((i, Item::Slider { value, max, pattern }));
                 } else if let Ok(name) = el.CachedName() {
                     if let Some((secs, neg)) = parse_time_label(&name.to_string()) {
                         items.push((i, Item::Time(secs, neg)));
@@ -744,54 +759,116 @@ mod windows_impl {
                 }
             }
             // Пара «метка до слайдера, метка после» — elapsed/длительность
-            // плеера; минус у правой метки — она про остаток
+            // плеера; минус у правой метки — она про остаток. Слайдер этой
+            // пары — прогресс: делитель (мс/сек) калибруется по метке
             for (idx, item) in &items {
-                let Item::Slider { .. } = item else { continue };
+                let Item::Slider { value, pattern, .. } = item else { continue };
                 let before = items.iter().rev().find(|(j, it)| {
                     *j < *idx && matches!(it, Item::Time(..)) && idx - j <= 8
                 });
                 let after = items.iter().find(|(j, it)| {
                     *j > *idx && matches!(it, Item::Time(..)) && j - idx <= 8
                 });
-                if let (Some((_, Item::Time(el, false))), Some((_, Item::Time(du, neg)))) =
-                    (before, after)
+                if let (
+                    Some((_, Item::Time(el, false))),
+                    Some((_, Item::Time(du, neg))),
+                ) = (before, after)
                 {
                     let dur = if *neg { el + du } else { *du };
                     if *el <= dur && (30..=14400).contains(&dur) {
-                        return Some((*el, dur));
+                        let factor = if ((*value / 1000.0).round() as i64 - *el as i64).abs() <= 2 {
+                            1000.0
+                        } else if ((*value).round() as i64 - *el as i64).abs() <= 2 {
+                            1.0
+                        } else {
+                            continue;
+                        };
+                        return Some(((*value / factor).round() as u64, dur, pattern.clone(), factor));
                     }
                 }
             }
             // Меток нет — слайдер с большим максимумом это прогресс:
             // миллисекунды либо секунды
             for (_, item) in &items {
-                let Item::Slider { value, max } = item else { continue };
+                let Item::Slider { value, max, pattern } = item else { continue };
                 if *max >= 100_000.0 && *value <= *max {
-                    return Some(((*value / 1000.0) as u64, (*max / 1000.0) as u64));
+                    return Some((
+                        (*value / 1000.0).round() as u64,
+                        (*max / 1000.0) as u64,
+                        pattern.clone(),
+                        1000.0,
+                    ));
                 }
                 if (30.0..=10_000.0).contains(max) && *value <= *max {
-                    return Some((*value as u64, *max as u64));
+                    return Some((*value as u64, *max as u64, pattern.clone(), 1.0));
                 }
             }
             None
         }
     }
 
-    /// UIA-скан с троттлингом: не чаще раза в 5с на трек, между сканами
-    /// позиция дотягивается временем с последнего скана
+    /// Позиция и длительность для оконного пути. Слайдер прогресса
+    /// перечитывается КАЖДЫЙ опрос — иначе перемотка до 5с жила в прошлом
+    /// (старый троттлинг полного скана). thread_local: window_dto живёт
+    /// только в потоке-наблюдателе, COM-интерфейсы не Send
     fn uia_lookup(track_id: &str, hwnd: isize) -> Option<(u64, u64)> {
-        let mut cache = UIA_CACHE.lock().ok()?;
-        if let Some((id, at, pos, dur)) = cache.as_ref() {
-            if id == track_id {
-                let elapsed = at.elapsed();
-                if elapsed < Duration::from_secs(5) {
-                    return Some((pos + elapsed.as_secs(), *dur));
-                }
-            }
+        use std::cell::RefCell;
+        thread_local! {
+            static UIA_SLIDER: RefCell<Option<UiaSlider>> = const { RefCell::new(None) };
+            // Неудачный полный скан (дерево не построено/окно чужое): без
+            // гарда он повторялся бы каждый опрос — ~200мс в секунду
+            static UIA_LAST_FAIL: RefCell<Option<std::time::Instant>> =
+                const { RefCell::new(None) };
         }
-        let (pos, dur) = uia_playback(hwnd)?;
-        *cache = Some((track_id.to_string(), std::time::Instant::now(), pos, dur));
-        Some((pos, dur))
+        UIA_LAST_FAIL.with(|fail| {
+            if fail
+                .borrow()
+                .is_some_and(|at| at.elapsed() < Duration::from_secs(5))
+            {
+                return None;
+            }
+            UIA_SLIDER.with(|slot| {
+                let mut slot = slot.borrow_mut();
+                let cached = match slot.take() {
+                    Some(c)
+                        if c.track_id == track_id
+                            && c.scanned.elapsed() < Duration::from_secs(30) =>
+                    {
+                        Some(c)
+                    }
+                    // чужой трек или пора перекалиброваться — полный скан ниже
+                    _ => None,
+                };
+                if let Some(c) = cached {
+                    match unsafe { c.pattern.CurrentValue() } {
+                        Ok(v) if v >= 0.0 => {
+                            let pos = (v / c.factor).round() as u64;
+                            let dur = c.dur;
+                            if pos <= dur + 5 {
+                                *slot = Some(c);
+                                fail.borrow_mut().take();
+                                return Some((pos, dur));
+                            }
+                            // рассинхрон — полный скан ниже
+                        }
+                        _ => {} // слайдер протух — полный скан ниже
+                    }
+                }
+                let Some((pos, dur, pattern, factor)) = uia_full_scan(hwnd) else {
+                    *fail.borrow_mut() = Some(std::time::Instant::now());
+                    return None;
+                };
+                fail.borrow_mut().take();
+                *slot = Some(UiaSlider {
+                    track_id: track_id.to_string(),
+                    pattern,
+                    factor,
+                    dur,
+                    scanned: std::time::Instant::now(),
+                });
+                Some((pos, dur))
+            })
+        })
     }
 
     /// Обложка: RandomAccessStream → байты → base64 data URL. Неудача —
