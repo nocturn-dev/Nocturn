@@ -79,6 +79,7 @@ import DownloadProgress from "./components/DownloadProgress";
 import { isDue, loadAutomations, nextRunAfter, saveAutomations, VAULT_REPORT_SUFFIX } from "./automations";
 import { isIdle, loadOffPeak, nextWaiting, saveOffPeak } from "./offpeak";
 import { checkForUpdate } from "./api";
+import { refreshTelegramConfig } from "./telegram";
 import SearchModal from "./components/SearchModal";
 import ContextMenu, { type MenuItem } from "./components/ContextMenu";
 import NotesModal from "./components/NotesModal";
@@ -172,6 +173,9 @@ export default function App() {
   // (userCss перенесён в main.tsx до первого рендера — без FOUC)
   useEffect(() => {
     void registerCustomFonts();
+    // Кэш конфига Telegram для fire-and-forget уведомлений (Rust всегда
+    // перепроверяет, кэш — только оптимизация IPC)
+    refreshTelegramConfig();
   }, []);
 
   // Проверка обновлений — строго opt-in (local-first): раньше запрос к

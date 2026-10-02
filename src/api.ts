@@ -1040,6 +1040,59 @@ export async function webSearchSetConfig(config: WebSearchConfig): Promise<void>
   return invoke("websearch_set_config", { config });
 }
 
+// ---------- Telegram (уведомления через своего бота, opt-in) ----------
+
+export interface TelegramConfig {
+  enabled: boolean;
+  /** Токен от @BotFather; на диске — зашифрованным, в экспорте — пусто */
+  botToken: string;
+  /** chat_id владельца: привязывается первым /start боту */
+  chatId: string;
+  notifyStart: boolean;
+  notifyFinish: boolean;
+  notifyError: boolean;
+  notifyConfirm: boolean;
+}
+
+export interface TelegramStatus {
+  enabled: boolean;
+  bound: boolean;
+  polling: boolean;
+}
+
+export async function telegramGetConfig(): Promise<TelegramConfig> {
+  if (!inTauri) {
+    return { enabled: false, botToken: "", chatId: "", notifyStart: true, notifyFinish: true, notifyError: true, notifyConfirm: true };
+  }
+  return invoke<TelegramConfig>("telegram_get_config");
+}
+
+export async function telegramSetConfig(config: TelegramConfig): Promise<void> {
+  if (!inTauri) {
+    throw new Error("Настройка Telegram работает в нативном приложении (npm run tauri dev)");
+  }
+  return invoke("telegram_set_config", { config });
+}
+
+export async function telegramStatus(): Promise<TelegramStatus> {
+  if (!inTauri) return { enabled: false, bound: false, polling: false };
+  return invoke<TelegramStatus>("telegram_status");
+}
+
+export async function telegramUnbind(): Promise<void> {
+  if (!inTauri) return;
+  return invoke("telegram_unbind");
+}
+
+/** Fire-and-forget: событие прогона; бекенд сам перепроверяет гейты */
+export async function telegramNotify(
+  kind: "start" | "finish" | "error" | "confirm",
+  text: string,
+): Promise<void> {
+  if (!inTauri) return;
+  return invoke("telegram_notify", { kind, text });
+}
+
 // ---------- Свои звуки уведомлений ----------
 
 /** Диалог выбора файла шрифта; null — пользователь отменил */

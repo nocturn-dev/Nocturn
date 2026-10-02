@@ -28,6 +28,7 @@ mod media;
 mod memory;
 mod websearch;
 mod network;
+mod telegram;
 mod notes;
 mod plugins;
 mod dictation;
@@ -103,6 +104,12 @@ pub fn run() {
                 // Раньше websearch.json писался, но никогда не читался на
                 // старте: тумблер и ключи молча сбрасывались каждым рестартом
                 websearch::set_config(serde_json::from_value(v).unwrap_or_default());
+            }
+            if let Some(v) = read("telegram.json") {
+                // Telegram-бот уведомлений: polling стартует только если
+                // конфиг enabled (модуль мёртв до явного включения)
+                telegram::set_config(serde_json::from_value(v).unwrap_or_default());
+                telegram::apply_runtime(app.handle().clone());
             }
             // Сгенерированные картинки показываются в чате через asset-протокол:
             // каталог images разрешается целиком один раз (пишет туда только
@@ -263,6 +270,11 @@ pub fn run() {
             tooling::imagegen_set_config,
             tooling::websearch_get_config,
             tooling::websearch_set_config,
+            telegram::telegram_get_config,
+            telegram::telegram_set_config,
+            telegram::telegram_status,
+            telegram::telegram_unbind,
+            telegram::telegram_notify,
             fonts::font_import,
             fonts::font_list,
             fonts::font_delete,
