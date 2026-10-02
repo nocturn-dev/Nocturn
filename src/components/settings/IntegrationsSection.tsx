@@ -11,7 +11,6 @@ import {
   type TelegramConfig,
   type TelegramStatus,
 } from "../../api";
-import { telegramConfigCacheUpdated } from "../../telegram";
 import { ytPlayUrl, ytSetOpen } from "../../yt/ytPlayer";
 import type { MediaPrefs } from "../../mediaPrefs";
 import { SpotifyIcon, YouTubeIcon } from "../cards/icons";
@@ -66,7 +65,6 @@ export function IntegrationsSection({
     try {
       await telegramSetConfig(next);
       setTg(next);
-      telegramConfigCacheUpdated(next);
       const st = await telegramStatus().catch(() => null);
       if (st) setTgStatus(st);
     } catch (e) {
