@@ -471,8 +471,17 @@ export function useAgentRun(deps: AgentRunDeps) {
     // чтобы индикаторы не горели вечно
     const releaseRun = () => {
       if (activeRunRef.current === requestId) activeRunRef.current = null;
-      setStreamingId(null);
+      setStreamingId((cur) => (cur === requestId ? null : cur));
       setTyping(false);
+      // assistantId чистится СИММЕТРИЧНО: releaseRun зовётся и ПОСЛЕ
+      // создания карточки (очередь поправок, отказ на полпути). Раньше
+      // оставалась пара streamingId=null + assistantId≠null, при которой
+      // handleStop уходил в ранний return — кнопка Stop горела вечно
+      // и «не реагировала» (багрепорт владельца)
+      setStreamingAssistantId((cur) =>
+        cur != null && streamingRef.current.get(requestId) === cur ? null : cur,
+      );
+      streamingRef.current.delete(requestId);
     };
     // UI-стейт занятости — ДО первого await. Раньше он ставился после хуков
     // SessionStart/UserPromptSubmit (2 IPC): в окне 0.1–2 с submit уходил в
@@ -2520,6 +2529,10 @@ ${report}`;
       // Stop гасит и их (раньше остановить их было нечем)
       const sid = activeSessionRef.current?.id;
       if (sid) cancelBgSubagents({ sessionId: sid });
+      // Самозалечивание UI: активного прогона нет, а карточка потока всё
+      // ещё числится (наследственный дисбаланс от releaseRun-путей) —
+      // кнопка Stop горела и «не реагировала». Гасим
+      if (streamingAssistantId) setStreamingAssistantId(null);
       return;
     }
     if (chainRunning) chainAbortRef.current = true;
