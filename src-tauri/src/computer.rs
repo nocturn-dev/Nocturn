@@ -297,15 +297,22 @@ fn press_key(args: &Value) -> Result<String, String> {
             })
             .collect::<Result<_, _>>()?;
 
-        for m in &modifiers {
+        // Нажатые модификаторы копим: раньше сбой на втором оставлял первый
+        // зажатым на уровне ОС (release-цикл после `?` не выполнялся)
+        let mut pressed: Vec<enigo::Key> = Vec::new();
+        let press_result: Result<(), String> = modifiers.iter().try_for_each(|m| {
             e.key(*m, Direction::Press)
-                .map_err(|err| format!("press failed: {err}"))?;
-        }
-        let result = parse_key(main).and_then(|key| {
-            e.key(key, Direction::Click)
+                .map(|_| pressed.push(*m))
                 .map_err(|err| format!("press failed: {err}"))
         });
-        for m in modifiers.iter().rev() {
+        let result = press_result.and_then(|()| {
+            parse_key(main).and_then(|key| {
+                e.key(key, Direction::Click)
+                    .map_err(|err| format!("press failed: {err}"))
+            })
+        });
+        // Release нажатого в ЛЮБОМ исходе
+        for m in pressed.iter().rev() {
             let _ = e.key(*m, Direction::Release);
         }
         result?;

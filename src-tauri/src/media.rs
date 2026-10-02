@@ -339,8 +339,6 @@ mod windows_impl {
 
     /// Главное окно с треком: видимое, заголовок содержит " - " и не равен
     /// просто "Spotify" (пауза/свёрнутый клиент)
-    /// Главное окно с треком: видимое, заголовок содержит " - " и не равен
-    /// просто "Spotify" (пауза/свёрнутый клиент)
     fn track_window_hwnd() -> Option<isize> {
         let pids = spotify_pids();
         spotify_windows(&pids)
@@ -688,14 +686,23 @@ mod lyrics {
             return Ok(hit);
         }
         let client = crate::network::shared_client(Duration::from_secs(15))?;
-        let resp = client
-            .get("https://lrclib.net/api/search")
-            .query(&[("artist_name", &artist), ("track_name", &title)])
-            .header("User-Agent", "Nocturn/0.2 (local media minibar)")
-            .send()
-            .await
-            .map_err(|e| format!("lrclib request failed: {e}"))?;
-        let items: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+        // Total-таймаут обязателен: shared_client ставит только
+        // connect_timeout, а stalled-соединение (молчащий прокси, NAT без
+        // RST) вешало lyrics_fetch навсегда — минибар замирал на «…»
+        let items: serde_json::Value = tokio::time::timeout(Duration::from_secs(15), async {
+            client
+                .get("https://lrclib.net/api/search")
+                .query(&[("artist_name", &artist), ("track_name", &title)])
+                .header("User-Agent", "Nocturn/0.2 (local media minibar)")
+                .send()
+                .await
+                .map_err(|e| format!("lrclib request failed: {e}"))?
+                .json::<serde_json::Value>()
+                .await
+                .map_err(|e| e.to_string())
+        })
+        .await
+        .map_err(|_| "lrclib request timed out after 15s".to_string())??;
 
         // Выбор лучшего: при известной длительности — совпадение ±2с,
         // иначе ближайший; сначала с синхронизированным текстом

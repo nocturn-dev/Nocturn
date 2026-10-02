@@ -560,8 +560,18 @@ fn extract_rpc_response(body: &str, id: u64) -> Result<Value, String> {
         if v.get("id").and_then(|i| i.as_u64()) == Some(id) {
             return Ok(v);
         }
-        // Ответ без id быть не может, но мусорный сервер пусть не роняет нас
-        if (v.get("result").is_some() || v.get("error").is_some()) && fallback.is_none() {
+        // Ответ с ЧУЖИМ id — не наш: не мисаттрибуем. Раньше первый
+        // попавшийся result/error возвращался как ответ нашего запроса —
+        // результат чужого инструмента вместо честной ошибки. Ответ без id
+        // быть не может, но мусорный сервер пусть не роняет нас
+        let foreign = match v.get("id") {
+            None | Some(serde_json::Value::Null) => false,
+            Some(other) => other.as_u64() != Some(id),
+        };
+        if !foreign
+            && (v.get("result").is_some() || v.get("error").is_some())
+            && fallback.is_none()
+        {
             fallback = Some(v);
         }
     }
@@ -931,6 +941,23 @@ fn mcp_save_servers_impl(
                     "server \"{}\": remote transport needs an http(s) URL",
                     s.name
                 ));
+            }
+            // Заголовки валидируем на СОХРАНЕНИИ: post_rpc молча выбрасывал
+            // невалидные (не-ASCII токен, кривое имя) — сервер отвечал 401
+            // без всякой причины, а источник не был виден нигде
+            for (k, v) in &s.headers {
+                if let Err(e) = reqwest::header::HeaderName::try_from(k.as_str()) {
+                    return Err(format!(
+                        "server \"{}\": invalid header name \"{}\": {e}",
+                        s.name, k
+                    ));
+                }
+                if let Err(e) = reqwest::header::HeaderValue::try_from(v.as_str()) {
+                    return Err(format!(
+                        "server \"{}\": invalid header value for \"{}\" (only visible ASCII allowed): {e}",
+                        s.name, k
+                    ));
+                }
             }
         } else if s.command.trim().is_empty() {
             return Err(format!("server \"{}\": command is empty", s.name));

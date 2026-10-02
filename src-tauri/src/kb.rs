@@ -30,7 +30,11 @@ pub struct KbMeta {
     pub chunks: u64,
 }
 
+// rename_all обязателен: фронт (api.ts KbHit) читает docTitle, а без
+// атрибута serde отдал бы doc_title — RAG-контекст уходил модели с
+// «[1] undefined» вместо названия документа
 #[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct KbHit {
     pub doc_title: String,
     pub text: String,
@@ -562,5 +566,20 @@ mod tests {
         assert!(!hits.is_empty(), "поиск обязан найти документ про vault");
         assert!(hits[0].contains("vault"));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Золотой вектор serde-стыка: фронт (api.ts KbHit) читает docTitle —
+    /// регрессия rename_all ломала RAG-контекст молча («[1] undefined»)
+    #[test]
+    fn kbhit_serializes_camel_case_for_frontend() {
+        let hit = KbHit {
+            doc_title: "Заметки.md".into(),
+            text: "фрагмент".into(),
+            score: 1.5,
+        };
+        let v = serde_json::to_value(&hit).unwrap();
+        assert_eq!(v.get("docTitle").and_then(|x| x.as_str()), Some("Заметки.md"));
+        assert!(v.get("doc_title").is_none(), "snake_case поле утекло на фронт");
+        assert_eq!(v.get("score").and_then(|x| x.as_f64()), Some(1.5));
     }
 }

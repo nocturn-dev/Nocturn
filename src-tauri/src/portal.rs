@@ -100,6 +100,12 @@ async fn run(app: AppHandle, trigger: &str) -> Result<(), String> {
         .response()
         .map_err(|e| format!("portal bind rejected: {e}"))?;
     crate::QUICKENTRY_REGISTERED.store(true, Ordering::Relaxed);
+    // Запоминаем сессию: без этого ремап закрывал None, а прежний поток run()
+    // продолжал слушать receive_activated — каждое нажатие дёргало
+    // toggle_quickentry дважды, и старое комбо оставалось живым
+    if let Ok(mut guard) = PORTAL_SESSION.lock() {
+        *guard = Some(session.clone());
+    }
 
     // Фильтр по shortcut_id: сигнал прилетает на общий объект портала, но
     // наш id специфичен для приложения

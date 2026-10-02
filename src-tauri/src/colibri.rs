@@ -9,7 +9,6 @@
 //! остальное — «доп. аргументы»); модель и ключ идут через переменные
 //! окружения COLI_MODEL / COLI_API_KEY, у шлюза они документированы.
 
-use std::io::{BufRead, BufReader};
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 use tauri::Emitter;
@@ -34,6 +33,45 @@ pub struct ColibriLaunch {
     pub api_key: Option<String>,
     #[serde(default)]
     pub args: Option<String>,
+}
+
+/// Строки с потолком: BufReader::lines() без '\n' в потоке рос без границы —
+/// сбойный coli поглощал память (в mcp.rs тот же класс закрыт LINE_CAP).
+/// Строка длиннее 1 МиБ отдаётся обрезанной с меткой, хвост до '\n' глотается
+fn read_capped_lines<R: std::io::Read>(mut r: R, mut emit: impl FnMut(String)) {
+    const LINE_CAP: usize = 1024 * 1024;
+    let mut buf: Vec<u8> = Vec::with_capacity(4096);
+    let mut chunk = [0u8; 8192];
+    let mut truncated = false;
+    loop {
+        match r.read(&mut chunk) {
+            Ok(0) => break,
+            Ok(n) => {
+                for &b in &chunk[..n] {
+                    if b == b'\n' {
+                        if truncated {
+                            truncated = false;
+                        } else {
+                            emit(String::from_utf8_lossy(&buf).into_owned());
+                        }
+                        buf.clear();
+                    } else if buf.len() < LINE_CAP {
+                        buf.push(b);
+                    } else if !truncated {
+                        truncated = true;
+                        let mut head = std::mem::take(&mut buf);
+                        // b"..." литералы не держат не-ASCII (грабля проекта)
+                        head.extend_from_slice("…[line truncated]".as_bytes());
+                        emit(String::from_utf8_lossy(&head).into_owned());
+                    }
+                }
+            }
+            Err(_) => break,
+        }
+    }
+    if !buf.is_empty() && !truncated {
+        emit(String::from_utf8_lossy(&buf).into_owned());
+    }
 }
 
 /// Разбивка строки аргументов по пробелам; одинарные/двойные кавычки
@@ -144,19 +182,19 @@ pub fn colibri_start(
     if let Some(out) = child.stdout.take() {
         let app2 = app.clone();
         std::thread::spawn(move || {
-            for line in BufReader::new(out).lines().map_while(Result::ok) {
+            read_capped_lines(out, |line| {
                 let _ = app2.emit_to("main", "colibri-log", line);
-            }
+            });
         });
     }
     if let Some(err) = child.stderr.take() {
         let app2 = app.clone();
         std::thread::spawn(move || {
-            for line in BufReader::new(err).lines().map_while(Result::ok) {
+            read_capped_lines(err, |line| {
                 // Канал приватный (см. комментарий выше): stderr — не исключение,
                 // broadcast доставлял логи и в quickentry без слушателей
                 let _ = app2.emit_to("main", "colibri-log", format!("[err] {line}"));
-            }
+            });
         });
     }
 

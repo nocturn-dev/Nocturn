@@ -177,11 +177,16 @@ pub async fn run_tool(
         }
     }
 
-    // notes_dir (fs::create_dir_all) нужен только vault-инструментам: раньше
-    // он гонялся синхронно на tokio-воркере на КАЖДЫЙ тулл-колл, включая
-    // чисто-чатовые, и вставал поперёк стримов на медленном/сетевом диске
+    // notes_dir (fs::create_dir_all) нужен только vault-инструментам. Резолв
+    // — в blocking-пул, как и load_settings ниже: sync-ФС на tokio-воркере
+    // вставал поперёк стримов на медленном/сетевом диске
     let notes = if name.starts_with("vault_") {
-        Some(notes_dir(&app)?)
+        let app_for_notes = app.clone();
+        Some(
+            tauri::async_runtime::spawn_blocking(move || notes_dir(&app_for_notes))
+                .await
+                .map_err(|e| format!("notes dir task failed: {e}"))??,
+        )
     } else {
         None
     };
@@ -391,8 +396,19 @@ pub async fn execute_tool_inner(
         // Попытка 1. Транспортная ошибка (процесс умер, EPIPE, сеть упала) →
         // реконнект + ОДИН повтор; ошибки самого инструмента не повторяем —
         // побочные эффекты вызова задвоились бы. Таймаут ответа тоже не
-        // ретраится: сервер жив, просто метод долгий
-        let first = handle.call_tool(&tool, args.clone()).await;
+        // ретраится: сервер жив, просто метод долгий. select! с abort —
+        // как у ретрая: раньше Stop ждал завершения первой попытки до
+        // 120 с (кап был только внутренний, у вызова abort-ветки не было)
+        let first = tokio::select! {
+            res = handle.call_tool(&tool, args.clone()) => res.map_err(|e| format!("mcp {server}.{tool}: {e}")),
+            _ = tokio::time::sleep(MCP_TOOL_TIMEOUT) => Err(format!(
+                "mcp {server}.{tool}: timed out after {}s",
+                MCP_TOOL_TIMEOUT.as_secs()
+            )),
+            _ = wait_for_abort(abort_flag.as_ref()) => {
+                return Err("aborted by user".to_string());
+            }
+        };
         let result: String = match first {
             Ok(r) => r,
             Err(e) if mcp::is_transport_err(&e) => {
@@ -408,7 +424,7 @@ pub async fn execute_tool_inner(
                     .map_err(|e| format!("mcp {server}.{tool}: reconnect: {e}"))?;
                 mcp_attempt!(fresh, args.clone())?
             }
-            Err(e) => return Err(format!("mcp {server}.{tool}: {e}")),
+            Err(e) => return Err(e),
         };
         return Ok(result);
     }
@@ -1310,5 +1326,17 @@ mod tests {
         let err = ensure_not_user_disabled("shell_run", &disabled).unwrap_err();
         assert!(err.contains("shell_run"));
         assert!(err.contains("disabled by the user"));
+    }
+
+    // Золотой вектор whitelist импорта мелодий: расширение → MIME data URL
+    #[test]
+    fn sound_mime_golden() {
+        assert_eq!(sound_mime("MP3"), Some("audio/mpeg"));
+        assert_eq!(sound_mime("wav"), Some("audio/wav"));
+        assert_eq!(sound_mime("ogg"), Some("audio/ogg"));
+        assert_eq!(sound_mime("m4a"), Some("audio/mp4"));
+        assert_eq!(sound_mime("flac"), Some("audio/flac"));
+        assert_eq!(sound_mime("exe"), None);
+        assert_eq!(sound_mime(""), None);
     }
 }
