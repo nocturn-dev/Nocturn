@@ -641,7 +641,7 @@ export const en = {
     "perm.allowDesc": "No question in Ask/Edit (Plan/Edit boundaries still hold). Example: shell_run(git *)",
     "perm.addPlaceholder": "tool or tool(prefix*)",
     "perm.add": "Add",
-    "perm.empty": "no rules",
+    "perm.empty": "No rules",
     "perm.remove": "Remove rule",
     "perm.allowHint": "shell_run and fs_* allow rules require a prefix, e.g. fs_read(C:\\proj\\logs*)",
     "settings.browser": "Browser Use",

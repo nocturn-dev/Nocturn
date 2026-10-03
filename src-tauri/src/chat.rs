@@ -548,6 +548,14 @@ async fn chat_stream_impl(
             item = tokio::time::timeout(STREAM_IDLE_TIMEOUT, stream.next()) => match item {
                 Ok(item) => item,
                 Err(_) => {
+                    // Волна GUI-fix: usage уже приехал, а провайдер (прокси
+                    // типа Ashna) держит TCP и молчит, забыв [DONE]/close —
+                    // ответ полный, трактуем тишину как конец стрима. Раньше
+                    // это была Err: фронт 5 минут крутил «Работает» и потом
+                    // рисовал фантомную ошибку на нормальном ответе
+                    if saw_usage {
+                        break 'outer;
+                    }
                     return Err("stream idle: no data for 300s".to_string());
                 }
             },

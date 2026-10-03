@@ -653,7 +653,7 @@ export const ru = {
     "perm.allowDesc": "Без вопроса в Ask/Edit (Plan/Edit-границы не обходятся). Пример: shell_run(git *)",
     "perm.addPlaceholder": "инструмент или tool(префикс*)",
     "perm.add": "Добавить",
-    "perm.empty": "правил нет",
+    "perm.empty": "Правил нет",
     "perm.remove": "Удалить правило",
     "perm.allowHint": "Для shell_run и fs_* обязателен префикс, например fs_read(C:\\proj\\logs*)",
     "settings.browser": "Browser Use",

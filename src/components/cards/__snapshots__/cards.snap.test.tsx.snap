@@ -6,7 +6,7 @@ exports[`chat cards snapshots > AssistantCard: markdown + usage, вне стри
   data-mid="a1"
 >
   <button
-    class="absolute -top-2 right-2 flex size-5 items-center justify-center rounded-full border border-halo-line bg-halo-deep text-halo-muted opacity-0 shadow-sm transition duration-150 hover:text-halo-text group-hover:opacity-100"
+    class="absolute right-1.5 top-1.5 flex size-5 items-center justify-center rounded-full border border-halo-line bg-halo-deep text-halo-muted opacity-0 shadow-sm transition duration-150 hover:text-halo-text group-hover:opacity-100"
     title="Collapse"
   >
     <svg
@@ -66,6 +66,16 @@ exports[`chat cards snapshots > AssistantCard: markdown + usage, вне стри
         glm-5.3-flash
       </span>
     </span>
+    <span
+      class="ml-auto flex shrink-0 items-center gap-0.5"
+    >
+      <button
+        class="flex shrink-0 items-center rounded-md p-1 transition-colors text-halo-muted/70 hover:bg-halo-hover hover:text-halo-text"
+        title="Copy"
+      >
+        📋
+      </button>
+    </span>
   </div>
   <div
     class="markdown text-sm leading-relaxed text-halo-text"
@@ -120,7 +130,7 @@ exports[`chat cards snapshots > AssistantCard: с thinking-блоком 1`] = `
   data-mid="a2"
 >
   <button
-    class="absolute -top-2 right-2 flex size-5 items-center justify-center rounded-full border border-halo-line bg-halo-deep text-halo-muted opacity-0 shadow-sm transition duration-150 hover:text-halo-text group-hover:opacity-100"
+    class="absolute right-1.5 top-1.5 flex size-5 items-center justify-center rounded-full border border-halo-line bg-halo-deep text-halo-muted opacity-0 shadow-sm transition duration-150 hover:text-halo-text group-hover:opacity-100"
     title="Collapse"
   >
     <svg
@@ -167,6 +177,16 @@ exports[`chat cards snapshots > AssistantCard: с thinking-блоком 1`] = `
       >
         claude-sonnet
       </span>
+    </span>
+    <span
+      class="ml-auto flex shrink-0 items-center gap-0.5"
+    >
+      <button
+        class="flex shrink-0 items-center rounded-md p-1 transition-colors text-halo-muted/70 hover:bg-halo-hover hover:text-halo-text"
+        title="Copy"
+      >
+        📋
+      </button>
     </span>
   </div>
   <div
@@ -343,7 +363,7 @@ exports[`chat cards snapshots > UserCard: текст + вложение 1`] = `
     class="min-w-0 w-fit rounded-2xl rounded-br-md px-4 py-3 bg-halo-raised"
   >
     <button
-      class="absolute -top-2 right-2 flex size-5 items-center justify-center rounded-full border border-halo-line bg-halo-deep text-halo-muted opacity-0 shadow-sm transition duration-150 hover:text-halo-text group-hover:opacity-100"
+      class="absolute right-1.5 top-1.5 flex size-5 items-center justify-center rounded-full border border-halo-line bg-halo-deep text-halo-muted opacity-0 shadow-sm transition duration-150 hover:text-halo-text group-hover:opacity-100"
       title="Collapse"
     >
       <svg
