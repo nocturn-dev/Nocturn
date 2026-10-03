@@ -19,6 +19,7 @@ import {
   type KbMeta,
 } from "../api";
 import { useLang } from "../locales";
+import { XSmallIcon } from "./cards/icons";
 
 interface KnowledgeModalProps {
   open: boolean;
@@ -154,7 +155,7 @@ export default function KnowledgeModal({
             title={t("common.close")}
             className="rounded-md p-1.5 text-halo-muted transition-colors hover:bg-halo-hover hover:text-halo-text"
           >
-            ✕
+            <XSmallIcon />
           </button>
         </div>
         <p className="mb-4 text-xs leading-relaxed text-halo-muted">{t("kb.hint")}</p>
@@ -210,7 +211,7 @@ export default function KnowledgeModal({
                     title={t("kb.deleteBase")}
                     className="shrink-0 rounded p-1 text-halo-muted/60 transition-colors hover:text-red-400"
                   >
-                    ✕
+                    <XSmallIcon />
                   </button>
                 </div>
               ))}
@@ -271,7 +272,7 @@ export default function KnowledgeModal({
                         title={t("kb.removeDoc")}
                         className="shrink-0 rounded p-0.5 text-halo-muted/60 transition-colors hover:text-red-400"
                       >
-                        ✕
+                        <XSmallIcon />
                       </button>
                     </div>
                   ))}

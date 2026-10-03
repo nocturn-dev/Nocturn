@@ -731,6 +731,8 @@ export default function SettingsModal({
               onSettingsLargeChange={onSettingsLargeChange}
               browserPanel={browserPanel}
               onBrowserPanelChange={onBrowserPanelChange}
+              mascot={mascot}
+              onMascotChange={onMascotChange}
               notifyPrefs={notifyPrefs}
               onNotifyPrefsChange={onNotifyPrefsChange}
               runSoundPrefs={runSoundPrefs}
@@ -759,8 +761,6 @@ export default function SettingsModal({
               onChatMarkChange={onChatMarkChange}
               msgGlass={msgGlass}
               onMsgGlassChange={onMsgGlassChange}
-              mascot={mascot}
-              onMascotChange={onMascotChange}
             />
           )}
           {section === "api" && (

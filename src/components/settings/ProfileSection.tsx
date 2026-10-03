@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useLang, type MsgKey } from "../../locales";
+import { CheckIcon } from "../cards/icons";
 import {
   loadProfile,
   saveProfile,
@@ -29,7 +30,7 @@ function ShareToggle({
           : "border-halo-line text-halo-muted/70 hover:text-halo-text"
       }`}
     >
-      {on ? `✓ ${label}` : label}
+      {on ? (<><CheckIcon /> {label}</>) : label}
     </button>
   );
 }

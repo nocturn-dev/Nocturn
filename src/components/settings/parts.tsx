@@ -266,7 +266,7 @@ export function Dropdown({
             >
               <span className="truncate">{o.label}</span>
               {o.value === value && (
-                <span className="shrink-0 text-halo-accent">✓</span>
+                <span className="shrink-0 text-halo-accent"><CheckIcon /></span>
               )}
             </button>
           ))}

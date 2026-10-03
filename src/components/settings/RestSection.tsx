@@ -3,6 +3,7 @@ import { useLang, type MsgKey } from "../../locales";
 import Game2048 from "../../games/Game2048";
 import GameMines from "../../games/GameMines";
 import GameSnake from "../../games/GameSnake";
+import { BombIcon, FlagIcon } from "../cards/icons";
 
 export type GameId = "2048" | "mines" | "snake";
 
@@ -32,12 +33,12 @@ function Preview2048() {
 function PreviewMines() {
   return (
     <div className="grid grid-cols-4 gap-1 p-3">
-      {["1", "🚩", "", "2", "", "3", "1", "", "💣", "2", "", "1", "", "1", "", ""].map((c, i) => (
+      {["1", "F", "", "2", "", "3", "1", "", "B", "2", "", "1", "", "1", "", ""].map((c, i) => (
         <div
           key={i}
           className="flex aspect-square items-center justify-center rounded-md bg-halo-surface/70 text-[0.6875rem] text-halo-muted"
         >
-          {c}
+          {c === "F" ? <span className="text-red-400"><FlagIcon /></span> : c === "B" ? <span className="text-halo-text"><BombIcon /></span> : c}
         </div>
       ))}
     </div>

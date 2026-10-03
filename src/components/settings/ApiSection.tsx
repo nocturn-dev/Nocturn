@@ -15,6 +15,7 @@ import {
 
 import { MiniCheckIcon, MiniSearchIcon } from "./parts";
 import type { ApiStatus } from "./types";
+import { CheckIcon, XSmallIcon } from "../cards/icons";
 
 export function ApiSection({
   settings,
@@ -301,7 +302,7 @@ export function ApiSection({
                     title={p.name}
                     className="flex size-4 items-center justify-center rounded-full transition-colors hover:bg-red-400/20 hover:text-red-400"
                   >
-                    ✕
+                    <XSmallIcon />
                   </button>
                 </span>
               );
@@ -326,7 +327,7 @@ export function ApiSection({
             title={canTest ? undefined : t("api.key")}
             className="shrink-0 rounded-lg border border-halo-line px-3 py-1.5 text-xs text-halo-text transition-colors hover:bg-halo-hover disabled:cursor-not-allowed disabled:opacity-40"
           >
-            {profSaved ? `✓ ${t("api.profileSaved")}` : t("api.profileAdd")}
+            {profSaved ? <><CheckIcon /> {t("api.profileSaved")}</> : t("api.profileAdd")}
           </button>
         </div>
       </div>

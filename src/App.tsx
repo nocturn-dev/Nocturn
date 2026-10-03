@@ -1537,7 +1537,7 @@ export default function App() {
       if (!send) return;
       const session: Session = {
         id: uid(),
-        title: `🌙 ${task.title}`.slice(0, 48),
+        title: task.title.slice(0, 48),
         createdAt: Date.now(),
         messages: [],
       };
@@ -2007,7 +2007,7 @@ export default function App() {
     // это история диалога, стриминг/отмена работают из коробки
     const session: Session = {
       id: uid(),
-      title: `⛓ ${start.title}`,
+      title: start.title,
       createdAt: Date.now(),
       messages: [],
       agentMode: anyAgent,

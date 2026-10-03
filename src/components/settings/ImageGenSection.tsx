@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useLang } from "../../locales";
 import { type ImageGenConfig, imageGenGetConfig, imageGenSetConfig, invalidateToolSchemas } from "../../api";
 import { ToggleRow } from "./parts";
+import { CheckIcon } from "../cards/icons";
 
 export function ImageGenSection() {
   const { t } = useLang();
@@ -101,7 +102,7 @@ export function ImageGenSection() {
                   onClick={() => void apply(cfg)}
                   className="shrink-0 rounded-lg border border-halo-line px-3 py-2 text-xs text-halo-text transition-colors hover:border-halo-accent/50 hover:bg-halo-hover"
                 >
-                  {saved ? "✓" : t("bu.save")}
+                  {saved ? <CheckIcon /> : t("bu.save")}
                 </button>
               </div>
             </div>

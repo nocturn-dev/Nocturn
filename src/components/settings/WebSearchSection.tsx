@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useLang } from "../../locales";
 import { type WebSearchConfig, webSearchGetConfig, webSearchSetConfig, invalidateToolSchemas } from "../../api";
 import { ToggleRow } from "./parts";
+import { CheckIcon } from "../cards/icons";
 
 /** Раздел «Веб-поиск»: тул web_search для агента (SearXNG / Brave) */
 export function WebSearchSection() {
@@ -109,7 +110,7 @@ export function WebSearchSection() {
             )}
             <p className="rounded-lg border border-halo-line/60 bg-halo-surface/40 px-2.5 py-2 text-[0.6875rem] leading-relaxed text-halo-muted/80">
               {t("ws.hint")}
-              {saved ? ` ✓` : ""}
+              {saved ? <CheckIcon /> : null}
             </p>
           </>
         )}

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLang } from "../locales";
+import { BombIcon, FlagIcon, MineFaceIcon, TimerIcon } from "../components/cards/icons";
 
 /**
  * Сапёр: 9×9, 10 мин. Первый клик всегда безопасен (мины расставляются
@@ -162,7 +163,6 @@ export default function GameMines() {
   // в оригинале; двойной учёт показывал бред вроде 19 при десяти минах)
   const flagsLeft = MINES - board.filter((c) => c.flag).length;
 
-  const face = state === "lost" ? "😵" : state === "won" ? "😎" : "🙂";
 
   return (
     <div className="flex flex-col items-center">
@@ -176,7 +176,7 @@ export default function GameMines() {
       <div className="relative rounded-2xl border-2 border-halo-line bg-halo-deep p-3 shadow-2xl">
         <div className="mb-3 flex items-center justify-between gap-3 rounded-xl border border-halo-line bg-halo-surface/60 px-3 py-2">
           <span className="flex items-center gap-1 rounded-lg bg-halo-deep px-2.5 py-1 font-mono text-sm font-bold tabular-nums text-red-400 ring-1 ring-halo-line/60">
-            <span className="text-xs">🚩</span>
+            <span className="text-red-400"><FlagIcon /></span>
             {String(Math.max(0, flagsLeft)).padStart(2, "0")}
           </span>
           <button
@@ -184,10 +184,10 @@ export default function GameMines() {
             title={t("game.restart")}
             className="flex size-9 items-center justify-center rounded-lg border border-halo-line bg-halo-raised text-lg transition-transform hover:scale-110 active:scale-95"
           >
-            {face}
+            <MineFaceIcon mood={state === "lost" ? "lost" : state === "won" ? "won" : "play"} />
           </button>
           <span className="flex items-center gap-1 rounded-lg bg-halo-deep px-2.5 py-1 font-mono text-sm font-bold tabular-nums text-red-400 ring-1 ring-halo-line/60">
-            <span className="text-xs">⏱</span>
+            <span className="text-halo-muted"><TimerIcon /></span>
             {String(seconds).padStart(3, "0")}
           </span>
         </div>
@@ -233,10 +233,10 @@ export default function GameMines() {
               }`}
             >
               {cell.flag && !cell.revealed ? (
-                "🚩"
+                <span className="text-red-400"><FlagIcon /></span>
               ) : cell.revealed ? (
                 cell.mine ? (
-                  "💣"
+                  <span className="text-halo-text"><BombIcon /></span>
                 ) : cell.n > 0 ? (
                   <span className={numClass(cell.n)}>{cell.n}</span>
                 ) : (

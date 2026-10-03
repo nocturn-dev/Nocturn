@@ -40,7 +40,7 @@ import { ToolStepCard } from "./cards/ToolStepCard";
 import { TypingBubble } from "./cards/TypingBubble";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { UserCard } from "./cards/UserCard";
-import { ArrowUpIcon, BookIcon, ChevronDownIcon, CorrectIcon, FolderIcon, MicIcon, PaperclipIcon, PermModeIcon, QueueIcon, QuoteIcon, RobotIcon, ScalesIcon, ShieldIcon, SlidersIcon, SparkIcon, StopIcon, SystemPromptIcon, TerminalIcon, TrashIcon, WrenchIcon, XSmallIcon } from "./cards/icons";
+import { ArrowUpIcon, BookIcon, ChevronDownIcon, CorrectIcon, FileIcon, FolderIcon, MicIcon, PaperclipIcon, PermModeIcon, QueueIcon, QuoteIcon, RobotIcon, ScalesIcon, ShieldIcon, SlidersIcon, SparkIcon, StopIcon, SystemPromptIcon, TerminalIcon, TrashIcon, WarnIcon, WrenchIcon, XSmallIcon } from "./cards/icons";
 import { fmtInt, fmtK } from "./cards/util";
 import { CHART_COLORS } from "../chartColors";
 
@@ -2091,7 +2091,7 @@ export default function ChatArea({
                       title={t("composer.queuedRemove")}
                       className="shrink-0 rounded-md p-0.5 text-halo-muted transition-colors hover:bg-halo-hover hover:text-halo-text"
                     >
-                      ✕
+                      <XSmallIcon />
                     </button>
                   </div>
                 ))}
@@ -2109,7 +2109,7 @@ export default function ChatArea({
                   title={t("composer.quoteRemove")}
                   className="shrink-0 rounded-md p-0.5 text-halo-muted transition-colors hover:bg-halo-hover hover:text-halo-text"
                 >
-                  ✕
+                  <XSmallIcon />
                 </button>
               </div>
             )}
@@ -2138,7 +2138,7 @@ export default function ChatArea({
                         title={img.name}
                         className="flex size-20 flex-col items-center justify-center gap-1 rounded-xl border border-halo-line bg-halo-surface/60 p-1.5"
                       >
-                        <span className="text-lg text-halo-muted">📄</span>
+                        <span className="text-halo-muted"><FileIcon /></span>
                         <span className="w-full truncate text-center text-[0.625rem] text-halo-muted">
                           {img.name}
                         </span>
@@ -2258,7 +2258,7 @@ export default function ChatArea({
             {/* Предупреждение: модель не принимает изображения */}
             {pendingImages.some((a) => a.dataUrl) && visionCapable === false && (
               <div className="anim-fade-up mx-2 mb-1 flex items-start gap-2 rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-xs leading-relaxed text-amber-300">
-                <span className="mt-0.5">⚠</span>
+                <span className="mt-0.5 text-amber-400"><WarnIcon /></span>
                 <span>{t("error.vision")}</span>
               </div>
             )}

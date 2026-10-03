@@ -578,3 +578,194 @@ export function PencilIcon() {
     </svg>
   );
 }
+
+/** Предупреждение: треугольник с восклицанием (семантика warn) */
+export function WarnIcon() {
+  return (
+    <svg
+      width="13"
+      height="13"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" />
+      <path d="M12 9v4M12 17h.01" />
+    </svg>
+  );
+}
+
+/** Документ-файл: плейсхолдер нетекстового вложения */
+export function FileIcon() {
+  return (
+    <svg
+      width="15"
+      height="15"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" />
+      <path d="M14 2v4a2 2 0 0 0 2 2h4" />
+    </svg>
+  );
+}
+
+/** Сохранить/применить: дискета (кнопки код-блоков) */
+export function SaveIcon() {
+  return (
+    <svg
+      width="12"
+      height="12"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z" />
+      <path d="M17 21v-8H7v8M7 3v5h8" />
+    </svg>
+  );
+}
+
+/** Открыть вовне (↗): реview-панель, внешние ссылки */
+export function ArrowUpRightIcon() {
+  return (
+    <svg
+      width="11"
+      height="11"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M7 17 17 7M7 7h10v10" />
+    </svg>
+  );
+}
+
+/** Откат правки (↩) */
+export function UndoIcon() {
+  return (
+    <svg
+      width="12"
+      height="12"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M9 14 4 9l5-5" />
+      <path d="M4 9h10a6 6 0 0 1 0 12h-3" />
+    </svg>
+  );
+}
+
+/** Цепочка прогонов (связка задач) */
+export function ChainIcon() {
+  return (
+    <svg
+      width="12"
+      height="12"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7" />
+      <path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7" />
+    </svg>
+  );
+}
+
+/** Флажок сапёра */
+export function FlagIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <path d="M5 3a1 1 0 0 1 2 0v.4l11.4 3.4a1 1 0 0 1 .2 1.85L8 12.2V20a1 1 0 1 1-2 0V4a1 1 0 0 1-1-1Z" />
+    </svg>
+  );
+}
+
+/** Мина сапёра */
+export function BombIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <circle cx="11" cy="13" r="7" />
+      <path d="M16.5 7.5 19 5m0 0h-2.5M19 5v2.5M21 3l-1.2 1.2" stroke="currentColor" strokeWidth="2" strokeLinecap="round" fill="none" />
+    </svg>
+  );
+}
+
+/** Таймер сапёра */
+export function TimerIcon() {
+  return (
+    <svg
+      width="12"
+      height="12"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M10 2h4" />
+      <circle cx="12" cy="14" r="8" />
+      <path d="M12 14v-4" />
+    </svg>
+  );
+}
+
+/** Смайлик-рестарт сапёра: play / won (очки) / lost (х) */
+export function MineFaceIcon({ mood }: { mood: "play" | "won" | "lost" }) {
+  return (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      aria-hidden="true"
+    >
+      <circle cx="12" cy="12" r="9" />
+      {mood === "lost" ? (
+        <>
+          <path d="m8.5 9 3 3-3 3M15.5 9l-3 3 3 3" />
+        </>
+      ) : (
+        <>
+          <path d="M9 10h.01M15 10h.01" strokeWidth="2.6" />
+          {mood === "won" ? (
+            <path d="M8.5 14.5 10 16l1.5-1.5L13 16l1.5-1.5" />
+          ) : (
+            <path d="M8.5 14.5c1 1.2 2.2 1.8 3.5 1.8s2.5-.6 3.5-1.8" />
+          )}
+        </>
+      )}
+    </svg>
+  );
+}

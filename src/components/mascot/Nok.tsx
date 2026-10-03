@@ -43,9 +43,15 @@ const BURST: Array<{ x: number; y: number; dx: number; dy: number }> = [
 export function Nok({
   streaming,
   activity,
+  sleepAfterMs = 5 * 60_000,
+  stormReturnMs = 30_000,
 }: {
   streaming: boolean;
   activity: string | null;
+  /** Хвост для тестов/будущих настроек: простой до сна */
+  sleepAfterMs?: number;
+  /** Хвост для тестов/будущих настроек: сколько гуляет обиженным */
+  stormReturnMs?: number;
 }) {
   const { t } = useLang();
 
@@ -80,9 +86,9 @@ export function Nok({
       setAsleep(false);
       return;
     }
-    const t = window.setTimeout(() => setAsleep(true), 5 * 60_000);
+    const t = window.setTimeout(() => setAsleep(true), sleepAfterMs);
     return () => window.clearTimeout(t);
-  }, [streaming, activity, clickTick]);
+  }, [streaming, activity, clickTick, sleepAfterMs]);
 
   // Моргание: случайный цикл, пока не спит
   useEffect(() => {
@@ -105,14 +111,31 @@ export function Nok({
     };
   }, [streaming, asleep]);
 
-  // Порог ярости: улетает за экран, возвращается через 30с (остывший —
-  // распад гнева ниже всё погасит)
+  // Порог ярости: улетает. Сам влёт — эффект ниже; таймер возврата живёт
+  // В ОТДЕЛЬНОМ эффекте по storming: раньше он заводился здесь и гасился
+  // cleanup'ом этого же эффекта на ре-ране (storming сменился) — Нок
+  // улетал навсегда
   useEffect(() => {
     if (anger < 12 || storming) return;
     setStorming(true);
-    const t = window.setTimeout(() => setStorming(false), 30_000);
-    return () => window.clearTimeout(t);
   }, [anger, storming]);
+  useEffect(() => {
+    if (!storming) return;
+    const t = window.setTimeout(() => {
+      setStorming(false);
+      // Возвращается обиженным (янтарные глаза), догорает за 10с
+      setAnger(6);
+      startAngerDecay();
+    }, stormReturnMs);
+    return () => window.clearTimeout(t);
+  }, [storming, stormReturnMs]);
+
+  // Распад злости: 10с без тыканий — остыл (реф объявлен рядом с прочими
+  // выше; хелпер дергается из кликов и из возврата обиженным)
+  const startAngerDecay = () => {
+    if (angerDecayRef.current) window.clearTimeout(angerDecayRef.current);
+    angerDecayRef.current = window.setTimeout(() => setAnger(0), 10_000);
+  };
 
   const handleClick = () => {
     const now = Date.now();
@@ -130,8 +153,7 @@ export function Nok({
       if (petTimerRef.current) window.clearTimeout(petTimerRef.current);
       petTimerRef.current = window.setTimeout(() => setPet(false), 1400);
     }
-    if (angerDecayRef.current) window.clearTimeout(angerDecayRef.current);
-    angerDecayRef.current = window.setTimeout(() => setAnger(0), 10_000);
+    startAngerDecay();
   };
 
   const mood: NokMood = storming
@@ -178,10 +200,8 @@ export function Nok({
 
   const matrix = blink || mood === "sleeping" ? NOK_BLINK : NOK_BASE;
 
-  if (mood === "storm") {
-    // Улетел: гнев на пике — места нет, вернётся через 30с (см. эффект выше)
-    return null;
-  }
+  // Улетевший остаётся смонтированным: обидчивый отлёт/возврат — CSS-переход
+  // на обёртке (класс nok-storm), pointer-events гасятся, таймер вернёт
 
   return (
     <div

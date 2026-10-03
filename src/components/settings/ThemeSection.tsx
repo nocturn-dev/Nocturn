@@ -39,6 +39,7 @@ import { registerCustomFonts, UI_FONT_PRESETS, MONO_FONT_PRESETS } from "../../f
 import { CODE_THEMES, CODE_THEME_IDS } from "../../codeThemes";
 import { TERMINAL_PALETTES } from "../../vt";
 import { StylePattern, Dropdown, CheckIcon, ToggleRow } from "./parts";
+import { XSmallIcon } from "../cards/icons";
 
 const SHELL_LABELS: Record<"powershell" | "cmd" | "gitbash", string> = {
   powershell: "PowerShell",
@@ -66,8 +67,6 @@ export function ThemeSection({
   onChatMarkChange,
   msgGlass,
   onMsgGlassChange,
-  mascot,
-  onMascotChange,
 }: {
   theme: Theme;
   glass: boolean;
@@ -85,9 +84,6 @@ export function ThemeSection({
   onChatMarkChange: (v: boolean) => void;
   msgGlass: boolean;
   onMsgGlassChange: (v: boolean) => void;
-  /** Маскот Нок у композера (кастомизация) */
-  mascot: boolean;
-  onMascotChange: (v: boolean) => void;
 }) {
   const { t } = useLang();
   // Жёсткие темы (Official / Full Claude): пока активна любая, обычные
@@ -397,7 +393,7 @@ export function ThemeSection({
               title={t("themes.profileSave")}
               className="shrink-0 rounded-md border border-halo-line px-2 py-1 text-xs text-halo-muted transition-colors hover:text-halo-text disabled:opacity-40"
             >
-              ✓
+              <CheckIcon />
             </button>
           </div>
         )}
@@ -455,7 +451,7 @@ export function ThemeSection({
                     title={t("themes.profileDelete")}
                     className="absolute right-1 top-1/2 -translate-y-1/2 rounded px-0.5 text-[0.625rem] leading-none text-halo-muted/70 transition-colors hover:text-red-400"
                   >
-                    ✕
+                    <XSmallIcon />
                   </button>
                 </span>
               ),
@@ -1198,7 +1194,7 @@ export function ThemeSection({
                     title={t("themes.fontRemove")}
                     className="rounded-full px-1 text-halo-muted transition-colors hover:text-red-400"
                   >
-                    ✕
+                    <XSmallIcon />
                   </button>
                 </span>
               ))}
@@ -1387,28 +1383,6 @@ export function ThemeSection({
           <span
             className={`absolute top-0.5 size-4 rounded-full bg-halo-on-accent transition ${
               msgGlass ? "left-4.5" : "left-0.5"
-            }`}
-          />
-        </button>
-      </div>
-
-      {/* Маскот Нок (PLAN.md §21): светлячок у композера */}
-      <div className="mt-2.5 flex items-center justify-between rounded-xl border border-halo-line px-3.5 py-3">
-        <div>
-          <p className="text-sm text-halo-text">{t("mascot.title")}</p>
-          <p className="mt-0.5 text-xs text-halo-muted">
-            {t("mascot.desc")}
-          </p>
-        </div>
-        <button
-          onClick={() => onMascotChange(!mascot)}
-          className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${
-            mascot ? "bg-halo-accent" : "bg-halo-line"
-          }`}
-        >
-          <span
-            className={`absolute top-0.5 size-4 rounded-full bg-halo-on-accent transition ${
-              mascot ? "left-4.5" : "left-0.5"
             }`}
           />
         </button>

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import NocturnMark from "./NocturnMark";
 import { useLang } from "../locales";
+import { XSmallIcon } from "./cards/icons";
 
 /**
  * Полноэкранный гейт мастер-пароля:
@@ -77,7 +78,7 @@ export default function CryptoGate({
             title={t("gate.cancel")}
             className="absolute right-3 top-3 rounded-md p-1 text-halo-muted transition-colors hover:bg-halo-hover hover:text-halo-text"
           >
-            ✕
+            <XSmallIcon />
           </button>
         )}
         <span className="text-halo-accent">

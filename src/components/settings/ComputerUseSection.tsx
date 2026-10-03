@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useLang } from "../../locales";
 import { ComputerConfig, invalidateToolSchemas, computerGetConfig, computerSetConfig } from "../../api";
 import { ToggleRow } from "./parts";
+import { WarnIcon } from "../cards/icons";
 
 export function ComputerUseSection() {
   const { t } = useLang();
@@ -40,7 +41,7 @@ export function ComputerUseSection() {
       />
 
       <p className="mt-3 rounded-lg border border-amber-400/25 bg-amber-400/10 px-3 py-2.5 text-xs leading-relaxed text-amber-300/90">
-        ⚠ {t("cu.note")}
+        <WarnIcon /> {t("cu.note")}
       </p>
     </div>
   );
