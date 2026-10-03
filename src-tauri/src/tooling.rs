@@ -1311,6 +1311,22 @@ mod tests {
     use super::*;
 
     #[test]
+    fn perm_gates_before_pre_tool_use_hooks() {
+        // Волна G: механический регресс порядка гардалов run_tool — perm-слой
+        // решает РАНЬШЕ PreToolUse-хуков, заблокированный Plan-вызов не должен
+        // запускать shell-команды хуков. Тест привязан к текущему форматированию
+        // (стиль зеркала toolFilter.test.ts): сдвинешь порядок — упадёт громко
+        const SRC: &str = include_str!("tooling.rs");
+        let perm = SRC
+            .find("perm::decide(&state")
+            .expect("perm::decide call site");
+        let hooks = SRC
+            .find("hooks::run_event_with_abort(")
+            .expect("PreToolUse call site");
+        assert!(perm < hooks, "perm must gate before PreToolUse hooks");
+    }
+
+    #[test]
     fn frontend_tool_schemas_are_wellformed() {
         let schemas = frontend_tool_schemas();
         let name_of = |v: &serde_json::Value| v["function"]["name"].as_str().unwrap().to_string();

@@ -621,6 +621,7 @@ async fn chat_stream_impl(
                 prompt: prompt_est as u64,
                 completion: completion_est as u64,
                 total: (prompt_est + completion_est) as u64,
+                stop_reason: None,
             })?;
         }
     }
@@ -755,14 +756,14 @@ mod batcher_tests {
     fn standalone_events_flush_pending_in_order() {
         let out = merged(vec![
             FeedEvent::Content { delta: "a".into() },
-            FeedEvent::Usage { prompt: 1, completion: 2, total: 3 },
+            FeedEvent::Usage { prompt: 1, completion: 2, total: 3, stop_reason: None },
             FeedEvent::Content { delta: "b".into() },
             FeedEvent::ToolCallsFinished { calls: vec![] },
         ]);
         // Usage/ToolCalls между дельтами не переместились — порядок как на входе
         assert_eq!(out.len(), 4);
         assert!(matches!(out[0], FeedEvent::Content { ref delta } if delta == "a"));
-        assert!(matches!(out[1], FeedEvent::Usage { prompt: 1, completion: 2, total: 3 }));
+        assert!(matches!(out[1], FeedEvent::Usage { prompt: 1, completion: 2, total: 3, stop_reason: None }));
         assert!(matches!(out[2], FeedEvent::Content { ref delta } if delta == "b"));
         assert!(matches!(out[3], FeedEvent::ToolCallsFinished { .. }));
     }
@@ -803,7 +804,7 @@ fn emit_feed_event(
                 serde_json::json!({ "requestId": request_id, "thought": delta, "seq": next_feed_seq() }),
             )
             .map_err(|e| e.to_string()),
-        FeedEvent::Usage { prompt, completion, total } => app
+        FeedEvent::Usage { prompt, completion, total, stop_reason } => app
             .emit_to(
                 "main",
                 "chat-usage",
@@ -812,6 +813,7 @@ fn emit_feed_event(
                     "promptTokens": prompt,
                     "completionTokens": completion,
                     "totalTokens": total,
+                    "stopReason": stop_reason,
                     // Барьер: финальный факт сообщения — фронт обязан
                     // дренировать буфер дельт ДО обработки
                     "seq": next_feed_seq(),
@@ -886,7 +888,15 @@ pub struct StreamToolCall {
 pub enum FeedEvent {
     Content { delta: String },
     Thought { delta: String },
-    Usage { prompt: u64, completion: u64, total: u64 },
+    Usage {
+        prompt: u64,
+        completion: u64,
+        total: u64,
+        /// Причина остановки раунда (finish_reason/stop_reason провайдера):
+        /// "length"/"max_tokens" — ответ оборван лимитом вывода, фронт
+        /// делает авто-продолжение (волна G). None — оценка/старые пути
+        stop_reason: Option<String>,
+    },
     ToolCallsFinished { calls: Vec<StreamToolCall> },
     /// Закрытый thinking-блок Anthropic: текст + подпись (нужна для возврата
     /// блока в историю) + redacted-блоки. Эмитится один раз на сообщение.
@@ -1131,7 +1141,14 @@ impl StreamFeed for SseAccumulator {
         let mut events = Vec::new();
         // Usage — один раз на стрим (последнее увиденное значение)
         if let Some((prompt, completion, total)) = self.pending_usage.take() {
-            events.push(FeedEvent::Usage { prompt, completion, total });
+            events.push(FeedEvent::Usage {
+                prompt,
+                completion,
+                total,
+                // finish_reason финального чанка уже накоплен (1016): "length"
+                // — оборванный вывод, фронт делает авто-продолжение (волна G)
+                stop_reason: self.finish_reason.clone(),
+            });
         }
         // Страховка OpenAI-пути (у Anthropic она в его flush): соединение
         // оборвалось после вызовов, но до finish_reason — tool_calls не
@@ -1347,6 +1364,9 @@ pub struct AnthropicAccumulator {
     /// на каждое событие — поэтому эмитим ОДНО ToolCallsFinished со всеми
     /// вызовами на message_delta (контракт OpenAI-пути).
     pending_calls: Vec<StreamToolCall>,
+    /// Причина остановки раунда из message_delta ("end_turn"/"tool_use"/
+    /// "max_tokens") — доезжает до фронта в Usage (волна G)
+    stop_reason: Option<String>,
     /// thinking-блок текущего сообщения: текст (дублирует поток Thought —
     /// тот идёт на дисплей, этот — в историю) + подпись + redacted-блоки.
     /// Messages API требует вернуть блоки хода, завершившегося tool_use
@@ -1446,10 +1466,12 @@ impl StreamFeed for AnthropicAccumulator {
             }
             "message_delta" => {
                 let output = value["usage"]["output_tokens"].as_u64().unwrap_or(0);
+                self.stop_reason = value["delta"]["stop_reason"].as_str().map(String::from);
                 events.push(FeedEvent::Usage {
                     prompt: self.input_tokens,
                     completion: output,
                     total: self.input_tokens + output,
+                    stop_reason: self.stop_reason.clone(),
                 });
                 self.emit_thinking_block(&mut events);
                 if !self.pending_calls.is_empty() {
@@ -1521,10 +1543,29 @@ mod anthropic_tests {
         assert!(events
             .iter()
             .any(|e| matches!(e, FeedEvent::Content { delta } if delta == "Привет")));
-        // Финальный usage: prompt=120, completion=42
+        // Финальный usage: prompt=120, completion=42, stop_reason доезжает
         assert!(events.iter().any(
-            |e| matches!(e, FeedEvent::Usage { prompt: 120, completion: 42, total: 162 })
+            |e| matches!(e, FeedEvent::Usage { prompt: 120, completion: 42, total: 162, stop_reason: Some(r) } if r == "end_turn")
         ));
+    }
+
+    #[test]
+    fn anthropic_max_tokens_stop_reason_surfaces() {
+        // Волна G: обрыв по лимиту вывода доезжает до фронта как stop_reason
+        let mut acc = AnthropicAccumulator::default();
+        let events = feed_lines(
+            &mut acc,
+            &[
+                r#"{"type":"message_start","message":{"usage":{"input_tokens":100}}}"#,
+                r#"{"type":"content_block_start","index":0,"content_block":{"type":"text"}}"#,
+                r#"{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"обрыв"}}"#,
+                r#"{"type":"message_delta","delta":{"stop_reason":"max_tokens"},"usage":{"output_tokens":10}}"#,
+            ],
+        );
+        assert!(events.iter().any(|e| matches!(
+            e,
+            FeedEvent::Usage { completion: 10, stop_reason: Some(r), .. } if r == "max_tokens"
+        )));
     }
 
     #[test]
@@ -1705,7 +1746,7 @@ mod anthropic_tests {
         let usage: Vec<_> = events
             .iter()
             .filter_map(|e| match e {
-                FeedEvent::Usage { prompt, completion, total } => Some((*prompt, *completion, *total)),
+                FeedEvent::Usage { prompt, completion, total, .. } => Some((*prompt, *completion, *total)),
                 _ => None,
             })
             .collect();
@@ -2103,7 +2144,7 @@ mod tests {
         assert_eq!(text, "Привет");
         assert!(events.iter().any(|e| matches!(
             e,
-            FeedEvent::Usage { prompt: 10, completion: 3, total: 13 }
+            FeedEvent::Usage { prompt: 10, completion: 3, total: 13, .. }
         )));
     }
 
@@ -2124,7 +2165,7 @@ mod tests {
         let usage: Vec<_> = events
             .iter()
             .filter_map(|e| match e {
-                FeedEvent::Usage { prompt, completion, total } => Some((*prompt, *completion, *total)),
+                FeedEvent::Usage { prompt, completion, total, .. } => Some((*prompt, *completion, *total)),
                 _ => None,
             })
             .collect();

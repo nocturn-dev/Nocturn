@@ -291,6 +291,9 @@ export interface ChatUsage {
   prompt: number;
   completion: number;
   total: number;
+  /** Причина остановки раунда: "length"/"max_tokens" — ответ оборван лимитом
+   *  вывода (волна G: авто-продолжение). Нет у оценочных путей */
+  stopReason?: string;
 }
 
 /**
@@ -362,6 +365,7 @@ export async function chatStream(opts: {
           promptTokens: number;
           completionTokens: number;
           totalTokens: number;
+          stopReason?: string;
           barrier?: boolean;
           seq?: number;
         }>("chat-usage", (e) => {
@@ -372,6 +376,7 @@ export async function chatStream(opts: {
                 prompt: e.payload.promptTokens,
                 completion: e.payload.completionTokens,
                 total: e.payload.totalTokens,
+                stopReason: e.payload.stopReason,
               },
               e.payload.barrier,
               e.payload.seq,

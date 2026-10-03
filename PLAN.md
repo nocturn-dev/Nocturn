@@ -470,14 +470,61 @@ computer_screenshot. Всё неперечисленное (mcp__* до анно
 в истории = порядок вызовов, скриншот-сообщение одно и в конце; длинный прогон
 смешанных вызовов не теряет ни одного результата.
 
-### Волна G — Восстановление цикла + напоминания (S, 0.5–1 вечер)
-- [ ] Recovery после max_output_tokens/finish_reason=length: удержать ошибку,
-      авто-продолжение «продолжи с места обрыва, без recap», ≤3 попытки
-      (по образцу CC; эскалацию max_tokens — если провайдер позволяет).
-- [ ] Todo/plan-напоминание: активный план каждые K шагов (K=5) подмешивать
-      модели системным вложением — план сейчас живёт только в UI.
-- [ ] PreToolUse-хук с additionalContext в Plan-режиме не должен запускаться
-      до perm-решения — уже так (perm ДО хуков), регресс-тест закрепить.
+### Волна G — Восстановление цикла + напоминания (S, 0.5–1 вечер) — детальный план 03.10
+**Факты разведки:** `finish_reason`/`stop_reason` парсится адаптерами
+(chat.rs:1016 OpenAI, message_delta у Anthropic), но НЕ доходит до фронта:
+`FeedEvent::Usage {prompt, completion, total}` → emit `chat-usage` → ChatUsage
+без stop_reason. OpenAI эмитит usage один раз в flush (finish_reason уже
+известен), Anthropic — в message_delta. Обрыв по max_output_tokens сегодня =
+тихий финал: частичный текст в сессии, в history НЕ попадает (assistanto-push
+живёт только в tool_calls-ветке 1459).
+
+**G1 — surfacing stop_reason (rust + тип):**
+- `FeedEvent::Usage` + поле `stop_reason: Option<String>`; OpenAI flush —
+  `self.finish_reason.clone()`, Anthropic — новое поле аккумулятора из
+  `value["delta"]["stop_reason"]`; emit `chat-usage` — `"stopReason"` (7 точек
+  сборки/паттерна, тесты 758/765/1526 обновить, новые: length/max_tokens
+  доезжают); api.ts: ChatUsage + слушатель payload.
+**G2 — recovery в агентном цикле:** локальный `roundStopReason` (сброс на
+раунд, в onUsage `usage.stopReason ?? prev`); в узле `failed || !toolCalls ||
+len 0` до finalize: если `!failed && !aborted && stop ∈ {length, max_tokens} &&
+recoveryCount < 3` → в history: assistant(частичный streamedText) + user
+RECOVERY_PROMPT («continue EXACTLY where stopped, no recap» — EN, для модели),
+`continue` (шаг расходуется, ограничен MAX_STEPS). Частичный текст в чате
+остаётся как есть — продолжение придёт новой карточкой. Не-агентный
+одиночный стрим не трогается.
+**G3 — план-напоминание:** в цикле после autocompact-блока, `step % 5 === 0`:
+`session.plan` → history.push({role:"system", content:"[plan reminder…]\n- [x]
+title (status)…"}). Anthropic вынесет в поле system (его адаптер собирает
+system из любой позиции) — позиция не важна.
+**G4 — механический регресс-тест порядка гардалов (rust):** include_str!
+tooling.rs → позиция `perm::decide` раньше `hooks::run_event_with_abort`
+(стиль зеркального теста toolFilter.test.ts).
+
+### Волна D — Пробуждение фоном / task-notification (M, 1–1.5 вечера) — детальный план 03.10
+**Факты разведки:** bg-запуск — отсоединённый IIFE (2052-2190): по завершении
+патчит tool-сообщение сессии и `hEntry.content` локальной history (2176);
+`runFinished` (sendImpl) различает живой прогон и завершённый; движок
+однопрогонный, guard — activeRunRef. Уведомления-«пробуждения» CC реализованы
+как user-вложение следующего шага.
+**D1 — активный прогон:** `bgNotifications: string[]` в sendImpl; bg IIFE при
+`status === done && !wasCancelled` кладёт note (EN, для модели:
+`[Background subagent bg-N (role) completed. Report:\n…\n]`); цикл дренирует
+очередь на каждом шаге сразу после injectCorrections → history.push
+user-сообщение (модель «будится», UI не дублируется — отчёт уже виден в
+патчнутой tool-карточке).
+**D2 — авто-подхват простоя (вердикт владельца: ДА):** `wakeWithBgReport` на
+уровне хука: гарды — движок свободен (activeRunRef null), сессия жива/не
+архив/agentMode, счётчик авто-продолжений на сессию < 3 за жизнь процесса
+(анти-спираль «бг → прогон → бг», в памяти, снимается рестартом; тост при
+капе). Успех: тост «задача подхвачена» + handleSend(локализованный
+wake-промпт с отчётом, overrideTargetId = сессия bg-задачи) — видимое
+user-сообщение, честный UX. Локали ×4: sub.bgWaking, sub.bgWakeCapped,
+sub.bgWakePrompt.
+**Гарды:** rust — только G1 (Usage-вариант); D не трогает perm/бекенд вовсе;
+существующие тесты chat.rs обновляются механически (новое поле), поведение
+стримов не меняется; handleSend вызывается из wake с явным overrideTargetId —
+guard однопрогонности не обходится (проверка activeRunRef до вызова).
 
 ### Волна D — Пробуждение фоном / task-notification (M, 1–1.5 вечера)
 - [ ] Завершение фонового субагента: вместо только пассивного патча старого
