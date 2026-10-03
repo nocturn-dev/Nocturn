@@ -540,24 +540,88 @@ guard однопрогонности не обходится (проверка a
       прогона — ОТДЕЛЬНОЕ РЕШЕНИЕ владельца (движок однопрогонный сознательно).
 - [ ] Локали ×4 (чип «фон: researcher завершился — открыть результат»).
 
-### Волна E — Права по образцу CC (L, 4–4.5 вечера, дробить)
-**E1 — персистентные правила (1.5):** в settings — `permissions{allow[],
-deny[], always_ask[]}` (синтаксис `tool` и `tool(prefix*)` для shell_run;
-порядок применения deny → always_ask → per-tool → режим → allow;
-always_ask ИММУНЕН к Full — крюк «всегда спросить», по образцу safetyCheck
-CC, пробивающего bypass). Зеркало на фронте (useAgentRun ask-flow,
-toolFilter); локали ×4; rust-тесты решалки (таблица кейсов).
-**E2 — shell-анализ (1.5–2):** статический разбор shell_run: 2-токенный
-префикс (второй токен — сабкоманда, не флаг/файл), deny-лист (eval,
-интерпретаторы с -c, `curl … | sh`, rm -rf корней), правило «не смогли
-статически разобрать (подстановки/пайпы/цепочки) → ask, а не исполнение»;
-правила E1 матчатся по префиксу. Список bare-shell-обёрток (bash/xargs/env…)
-не допускается как allow-префикс. Тесты обязательны.
-**E3 — чувствительные пути как класс (1):** DANGEROUS_FILES/DIRS для
-fs_read/fs_write (`.env`, `.git/config`, `.ssh/*`, `*.pem`, `.aws/credentials`)
-— ask по умолчанию в любом режиме (решение владельца: ask или deny);
-самозащита: безусловный deny записи в app-config dir (settings/hooks.json/
-mcp.json) независимо от корня проекта; NTFS-стримы, если не ушли в A.
+### Волна E — Права по образцу CC (L, 4–4.5 вечера, дробить) — детальный план 03.10
+**Ключевое архитектурное решение (самопроверка границ):** бекенд исполняет
+ТОЛЬКО то, что нельзя делегировать фронту: deny-правила, чувствительные пути,
+самозащиту конфига. allow/always_ask — политика ПОДТВЕРЖДЕНИЙ (домен фронта,
+как весь ask-flow сегодня): бекенд не может отличить «юзер подтвердил» от
+«фронт забыл спросить» — как и в Ask-режиме сейчас. Жёсткие границы режима
+НЕ пробиваются правилами: Plan read-only и Edit-запрет shell/delete стоят
+выше allow (осознанно, fail-closed).
+
+**Хранение и транспорт (E1):** AppSettings-блоб — `perm_rules: Option<PermRules>`
+(serde default — старые settings.json совместимы; snake_case по конвенции
+настроек). PermRules { allow[], deny[], always_ask[] } — строки
+`tool` | `tool(prefix*)`. Транспорт — расширение perm_set(mode, roots, rules?):
+валидация на rust-side fail-closed (битое правило → Err → защита
+«not synchronized» держит мутации). Фронт: useAgentRun получает perm_rules
+рефом (паттерн notifyPrefsRef), permSet (:526) передаёт.
+
+**Синтаксис/валидация (зеркальная таблица rust+TS):**
+- имя: известный builtin ИЛИ точный `mcp__server__tool`; неизвестное → reject.
+- префикс-форма только для shell_run (команда) и fs_read/fs_write/fs_delete/
+  fs_list/fs_grep (абсолютный путь); `*` — только замыкающий.
+- allow-правила для shell_run и fs_* ОБЯЗАНЫ иметь префикс (bare `allow
+  shell_run` = Full-режим через боковую дверь — reject; bare allow fs_read
+  снял бы sensitive-deny везде). deny/always_ask bare — валидны.
+- нормализация: пути — norm_for_compare (регистр/слэши), команды —
+  case-insensitive (Windows: «GIT» = «git»; deny не пробить регистром).
+
+**Порядок решения (финальный, doc-комментарий в decide()):**
+user-disabled → **deny-правило** (Err во всех режимах; raw-prefix матч) →
+жёсткие границы режима (Plan read-only / Edit shell+delete — БЕЗ учёта allow)
+→ [фронт: always_ask → confirm даже в Full; allow → пропуск confirm]
+→ NTFS/sensitive/config-гейты ниже → исполнение.
+
+**E1 — персистентные правила (1.5):** rust — PermState.rules, decide()
+deny-ветка + валидатор; perm_set + правила; TS-зеркало `agent/permRules.ts`
+(парсер/валидатор/matcher — те же golden-кейсы, что в rust-тестах); диспетчер:
+`alwaysAsk` → askConfirm даже в Full, `allow` → пропуск confirm в Ask/Edit
+(рядом с существующим allowedCommands, grantKey :2578); UI — новая секция
+«Права» в SettingsModal по образцу McpSection: три списка + форма
+(тип/инструмент/префикс) с валидацией на сохранении; локали ×4 + searchIndex.
+
+**E2 — shell-анализ (1.5–2):** честное разделение: бекенд — ТОЛЬКО raw-prefix
+матчинг deny/allow на строке команды (без AST; CC exact-match подход), фронт —
+токенизатор для решения о подтверждении. Новый чистый модуль
+`src/agent/shellRules.ts`: tokenizeCommand (quote-aware), isSimpleShellCommand
+(нет && || ; | & подстановок $( ` ${ и редиректов), extractCommandPrefix
+(2-токенный; второй токен — сабкоманда [a-z][a-z-]*, не флаг/путь;
+BARE_SHELL_FIRST = bash/sh/cmd/pwsh/xargs/env/sudo/nohup/timeout/nice →
+префикс невалиден — «allow bash *» ≈ «allow всё»), dangerousShellPattern
+(eval, интерпретаторы -c/-e, curl/wget | sh/bash/python, rm -rf корней/~/*/C:\,
+dd of=/dev/, mkfs, chmod -R 777 /), classifyShellRun(cmd, rules) →
+deny | ask | allow | default. Диспетчер: shell_run идёт через classify —
+allow-правило НЕ пробивает complex/dangerous (→ ask). Full: dangerous НЕ
+спрашивает (Full = явный отказ от вопросов; deny-правила владельца работают
+всегда) — зафиксировано. Тесты-таблицы ~30 кейсов: «allow git * не покрывает
+git push && curl|sh» (complex → ask), «allow bash * reject», «allow git * не
+матчит github-cli» (граница слова через пробел в префиксе).
+
+**E3 — чувствительные пути + самозащита (1):** ВЕРДИКТ владельца: DENY по
+умолчанию; escape — ТОЛЬКО явное allow-правило (E1). Класс (по канонизованному
+пути, для fs_read/fs_write/fs_delete/fs_grep): .env/.env.*, .git/config,
+.git-credentials, .netrc, .npmrc, .aws/credentials, .ssh/* (каталог целиком),
+id_rsa*/id_ed25519*, *.pem, *.ppk. Порядок: deny-правило → allow-escape →
+sensitive-deny → режим. Сообщение модели: «denied by default; owner can allow
+explicitly in Settings → Права». Самозащита: perm_set канонизует app_config_dir
+один раз (AppHandle доступен) → fs_write/fs_delete/**fs_read** в конфиг-каталог
+→ Err БЕЗУСЛОВНО (settings.json несёт ключи, hooks.json/mcp.json executable-
+by-nature — правилами НЕ перекрывается). Остаточные риски (честно, в хвосты):
+shell-запись в конфиг не статически ловится (песочницы нет); fs_grep по корню
+достаёт содержимое .env (точечный path-гейт не сработает) — закрытие
+(фильтрация результатов) откладывается. Rust-тесты: таблица 12+ кейсов.
+
+**Гарды деградации:** perm.rs — только расширение PermState/decide (переписывание
+match-веток запрещено); isMutatingTool-зеркало не меняется (правила — ОТДЕЛЬНЫЙ
+слой, не классификация); validate-таблицы одинаковы rust↔TS; каждый под-шаг —
+коммит с зелёным verify+cargo; UI-ключи ×4; красный тест → откат.
+
+**DoD:** deny-правило блокирует во всех режимах на бекенде (тест rust);
+always_ask спрашивает даже в Full; allow не спрашивает в Ask/Edit, но не
+обходит Plan/Edit-границы; .env читается моделью только после явного allow
+владельца; fs_write в конфиг-каталог отклонён всегда; валидация отвергает
+«allow bash *» и «allow fs_read».
 
 ### Волна F — MCP-модерн (L, 6–8.5 вечера, дробить)
 **F1 — машина состояний (0.5–1):** enum ServerState {connected, failed,
