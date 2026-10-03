@@ -43,6 +43,15 @@ describe("matchBrand", () => {
     expect(matchBrand("claude-3-7-sonnet")?.slug).toBe("anthropic");
   });
 
+  it("бесслэшные anthropic-имена без префикса claude- (opus/sonnet/haiku)", () => {
+    // Провайдеры отдают Claude-модели голыми именами — раньше была буква
+    expect(matchBrand("sonnet")?.slug).toBe("anthropic");
+    expect(matchBrand("opus")?.slug).toBe("anthropic");
+    expect(matchBrand("haiku")?.slug).toBe("anthropic");
+    // sonar (Perplexity) не конфликтует с sonnet
+    expect(matchBrand("sonar-pro")?.key).toBe("perplexity");
+  });
+
   it("порядок паттернов: gemini раньше gemma, но обе — Google", () => {
     expect(matchBrand("gemini-2.5-pro")?.name).toBe("Google");
     expect(matchBrand("gemma-3-27b")?.name).toBe("Gemma");
