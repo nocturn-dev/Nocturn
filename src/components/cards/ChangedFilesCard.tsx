@@ -8,6 +8,7 @@ import { DiffView } from "./DiffView";
 import { ChevronDownIcon, ToolIcon } from "./icons";
 import ContextMenu, { type MenuItem } from "../ContextMenu";
 import { memo, useMemo, useState } from "react";
+import { ArrowUpRightIcon, UndoIcon } from "./icons";
 
 /** Абсолютный путь для «Копировать путь»: путь от fs_write может быть
  *  относительным (корень проекта) — склейка по платформе */
@@ -126,7 +127,7 @@ function ChangedFilesCardBase({
             }}
             className="ml-auto flex shrink-0 items-center gap-1 rounded-md border border-halo-line px-2 py-0.5 text-[0.625rem] text-halo-muted transition-colors hover:border-halo-accent/50 hover:text-halo-text"
           >
-            Review ↗
+            Review <ArrowUpRightIcon />
           </button>
         )}
         <span className={`text-halo-muted ${onReview ? "" : "ml-auto"}`}>
@@ -224,7 +225,7 @@ function ChangedFilesCardBase({
                   )}
                   {isUndone ? (
                     <span className="shrink-0 text-[0.625rem] text-halo-muted/70">
-                      ↩ {t("agent.undone")}
+                      <UndoIcon /> {t("agent.undone")}
                     </span>
                   ) : (
                     canUndo && (
@@ -233,7 +234,7 @@ function ChangedFilesCardBase({
                         title={t("agent.undo")}
                         className="shrink-0 rounded-md p-1 text-[0.6875rem] text-halo-muted transition-colors hover:bg-halo-hover hover:text-halo-text"
                       >
-                        ↩
+                        <UndoIcon />
                       </button>
                     )
                   )}

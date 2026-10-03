@@ -929,6 +929,24 @@ html.light.inline-code-claude .markdown code:not(pre code) {
 }
 .nok {
   cursor: pointer;
+  /* Полёт между позами: насест (левый угол) ↔ работа (за левым краем
+     композера, рядом с полем ввода) ↔ обиженный уход за экран */
+  transition:
+    transform calc(0.55s * var(--motion-scale)) var(--ease-standard),
+    opacity calc(0.55s * var(--motion-scale)) ease;
+}
+/* Работа: уехал за левую границу шелла, завис рядом с полем ввода,
+   слегка наклонился «в работу» */
+.nok-streaming,
+.nok-thinking {
+  transform: translate(-34px, 30px) rotate(-6deg);
+}
+/* Обиженный уход: растворяется за экраном, pointer-events выключены —
+   вернётся по таймеру (класс держит трансформ, не анмаунт) */
+.nok-storm {
+  transform: translate(-46px, -12px) scale(0.8);
+  opacity: 0;
+  pointer-events: none;
 }
 .nok-body {
   animation: nok-bob calc(3.2s * var(--motion-scale)) ease-in-out infinite;

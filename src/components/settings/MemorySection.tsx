@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useLang } from "../../locales";
 import { memoryAdd, memoryClear, memoryDelete, memoryList, type MemoryFact } from "../../api";
+import { XSmallIcon } from "../cards/icons";
 
 export function MemorySection({
   enabled,
@@ -125,7 +126,7 @@ export function MemorySection({
                   title={t("memory.forgetOne")}
                   className="shrink-0 rounded-md px-1 text-halo-muted/60 opacity-0 group-hover:opacity-100 hover:text-red-400"
                 >
-                  ✕
+                  <XSmallIcon />
                 </button>
               </li>
             ))}

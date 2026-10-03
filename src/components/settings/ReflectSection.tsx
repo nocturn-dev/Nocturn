@@ -7,6 +7,7 @@ import { copyText } from "../../clipboard";
 import UsageSection from "../UsageSection";
 import { dayKeyLocal } from "../../time";
 import { buildReflect, buildReflectPrompt } from "../../reflect";
+import { CheckIcon } from "../cards/icons";
 
 /** Короткий формат токенов: как в «Статистике» (там не экспортируется) */
 function fmtTokens(n: number): string {
@@ -215,7 +216,7 @@ export function ReflectSection({
                     : "border-halo-line text-halo-muted hover:text-halo-text"
                 }`}
               >
-                {copied ? `✓ ${t("reflect.copied")}` : t("reflect.copy")}
+                {copied ? (<><CheckIcon /> {t("reflect.copied")}</>) : t("reflect.copy")}
               </button>
               <button
                 onClick={() => void saveNote()}
@@ -225,7 +226,7 @@ export function ReflectSection({
                     : "border-halo-line text-halo-muted hover:text-halo-text"
                 }`}
               >
-                {saved ? `✓ ${t("reflect.savedNote")}` : t("reflect.saveNote")}
+                {saved ? (<><CheckIcon /> {t("reflect.savedNote")}</>) : t("reflect.saveNote")}
               </button>
             </>
           )}

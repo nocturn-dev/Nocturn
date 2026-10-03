@@ -1,6 +1,7 @@
 import { useLang } from "../../locales";
 import { ChevronDownIcon } from "./icons";
 import { useState } from "react";
+import { WarnIcon } from "./icons";
 
 export function ErrorNote({ title, raw }: { title: string; raw: string }) {
   const { t } = useLang();
@@ -11,7 +12,7 @@ export function ErrorNote({ title, raw }: { title: string; raw: string }) {
         onClick={() => setOpen((v) => !v)}
         className="flex w-full items-center gap-2 text-left"
       >
-        <span className="shrink-0 text-amber-400">⚠</span>
+        <span className="shrink-0 text-amber-400"><WarnIcon /></span>
         <span className="flex-1 text-xs leading-relaxed text-halo-text">
           {title}
         </span>

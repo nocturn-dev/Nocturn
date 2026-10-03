@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useLang } from "../../locales";
 import { BrowserConfig, invalidateToolSchemas, browserGetConfig, browserSetConfig } from "../../api";
 import { ToggleRow } from "./parts";
+import { CheckIcon } from "../cards/icons";
 
 export function BrowserUseSection() {
   const { t } = useLang();
@@ -80,7 +81,7 @@ export function BrowserUseSection() {
                   onClick={() => void apply(cfg)}
                   className="shrink-0 rounded-lg border border-halo-line px-3 py-2 text-xs text-halo-text transition-colors hover:border-halo-accent/50 hover:bg-halo-hover"
                 >
-                  {saved ? "✓" : t("bu.save")}
+                  {saved ? <CheckIcon /> : t("bu.save")}
                 </button>
               </div>
             </div>

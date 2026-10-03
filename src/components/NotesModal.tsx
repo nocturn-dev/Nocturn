@@ -7,6 +7,7 @@ import { buildBacklinks, extractLinks, resolveLinks } from "../vault";
 import { useLang } from "../locales";
 import { MarkdownLink } from "./cards/MarkdownLink";
 import { STATUS_INFO, STATUS_OK, STATUS_WARN, STATUS_WARN_DIM } from "../statusColors";
+import { ChainIcon } from "./cards/icons";
 
 /**
  * Редактор заметки (M-N1): markdown с превью, вставка [[ссылок]],
@@ -128,7 +129,7 @@ export default function NotesModal({
             title={t("notes.runChain")}
             className="rounded-md px-2 py-1 text-xs text-halo-muted transition-colors hover:bg-halo-hover hover:text-halo-accent"
           >
-            ⛓ {t("notes.runChain")}
+            <ChainIcon /> {t("notes.runChain")}
           </button>
           <button
             onClick={() => {

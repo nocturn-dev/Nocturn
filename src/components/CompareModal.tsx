@@ -27,6 +27,7 @@ import {
 import { useLang } from "../locales";
 import ProviderIcon, { shortModelName } from "./ProviderIcon";
 import { MarkdownLink } from "./cards/MarkdownLink";
+import { CheckIcon, PlayIcon, XSmallIcon } from "./cards/icons";
 
 interface CompareModalProps {
   open: boolean;
@@ -289,7 +290,7 @@ export default function CompareModal({ open, onClose, profiles, current }: Compa
             title={t("common.close")}
             className="rounded-md p-1.5 text-halo-muted transition-colors hover:bg-halo-hover hover:text-halo-text"
           >
-            ✕
+            <XSmallIcon />
           </button>
         </div>
         <p className="mb-4 text-xs leading-relaxed text-halo-muted">{t("cmp.hint")}</p>
@@ -356,7 +357,7 @@ export default function CompareModal({ open, onClose, profiles, current }: Compa
               disabled={selected.length === 0 || prompt.trim() === ""}
               className="rounded-lg bg-halo-accent px-3 py-1.5 text-xs font-medium text-halo-on-accent transition-colors hover:bg-halo-accent-deep disabled:cursor-not-allowed disabled:opacity-40"
             >
-              ▶ {t("cmp.run")}
+              <PlayIcon /> {t("cmp.run")}
             </button>
           )}
           {selected.length === 0 && (
@@ -389,9 +390,9 @@ export default function CompareModal({ open, onClose, profiles, current }: Compa
                         {lane.running ? (
                           <span className="typing-dot size-1.5 rounded-full bg-halo-accent" />
                         ) : lane.error ? (
-                          <span className="text-xs text-red-400">✕</span>
+                          <span className="text-red-400"><XSmallIcon /></span>
                         ) : (
-                          <span className="text-xs text-emerald-400">✓</span>
+                          <span className="text-emerald-400"><CheckIcon /></span>
                         )}
                       </span>
                     </div>

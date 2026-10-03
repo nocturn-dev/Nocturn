@@ -22,7 +22,7 @@ import {
   ytToggle,
   type YtTrack,
 } from "../yt/ytPlayer";
-import { NextTrackIcon, PauseIcon, PlayIcon, PrevTrackIcon } from "./cards/icons";
+import { NextTrackIcon, PauseIcon, PlayIcon, PrevTrackIcon, XSmallIcon } from "./cards/icons";
 
 function mmss(secs: number): string {
   const s = Math.max(0, Math.floor(secs));
@@ -427,7 +427,7 @@ export function YouTubeLayer({
                       className="shrink-0 rounded p-0.5 opacity-0 transition-opacity group-hover:opacity-100 hover:text-halo-text"
                       title={t("media.ytRemove")}
                     >
-                      ✕
+                      <XSmallIcon />
                     </button>
                   </div>
                 ))}

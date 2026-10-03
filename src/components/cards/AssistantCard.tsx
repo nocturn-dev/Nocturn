@@ -27,6 +27,7 @@ import ProviderIcon from "../ProviderIcon";
 import ReactMarkdown from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
 import remarkGfm from "remark-gfm";
+import { PlayIcon, SaveIcon } from "./icons";
 
 // Плагины markdown — константы уровня модуля: новые массивы на каждый
 // рендер ломали внутренние сравнения ReactMarkdown
@@ -117,7 +118,7 @@ export function CodeBlock({
             title={t("cp.preview")}
             className="rounded-md border border-halo-line bg-halo-deep/80 px-1.5 py-0.5 text-[0.625rem] text-halo-muted transition-colors hover:text-halo-text"
           >
-            ▶
+            <PlayIcon />
           </button>
         )}
         <button
@@ -125,14 +126,14 @@ export function CodeBlock({
           title={t("cp.copy")}
           className="rounded-md border border-halo-line bg-halo-deep/80 px-1.5 py-0.5 text-[0.625rem] text-halo-muted transition-colors hover:text-halo-text"
         >
-          {copied ? "✓" : "📋"}
+          {copied ? <CheckIcon /> : <CopyIcon />}
         </button>
         <button
           onClick={apply}
           title={t("cp.apply")}
           className="rounded-md border border-halo-line bg-halo-deep/80 px-1.5 py-0.5 text-[0.625rem] text-halo-muted transition-colors hover:text-halo-text"
         >
-          {applied ? "✓" : "💾"}
+          {applied ? <CheckIcon /> : <SaveIcon />}
         </button>
       </div>
       <pre ref={preRef}>{children}</pre>

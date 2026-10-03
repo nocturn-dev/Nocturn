@@ -13,6 +13,7 @@ import type { Session } from "../../types";
 import { quickentryComboFromEvent, prettyQuickentryCombo } from "../../shortcuts";
 import { Dropdown, LangSwitch, Row, ToggleRow } from "./parts";
 import { isWindows } from "../../platform";
+import { XSmallIcon } from "../cards/icons";
 
 export function HardLimitSection({
   limits,
@@ -176,6 +177,8 @@ export function MainSection({
   onSettingsLargeChange,
   browserPanel,
   onBrowserPanelChange,
+  mascot,
+  onMascotChange,
   limits,
   onLimitsChange,
   onImportSessions,
@@ -237,6 +240,9 @@ export function MainSection({
   /** Автооткрытие панели живого просмотра браузера агента */
   browserPanel: boolean;
   onBrowserPanelChange: (v: boolean) => void;
+  /** Маскот Нок у композера (PLAN.md §21) */
+  mascot: boolean;
+  onMascotChange: (v: boolean) => void;
   /** Hard Limit: лимиты расхода на задачу (токены/$) */
   limits: HardLimits;
   onLimitsChange: (l: HardLimits) => void;
@@ -491,6 +497,13 @@ export function MainSection({
         desc={t("main.settingsLargeDesc")}
         on={settingsLarge}
         onChange={onSettingsLargeChange}
+      />
+      {/* Маскот — здесь, а не в Кастомизации (фидбек владельца: долго искать) */}
+      <ToggleRow
+        label={t("mascot.title")}
+        desc={t("mascot.desc")}
+        on={mascot}
+        onChange={onMascotChange}
       />
       <ToggleRow
         label={t("main.sidebarSide")}
@@ -821,7 +834,7 @@ export function MainSection({
               title={t("main.notifyCustomClear")}
               className="rounded-md px-1.5 py-1 text-xs text-halo-muted transition-colors hover:text-red-400"
             >
-              ✕
+              <XSmallIcon />
             </button>
           )}
         </div>

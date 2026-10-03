@@ -9,6 +9,7 @@
  */
 
 import { Component, type ReactNode } from "react";
+import { WarnIcon } from "./cards/icons";
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -42,7 +43,7 @@ export class ErrorBoundary extends Component<
     if (this.state.error) {
       return (
         <div className="anim-fade-up mr-auto w-fit max-w-[85%] rounded-xl border border-red-400/30 bg-red-400/10 px-4 py-3 text-xs text-red-300">
-          <p className="font-medium">⚠ {this.props.title}</p>
+          <p className="flex items-center gap-1.5 font-medium"><WarnIcon /> {this.props.title}</p>
           <p className="mt-1 max-w-md break-words opacity-80">
             {String(this.state.error.message ?? this.state.error)}
           </p>

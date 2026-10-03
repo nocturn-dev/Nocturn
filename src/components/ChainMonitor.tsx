@@ -3,6 +3,7 @@ import type { Note } from "../vault";
 import { extractLinks } from "../vault";
 import { useLang } from "../locales";
 import { STATUS_OK } from "../statusColors";
+import { ChainIcon } from "./cards/icons";
 
 /**
  * Монитор цепочки (M-N3.5): сплит — слева шаги со статусами,
@@ -117,7 +118,7 @@ export default function ChainMonitor({ chain, onClose }: ChainMonitorProps) {
       >
         {/* Шапка */}
         <div className="flex shrink-0 items-center gap-2 border-b border-halo-line px-4 py-2.5">
-          <span className="text-halo-accent">⛓</span>
+          <span className="text-halo-accent"><ChainIcon /></span>
           <h2 className="flex-1 text-sm font-semibold text-halo-text">
             {t("chain.title")}
           </h2>

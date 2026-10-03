@@ -676,7 +676,7 @@ export function useAgentRun(deps: AgentRunDeps) {
           const msg: Message = {
             id: uid(),
             role: "assistant",
-            content: `⛔ ${t("hook.blockedSend")}\n\n${blocked.reason}`.trim(),
+            content: `${t("hook.blockedSend")}\n\n${blocked.reason}`.trim(),
           };
         setSessions((prev) =>
           prev.map((s) =>

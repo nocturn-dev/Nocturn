@@ -13,7 +13,7 @@ import {
 } from "../../api";
 import { ytPlayUrl, ytSetOpen } from "../../yt/ytPlayer";
 import type { MediaPrefs } from "../../mediaPrefs";
-import { SpotifyIcon, YouTubeIcon } from "../cards/icons";
+import { ArrowUpRightIcon, CheckIcon, PauseIcon, PlayIcon, SpotifyIcon, YouTubeIcon } from "../cards/icons";
 import { Row, ToggleRow } from "./parts";
 
 /**
@@ -259,7 +259,7 @@ export function IntegrationsSection({
         {t("media.live")}{" "}
         {live?.title ? (
           <span className="text-halo-text">
-            {live.playing ? "▶ " : "⏸ "}
+            <span className="inline-flex align-middle">{live.playing ? <PlayIcon /> : <PauseIcon />}</span>
             {live.title}
             {live.artist ? ` — ${live.artist}` : ""}
             {live.source ? (
@@ -282,7 +282,7 @@ export function IntegrationsSection({
               className="text-[0.6875rem] text-halo-muted transition-colors hover:text-halo-text"
               title={t("media.ytOpenPlayer")}
             >
-              ↗
+              <ArrowUpRightIcon />
             </button>
           </div>
           <div className="flex items-center gap-2 px-2">
@@ -547,7 +547,7 @@ export function IntegrationsSection({
           )}
           <p className="px-2 pt-1.5 text-[0.625rem] text-halo-muted">
             {tgStatus?.bound ? (
-              <span className="text-emerald-400">✓ {t("tg.bound")}</span>
+              <span className="inline-flex items-center gap-1 text-emerald-400"><CheckIcon /> {t("tg.bound")}</span>
             ) : tgOn ? (
               t("tg.notBound")
             ) : (

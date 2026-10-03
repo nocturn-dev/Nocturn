@@ -19,6 +19,7 @@ import {
 import { keepAwake } from "../api";
 import { useLang, type MsgKey } from "../locales";
 import { isWindows } from "../platform";
+import { XSmallIcon } from "./cards/icons";
 import {
   addOffPeakTask,
   loadOffPeak,
@@ -183,7 +184,7 @@ export default function AutomationsModal({
             title={t("common.close")}
             className="rounded-md p-1.5 text-halo-muted transition-colors hover:bg-halo-hover hover:text-halo-text"
           >
-            ✕
+            <XSmallIcon />
           </button>
         </div>
         <p className="mb-6 text-sm text-halo-muted/80">{t("auto.subtitle")}</p>
@@ -285,7 +286,7 @@ export default function AutomationsModal({
                       title={t("menu.delete")}
                       className="rounded p-1 text-halo-muted opacity-0 transition group-hover:opacity-100 hover:text-red-400"
                     >
-                      ✕
+                      <XSmallIcon />
                     </button>
                   </div>
                   {/* Раскрывная история последних запусков */}
@@ -491,7 +492,7 @@ export default function AutomationsModal({
                   title={t("offpeak.delete")}
                   className="shrink-0 rounded p-1 text-halo-muted transition-colors hover:text-halo-text"
                 >
-                  ✕
+                  <XSmallIcon />
                 </button>
               </div>
             ))}
