@@ -900,6 +900,7 @@ export const ru = {
     "kb.attached": "Привязано к чату ✓",
     "kb.chunksLabel": "фрагм.",
     "kb.contextBlock": "Релевантные фрагменты из базы знаний (локальный поиск по документам):",
+    "kb.queryFailed": "База знаний недоступна — поиск по документам пропущен (подробности в консоли)",
     "kb.needChat": "Открой чат, чтобы привязать базу",
     "import.externalTitle": "Импорт истории из ChatGPT / Gemini",
     "import.externalHint": "Выбери conversations.json из экспорта ChatGPT или JSON-файл диалогов из Gemini Takeout — диалоги появятся в списке задач, ничего не перезаписывается.",

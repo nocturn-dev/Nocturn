@@ -185,6 +185,9 @@ export function useAgentRun(deps: AgentRunDeps) {
   useEffect(() => {
     queuedMsgsRef.current = queuedMsgs;
   }, [queuedMsgs]);
+  // Волна KB-H2: базы знаний, чей сбой уже озвучен тостом (один раз на базу
+  // за жизнь процесса — шторм тостов на каждую отправку не нужен)
+  const kbWarnedRef = useRef(new Set<string>());
   // Корректирующие запросы агента: текст, отправленный пользователем ВО ВРЕМЯ
   // работы агента (не прерывая её) — requestId → список поправок. Реф-зеркало
   // нужно, чтобы агентный цикл читал поправки синхронно между шагами
@@ -1142,7 +1145,20 @@ export function useAgentRun(deps: AgentRunDeps) {
     // документам (kb.rs, SQLite в appdata) подмешивает релевантные фрагменты
     // в контекст. Файлы никуда не уходят — модели едет только выжимка
     if (current?.kbId && text.trim() !== "") {
-      const hits = await kbQuery(current.kbId, text, 6).catch(() => []);
+      // Холдер: TS не сужает current.kbId внутри колбэка catch
+      const kbId: string = current.kbId;
+      // Волна KB-H2: раньше сбои поиска глотались молча (.catch(() => [])) —
+      // битая/занятая база означала чат без контекста документов и без
+      // единого сигнала. Теперь: диагностика в консоль всегда, тост один
+      // раз на базу; пустые хиты (нет совпадений) — не сбой
+      const hits = await kbQuery(kbId, text, 6).catch((e) => {
+        console.warn(`kb_query failed for "${kbId}":`, e);
+        if (!kbWarnedRef.current.has(kbId)) {
+          kbWarnedRef.current.add(kbId);
+          addToast(t("kb.queryFailed"));
+        }
+        return [];
+      });
       if (hits.length > 0) {
         const block = hits
           .map((h, i) => `[${i + 1}] ${h.docTitle}\n${h.text}`)

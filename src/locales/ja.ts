@@ -914,6 +914,7 @@ export const ja = {
     "kb.attached": "チャットに紐付け済み ✓",
     "kb.chunksLabel": "断片",
     "kb.contextBlock": "ナレッジベースの関連フラグメント（ローカル文書検索）：",
+    "kb.queryFailed": "ナレッジベースにアクセスできません — 文書検索をスキップしました（詳細はコンソール）",
     "kb.needChat": "紐付けるにはチャットを開いてください",
     "import.externalTitle": "ChatGPT / Gemini から履歴をインポート",
     "import.externalHint": "ChatGPT のエクスポート conversations.json か Gemini Takeout の会話 JSON を選択——会話がタスクリストに追加され、既存は上書きされません。",
