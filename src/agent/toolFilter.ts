@@ -45,3 +45,33 @@ export function isMutatingTool(name: string): boolean {
     (name.startsWith("computer_") && name !== "computer_screenshot")
   );
 }
+
+/**
+ * Допустим ли инструмент к ПАРАЛЛЕЛЬНОМУ исполнению в батче (волна C):
+ * подряд идущие safe-вызовы гоняются Promise.all с капом, остальные —
+ * строго последовательно. Белый список заведомо чистых чтений; всё
+ * неперечисленное параллелится по умолчанию НЕЛЬЗЯ:
+ *  - mcp__* — неизвестные побочные эффекты до аннотаций readOnlyHint (F1);
+ *  - code_run — Pyodide-воркер один, сериализация не гарантирована;
+ *  - shell_run — даже «читающие» команды могут менять состояние;
+ *  - browser_snapshot — read-only по смыслу, но в зеркалах perm.rs
+ *    классифицирован МУТИРУЮЩИМ (ask-гейт), батч не должен его обходить.
+ * Инвариант стыка (закреплён тестом): isConcurrencySafe(n) ⇒ !isMutatingTool(n)
+ * — параллель никогда не обходит подтверждения. browser_read/screenshot
+ * безопасны и в батче: CDP-сокет за Mutex (browser.rs) — бекенд сам
+ * сериализует, вызовы просто выстраиваются в очередь.
+ */
+export function isConcurrencySafe(name: string): boolean {
+  return (
+    name === "fs_read" ||
+    name === "fs_list" ||
+    name === "fs_grep" ||
+    name === "vault_read" ||
+    name === "vault_search" ||
+    name === "memory_recall" ||
+    name === "web_search" ||
+    name === "browser_read" ||
+    name === "browser_screenshot" ||
+    name === "computer_screenshot"
+  );
+}
