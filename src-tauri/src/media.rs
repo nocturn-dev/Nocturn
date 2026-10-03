@@ -993,32 +993,18 @@ mod lyrics {
         .await
         .map_err(|_| "lrclib request timed out after 15s".to_string())??;
 
-        // Выбор лучшего: при известной длительности — совпадение ±2с,
-        // иначе ближайший; сначала с синхронизированным текстом
+        // Выбор записи — чистая функция pick_lyrics ниже: известная
+        // длительность — ближайшая по ней (аудит-регресс: раньше при
+        // неизвестной длительности unwrap_or(0) делал «лучшей» самую
+        // короткую запись); неизвестная — нейтрально, первый подходящий
+        // в порядке релевантности lrclib
         let empty = Vec::new();
         let arr = items.as_array().unwrap_or(&empty);
-        let pick = |synced_wanted: bool| -> Option<serde_json::Value> {
-            arr.iter()
-                .filter(|it| {
-                    let field = if synced_wanted {
-                        "syncedLyrics"
-                    } else {
-                        "plainLyrics"
-                    };
-                    it.get(field)
-                        .and_then(|v| v.as_str())
-                        .is_some_and(|s| !s.is_empty())
-                })
-                .min_by_key(|it| {
-                    let d = it.get("duration").and_then(|v| v.as_f64()).unwrap_or(0.0);
-                    (d - duration_secs.unwrap_or(0) as f64).abs() as i64
-                })
-                .cloned()
-        };
-        let synced =
-            pick(true).and_then(|it| it.get("syncedLyrics").and_then(|v| v.as_str()).map(String::from));
-        let plain =
-            pick(false).and_then(|it| it.get("plainLyrics").and_then(|v| v.as_str()).map(String::from));
+        let target = duration_secs.map(|s| s as f64);
+        let synced = pick_lyrics(arr, target, "syncedLyrics")
+            .and_then(|it| it.get("syncedLyrics").and_then(|v| v.as_str()).map(String::from));
+        let plain = pick_lyrics(arr, target, "plainLyrics")
+            .and_then(|it| it.get("plainLyrics").and_then(|v| v.as_str()).map(String::from));
         let dto = LyricsDto {
             plain,
             synced,
@@ -1033,5 +1019,107 @@ mod lyrics {
             map.insert(key, dto.clone());
         }
         Ok(dto)
+    }
+
+    /// Выбор записи лирики из ответа lrclib. ЧИСТАЯ функция — золотые тесты
+    /// ниже. Счёт: (0, |d − target|) у записей с длительностью при известной
+    /// цели; всё прочее (цели нет / у записи нет длительности) — нейтральный
+    /// ранг 1 в порядке ответа lrclib: раньше `unwrap_or(0)` в min_by_key
+    /// вырождал выбор в «взять запись с минимальным duration» (аудит А2-5)
+    fn pick_lyrics<'a>(
+        items: &'a [serde_json::Value],
+        duration_secs: Option<f64>,
+        field: &str,
+    ) -> Option<&'a serde_json::Value> {
+        let mut best: Option<(u8, f64, usize)> = None;
+        for (i, it) in items.iter().enumerate() {
+            let Some(s) = it.get(field).and_then(|v| v.as_str()) else {
+                continue;
+            };
+            if s.is_empty() {
+                continue;
+            }
+            let d = it.get("duration").and_then(|v| v.as_f64());
+            let rank = match (duration_secs, d) {
+                (Some(t), Some(d)) => (0u8, (d - t).abs()),
+                // Известная цель, у записи длительности нет: не соревнуется
+                // по счёту — идёт после всех записей с длительностью
+                (Some(_), None) => (1, 0.0),
+                // Цели нет: сверка длительности бессмысленна
+                (None, _) => (1, 0.0),
+            };
+            let better = match best {
+                None => true,
+                Some((r, s, _)) => rank.0 < r || (rank.0 == r && rank.1 < s),
+            };
+            if better {
+                best = Some((rank.0, rank.1, i));
+            }
+        }
+        best.map(|(_, _, i)| &items[i])
+    }
+
+    #[cfg(test)]
+    mod pick_tests {
+        use super::pick_lyrics;
+
+        /// Золотой вектор: известная длительность — ближайшая по ней
+        #[test]
+        fn prefers_closest_duration_when_known() {
+            let items = vec![
+                serde_json::json!({"duration": 210.0, "syncedLyrics": "A"}),
+                serde_json::json!({"duration": 195.0, "syncedLyrics": "B"}),
+                serde_json::json!({"duration": 240.0, "syncedLyrics": "C"}),
+            ];
+            let got = pick_lyrics(&items, Some(196.0), "syncedLyrics").unwrap();
+            assert_eq!(got.get("syncedLyrics").unwrap(), "B");
+        }
+
+        /// Аудит-регресс А2-5: раньше |d − 0| делал «лучшей» самую короткую
+        /// запись трека с неизвестной длительностью (радио/поток). Теперь —
+        /// первый подходящий в порядке релевантности lrclib
+        #[test]
+        fn neutral_when_duration_unknown() {
+            let items = vec![
+                serde_json::json!({"duration": 214.0, "syncedLyrics": "REAL"}),
+                serde_json::json!({"duration": 31.0, "syncedLyrics": "SHORT"}),
+            ];
+            let got = pick_lyrics(&items, None, "syncedLyrics").unwrap();
+            assert_eq!(
+                got.get("syncedLyrics").unwrap(),
+                "REAL",
+                "длительность не переупорядочивает выбор"
+            );
+        }
+
+        /// При известной цели записи без длительности не выигрывают счётом
+        #[test]
+        fn prefers_records_with_duration_when_known() {
+            let items = vec![
+                serde_json::json!({"syncedLyrics": "NODUR"}),
+                serde_json::json!({"duration": 210.0, "syncedLyrics": "CLOSE"}),
+            ];
+            let got = pick_lyrics(&items, Some(210.0), "syncedLyrics").unwrap();
+            assert_eq!(got.get("syncedLyrics").unwrap(), "CLOSE");
+            // Ни у одной записи длительности нет — первая подходящая
+            let items2 = vec![
+                serde_json::json!({"syncedLyrics": "N1"}),
+                serde_json::json!({"syncedLyrics": "N2"}),
+            ];
+            let got2 = pick_lyrics(&items2, Some(210.0), "syncedLyrics").unwrap();
+            assert_eq!(got2.get("syncedLyrics").unwrap(), "N1");
+        }
+
+        /// Пустое значение поля и чужое поле не участвуют в выборе
+        #[test]
+        fn skips_empty_and_wrong_field() {
+            let items = vec![
+                serde_json::json!({"duration": 200.0, "syncedLyrics": ""}),
+                serde_json::json!({"duration": 200.0, "plainLyrics": "PLAIN"}),
+            ];
+            assert!(pick_lyrics(&items, Some(200.0), "syncedLyrics").is_none());
+            let got = pick_lyrics(&items, Some(200.0), "plainLyrics").unwrap();
+            assert_eq!(got.get("plainLyrics").unwrap(), "PLAIN");
+        }
     }
 }

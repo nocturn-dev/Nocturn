@@ -47,7 +47,16 @@ impl PtyRegistry {
             // wait() reap'ит процесс: на Unix без него shell оставался зомби
             // до выхода приложения
             if let Ok(mut c) = s.child.lock() {
-                let _ = c.kill();
+                // Аудит: голый kill бьёт только прямого ребёнка — внуки
+                // (запущенный в терминале сервер) оставались жить с
+                // EIO-pty. Дерево: taskkill /T на Windows, kill(-pgid) на
+                // Unix — portable-pty делает ребёнка лидером группы
+                match c.process_id() {
+                    Some(pid) => crate::proc::kill_tree(pid),
+                    None => {
+                        let _ = c.kill();
+                    }
+                }
                 let _ = c.wait();
             }
         }
@@ -436,9 +445,16 @@ pub async fn pty_kill(state: tauri::State<'_, PtyRegistry>, id: String) -> Resul
         tauri::async_runtime::spawn_blocking(move || {
             // FIX: отдельный child-лок — kill срабатывает, даже если
             // pty_write застрял в write_all на io-локе. wait() reap'ит:
-            // на Unix без него шелл оставался зомби до выхода приложения
+            // на Unix без него шелл оставался зомби до выхода приложения.
+            // Дерево потомков — как в kill_all выше (аудит: внуки терминала
+            // выживали после голого kill на Unix)
             if let Ok(mut c) = s.child.lock() {
-                let _ = c.kill();
+                match c.process_id() {
+                    Some(pid) => crate::proc::kill_tree(pid),
+                    None => {
+                        let _ = c.kill();
+                    }
+                }
                 let _ = c.wait();
             }
         })

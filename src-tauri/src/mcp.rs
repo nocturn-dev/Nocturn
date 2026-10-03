@@ -923,13 +923,17 @@ fn mcp_save_servers_impl(
 ) -> Result<(), String> {
     // Имя — ключ реестра соединений и префикс инструмента: только безопасные символы
     for s in &servers {
+        // "__" запрещён явно: split_prefixed_name режет по ПЕРВОМУ "__", и
+        // имя вида "a__b" раундтрипилось в несуществующий сервер "a" —
+        // инструменты объявлялись модели и всегда падали (аудит А2-6)
         let ok = !s.name.is_empty()
+            && !s.name.contains("__")
             && s.name.chars().all(|c| {
                 c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.'
             });
         if !ok {
             return Err(format!(
-                "invalid server name \"{}\": use latin letters, digits, _ - .",
+                "invalid server name \"{}\": use latin letters, digits, . - and single _ (no \"__\")",
                 s.name
             ));
         }
