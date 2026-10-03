@@ -32,8 +32,8 @@ export interface BrandDef {
 const BRAND_DEFS: BrandDef[] = [
   { key: "deepseek", match: /deepseek/, name: "DeepSeek", slug: "deepseek", color: "4D6BFE" },
   { key: "openai", match: /gpt|^o[134](-|$)|openai/, name: "OpenAI", slug: "openai", color: "74AA9C" },
-  { key: "anthropic", match: /anthropic/, name: "Anthropic", slug: "anthropic", color: "D97757" },
   { key: "claude", match: /claude/, name: "Claude", slug: "anthropic", color: "D97757" },
+  { key: "anthropic", match: /anthropic|sonnet|opus|haiku/, name: "Anthropic", slug: "anthropic", color: "D97757" },
   { key: "google", match: /gemini|google/, name: "Google", slug: "googlegemini", color: "4796E3" },
   { key: "gemma", match: /gemma/, name: "Gemma", slug: "googlegemini", color: "4796E3" },
   { key: "xai", match: /grok|x-ai|^xai/, name: "Grok", color: "E8E6DC" },
@@ -114,6 +114,18 @@ function hueOf(s: string): number {
   return h;
 }
 
+/** Относительная яркость hex-цвета: бренд-заливки вроде #1B1B1B (Kimi/
+ *  Moonshot) и #000 (Ollama) невидимы на тёмной теме — такие глифы
+ *  рисуются цветом текста темы */
+function hexLuminance(hex: string): number {
+  const h = hex.replace("#", "");
+  const full = h.length === 3 ? h.split("").map((c) => c + c).join("") : h;
+  const r = parseInt(full.slice(0, 2), 16) / 255;
+  const g = parseInt(full.slice(2, 4), 16) / 255;
+  const b = parseInt(full.slice(4, 6), 16) / 255;
+  return 0.299 * r + 0.587 * g + 0.114 * b;
+}
+
 interface ProviderIconProps {
   modelId: string;
   size?: number;
@@ -152,6 +164,7 @@ export default function ProviderIcon({ modelId, size = 18 }: ProviderIconProps) 
     );
   }
 
+  const fillHex = `#${brand?.color ?? icon.hex}`;
   return (
     <span
       style={circleStyle}
@@ -166,7 +179,12 @@ export default function ProviderIcon({ modelId, size = 18 }: ProviderIconProps) 
         viewBox="0 0 24 24"
         className="size-full"
       >
-        <path d={icon.path} fill={`#${brand?.color ?? icon.hex}`} />
+        <path
+          d={icon.path}
+          // Тёмные бренд-заливки (Kimi #1B1B1B, Ollama #000) на тёмной теме
+          // невидимы — глиф рисуется цветом текста темы (var адаптируется)
+          fill={hexLuminance(fillHex) < 0.2 ? "var(--halo-text)" : fillHex}
+        />
       </svg>
     </span>
   );
