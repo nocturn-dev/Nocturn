@@ -631,25 +631,91 @@ always_ask спрашивает даже в Full; allow не спрашивае�
 владельца; fs_write в конфиг-каталог отклонён всегда; валидация отвергает
 «allow bash *» и «allow fs_read».
 
-### Волна F — MCP-модерн (L, 6–8.5 вечера, дробить)
-**F1 — машина состояний (0.5–1):** enum ServerState {connected, failed,
-needs_auth, pending, disabled} в mcp.rs, mcp_status отдаёт всех с причиной;
-UI McpSection — точки/причины, локали ×4.
-**F2 — reconnect (0.5):** remote: до 5 попыток, backoff 1→30с; stdio: счётчик
-подряд терминальных ошибок (3 → закрыть и переподключить); session-expiry
-(404/-32001) — невидимый реконнект + один повтор вызова (побочные эффекты:
-повтор только для read-only, остальные — ошибка модели).
-**F3 — env-расширение (0.5):** `${VAR}` / `${VAR:-default}` при загрузке
-mcp.json + отчёт о missing при сохранении (синергия с mask_secrets).
-**F4 — deferred-схемы (1–1.5):** сверх бюджета (например >40 инструментов)
-в контекст уходят имя+короткое описание; builtin `mcp_tool_discover(query)`
-возвращает полные схемы найденных (идея ToolSearchTool своими словами);
-opt-in переключатель в McpSection; discover — read-only в perm.
-**F5 — OAuth (3–5, последняя):** Authorization Code + PKCE для http-
-транспортов; токены в vault (AES-256-GCM уже есть) или DPAPI; refresh с
-дедупликацией; состояние needs-auth → псевдоинструмент `mcp__server__authenticate`
-(модель запускает auth и получает URL); revoke; SECURITY.md дополнить
-(redirect-loopback listener в Tauri — проверить на Windows в первую очередь).
+### Волна F — MCP-модерн (L, 6–8.5 вечера, дробить) — детальный план 03.10
+**Факты разведки:** `McpServerStatus { name, connected: true, tools }` —
+mcp_status отдаёт ТОЛЬКО подключённые (упавший сервер невидим, причина
+неизвестна); ошибки автоконнекта при старте проглатываются («просто не
+подключены»). Реестр — HashMap<name, Arc<McpHandle{Stdio|Remote}>>;
+ensure_connected — connect-on-demand с backoff-картой (5 с против спама);
+таймауты INIT 30/LIST 15/CALL 120/WRITE 10 с; kill_tree/Drop-гигиена — не
+трогать. Конфиг mcp.json: {name, command, args, env, enabled, transport,
+url, headers}, env литеральный (без ${}), headers статические. Импорт чужих
+конфигов — только после явного подтверждения (executable-by-nature).
+
+**F1 — машина состояний (0.5–1):**
+- rust: `enum McpServerState { Connected, Failed, NeedsAuth, Disabled }` +
+  `struct McpServerStatus { name, state, reason: Option<String>, tools:
+  Vec<McpToolInfo> }` (поле connected остаётся для совместимости фронта —
+  вычисляемое). Реестр хранит ПОСЛЕДНИЙ статус per-server (отдельная
+  Mutex<map>, не внутри соединения): пишется при connect-ошибках (spawn
+  fail, init timeout, stderr tail — уже копится в McpConnection), при
+  успехе — Connected+tools; Disabled — из конфига (enabled=false).
+- mcp_status возвращает ВСЕ серверы конфига + причины; FAILED видно до
+  первого вызова инструмента.
+- McpSection: точки по состояниям (зелёный/красный/янтарный/серый), причина
+  в tooltip, счётчик инструментов; локали ×4 (статусы/причины).
+
+**F2 — reconnect (0.5):**
+- stdio: счётчик подряд терминальных ошибок в статусе (3 подряд → закрыть
+  соединение и переподключить с backoff 1→2→4…30 с, макс 5 попыток,
+  сброс на успех — расширение существующей 5-сек backoff-карты, не замена).
+- remote session-expiry: 404 + jsonrpc `-32001` → невидимый реконнект (новый
+  initialize) + ОДИН повтор tools/call ТОЛЬКО при readOnlyHint-аннотации
+  (до F4 аннотаций нет → повтор выключен, каркас готов; иначе риск задвоить
+  побочный эффект) — без аннотации ошибка модели «session expired».
+- Автопереподключение — только remote + явно включённые stdio (disabled не
+  трогаем); при исчерпании попыток → Failed+reason.
+
+**F3 — env-расширение (0.5):**
+- При загрузке конфига: `${VAR}` / `${VAR:-default}` рекурсивно по
+  env/args/command/url/headers (своими словами CC envExpansion). Missing
+  (нет переменной и нет default) → пустая строка + warning в статус сервера
+  (сервер обычно упадёт при старте → Failed с причиной — цепочка F1).
+- Валидация при сохранении в McpSection: список неразрешённых переменных
+  ПОКАЗЫВАЕТСЯ до сохранения (предупреждение, не блок).
+- Синергия с mask_secrets: секреты не лежат в mcp.json литерально.
+
+**F4 — deferred-схемы (1–1.5) — ВЕРДИКТ владельца: ON по умолчанию,
+встроенные всегда развёрнуты:**
+- get_tool_schemas: суммарное число MCP-инструментов > ПОРОГ (40) → MCP-схемы
+  сворачиваются в индекс: имя + описание (256 символов) + приписка
+  «use mcp_tool_discover»; builtin/vault/memory/browser/computer/websearch/
+  imagegen/frontend — всегда полные.
+- Новый backend-инструмент `mcp_tool_discover(query)`: скоринг по имени/
+  описанию (подстроки), возвращает ПОЛНЫЕ схемы найденных (лимит 10) из
+  реестра; офлайн-сервер → «not connected» в результате. perm: не-mutating.
+- Тумблер в McpSection (localStorage haloui-mcp-deferred, дефолт ON).
+- Тесты: порог, форма индекса, discover-скоринг, лимит.
+
+**F5 — OAuth (3–5, последняя; дробить F5a/F5b):**
+- Scope: только http-транспорт. Authorization Code + PKCE; discovery
+  (.well-known/oauth-authorization-server + protected-resource, RFC 8414).
+- Flow на rust: loopback-listener (std TcpListener 127.0.0.1:ephemeral),
+  браузер — через tauri-plugin-opener, обмен кода на токены (reqwest).
+  Windows-проверка loopback — первый смоук.
+- Хранение токенов: зашифрованный mcp-oauth.json (crypto.rs AES-256-GCM —
+  по образцу vault), refresh по 401 с дедупликацией параллельных рефрешей;
+  revoke (RFC 7009).
+- F1-состояние needs-auth: HTTP 401 при init → NeedsAuth; кнопка
+  «Authorize» в McpSection запускает flow. Псевдо-инструмент
+  `mcp__server__authenticate` (модель сама запускает auth) — ХВОСТ за F5b.
+- SECURITY.md дополнить (loopback, хранение токенов, разрешение доменов).
+- F5a: discovery+flow+storage+кнопка; F5b: refresh+needs-auth-статусы+ revoke.
+
+**Порядок:** F1 → F2 → F3 → F4 → F5a → F5b. Каждый шаг — verify+cargo
+зелёные; существующие e2e (mcp_e2e, echo-helper) обязаны остаться зелёными
+без правок (новые поля статуса — аддитивно).
+
+**Гарды деградации:** транспорты/таймауты/kill_tree не трогаются — только
+статусы и обвязка reconnect; McpSection — расширение точек статуса, не
+переписывание; contract McpServerStatus — аддитивные поля (connected
+вычисляемое); локали ×4; красный тест → откат шага.
+
+**DoD:** сервер с битой командой красный с причиной stderr ДО первого вызова;
+истёкшая сессия remote восстанавливается невидимо (read-only); ${TOKEN} в
+headers подставляется, missing — предупреждён; при 40+ MCP-инструментах
+контекст несёт индекс, discover разворачивает нужные; OAuth-сервер
+подключается кнопкой Authorize, токены шифруются.
 
 ### Открытые решения владельца — РЕШЕНО 03.10
 1. D: автовозбуждение прогона из простоя по завершении фонового — **ДА**
