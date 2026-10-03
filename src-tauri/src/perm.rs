@@ -274,7 +274,7 @@ pub(crate) fn decide(state: &PermState, name: &str, path: Option<&str>) -> Resul
                 return Err(format!("blocked by permission mode: plan (tool {name})"));
             }
             if fs_tool {
-                check_fs_path(state, path)?;
+                check_fs_path(state, name, path)?;
             }
             Ok(())
         }
@@ -287,7 +287,7 @@ pub(crate) fn decide(state: &PermState, name: &str, path: Option<&str>) -> Resul
                 );
             }
             if fs_tool {
-                check_fs_path(state, path)?;
+                check_fs_path(state, name, path)?;
             }
             Ok(())
         }
@@ -296,14 +296,14 @@ pub(crate) fn decide(state: &PermState, name: &str, path: Option<&str>) -> Resul
         // доверялся фронту)
         PermMode::Ask => {
             if fs_tool {
-                check_fs_path(state, path)?;
+                check_fs_path(state, name, path)?;
             }
             Ok(())
         }
         // Full: всё исполняется, fs_* — с path-контролем
         PermMode::Full => {
             if fs_tool {
-                check_fs_path(state, path)?;
+                check_fs_path(state, name, path)?;
             }
             Ok(())
         }
@@ -311,17 +311,93 @@ pub(crate) fn decide(state: &PermState, name: &str, path: Option<&str>) -> Resul
 }
 
 /// Path-контроль для fs_* инструментов (сюда доходим без ранних Err/Ok).
-/// roots пуст → Ok: проект не выбран, текущее поведение не сужаем.
-/// Путь отсутствует (или пришёл не строкой — тогда None) → Err для модели.
-fn check_fs_path(state: &PermState, path: Option<&str>) -> Result<(), String> {
+/// Волна E3: БЕЗУСЛОВНЫЕ гейты (config-каталог, .env-бэкстоп, sensitive-класс)
+/// стоят ДО корней и правил — config вообще без escape (заметка владельца
+/// №2), sensitive/.env — escape только явным allow-правилом владельца; и
+/// работают при пустых roots тоже (path-контроль корней при этом off)
+fn check_fs_path(state: &PermState, name: &str, path: Option<&str>) -> Result<(), String> {
+    let Some(p) = path else {
+        if state.roots.is_empty() {
+            return Ok(());
+        }
+        return Err("fs tool requires a path argument".to_string());
+    };
+    let canon = canon_norm(p);
+    let sep = if cfg!(windows) { '\\' } else { '/' };
+
+    // 1) Самозащита конфига: БЕЗУСЛОВНО и ДО любых правил — settings.json
+    // несёт ключи, hooks.json/mcp.json executable-by-nature; запись, удаление
+    // и ЧТЕНИЕ (ключи в настройках) закрыты, сиблинги каталога не задеваются
+    if matches!(name, "fs_read" | "fs_write" | "fs_delete") {
+        if let Some(cfg) = &state.config_dir {
+            if canon == *cfg || canon.starts_with(&format!("{cfg}{sep}")) {
+                return Err(
+                    "access to the app config directory is denied unconditionally".to_string(),
+                );
+            }
+        }
+    }
+
+    // 2) .env-бэкстоп (заметка владельца №3): raw-подстрока case-insensitive —
+    // грубая сеть поверх канонического матчинга, ловит .env.local/.ENV/…
+    // False positive (app.env.backup) уводится явным allow-правилом
+    if matches!(name, "fs_read" | "fs_write" | "fs_delete" | "fs_grep")
+        && p.to_lowercase().contains(".env")
+        && !rule_matches(&state.rules.allow, name, Some(&canon), true)
+    {
+        return Err(
+            "sensitive path (.env) denied by default; the owner can allow it explicitly in Settings"
+                .to_string(),
+        );
+    }
+
+    // 3) Sensitive-класс по канонической форме; escape — allow-правило
+    if is_sensitive_path(&canon)
+        && !rule_matches(&state.rules.allow, name, Some(&canon), true)
+    {
+        return Err(
+            "sensitive path denied by default; the owner can allow it explicitly in Settings"
+                .to_string(),
+        );
+    }
+
     if state.roots.is_empty() {
         return Ok(());
     }
-    match path {
-        Some(p) if path_allowed(&state.roots_canon, p) => Ok(()),
-        Some(p) => Err(format!("path outside project roots: {p}")),
-        None => Err("fs tool requires a path argument".to_string()),
+    if !path_allowed(&state.roots_canon, p) {
+        return Err(format!("path outside project roots: {p}"));
     }
+    Ok(())
+}
+
+/// Чувствительный класс путей (по канонизованной нормализованной форме):
+/// чтение = утечка секретов, запись = подмена — класс один для fs_*.
+/// Вердикт владельца: DENY по умолчанию, escape — явное allow-правило
+fn is_sensitive_path(canon: &str) -> bool {
+    let sep = if cfg!(windows) { '\\' } else { '/' };
+    let comps: Vec<&str> = canon.split(sep).filter(|c| !c.is_empty()).collect();
+    let Some(name) = comps.last().copied() else {
+        return false;
+    };
+    // каталоги секретов целиком
+    if comps.iter().any(|c| *c == ".ssh" || *c == ".aws") {
+        return true;
+    }
+    // .git/config на любой глубине (включая сабмодули)
+    for w in comps.windows(2) {
+        if w[0] == ".git" && w[1] == "config" {
+            return true;
+        }
+    }
+    name == ".env"
+        || name.starts_with(".env.")
+        || name == ".git-credentials"
+        || name == ".netrc"
+        || name == ".npmrc"
+        || name.starts_with("id_rsa")
+        || name.starts_with("id_ed25519")
+        || name.ends_with(".pem")
+        || name.ends_with(".ppk")
 }
 
 /// Лежит ли path внутри одного из roots_canon. Строковая нормализация
@@ -744,5 +820,92 @@ mod tests {
         assert!(validate_rule("mcp__srv__tool", true, &known).is_ok()); // mcp по форме
         assert!(validate_rule("fs_read(proj/.env)", true, &known).is_err()); // относительный путь
         assert!(validate_rule("web_search(x*y)", false, &known).is_err());
+    }
+
+    // ---------- чувствительные пути и самозащита (волна E3) ----------
+
+    #[test]
+    fn sensitive_paths_denied_by_default_in_all_modes() {
+        for mode in [PermMode::Plan, PermMode::Ask, PermMode::Edit, PermMode::Full] {
+            let st = state(mode, &["C:\\proj"]);
+            assert!(decide(&st, "fs_read", Some("C:\\proj\\.env")).is_err(), "{mode:?}");
+            assert!(decide(&st, "fs_write", Some("C:\\proj\\.env.local")).is_err(), "{mode:?}");
+            assert!(decide(&st, "fs_read", Some("C:\\proj\\.git\\config")).is_err(), "{mode:?}");
+            assert!(decide(&st, "fs_read", Some("C:\\proj\\.ssh\\id_rsa")).is_err(), "{mode:?}");
+            assert!(decide(&st, "fs_read", Some("C:\\proj\\.aws\\credentials")).is_err(), "{mode:?}");
+            assert!(decide(&st, "fs_read", Some("C:\\proj\\cert.pem")).is_err(), "{mode:?}");
+            assert!(decide(&st, "fs_delete", Some("C:\\proj\\.npmrc")).is_err(), "{mode:?}");
+            // не-чувствительные проходят
+            assert!(decide(&st, "fs_read", Some("C:\\proj\\src\\main.rs")).is_ok(), "{mode:?}");
+            // «environment.ts» содержит «env», но не «.env» и не sensitive
+            assert!(decide(&st, "fs_read", Some("C:\\proj\\environment.ts")).is_ok(), "{mode:?}");
+        }
+    }
+
+    #[test]
+    fn env_substring_backstop_and_allow_escape() {
+        let st = state(PermMode::Full, &["C:\\proj"]);
+        // raw-подстрока .env ловит регистр и вариации без канонизации
+        assert!(decide(&st, "fs_read", Some("C:\\proj\\.ENV")).is_err());
+        assert!(decide(&st, "fs_grep", Some("C:\\proj\\.env.local")).is_err());
+        // false positive уводится явным allow-правилом владельца
+        let mut st2 = state(PermMode::Full, &["C:\\proj"]);
+        st2.rules.allow = vec!["fs_read(C:\\proj\\app.env.backup)".into()];
+        assert!(decide(&st2, "fs_read", Some("C:\\proj\\app.env.backup")).is_ok());
+    }
+
+    #[test]
+    fn sensitive_escape_via_exact_allow_rule() {
+        let mut st = state(PermMode::Full, &["C:\\proj"]);
+        st.rules.allow = vec!["fs_read(C:\\proj\\.env)".into()];
+        assert!(decide(&st, "fs_read", Some("C:\\proj\\.env")).is_ok());
+        // allow точечный: соседний .env.production всё ещё deny (граница
+        // компонента в матчинге правил + бэкстоп)
+        assert!(decide(&st, "fs_read", Some("C:\\proj\\.env.production")).is_err());
+        // allow на чтение не даёт запись
+        assert!(decide(&st, "fs_write", Some("C:\\proj\\.env")).is_err());
+    }
+
+    #[test]
+    fn config_dir_gate_unconditional_and_first() {
+        let mut st = state(PermMode::Full, &["C:\\Users\\me\\AppData\\Roaming"]);
+        st.config_dir = Some("c:\\users\\me\\appdata\\roaming\\com.haloui.app".to_string());
+        // даже allow-правило владельца НЕ перекрывает самозащиту конфига
+        st.rules.allow = vec![
+            "fs_write(C:\\Users\\me\\AppData\\Roaming\\com.haloui.app\\hooks.json)".into(),
+        ];
+        assert!(decide(
+            &st,
+            "fs_write",
+            Some("C:\\Users\\me\\AppData\\Roaming\\com.haloui.app\\hooks.json")
+        )
+        .is_err());
+        assert!(decide(
+            &st,
+            "fs_read",
+            Some("C:\\Users\\me\\AppData\\Roaming\\com.haloui.app\\settings.json")
+        )
+        .is_err());
+        assert!(decide(
+            &st,
+            "fs_delete",
+            Some("C:\\Users\\me\\AppData\\Roaming\\com.haloui.app\\mcp.json")
+        )
+        .is_err());
+        // сиблинг конфиг-каталога — не конфиг (граница компонента)
+        assert!(decide(
+            &st,
+            "fs_write",
+            Some("C:\\Users\\me\\AppData\\Roaming\\com.haloui.app-backup\\x.json")
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn sensitive_gates_work_without_roots() {
+        // Без проекта path-контроль корней off, безусловные гейты — on
+        let st = state(PermMode::Full, &[]);
+        assert!(decide(&st, "fs_read", Some("C:\\proj\\.env")).is_err());
+        assert!(decide(&st, "fs_read", Some("C:\\proj\\src\\a.rs")).is_ok());
     }
 }
