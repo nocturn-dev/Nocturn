@@ -27,6 +27,7 @@ import {
 import { buildHistory, buildMemoryBlock } from "../agent/history";
 import { applyMicrocompact } from "../agent/microcompact";
 import { ruleMatches } from "../agent/permRules";
+import { classifyShellRun } from "../agent/shellRules";
 import type { PermRules } from "../agent/permRules";
 import {
   compactHistory,
@@ -2603,18 +2604,30 @@ ${report}`;
         const allowed =
           mutating && (session?.allowedCommands?.includes(grantKey) ?? false);
         // Волна E1: правила прав. always_ask — спросить даже в Full (и даже
-        // для чтений); allow — не спрашивать в Ask/Edit (бекенд-границы mode
+        // для чтений); allow — не спрашивать в Ask/Edit (бекенд-границыmode
         // выше allow и не пробиваются). Аргумент матча — команда shell_run /
         // путь fs_*; bare-правило матчит инструмент целиком
         const rules = permRulesRef.current;
         const ruleArg = ruleArgument(call);
-        const alwaysAsk = rules
-          ? ruleMatches(rules.always_ask, call.name, ruleArg, call.name.startsWith("fs_"))
+        const fsTool = call.name.startsWith("fs_");
+        // Deny — серверный блок; фронтовый предчек сберегает бессмысленное
+        // подтверждение (бекенд всё равно авторитетен, матч best-effort)
+        const denyHit = rules
+          ? ruleMatches(rules.deny, call.name, ruleArg, fsTool)
           : false;
-        const allowRule =
-          !alwaysAsk && rules
-            ? ruleMatches(rules.allow, call.name, ruleArg, call.name.startsWith("fs_"))
-            : false;
+        let alwaysAsk = false;
+        let allowRule = false;
+        if (!denyHit && rules) {
+          if (call.name === "shell_run" && ruleArg) {
+            // Волна E2: allow не пробивает complex/dangerous (→ обычный
+            // mutating-флоу); always_ask на shell спрашивает как обычно
+            alwaysAsk = ruleMatches(rules.always_ask, call.name, ruleArg, false);
+            allowRule = !alwaysAsk && classifyShellRun(ruleArg, rules) === "allow";
+          } else {
+            alwaysAsk = ruleMatches(rules.always_ask, call.name, ruleArg, fsTool);
+            allowRule = ruleMatches(rules.allow, call.name, ruleArg, fsTool);
+          }
+        }
 
         // Подтвердить и исполнить — общий хвост plan-blocked-обхода:
         // askConfirm → deny | always (в allowedCommands задачи) | exec
@@ -2651,7 +2664,11 @@ ${report}`;
         // рендере сравнением контента с локализованной строкой t("agent.denied"),
         // и смена языка перекрашивала историю инструментов
         let toolStatus: Message["status"];
-        if (permMode === "plan" && mutating) {
+        if (denyHit) {
+          // Фронтовый предчек deny: бекенд отклонил бы вызов тем же текстом
+          result = `blocked by deny rule (${call.name})`;
+          toolStatus = "denied";
+        } else if (permMode === "plan" && mutating) {
           // Режим плана: запись и команды блокируются, модель должна
           // предъявить план, не трогая систему. Правила эту границу не пробивают
           result = t("agent.planBlocked");
