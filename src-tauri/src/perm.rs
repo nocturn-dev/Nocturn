@@ -179,6 +179,19 @@ fn path_allowed(roots_canon: &[String], path: &str) -> bool {
     if p.split(sep).any(|c| c == ".." || c == ".") {
         return false;
     }
+    // NTFS-альтернативные потоки (file.txt:ads, file.txt:$DATA) — вне модели
+    // проекта: поверхность мимо расширений и будущих deny-листов. Легальное
+    // двоеточие одно — диск в первом компоненте («c:»); drive-relative
+    // («c:file») тоже отсекается — он резолвится в per-drive cwd, классический
+    // обходной козырь. Заодно закрывает дыру relative-гейта выше: «file.txt:ads»
+    // содержит ':' и проходил его как «абсолютный». На Unix ':' в имени файла
+    // легален — проверка windows-only
+    #[cfg(windows)]
+    if p.split(sep).enumerate().any(|(i, c)| {
+        c.contains(':') && !(i == 0 && c.len() == 2 && c.ends_with(':'))
+    }) {
+        return false;
+    }
     let resolved = match canonicalize_for_compare(std::path::Path::new(path)) {
         Some(r) => norm(&r.to_string_lossy()),
         None => p.clone(),
@@ -311,6 +324,30 @@ mod tests {
     fn device_prefix_cannot_escape() {
         // \\?\-путь мимо корня не должен пройти проверку префикса
         assert!(!allowed("\\\\?\\C:\\Windows\\x"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn ntfs_stream_paths_rejected() {
+        // Обычные пути с диском не задеваем
+        assert!(allowed("C:\\proj\\file.txt"));
+        // Альтернативные потоки — вне модели проекта
+        assert!(!allowed("C:\\proj\\file.txt:ads"));
+        assert!(!allowed("C:\\proj\\file.txt:$DATA"));
+        assert!(!allowed("C:\\proj\\dir:stream\\x"));
+        // Drive-relative («c:file») резолвится в per-drive cwd — fail closed
+        assert!(!allowed("c:file.txt"));
+        // Дыра relative-гейта: путь с двоеточием проходил его как «абсолютный»
+        assert!(!allowed("file.txt:ads"));
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn path_allowed_unix_colon_in_name_stays_legal() {
+        // На Unix ':' в имени файла легален — windows-only стрим-чек его
+        // задевать не должен (регресс на cfg-гейтинг)
+        let roots = canonicalize_roots(&["/home/u/proj".to_string()]);
+        assert!(path_allowed(&roots, "/home/u/proj/file:name.txt"));
     }
 
     #[cfg(not(windows))]
