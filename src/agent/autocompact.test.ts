@@ -138,12 +138,13 @@ describe("applyCompact", () => {
 });
 
 describe("compactHistory", () => {
-  it("успех: возвращает сжатую историю", async () => {
+  it("успех: возвращает сжатую историю и текст summary", async () => {
     const msgs: ChatMsgParam[] = [sys, user, assistant("t0"), tool("t0", "r")];
     const out = await compactHistory(msgs, async () => "Итог суммаризации");
     expect(out).not.toBeNull();
-    expect(out?.[0]?.role).toBe("system");
-    expect(String(out?.[0]?.content)).toContain("Итог суммаризации");
+    expect(out?.msgs[0]?.role).toBe("system");
+    expect(String(out?.msgs[0]?.content)).toContain("Итог суммаризации");
+    expect(out?.summary).toBe("Итог суммаризации");
   });
 
   it("отказ call → null, вход не тронут", async () => {

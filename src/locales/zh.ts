@@ -587,6 +587,7 @@ export const zh = {
     "hook.back": "隐藏结果",
     "hook.blockedSend": "发送已被 UserPromptSubmit 钩子阻止",
     "chat.modelChanged": "[i] 模型已切换：{model}",
+    "chat.contextCompacted": "[i] 任务上下文已压缩：早期步骤已生成摘要",
     "settings.usage": "统计",
     "settings.reflect": "总览",
     "reflect.period": "时间范围",

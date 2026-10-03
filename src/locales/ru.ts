@@ -570,6 +570,7 @@ export const ru = {
     "hook.back": "Скрыть результат",
     "hook.blockedSend": "Отправка заблокирована хуком UserPromptSubmit",
     "chat.modelChanged": "[i] Модель изменена: {model}",
+    "chat.contextCompacted": "[i] Контекст задачи сжат: старые шаги суммаризированы",
     "settings.usage": "Статистика",
     "settings.reflect": "Обзор",
     "reflect.period": "Период",

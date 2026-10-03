@@ -109,16 +109,23 @@ export function applyCompact(
   return historyWithSummary(capped, msgs, COMPACT_TAIL_MESSAGES);
 }
 
+/** Результат компакции: пересобранная история + текст summary отдельно —
+    он уходит в Session.compact (персистентность переживает рестарт) */
+export interface CompactResult {
+  msgs: ChatMsgParam[];
+  summary: string;
+}
+
 /** Оркестратор: суммаризация головы + пересборка. Отказ call (сеть, Stop,
     пустой ответ) → null — вызывающий продолжает прежней историей */
 export async function compactHistory(
   msgs: ChatMsgParam[],
   call: (prompt: string) => Promise<string>,
-): Promise<ChatMsgParam[] | null> {
+): Promise<CompactResult | null> {
   try {
     const summary = (await call(buildSummaryPrompt(msgs))).trim();
     if (!summary) return null;
-    return applyCompact(msgs, summary);
+    return { msgs: applyCompact(msgs, summary), summary };
   } catch {
     return null;
   }
