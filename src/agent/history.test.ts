@@ -2,10 +2,13 @@ import { describe, expect, it } from "vitest";
 import {
   buildHistory,
   buildMemoryBlock,
+  COMPACT_SUMMARY_HEADER,
+  historyWithSummary,
   toApiContent,
   toApiMessage,
   trimContextWindow,
 } from "./history";
+import type { ChatMsgParam } from "../api";
 import type { Message, Session } from "../types";
 
 const msg = (over: Partial<Message> = {}): Message => ({
@@ -170,5 +173,52 @@ describe("trimContextWindow", () => {
     expect(out.some((m) => m.role === "tool" && !out.some(
       (a) => a.role === "assistant" && (a.tool_calls as Array<{ id?: string }> | undefined)?.some((c) => c.id === (m as { tool_call_id?: string }).tool_call_id),
     ))).toBe(false);
+  });
+});
+
+describe("historyWithSummary", () => {
+  const sys = { role: "system" as const, content: "Ты ассистент" };
+  const user = { role: "user" as const, content: "задача" };
+  const assistant = (id: string) => ({
+    role: "assistant" as const,
+    content: "",
+    tool_calls: [{ id, type: "function" as const, function: { name: "x", arguments: "{}" } }],
+  });
+  const tool = (id: string) => ({ role: "tool" as const, tool_call_id: id, content: "r" });
+
+  it("дописывает summary к существующему system, а не отдельным user-ходом", () => {
+    const out = historyWithSummary("Итог задачи", [sys, user], 30);
+    expect(out).toHaveLength(2);
+    expect(out[0]?.role).toBe("system");
+    const c = out[0]?.content as string;
+    expect(c).toContain("Ты ассистент");
+    expect(c).toContain(COMPACT_SUMMARY_HEADER);
+    expect(c).toContain("Итог задачи");
+  });
+
+  it("без system синтезирует system-месседж (адаптер вынесет в поле system)", () => {
+    const out = historyWithSummary("Итог", [user], 30);
+    expect(out[0]?.role).toBe("system");
+    expect(String(out[0]?.content)).toContain("Итог");
+    expect(out[1]?.role).toBe("user");
+  });
+
+  it("keep задаёт окно, пары не рвутся", () => {
+    const msgs: ChatMsgParam[] = [sys, user];
+    for (let i = 0; i < 20; i++) msgs.push(assistant(`tc${i}`), tool(`tc${i}`));
+    const out = historyWithSummary("Итог", msgs, 12);
+    // system + окно 12
+    expect(out).toHaveLength(13);
+    expect(out.slice(1).some((m) => m.role === "tool")).toBe(true);
+    const answered = new Set(
+      out.filter((m) => m.role === "tool").map((m) => m.tool_call_id),
+    );
+    for (const m of out) {
+      if (m.role === "assistant" && m.tool_calls != null) {
+        for (const c of m.tool_calls as Array<{ id: string }>) {
+          expect(answered.has(c.id)).toBe(true);
+        }
+      }
+    }
   });
 });
