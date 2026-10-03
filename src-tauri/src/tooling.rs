@@ -469,6 +469,17 @@ pub async fn execute_tool_inner(
         };
         return Ok(result);
     }
+    // Волна F4: discover отложенных MCP-схем — чтение реестра, не мутация
+    if name == "mcp_tool_discover" {
+        let query = args.get("query").and_then(|v| v.as_str()).unwrap_or("");
+        let found = mcp_registry.discover_tools(query);
+        if found.is_empty() {
+            return Ok(format!(
+                "no MCP tools matched \"{query}\" — the server may be offline or the query too narrow"
+            ));
+        }
+        return serde_json::to_string(&found).map_err(|e| e.to_string());
+    }
     // Vault-инструменты (заметки): чтение, не мутируют — исполним в потоке.
     // arguments (JSON-строка) общий для vault/memory — сериализуем один раз
     let arguments = args.to_string();
@@ -1022,16 +1033,22 @@ fn known_tool_names() -> std::collections::HashSet<String> {
             set.insert(n.to_string());
         }
     }
+    // Волна F4: discover-инструмент в схемах появляется условно (есть
+    // MCP-серверы) — в реестр валидации добавляем всегда
+    set.insert("mcp_tool_discover".to_string());
     set
 }
 
 #[tauri::command(async)]
 pub fn get_tool_schemas(
     mcp_registry: tauri::State<'_, mcp::McpRegistry>,
+    deferred: Option<bool>,
 ) -> serde_json::Value {
+    // Волна F4: deferred-схемы (вердикт владельца — ON по умолчанию)
+    let deferred = deferred.unwrap_or(true);
     let builtin = tools::tool_schemas();
     let vault = tools::vault_tool_schemas();
-    let mut merged = mcp_registry.tool_schemas_merged(builtin);
+    let mut merged = mcp_registry.tool_schemas_merged(builtin, deferred);
     if let Some(arr) = merged.as_array_mut() {
         if let Some(extra) = vault.as_array() {
             arr.extend(extra.iter().cloned());
@@ -1039,6 +1056,23 @@ pub fn get_tool_schemas(
         // Долговременная память: факты (фронт фильтрует по своему тумблеру)
         if let Some(extra) = crate::memory::memory_tool_schemas().as_array() {
             arr.extend(extra.iter().cloned());
+        }
+        // Волна F4: discover-инструмент — когда есть хотя бы один MCP-сервер
+        if !mcp_registry.0.lock().unwrap_or_else(|p| p.into_inner()).is_empty() {
+            arr.push(serde_json::json!({
+                "type": "function",
+                "function": {
+                    "name": "mcp_tool_discover",
+                    "description": "Search deferred MCP tools by keyword (matches tool names and descriptions). Returns the FULL schemas of matching tools (max 10). Call it when an MCP tool you need has a DEFERRED schema.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "query": { "type": "string", "description": "Keywords, e.g. \"github issue\" or \"screenshot\"" }
+                        },
+                        "required": ["query"]
+                    }
+                }
+            }));
         }
         if browser::config().enabled {
             let extra = browser::browser_tool_schemas()

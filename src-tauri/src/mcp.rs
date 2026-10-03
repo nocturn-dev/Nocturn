@@ -95,9 +95,9 @@ pub struct McpServerStatus {
 /// Последний статус каждого сервера (волна F1): единая точка записи —
 /// ensure_connected (успех/сбой), process-global — реестр хранит только
 /// живые соединения, а статус переживает disconnect
-static SERVER_STATES: std::sync::LazyLock<
-    Mutex<HashMap<String, (McpServerState, Option<String>)>>,
-> = std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
+type ServerStateMap = HashMap<String, (McpServerState, Option<String>)>;
+static SERVER_STATES: std::sync::LazyLock<Mutex<ServerStateMap>> =
+    std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
 
 fn set_server_state(name: &str, state: McpServerState, reason: Option<String>) {
     if let Ok(mut map) = SERVER_STATES.lock() {
@@ -157,6 +157,91 @@ fn in_reconnect_backoff(server: &str) -> bool {
                 .unwrap_or(false)
         })
         .unwrap_or(false)
+}
+
+/// Волна F3: ${VAR} / ${VAR:-default} в строке конфига. Missing без default →
+/// пустая строка + имя в missing (диагностика в консоль; предупреждение при
+/// сохранении показывает их и в UI). Незакрытый ${ и ${} — литерал
+fn expand_env_str(s: &str) -> (String, Vec<String>) {
+    let mut out = String::with_capacity(s.len());
+    let mut missing: Vec<String> = Vec::new();
+    let mut rest = s;
+    while let Some(start) = rest.find("${") {
+        out.push_str(&rest[..start]);
+        let after = &rest[start + 2..];
+        match after.find('}') {
+            Some(end) => {
+                let inner = &after[..end];
+                let (var, default) = match inner.split_once(":-") {
+                    Some((v, d)) => (v, Some(d)),
+                    None => (inner, None),
+                };
+                if var.is_empty() {
+                    out.push_str("${}");
+                } else {
+                    match std::env::var(var) {
+                        Ok(v) => out.push_str(&v),
+                        Err(_) => {
+                            missing.push(var.to_string());
+                            if let Some(d) = default {
+                                out.push_str(d);
+                            }
+                        }
+                    }
+                }
+                rest = &after[end + 1..];
+            }
+            None => {
+                out.push_str("${");
+                rest = after;
+            }
+        }
+    }
+    out.push_str(rest);
+    (out, missing)
+}
+
+/// Расширить ${}-переменные по всему конфигу: command/args/env (stdio) и
+/// url/headers (remote)
+fn expand_config_env(cfg: &McpServerConfig) -> (McpServerConfig, Vec<String>) {
+    let mut missing: Vec<String> = Vec::new();
+    let mut next = cfg.clone();
+    let (command, m) = expand_env_str(&cfg.command);
+    missing.extend(m);
+    next.command = command;
+    next.args = cfg
+        .args
+        .iter()
+        .map(|a| {
+            let (v, m) = expand_env_str(a);
+            missing.extend(m);
+            v
+        })
+        .collect();
+    next.env = cfg
+        .env
+        .iter()
+        .map(|(k, v)| {
+            let (k2, m1) = expand_env_str(k);
+            let (v2, m2) = expand_env_str(v);
+            missing.extend(m1);
+            missing.extend(m2);
+            (k2, v2)
+        })
+        .collect();
+    let (u, m) = expand_env_str(&cfg.url);
+    missing.extend(m);
+    next.url = u;
+    let mut h = HashMap::new();
+    for (k, v) in &cfg.headers {
+        let (k2, m1) = expand_env_str(k);
+        let (v2, m2) = expand_env_str(v);
+        missing.extend(m1);
+        missing.extend(m2);
+        h.insert(k2, v2);
+    }
+    next.headers = h;
+    (next, missing)
 }
 
 /// Успешное соединение сбрасывает backoff сервера
@@ -935,31 +1020,102 @@ impl McpRegistry {
 
     /// Схемы инструментов подключённых серверов с префиксом mcp__<server>__<tool>.
     /// Мердж в OpenAI-совместимый список делает их прозрачными для агентного цикла.
-    pub fn tool_schemas_merged(&self, builtin: Value) -> Value {
+    pub fn tool_schemas_merged(&self, builtin: Value, deferred: bool) -> Value {
         let mut list = builtin
             .as_array()
             .cloned()
             .unwrap_or_default();
         let registry = self.0.lock().unwrap_or_else(|p| p.into_inner());
+        // Волна F4: deferred-режим (вердикт владельца — ON по умолчанию).
+        // Сверх порога MCP-схемы сворачиваются в индекс: имя + короткое
+        // описание; полная схема — через mcp_tool_discover. Встроенные
+        // инструменты всегда развёрнуты
+        let total: usize = registry.values().map(|h| h.tools_clone().len()).sum();
+        let collapse = deferred && total > MCP_DEFERRED_THRESHOLD;
         for (server, handle) in registry.iter() {
             for tool in handle.tools_clone() {
+                let full_desc = if tool.description.is_empty() {
+                    format!("MCP tool {}.{}", server, tool.name)
+                } else {
+                    format!("[MCP:{}] {}", server, cap_description(&tool.description))
+                };
+                let (description, parameters) = if collapse {
+                    let short: String = {
+                        let t = full_desc.as_str();
+                        if t.chars().count() > 256 {
+                            format!("{}…", t.chars().take(256).collect::<String>())
+                        } else {
+                            t.to_string()
+                        }
+                    };
+                    (
+                        format!(
+                            "{short} — DEFERRED: call mcp_tool_discover(\"{} {}\") to load the full schema before calling",
+                            server, tool.name
+                        ),
+                        json!({ "type": "object", "properties": {} }),
+                    )
+                } else {
+                    (full_desc, tool.input_schema)
+                };
                 list.push(json!({
                     "type": "function",
                     "function": {
                         "name": format!("mcp__{}__{}", server, tool.name),
-                        "description": if tool.description.is_empty() {
-                            format!("MCP tool {}.{}", server, tool.name)
-                        } else {
-                            format!("[MCP:{}] {}", server, cap_description(&tool.description))
-                        },
-                        "parameters": tool.input_schema
+                        "description": description,
+                        "parameters": parameters
                     }
                 }));
             }
         }
         Value::Array(list)
     }
+
+    /// Волна F4: поиск отложенных MCP-инструментов по ключевым словам
+    /// (все токены должны встретиться в имени/описании). Возвращает ПОЛНЫЕ
+    /// схемы найденных (лимит 10) — модель подставит их перед вызовом
+    pub fn discover_tools(&self, query: &str) -> Vec<Value> {
+        let registry = self.0.lock().unwrap_or_else(|p| p.into_inner());
+        let q = query.to_lowercase();
+        let tokens: Vec<&str> = q.split_whitespace().collect();
+        if tokens.is_empty() {
+            return Vec::new();
+        }
+        let mut out: Vec<Value> = Vec::new();
+        for (server, handle) in registry.iter() {
+            for tool in handle.tools_clone() {
+                let full_name = format!("mcp__{}__{}", server, tool.name);
+                let hay = format!(
+                    "{} {} {}",
+                    full_name, tool.name, tool.description
+                )
+                .to_lowercase();
+                if tokens.iter().all(|t| hay.contains(t)) {
+                    out.push(json!({
+                        "type": "function",
+                        "function": {
+                            "name": full_name,
+                            "description": if tool.description.is_empty() {
+                                format!("MCP tool {}.{}", server, tool.name)
+                            } else {
+                                format!("[MCP:{}] {}", server, cap_description(&tool.description))
+                            },
+                            "parameters": tool.input_schema
+                        }
+                    }));
+                    if out.len() >= 10 {
+                        return out;
+                    }
+                }
+            }
+        }
+        out
+    }
 }
+
+/// Порог deferred-схем (волна F4): сверх этого числа MCP-инструментов
+/// схемы сворачиваются в индекс
+pub const MCP_DEFERRED_THRESHOLD: usize = 40;
 
 /// Разбор имени вида mcp__<server>__<tool>
 pub fn split_prefixed_name(prefixed: &str) -> Option<(&str, &str)> {
@@ -1134,6 +1290,16 @@ pub async fn ensure_connected(
     if !cfg.enabled {
         set_server_state(&name, McpServerState::Disabled, None);
         return Err(format!("MCP server \"{name}\" is disabled"));
+    }
+    // Волна F3: ${VAR}/${VAR:-default} в command/args/env/url/headers.
+    // Missing → пустая строка + диагностика в консоль (сервер обычно упадёт
+    // при старте → Failed с реальной ошибкой)
+    let (cfg, missing) = expand_config_env(&cfg);
+    if !missing.is_empty() {
+        eprintln!(
+            "mcp env: variables not set for \"{name}\": {}",
+            missing.join(", ")
+        );
     }
     if is_remote(&cfg) {
         let handle = match RemoteConnection::connect(&cfg).await {

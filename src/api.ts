@@ -192,7 +192,10 @@ export async function getToolSchemas(): Promise<unknown> {
   // send платил лишний IPC-раундтрип. Читаем до invoke; invalidateToolSchemas
   // снова обретает смысл.
   if (cachedSchemas !== null) return cachedSchemas;
-  cachedSchemas = await invoke<unknown>("get_tool_schemas");
+  // Волна F4: deferred-режим схем (дефолт ON, тумблер в McpSection)
+  cachedSchemas = await invoke<unknown>("get_tool_schemas", {
+    deferred: localStorage.getItem("haloui-mcp-deferred") !== "0",
+  });
   return cachedSchemas;
 }
 
