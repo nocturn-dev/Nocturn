@@ -1,0 +1,18 @@
+<svg width="1024" height="1024" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Мастер-иконка Nocturn: знак из главного меню (NocturnMark, bold) —
+       курсивная N с диагональными порезами, фирменный градиент, БЕЗ плитки
+       и фона. Координаты и порезы 1-в-1 с компонентом; масштабирование
+       выполняет viewBox (24 единицы -> 1024px) -->
+  <defs>
+    <linearGradient id="mark-gradient" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#38C7EE"/>
+      <stop offset="1" stop-color="#254EE1"/>
+    </linearGradient>
+    <mask id="mark-cuts" maskUnits="userSpaceOnUse" x="0" y="0" width="24" height="24">
+      <rect width="24" height="24" fill="white"/>
+      <path d="M-0.34 -3.85 L11.94 19.05" stroke="black" stroke-width="1.8"/>
+      <path d="M12.06 4.75 L24.34 27.65" stroke="black" stroke-width="1.8"/>
+    </mask>
+  </defs>
+  <path d="M4.2 20.2 L7.6 3.8 L16.4 20.2 L19.8 3.8" stroke="url(#mark-gradient)" stroke-width="2.9" stroke-linecap="round" stroke-linejoin="round" mask="url(#mark-cuts)"/>
+</svg>

@@ -74,30 +74,34 @@ function UserCardBase({
   return (
     <div
       data-mid={mid}
-      className="anim-fade-up group user-card-root relative ml-auto flex w-fit max-w-[85%] items-end gap-2 shadow-sm"
+      className="group user-card-root relative ml-auto flex w-fit max-w-[85%] items-end gap-2 shadow-sm"
     >
       {avatar ? (
         <img
           src={avatar}
           alt=""
-          className="mb-1 size-7 shrink-0 select-none rounded-full border border-halo-line/60 object-cover"
+          className="anim-fade-up mb-1 size-7 shrink-0 select-none rounded-full border border-halo-line/60 object-cover"
         />
       ) : null}
       <div
-        className={`min-w-0 w-fit rounded-2xl rounded-br-md px-4 py-3 ${
+        className={`anim-fade-up min-w-0 w-fit rounded-2xl rounded-br-md px-4 py-3 ${
           correction ? "border-l-2 border-amber-400/50 " : ""
         }${glassEffect ? "glass-pane msg-glass bg-halo-surface/40" : "bg-halo-raised"}`}
       >
       {/* Волна GUI-fix: ряд действий под пузырём (копировать / править /
-          свернуть), как в ZCode — прежние плавающие кнопки резались краем
-          списка и налезали на текст. pointer-events-none в скрытом состоянии:
-          невидимый ряд не должен ловить клики в зазоре между сообщениями */}
+          свернуть), как в ZCode. Мост ховера: -mt-1 поднимает невидимую
+          зону контейнера НА нижний край пузыря — курсор не покидает группу
+          на пути к кнопкам, ряд не успевает погаснуть. Скрытое состояние —
+          pointer-events-none: ряд не ловит клики в зазоре между сообщениями.
+          anim-fade-up перенесён с корня на детей: fill-mode both держал бы
+          корень stacking-контекстом и прятал ряд (z-10) под следующей
+          карточкой — теперь ряд рисуется поверх всего хода */}
       {!editing && (
-        <div className="absolute right-0 top-full z-10 mt-0.5 flex items-center gap-0.5 opacity-0 pointer-events-none transition duration-150 group-hover:pointer-events-auto group-hover:opacity-100">
+        <div className="absolute right-0 top-full z-10 -mt-1 flex items-center gap-0.5 pt-1.5 opacity-0 pointer-events-none translate-y-1 transition duration-200 ease-out group-hover:pointer-events-auto group-hover:translate-y-0 group-hover:opacity-100">
           <button
             onClick={() => void copyMessage()}
             title={t("cp.copy")}
-            className={`rounded-md p-1 transition-colors ${
+            className={`rounded-md p-1.5 transition-colors ${
               copied
                 ? "text-emerald-400"
                 : "text-halo-muted hover:bg-halo-hover hover:text-halo-text"
@@ -111,14 +115,14 @@ function UserCardBase({
               setEditing(true);
             }}
             title={t("card.edit")}
-            className="rounded-md p-1 text-halo-muted transition-colors hover:bg-halo-hover hover:text-halo-text"
+            className="rounded-md p-1.5 text-halo-muted transition-colors hover:bg-halo-hover hover:text-halo-text"
           >
             <PencilIcon />
           </button>
           <button
             onClick={() => setCollapsed(true)}
             title={t("card.collapse")}
-            className="rounded-md p-1 text-halo-muted transition-colors hover:bg-halo-hover hover:text-halo-text"
+            className="rounded-md p-1.5 text-halo-muted transition-colors hover:bg-halo-hover hover:text-halo-text"
           >
             <svg
               width="13"
