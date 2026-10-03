@@ -640,6 +640,13 @@ export function applyAppearance(a: Appearance) {
   // html.glass из index.css никогда не применялся. Здесь бандл уже исполнен,
   // стили загружены: фон дальше ведут правила (glass-градиент / body bg)
   root.style.removeProperty("background");
+  // И статический фолбэк из index.html: непрозрачный фон html запрещает
+  // трансляцию фона body на canvas (CSS Backgrounds §3.11.2), и
+  // непрозрачный body на шаге 3 отрисовки накрывал ВСЕ слои z-index:-1 —
+  // ambient «за интерфейсом» и лента лирики были невидимы без стекла
+  // (аудит А6-1). В стекле canvas и так красит градиент html.glass (0,1,1),
+  // zen — собственный !important; фолбэк нужен только до загрузки CSS
+  document.getElementById("halo-boot-bg")?.remove();
   // Палитры стилей генерируются из данных (themeStyles.ts) и инжектируются
   // один раз: светлые варианты стилей живут наравне с тёмными
   let styleCss = document.getElementById("halo-theme-styles");
