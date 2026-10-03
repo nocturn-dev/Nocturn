@@ -118,33 +118,66 @@ export function buildHistory(
   current: Session | undefined,
   userMsg: Message,
 ): ChatMsgParam[] {
-  return [
-    ...(current?.systemPrompt
+  // Без компакции — прежний путь бит-в-бит (регресс-тест держит форму)
+  if (!current?.compact) {
+    return [
+      ...(current?.systemPrompt
+        ? [{ role: "system" as const, content: current.systemPrompt }]
+        : []),
+      ...trimContextWindow(
+        (current?.messages ?? [])
+          .filter((m) => {
+            // Страховка поверх санитайзера при загрузке: content не строка
+            // (повреждённая мутация) не роняет прогон, а выкидывается
+            if (typeof m.content !== "string") return false;
+            // Служебные уведомления (смена модели) в запрос не попадают
+            if (m.content.startsWith("[i]")) return false;
+            // Tool-результат не выбрасываем никогда: пустой content
+            // (runTool вернул "") рвал пару assistant.tool_calls ↔ tool
+            // ещё до обрезки окна → 400 у провайдера
+            if (m.role === "tool") return true;
+            return m.content !== "" || m.thought || m.attachments?.length || m.toolCalls;
+          })
+          .map((m) =>
+            m.role === "tool" && m.content === ""
+              ? { ...toApiMessage(m), content: "(empty result)" }
+              : toApiMessage(m),
+          ),
+        30,
+      ),
+      { role: "user", content: toApiContent(userMsg) },
+    ];
+  }
+
+  // Компакция: raw-сообщения делятся по baseCount (сессии append-only —
+  // индекс точен; после ручного удаления ловит Math.min-клэмп) на covered
+  // (суммаризованы — в запросе только хвост COMPACT_TAIL_MESSAGES) и after
+  // (добавлены после компакции — едут в окно целиком)
+  const { summary, baseCount } = current.compact;
+  const raw = current.messages ?? [];
+  const cut = Math.min(Math.max(baseCount, 0), raw.length);
+  const toApi = (list: Message[]): ChatMsgParam[] =>
+    list
+      .filter((m) => {
+        if (typeof m.content !== "string") return false;
+        if (m.content.startsWith("[i]")) return false;
+        if (m.role === "tool") return true;
+        return m.content !== "" || m.thought || m.attachments?.length || m.toolCalls;
+      })
+      .map((m) =>
+        m.role === "tool" && m.content === ""
+          ? { ...toApiMessage(m), content: "(empty result)" }
+          : toApiMessage(m),
+      );
+  const rest: ChatMsgParam[] = [
+    ...(current.systemPrompt
       ? [{ role: "system" as const, content: current.systemPrompt }]
       : []),
-    ...trimContextWindow(
-      (current?.messages ?? [])
-        .filter((m) => {
-          // Страховка поверх санитайзера при загрузке: content не строка
-          // (повреждённая мутация) не роняет прогон, а выкидывается
-          if (typeof m.content !== "string") return false;
-          // Служебные уведомления (смена модели) в запрос не попадают
-          if (m.content.startsWith("[i]")) return false;
-          // Tool-результат не выбрасываем никогда: пустой content
-          // (runTool вернул "") рвал пару assistant.tool_calls ↔ tool
-          // ещё до обрезки окна → 400 у провайдера
-          if (m.role === "tool") return true;
-          return m.content !== "" || m.thought || m.attachments?.length || m.toolCalls;
-        })
-        .map((m) =>
-          m.role === "tool" && m.content === ""
-            ? { ...toApiMessage(m), content: "(empty result)" }
-            : toApiMessage(m),
-        ),
-      30,
-    ),
+    ...toApi(raw.slice(0, cut)).slice(-COMPACT_TAIL_MESSAGES),
+    ...toApi(raw.slice(cut)),
     { role: "user", content: toApiContent(userMsg) },
   ];
+  return historyWithSummary(summary, rest, 30);
 }
 
 // ---------- Autocompact (волна B2): персистентная суммаризация головы ----------
@@ -158,6 +191,10 @@ export function buildHistory(
  */
 export const COMPACT_SUMMARY_HEADER =
   "[Conversation compacted — summary of the earlier task steps]";
+
+/** Сколько последних сообщений covered-блока (до baseCount) переживают
+    компакцию дословно. Единый источник для buildHistory и autocompact */
+export const COMPACT_TAIL_MESSAGES = 12;
 
 /**
  * История с вшитой суммаризацией: [system+summary] + pair-safe окно rest.
