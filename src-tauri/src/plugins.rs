@@ -182,3 +182,33 @@ pub fn usage_colors_save(app: tauri::AppHandle, colors: serde_json::Value) -> Re
     let json = serde_json::to_string_pretty(&colors).map_err(|e| e.to_string())?;
     crate::fsutil::atomic_write(&path, json.as_bytes())
 }
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// plugin_read: валидный JSON читается (и из каталога с plugin.json),
+    /// битый файл отдаёт честную ошибку вместо паники/мусора
+    #[test]
+    fn plugin_read_valid_broken_and_dir() {
+        let dir = std::env::temp_dir().join(format!("nocturn-plugins-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let file = dir.join("plugin.json");
+        std::fs::write(&file, r#"{"name":"demo","version":1}"#).unwrap();
+        let ok = tauri::async_runtime::block_on(plugin_read(file.display().to_string())).unwrap();
+        assert_eq!(ok.get("name").and_then(|v| v.as_str()), Some("demo"));
+
+        // Каталог: читается <dir>/plugin.json
+        let ok_dir = tauri::async_runtime::block_on(plugin_read(dir.display().to_string())).unwrap();
+        assert_eq!(ok_dir.get("name").and_then(|v| v.as_str()), Some("demo"));
+
+        let broken = dir.join("broken.json");
+        std::fs::write(&broken, "{ not json").unwrap();
+        let err = tauri::async_runtime::block_on(plugin_read(broken.display().to_string()))
+            .expect_err("broken manifest must fail");
+        assert!(err.contains("plugin.json corrupted"), "неожиданная ошибка: {err}");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}

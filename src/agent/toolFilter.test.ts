@@ -53,8 +53,49 @@ describe("filterToolSchemas", () => {
 });
 
 // Золотой список: ДОСЛОВНОЕ зеркало perm.rs (is_mutating, perm.rs:74-81).
-// Стык front↔perm склеен только этим тестом и комментариями-зеркалами —
-// при добавлении инструмента правь ОБЕ стороны и этот список вместе с ними.
+// Стык front↔perm склеен этим списком, комментариями-зеркалами И
+// МЕХАНИЧЕСКОЙ сверкой ниже: тест читает исходник perm.rs и проверяет,
+// что match-блок бекенда и isMutatingTool не разъехались (аудит А7-5:
+// раньше тест вызывал только фронтовую функцию, и новый мутирующий
+// инструмент в perm.rs оставался незамеченным фронтом)
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+
+const permSrc = readFileSync(
+  fileURLToPath(new URL("../../src-tauri/src/perm.rs", import.meta.url)),
+  "utf8",
+);
+// Парсер привязан к текущему форматированию match-блока: при рефакторинге
+// perm.rs тест упадёт громко — обнови якорь (это и есть контракт)
+const mutatingBlock =
+  permSrc.match(/let mutating = match name \{([\s\S]*?)\n    \};/)?.[1] ?? "";
+const exactNames = mutatingBlock
+  .split("\n")
+  .filter((l) => !l.includes("starts_with"))
+  .flatMap((l) => [...l.matchAll(/"([a-z_]+)"/g)].map((m) => m[1]))
+  .filter((n): n is string => !!n);
+const readExempt = [...mutatingBlock.matchAll(/"(?:browser|computer)_[a-z_]+"/g)]
+  .map((m) => m[0])
+  .filter((n): n is string => !!n)
+  .map((n) => n.replaceAll('"', ""));
+
+describe("isMutatingTool — механическое зеркало perm.rs", () => {
+  it("каждое точное имя match-блока perm.rs мутирует на фронте", () => {
+    expect(exactNames.length).toBeGreaterThan(0);
+    for (const n of exactNames) {
+      expect(isMutatingTool(n)).toBe(true);
+    }
+  });
+
+  it("каждое исключение чтения/скриншота perm.rs не мутирует на фронте", () => {
+    expect(readExempt).toContain("browser_read");
+    expect(readExempt).toContain("computer_screenshot");
+    for (const n of readExempt) {
+      expect(isMutatingTool(n)).toBe(false);
+    }
+  });
+});
+
 describe("isMutatingTool — золотой список perm.rs", () => {
   it("мутирующие точные имена", () => {
     expect(
