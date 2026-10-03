@@ -731,6 +731,17 @@ pub(crate) fn rejects_sensitive_path(path: &str) -> Result<(), String> {
         {
             return Err("path points to an unsupported location".into());
         }
+        // NTFS-альтернативные потоки (`file.txt:ads`, `file.txt:$DATA`):
+        // экзотическая поверхность записи/чтения мимо расширений и блок-листов.
+        // Легальное двоеточие одно — диск в comps[0] (его форму уже гарантирует
+        // drive_shape); UNC-хост с двоеточием (IPv6-литерал) — fail closed
+        if comps
+            .iter()
+            .enumerate()
+            .any(|(i, c)| c.contains(':') && (i > 0 || is_unc))
+        {
+            return Err("path contains an NTFS stream specifier".into());
+        }
         // comps[1] — топ-каталог (для UNC — шара)
         let top = short83(comps.get(1).map(|s| s.as_str()).unwrap_or(""));
         // UNC: скрытые (админские) шары все кончаются на «$» — `c$`, `admin$`,
@@ -1285,6 +1296,13 @@ mod tests {
             r"\\localhost\c$\Windows\evil.json",
             r"\\host\admin$\x.json",
             r"\\host\ipc$\x.json",
+            // NTFS-альтернативные потоки: мимо расширений и блок-листов
+            r"C:\Users\me\export.json:ads",
+            r"C:\Users\me\export.json:$DATA",
+            r"C:\proj\dir:stream\x.json",
+            r"\\host\share\x.json:stream",
+            // IPv6-литерал в UNC-хосте — двоеточие вне диска, fail closed
+            r"\\[::1]\share\x.json",
             // хвостовая точка/пробел ПРОМЕЖУТОЧНОГО компонента: Win32
             // нормализует их у каждого элемента пути (аудит: обход блок-листа)
             r"C:\Windows.\evil.json",
