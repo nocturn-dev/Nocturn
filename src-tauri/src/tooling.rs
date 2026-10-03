@@ -6,6 +6,7 @@ use crate::crypto;
 use crate::notes::notes_dir;
 use crate::perm;
 use crate::settings::{config_file, rejects_sensitive_path, save_json_config};
+use crate::mcp_oauth;
 use crate::{browser, computer, hooks, imagegen, mcp, tools, websearch};
 use base64::engine::general_purpose::STANDARD as B64;
 use std::fs;
@@ -436,6 +437,18 @@ pub async fn execute_tool_inner(
         };
         let result: String = match first {
             Ok(r) => r,
+            Err(e) if e.contains("HTTP 401") && mcp_oauth::has_meta(&server) => {
+                // Волна F5: 401 на oauth-сервере — запрос НЕ исполнялся
+                // (auth-гейт), поэтому повтор безопасен. Refresh single-flight:
+                // ровно один запрос к провайдеру, остальные ждут новый токен
+                mcp_oauth::refresh_single_flight(&server)
+                    .await
+                    .map_err(|re| format!("mcp {server}.{tool}: token refresh failed: {re}"))?;
+                handle
+                    .call_tool(&tool, args.clone())
+                    .await
+                    .map_err(|e| format!("mcp {server}.{tool}: {e}"))?
+            }
             Err(e) if mcp::is_transport_err(&e) => {
                 // Мёртвый хендл вон из реестра: mcp_status честно покажет
                 // «не подключён», следующий вызов сам переподключится

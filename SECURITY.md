@@ -108,3 +108,22 @@ session store.
 
 Please open a GitHub issue for anything security-related you find. For
 sensitive reports, contact the maintainers privately first.
+
+## MCP OAuth (волна F5)
+
+Удалённые MCP-серверы с `auth: "oauth"` проходят браузерную авторизацию
+(Authorization Code + PKCE, RFC 7636/8414/7591-DCR). Гарантии:
+
+- **Никаких фоновых запросов**: discovery/авторизация — только по кнопке
+  «Authorize»; refresh — только по 401 в активном вызове (single-flight:
+  ровно один запрос к провайдеру при N параллельных 401); автоконнект
+  oauth-серверов при старте отключён.
+- **Loopback-listener**: только 127.0.0.1, эфемерный порт, параметр state
+  (CSRF), жёсткий дедлайн 180 секунд.
+- **Хранение токенов**: зашифрованный mcp-oauth.json (AES-256-GCM тем же
+  стеком, что настройки). Vault заперт / ключа нет → токены живут только
+  в памяти процесса (Authorize помечает «session-only»).
+- **Отзыв**: кнопка Revoke — RFC 7009 revocation (best-effort) + локальная
+  очистка токенов.
+- Риски на стороне пользователя: провайдер авторизации видит попытку
+  входа; Nocturn никаких сервисов не рекомендует и не выбирает.

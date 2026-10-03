@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useLang } from "../../locales";
-import { type McpServerCfg, type McpServerStatus, type McpServerState, mcpListServers, mcpSaveServers, mcpConnect, mcpDisconnect, mcpStatus, invalidateToolSchemas } from "../../api";
+import { type McpServerCfg, type McpServerStatus, type McpServerState, mcpListServers, mcpSaveServers, mcpConnect, mcpDisconnect, mcpStatus, mcpOauthAuthorize, mcpOauthRevoke, invalidateToolSchemas } from "../../api";
 import { MiniTrashIcon } from "./parts";
 
 export function McpSection() {
@@ -29,6 +29,10 @@ export function McpSection() {
   );
   // Волна F3: переменные окружения в конфиге (${VAR}) — предупреждение
   const [envNote, setEnvNote] = useState<string | null>(null);
+  // Волна F5: oauth-серверы — форма (тумблер в add-форме), кнопки Authorize/
+  // Revoke, предупреждение при включении (оговорка владельца)
+  const [oauth, setOauth] = useState(false);
+  const [oauthMsg, setOauthMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   /**
    * Разбор JSON-конфига в формате Claude Desktop / ZCode:
@@ -170,11 +174,13 @@ export function McpSection() {
           transport: "http",
           url: u,
           headers: parseHeaders(headers),
+          ...(oauth ? { auth: "oauth" } : {}),
         },
       ]);
       setName("");
       setUrl("");
       setHeaders("");
+      setOauth(false);
       return;
     }
     const cmd = command.trim();
@@ -206,13 +212,18 @@ export function McpSection() {
   };
 
   const toggleEnabled = async (idx: number) => {
+    const srv = servers[idx];
+    if (!srv) return;
+    // Волна F5 (оговорка владельца): включение oauth-сервера — с
+    // предупреждением: запросы пойдут только после Authorize
+    if (!srv.enabled && srv.auth === "oauth") {
+      if (!window.confirm(t("mcp.oauthWarn", { name: srv.name }))) return;
+    }
     const next = serversRef.current.map((s, i) =>
       i === idx ? { ...s, enabled: !s.enabled } : s,
     );
     await persist(next);
     // Выключили включённый сервер — отключаем соединение
-    const srv = servers[idx];
-    if (!srv) return;
     if (srv.enabled && statusOf(srv.name)?.connected) {
       await mcpDisconnect(srv.name).catch(() => {});
       refreshStatuses();
@@ -249,6 +260,34 @@ export function McpSection() {
     await mcpDisconnect(name).catch(() => {});
     setBusy(null);
     refreshStatuses();
+  };
+
+  // Волна F5: кнопка Authorize — единственный триггер discovery/браузера
+  const authorize = async (name: string) => {
+    setBusy(name);
+    setOauthMsg(null);
+    try {
+      const msg = await mcpOauthAuthorize(name);
+      setOauthMsg({ ok: true, text: `${name}: ${msg}` });
+      refreshStatuses();
+    } catch (e) {
+      setOauthMsg({ ok: false, text: `${name}: ${e}` });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const revokeOauth = async (name: string) => {
+    setBusy(name);
+    try {
+      await mcpOauthRevoke(name);
+      setOauthMsg({ ok: true, text: `${name}: ${t("mcp.oauthRevoked")}` });
+      refreshStatuses();
+    } catch (e) {
+      setOauthMsg({ ok: false, text: `${name}: ${e}` });
+    } finally {
+      setBusy(null);
+    }
   };
 
   return (
@@ -360,6 +399,26 @@ export function McpSection() {
                     {busy === s.name ? "…" : t("mcp.connect")}
                   </button>
                 )}
+                {/* Волна F5: oauth-серверы — Authorize/Revoke. Кнопки юзера —
+                    единственный триггер сети (оговорка владельца) */}
+                {s.auth === "oauth" && !connected && (
+                  <button
+                    onClick={() => void authorize(s.name)}
+                    disabled={busy === s.name || !s.enabled}
+                    className="shrink-0 rounded-md border border-halo-accent/50 px-2 py-0.5 text-[0.625rem] text-halo-accent transition-colors hover:bg-halo-accent/10 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    {busy === s.name ? "…" : t("mcp.authorize")}
+                  </button>
+                )}
+                {s.auth === "oauth" && (
+                  <button
+                    onClick={() => void revokeOauth(s.name)}
+                    disabled={busy === s.name}
+                    className="shrink-0 rounded-md border border-halo-line px-2 py-0.5 text-[0.625rem] text-halo-muted transition-colors hover:bg-halo-hover hover:text-halo-text disabled:opacity-40"
+                  >
+                    {t("mcp.revoke")}
+                  </button>
+                )}
                 <button
                   onClick={() => void removeServer(i)}
                   title={t("mcp.delete")}
@@ -400,6 +459,17 @@ export function McpSection() {
       {error && (
         <p className="mt-3 break-all rounded-lg border border-red-400/30 bg-red-400/10 px-3 py-2 text-xs leading-relaxed text-red-400">
           {error}
+        </p>
+      )}
+      {oauthMsg && (
+        <p
+          className={`mt-2 break-all rounded-lg border px-3 py-2 text-xs leading-relaxed ${
+            oauthMsg.ok
+              ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-400"
+              : "border-red-400/30 bg-red-400/10 text-red-400"
+          }`}
+        >
+          {oauthMsg.text}
         </p>
       )}
       {envNote && (
@@ -455,6 +525,21 @@ export function McpSection() {
               rows={2}
               className="w-full resize-y rounded-lg border border-halo-line bg-halo-surface px-3 py-2 font-mono text-xs text-halo-text outline-none transition-colors placeholder:text-halo-muted/60 focus:border-halo-accent/60"
             />
+            {/* Волна F5: oauth-тумблер — только по явному желанию юзера */}
+            <label className="flex cursor-pointer items-center gap-2 text-xs text-halo-text">
+              <input
+                type="checkbox"
+                checked={oauth}
+                onChange={(e) => setOauth(e.target.checked)}
+                className="accent-halo-accent"
+              />
+              {t("mcp.oauthToggle")}
+            </label>
+            {oauth && (
+              <p className="text-[0.6875rem] leading-relaxed text-halo-muted/70">
+                {t("mcp.oauthHint")}
+              </p>
+            )}
             <p className="text-[0.6875rem] leading-relaxed text-halo-muted/70">{t("mcp.headersHint")}</p>
           </>
         ) : (

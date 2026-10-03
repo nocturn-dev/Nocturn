@@ -39,6 +39,7 @@ mod tts;
 mod voice;
 mod kb;
 pub mod mcp;
+pub mod mcp_oauth;
 mod perm;
 #[cfg(target_os = "linux")]
 mod portal;
@@ -350,6 +351,8 @@ pub fn run() {
             mcp::mcp_disconnect,
             mcp::mcp_status,
             mcp::mcp_autoconnect,
+            mcp_oauth::mcp_oauth_authorize,
+            mcp_oauth::mcp_oauth_revoke,
             network::network_get_config,
             network::network_set_config,
             voice::voice_status,
