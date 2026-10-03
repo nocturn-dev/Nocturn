@@ -944,6 +944,13 @@ export interface McpServerCfg {
   url?: string;
   /** Заголовки запроса (Authorization: Bearer …) — токены доступа */
   headers?: Record<string, string>;
+  /** Волна F5: "oauth" — браузерная авторизация; никакой автоконнект,
+   *  запросы только после кнопки Authorize (оговорка владельца) */
+  auth?: string;
+  /** Статический client_id (если провайдер не даёт Dynamic Registration) */
+  client_id?: string;
+  /** Scope для authorize (опционально) */
+  oauth_scope?: string;
 }
 
 export interface McpToolInfo {
@@ -994,6 +1001,16 @@ export async function mcpDisconnect(name: string): Promise<void> {
 export async function mcpStatus(): Promise<McpServerStatus[]> {
   if (!inTauri) return [];
   return invoke<McpServerStatus[]>("mcp_status");
+}
+
+/** Волна F5: авторизация oauth-сервера (единственный триггер сети) */
+export async function mcpOauthAuthorize(name: string): Promise<string> {
+  return invoke<string>("mcp_oauth_authorize", { name });
+}
+
+/** Волна F5: отозвать доступ (revoke + очистка локальных токенов) */
+export async function mcpOauthRevoke(name: string): Promise<void> {
+  return invoke("mcp_oauth_revoke", { name });
 }
 
 /** Автоконнект включённых серверов при старте; возвращает сколько удалось */

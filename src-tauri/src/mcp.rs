@@ -47,6 +47,16 @@ pub struct McpServerConfig {
     /// hosted-серверов, рефреш-токены — отдельная история
     #[serde(default)]
     pub headers: HashMap<String, String>,
+    /// Волна F5: "oauth" — браузерная авторизация (mcp_oauth.rs); такой
+    /// сервер исключён из автоконнекта — никаких запросов без кнопки юзера
+    #[serde(default)]
+    pub auth: Option<String>,
+    /// Статический client_id (если провайдер не даёт Dynamic Registration)
+    #[serde(default)]
+    pub client_id: Option<String>,
+    /// Scope для authorize (опционально; провайдер подскажёт свой)
+    #[serde(default)]
+    pub oauth_scope: Option<String>,
 }
 
 fn default_true() -> bool {
@@ -832,6 +842,11 @@ impl RemoteConnection {
             // streamable HTTP: сервер сам выбирает формат ответа
             .header("Accept", "application/json, text/event-stream")
             .json(body);
+        // Волна F5: oauth-сервер получает Bearer из хранилища токенов
+        // (статические headers не задеваются)
+        if let Some(tok) = crate::mcp_oauth::access_token(&self.server) {
+            req = req.header("Authorization", format!("Bearer {tok}"));
+        }
         for (k, v) in &self.headers {
             if let (Ok(name), Ok(val)) = (
                 reqwest::header::HeaderName::try_from(k.as_str()),
@@ -1291,6 +1306,18 @@ pub async fn ensure_connected(
         set_server_state(&name, McpServerState::Disabled, None);
         return Err(format!("MCP server \"{name}\" is disabled"));
     }
+    // Волна F5 (оговорка владельца): oauth-сервер без токенов НЕ отправляет
+    // ни одного запроса — жёсткий отказ до кнопки Authorize
+    if cfg.auth.as_deref() == Some("oauth") && !crate::mcp_oauth::has_tokens(&name) {
+        set_server_state(
+            &name,
+            McpServerState::NeedsAuth,
+            Some("authorize in Settings → MCP".into()),
+        );
+        return Err(
+            "OAuth server not authorized — click Authorize in Settings → MCP".to_string(),
+        );
+    }
     // Волна F3: ${VAR}/${VAR:-default} в command/args/env/url/headers.
     // Missing → пустая строка + диагностика в консоль (сервер обычно упадёт
     // при старте → Failed с реальной ошибкой)
@@ -1441,12 +1468,25 @@ async fn mcp_autoconnect_impl(
     app: tauri::AppHandle,
     registry: Arc<Mutex<HashMap<String, Arc<McpHandle>>>>,
 ) -> Result<usize, String> {
+    // Волна F5: персистнутые oauth-токены — только чтение локального файла,
+    // никаких запросов (оговорка владельца)
+    crate::mcp_oauth::load_persisted(&app);
     let configs = load_servers(&app)?;
     let mut connected = 0;
     let mut stdio_cfgs: Vec<McpServerConfig> = Vec::new();
     let mut remote_cfgs: Vec<McpServerConfig> = Vec::new();
     for cfg in configs {
         if !cfg.enabled {
+            continue;
+        }
+        // Волна F5 (оговорка владельца): oauth-сервер не инициирует запросы
+        // сам — автоконнекта нет, статус NeedsAuth виден в UI до кнопки
+        if cfg.auth.as_deref() == Some("oauth") {
+            set_server_state(
+                &cfg.name,
+                McpServerState::NeedsAuth,
+                Some("authorize in Settings → MCP".into()),
+            );
             continue;
         }
         let already = registry
