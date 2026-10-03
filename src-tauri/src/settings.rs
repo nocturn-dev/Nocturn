@@ -504,9 +504,14 @@ fn settings_read_all_blocking(
         // В «поделенный» экспорт (include_secrets=false) не идут:
         // crypto.json — соль KDF + check-маркер, материал для офлайн-перебора
         // мастер-пароля; sessions.json — вся история чатов, делиться файлом
-        // «настроек без ключей» не должно отдавать переписку.
-        // Машино-перенос — только осознанный include_secrets=true
-        if !include_secrets && (*name == "crypto.json" || *name == "sessions.json") {
+        // «настроек без ключей» не должно отдавать переписку; hooks.json —
+        // исполняемые командные строки, в которых токен (Bearer-заголовок в
+        // curl и т.п.) — обычная практика, замаскировать их нельзя не убив
+        // хук (аудит А1-3). Машино-перенос — только осознанный
+        // include_secrets=true
+        if !include_secrets
+            && (*name == "crypto.json" || *name == "sessions.json" || *name == "hooks.json")
+        {
             continue;
         }
         let path = dir.join(name);
@@ -599,6 +604,15 @@ fn mask_secrets(file: &str, v: &mut serde_json::Value) {
                         }
                     }
                 }
+            }
+        }
+        // Прокси может нести креды прямо в URL (http://user:pass@host:port —
+        // reqwest это легальный формат); без ветки адрес с паролем уходил в
+        // «поделенный» экспорт как есть (аудит А1-3). Гасим целиком: адрес
+        // внутреннего прокси — машинно-специфичная информация
+        "network.json" => {
+            if let Some(k) = v.get_mut("proxy") {
+                *k = blank();
             }
         }
         _ => {}

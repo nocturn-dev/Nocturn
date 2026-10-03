@@ -20,6 +20,7 @@ export const en = {
     "sidebar.tag": "Chat tag",
     "sidebar.tagPrompt": "Chat tag (empty to clear):",
     "sidebar.showMore": "Show more ({n})",
+    "sidebar.filesMore": "Not all files shown — open a subfolder",
     "sidebar.showLess": "Show less",
     "sidebar.hideProjects": "Hide projects",
     "sidebar.showProjects": "Show projects",

@@ -500,14 +500,23 @@ pub async fn execute_tool_inner(
         )
         .await;
     }
-    // Инструменты блокирующие (shell_run — до 300 сек): исполняем в
-    // отдельном потоке, иначе главный поток окна замирает на весь таймаут.
-    // abort-флаг: Stop убивает процесс немедленно
-    tauri::async_runtime::spawn_blocking(move || {
-        tools::execute_tool_with_abort(&name, &arguments, abort_flag.as_deref())
-    })
-    .await
-    .map_err(|e| format!("tool task failed: {e}"))?
+    // Инструменты блокирующие (shell_run — до 300 сек, fs-вызовы — ФС):
+    // исполняем в отдельном потоке, иначе главный поток окна замирает на
+    // весь таймаут. Stop обязан отвечать сразу: select! с abort — как у
+    // computer/browser-веток выше (аудит: зависший fs-вызов держал шаг
+    // агента без ответа даже после Stop)
+    let work = tauri::async_runtime::spawn_blocking({
+        // Клон Arc для closure: сам флаг нужен живым в select! ниже
+        let abort_for_work = abort_flag.clone();
+        move || tools::execute_tool_with_abort(&name, &arguments, abort_for_work.as_deref())
+    });
+    let result: String = tokio::select! {
+        res = work => res.map_err(|e| format!("tool task failed: {e}"))??,
+        _ = wait_for_abort(abort_flag.as_ref()) => {
+            return Err("aborted by user".to_string());
+        }
+    };
+    Ok(result)
 }
 
 /// Текущий конфиг Browser Use (для вкладки настроек)

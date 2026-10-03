@@ -21,6 +21,7 @@ export const ja = {
     "sidebar.tag": "チャットタグ",
     "sidebar.tagPrompt": "チャットタグ（空欄で解除）：",
     "sidebar.showMore": "さらに表示 ({n})",
+    "sidebar.filesMore": "一部のファイルのみ表示中——サブフォルダを開いてください",
     "sidebar.showLess": "折りたたむ",
     "sidebar.hideProjects": "プロジェクトを非表示",
     "sidebar.showProjects": "プロジェクトを表示",

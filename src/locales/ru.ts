@@ -18,6 +18,7 @@ export const ru = {
     "sidebar.tag": "Тег чата",
     "sidebar.tagPrompt": "Тег чата (пусто — снять):",
     "sidebar.showMore": "Показать ещё ({n})",
+    "sidebar.filesMore": "Показаны не все файлы — откройте подпапку",
     "sidebar.showLess": "Свернуть",
     "sidebar.hideProjects": "Скрыть проекты",
     "sidebar.showProjects": "Показать проекты",

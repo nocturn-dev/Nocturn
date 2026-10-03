@@ -1274,7 +1274,7 @@ const FileTree = memo(function FileTree({
         </p>
       );
     }
-    return entries.map((e) => {
+    const rows = entries.map((e) => {
       // D14: соединение через утилиту joinNorm (см. ниже) — явный бэкслэш
       // в шаблоне держал соглашение normalizePath только неявно
       const childPath = joinNorm(path, e.name);
@@ -1349,6 +1349,20 @@ const FileTree = memo(function FileTree({
         </div>
       );
     });
+    // Аудит: list_dir обрезает ответ до 500 записей молча — бекенд ставит
+    // флаг на последней записи, здесь честный маркер вместо тишины
+    const last = entries[entries.length - 1];
+    if (last?.truncated) {
+      rows.push(
+        <div
+          key="…truncated"
+          className="px-2 py-1 text-[0.625rem] text-halo-muted/50"
+        >
+          {t("sidebar.filesMore")}
+        </div>,
+      );
+    }
+    return rows;
   };
 
   return <div>{renderEntries(root, 1)}</div>;

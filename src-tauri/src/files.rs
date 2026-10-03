@@ -11,6 +11,11 @@ pub struct FileEntry {
     pub name: String,
     pub is_dir: bool,
     pub size: u64,
+    /// true только у ПОСЛЕДНЕЙ записи ответа: каталог обрезан лимитом.
+    /// Аудит: усечение было молчаливым, UI скрывал часть каталога без
+    /// единого намёка (fs_list модели при этом маркер ставил)
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub truncated: bool,
 }
 
 pub(crate) const LIST_DIR_LIMIT: usize = 500; // максимум записей на папку в ответе
@@ -832,7 +837,8 @@ fn list_dir_impl(path: String) -> Result<Vec<FileEntry>, String> {
             .map(|t| t.is_dir())
             .unwrap_or_else(|_| entry.path().is_dir());
         let size = entry.metadata().map(|m| m.len()).unwrap_or(0);
-        (if is_dir { &mut dirs } else { &mut files }).push(FileEntry { name, is_dir, size });
+        (if is_dir { &mut dirs } else { &mut files })
+            .push(FileEntry { name, is_dir, size, truncated: false });
         if dirs.len() + files.len() >= LIST_DIR_HARD_CAP {
             break;
         }
@@ -841,7 +847,13 @@ fn list_dir_impl(path: String) -> Result<Vec<FileEntry>, String> {
     dirs.sort_by(by_name);
     files.sort_by(by_name);
     dirs.extend(files);
+    let truncated = dirs.len() > LIST_DIR_LIMIT;
     dirs.truncate(LIST_DIR_LIMIT);
+    if truncated {
+        if let Some(last) = dirs.last_mut() {
+            last.truncated = true;
+        }
+    }
     Ok(dirs)
 }
 
