@@ -14,7 +14,7 @@
 //! привязка + исходящий канал.
 
 use serde::{Deserialize, Serialize};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::Duration;
 use tauri::Emitter;
@@ -87,6 +87,14 @@ static POLL_TASK: Mutex<Option<tauri::async_runtime::JoinHandle<()>>> = Mutex::n
 /// Живость поллера для telegram_status: tauri-JoinHandle не отдаёт
 /// is_finished, поэтому флаг ведём сами (spawn/выход/abort)
 static POLLING: AtomicBool = AtomicBool::new(false);
+/// Персистентный offset getUpdates: старт с 0 ределиверил необработанную
+/// пачку после abort/крэша (аудит: повторное исполнение команд владельца
+/// и повторный confirm-callback на фронте). В процессе живёт статика,
+/// между рестартами — поле "offset" в telegram.json (пишется после каждой
+/// обработанной пачки; set_config его теряет — допустимо: replay только
+/// пачки, жившей на момент сохранения конфига)
+static OFFSET: AtomicU64 = AtomicU64::new(0);
+static OFFSET_LOADED: AtomicBool = AtomicBool::new(false);
 
 fn stop_polling() {
     if let Some(h) = POLL_TASK
@@ -108,12 +116,37 @@ pub fn apply_runtime(app: tauri::AppHandle) {
         return;
     }
     POLLING.store(true, Ordering::Relaxed);
-    // offset начинаем с 0: непривязанный бот получит и старые /start —
-    // привязка идempotentна, чужие чаты игнорируются
-    let handle = tauri::async_runtime::spawn(polling_loop(app, 0));
+    let handle = tauri::async_runtime::spawn(polling_loop(app));
     *POLL_TASK
         .lock()
         .unwrap_or_else(|p| p.into_inner()) = Some(handle);
+}
+
+/// Токен из статики в рабочем виде: на диске и в статике он может лежать
+/// enc:v1:… (старт при запертом vault). None = расшифровать нечем —
+/// вызывающий честно гасит/пропускает работу (аудит: поллер уходил с
+/// зашифрованным токеном в URL и молча ловил 401 после каждого рестарта)
+fn plain_token(token: &str) -> Option<String> {
+    if crate::crypto::is_encrypted(token) {
+        crate::crypto::decrypt(token).map(|p| p.to_string())
+    } else {
+        Some(token.to_string())
+    }
+}
+
+/// Категория сетевой ошибки БЕЗ URL: reqwest прикладывает полный URL к
+/// Display/Debug ошибок, а URL getUpdates/sendMessage содержит токен бота
+/// (аудит: секрет в консоли при любом сетевом сбое)
+fn net_err(e: &reqwest::Error) -> String {
+    if let Some(s) = e.status() {
+        format!("http {}", s.as_u16())
+    } else if e.is_timeout() {
+        "timeout".into()
+    } else if e.is_connect() {
+        "connect failed".into()
+    } else {
+        "network error".into()
+    }
 }
 
 /// Пауза между попытками getUpdates после неудач: 5 → 10 → 20 → 30 (кап).
@@ -193,7 +226,7 @@ async fn send_message(
     let resp = tokio::time::timeout(Duration::from_secs(20), fut)
         .await
         .map_err(|_| "telegram request timed out after 20s".to_string())?
-        .map_err(|e| format!("telegram request failed: {e}"))?;
+        .map_err(|e| format!("telegram request failed: {}", net_err(&e)))?;
     let status = resp.status();
     let body = resp.text().await.unwrap_or_default();
     if !status.is_success() {
@@ -212,7 +245,7 @@ async fn check_token(token: &str) -> Result<(), String> {
     let resp = tokio::time::timeout(Duration::from_secs(20), fut)
         .await
         .map_err(|_| "telegram request timed out after 20s".to_string())?
-        .map_err(|e| format!("telegram request failed: {e}"))?;
+        .map_err(|e| format!("telegram request failed: {}", net_err(&e)))?;
     if !resp.status().is_success() {
         return Err(format!(
             "token rejected by Telegram (HTTP {})",
@@ -230,17 +263,39 @@ async fn check_token(token: &str) -> Result<(), String> {
 /// Перезапускается целиком при каждом изменении конфига (см. apply_runtime).
 /// Каждая итерация перепроверяет конфиг — выключение гасит цикл максимум
 /// через один poll даже если abort по какой-то причине не дошёл
-async fn polling_loop(app: tauri::AppHandle, mut offset: u64) {
+async fn polling_loop(app: tauri::AppHandle) {
     let mut fails: u32 = 0;
+    // Дисковый offset читаем один раз за жизнь процесса (внутри процесса
+    // его несёт статика OFFSET); файл — только из blocking-пула
+    if !OFFSET_LOADED.swap(true, Ordering::Relaxed) {
+        let app2 = app.clone();
+        if let Ok(Ok(disk)) = tauri::async_runtime::spawn_blocking(move || {
+            crate::settings::read_json_config(&app2, "telegram.json")
+        })
+        .await
+        {
+            if let Some(o) = disk.get("offset").and_then(|x| x.as_u64()) {
+                OFFSET.store(o, Ordering::Relaxed);
+            }
+        }
+    }
+    let mut offset = OFFSET.load(Ordering::Relaxed);
     loop {
         let cfg = config();
         if !cfg.enabled || cfg.bot_token.is_empty() {
             POLLING.store(false, Ordering::Relaxed);
             return;
         }
-        let token = cfg.bot_token;
+        // Токен расшифровывается на КАЖДУЮ итерацию: после авто-лока vault
+        // ключ стирается и цикл честно гасится вместо хождения с enc:v1:…
+        // в URL запроса (аудит: 401-флуд молча после каждого рестарта)
+        let Some(token) = plain_token(&cfg.bot_token) else {
+            eprintln!("telegram polling: bot token is encrypted and the vault is locked — polling stopped until unlock");
+            POLLING.store(false, Ordering::Relaxed);
+            return;
+        };
         let req = tokio::time::timeout(Duration::from_secs(65), async {
-            crate::network::shared_client(Duration::from_secs(15))?
+            let resp = crate::network::shared_client(Duration::from_secs(15))?
                 .get(format!(
                     // message (фаза 2: команды владельца) + callback_query
                     // (фаза 3: нажатия inline-кнопок)
@@ -248,14 +303,36 @@ async fn polling_loop(app: tauri::AppHandle, mut offset: u64) {
                 ))
                 .send()
                 .await
-                .map_err(|e| format!("telegram poll failed: {e}"))?
-                .json::<serde_json::Value>()
+                .map_err(|e| format!("telegram poll failed: {}", net_err(&e)))?;
+            let status = resp.status();
+            let v: serde_json::Value = resp
+                .json()
                 .await
-                .map_err(|e| format!("telegram poll body: {e}"))
+                .map_err(|e| format!("telegram poll body: {e}"))?;
+            Ok::<_, String>((status, v))
         })
         .await;
         let updates = match req {
-            Ok(Ok(v)) => {
+            Ok(Ok((status, v))) => {
+                // 401/409/400 приходят как HTTP != 2xx ИЛИ {"ok":false} при
+                // 2xx: без этой проверки ветка трактовала ошибку API как
+                // «пустую пачку», сбрасывала бэкофф и флудила запросами
+                // без единой строки в консоли (аудит)
+                let ok = v.get("ok").and_then(|x| x.as_bool()).unwrap_or(false);
+                if !status.is_success() || !ok {
+                    let desc = v
+                        .get("description")
+                        .and_then(|x| x.as_str())
+                        .unwrap_or("no description");
+                    eprintln!(
+                        "telegram polling: API error (http {}): {}",
+                        status.as_u16(),
+                        desc
+                    );
+                    fails = fails.saturating_add(1);
+                    tokio::time::sleep(Duration::from_secs(poll_backoff_secs(fails))).await;
+                    continue;
+                }
                 fails = 0;
                 v.get("result")
                     .and_then(|x| x.as_array())
@@ -275,11 +352,15 @@ async fn polling_loop(app: tauri::AppHandle, mut offset: u64) {
                 continue;
             }
         };
+        let updates_were_processed = !updates.is_empty();
         for u in &updates {
             let Some(id) = u.get("update_id").and_then(|x| x.as_u64()) else {
                 continue;
             };
-            offset = offset.max(id + 1);
+            if id + 1 > offset {
+                offset = id + 1;
+                OFFSET.store(offset, Ordering::Relaxed);
+            }
             let cfg = config();
 
             // Фаза 3: нажатие inline-кнопки — решение по подтверждению или
@@ -315,11 +396,11 @@ async fn polling_loop(app: tauri::AppHandle, mut offset: u64) {
                         .json(&serde_json::json!({ "callback_query_id": cq_id }))
                         .send()
                         .await
-                        .map_err(|e| e.to_string())
+                        .map_err(|e| net_err(&e))
                 })
                 .await;
                 if let Err(e) = ack {
-                    eprintln!("telegram callback ack failed: {e:?}");
+                    eprintln!("telegram callback ack failed: {e}");
                 }
                 if mid != 0 {
                     let clear = tokio::time::timeout(Duration::from_secs(10), async {
@@ -334,11 +415,11 @@ async fn polling_loop(app: tauri::AppHandle, mut offset: u64) {
                             }))
                             .send()
                             .await
-                            .map_err(|e| e.to_string())
+                            .map_err(|e| net_err(&e))
                     })
                     .await;
                     if let Err(e) = clear {
-                        eprintln!("telegram clear keyboard failed: {e:?}");
+                        eprintln!("telegram clear keyboard failed: {e}");
                     }
                 }
                 let _ = app.emit_to(
@@ -389,11 +470,20 @@ async fn polling_loop(app: tauri::AppHandle, mut offset: u64) {
                 }
                 // Привязка: chat_id в статик + на диск (токен остаётся в
                 // дисковой копии зашифрованным — читаем файл, правим только
-                // поле chat_id)
-                let mut disk = crate::settings::read_json_config(&app, "telegram.json")
-                    .unwrap_or_else(|_| serde_json::json!({}));
-                disk["chat_id"] = serde_json::Value::String(chat_id.clone());
-                match crate::settings::save_json_config(&app, "telegram.json", &disk) {
+                // поле chat_id). Файл — из blocking-пула: не морозим tokio-
+                // воркер long-poll цикла
+                let app_for_bind = app.clone();
+                let chat_for_bind = chat_id.clone();
+                let saved = tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
+                    let mut disk = crate::settings::read_json_config(&app_for_bind, "telegram.json")
+                        .unwrap_or_else(|_| serde_json::json!({}));
+                    disk["chat_id"] = serde_json::Value::String(chat_for_bind);
+                    crate::settings::save_json_config(&app_for_bind, "telegram.json", &disk)
+                })
+                .await
+                .map_err(|e| format!("telegram bind task failed: {e}"))
+                .and_then(|r| r);
+                match saved {
                     Ok(()) => {
                         let mut cfg = cfg;
                         cfg.chat_id = chat_id.clone();
@@ -422,7 +512,26 @@ async fn polling_loop(app: tauri::AppHandle, mut offset: u64) {
                 );
             }
         }
+        // Offset на диск после каждой пачки, где что-то приехало: после
+        // крэша рестарт продолжит с него, а не ределиверит пачку заново
+        if updates_were_processed {
+            persist_offset(&app, offset).await;
+        }
     }
+}
+
+/// Сохранить offset в telegram.json (поле вне типизированного TelegramConfig —
+/// serde при чтении конфига его молча игнорирует). Ошибка не фатальна:
+/// worst case — рестарт ределиверит последнюю пачку
+async fn persist_offset(app: &tauri::AppHandle, offset: u64) {
+    let app2 = app.clone();
+    let _ = tauri::async_runtime::spawn_blocking(move || {
+        let mut disk = crate::settings::read_json_config(&app2, "telegram.json")
+            .unwrap_or_else(|_| serde_json::json!({}));
+        disk["offset"] = serde_json::Value::from(offset);
+        crate::settings::save_json_config(&app2, "telegram.json", &disk)
+    })
+    .await;
 }
 
 // ---------- Команды ----------
@@ -620,5 +729,25 @@ mod tests {
         assert!(v.get("notifyStart").is_some(), "camelCase поле потеряно");
         assert!(v.get("notify_start").is_none(), "snake_case утёк на фронт");
         assert!(v.get("botToken").is_some());
+    }
+
+    /// Диск может нести поле "offset" (персистентный offset getUpdates,
+    /// живущий вне типизированного конфига) — чтение конфига обязано его
+    /// молча игнорировать, а не падать
+    #[test]
+    fn config_ignores_disk_offset_field() {
+        let raw = r#"{"enabled":true,"botToken":"t","chatId":"1","notifyStart":true,"notifyFinish":true,"notifyError":true,"notifyConfirm":true,"offset":42}"#;
+        let cfg: TelegramConfig = serde_json::from_str(raw).unwrap();
+        assert!(cfg.enabled);
+        assert_eq!(cfg.chat_id, "1");
+    }
+
+    /// plain_token: plain проходит насквозь; enc без разблокированного
+    /// хранилища — None (поллер гасится вместо хождения с enc:v1:… в URL).
+    /// В тестах vault не разблокирован — расшифровать нечем
+    #[test]
+    fn plain_token_passes_plain_and_blocks_encrypted_without_key() {
+        assert_eq!(plain_token("123456789:AAx"), Some("123456789:AAx".into()));
+        assert_eq!(plain_token("enc:v1:AAAA"), None);
     }
 }

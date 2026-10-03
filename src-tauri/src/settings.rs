@@ -283,6 +283,10 @@ pub async fn crypto_unlock(app: tauri::AppHandle, password: String) -> Result<()
     };
     if is_argon2 {
         crypto::set_key(key);
+        // Ключ появился: поллер Telegram мог честно погаситься при старте
+        // с enc-токеном и запертым vault — перезапускаем (apply_runtime сам
+        // решает по enabled/пустому токену, запускаться ли)
+        crate::telegram::apply_runtime(app);
         return Ok(());
     }
     // --- Легаси-миграция PBKDF2 → Argon2id ---
@@ -296,7 +300,11 @@ pub async fn crypto_unlock(app: tauri::AppHandle, password: String) -> Result<()
     .await
     .map_err(|e| e.to_string())??;
     crypto::set_key(migrated.1);
-    crypto_write_meta(&app, &migrated.0, &migrated.2, "argon2id")
+    let meta = crypto_write_meta(&app, &migrated.0, &migrated.2, "argon2id");
+    // Та же причина, что и в argon2-ветке выше: после разблокировки поллер
+    // с enc-токеном снова может ходить в Telegram
+    crate::telegram::apply_runtime(app);
+    meta
 }
 
 /// Перешифровать все зашифрованные поля (settings.json, profiles.json)
