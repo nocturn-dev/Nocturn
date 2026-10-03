@@ -321,20 +321,91 @@ useAgentRun — точка выбрана неверно, стоп и перес
 чекбоксы этой волны. DoD: пары целы (тест), request-история режется, сессия
 и UI нет; ручной смоук владельца — длинный прогон, в консоли [microcompact].
 
-### Волна B2 — Autocompact (M/L, 1.5–2 вечера, после B)
-- [ ] Триггер: total-токены из onUsage > (контекст модели − настраиваемый
-      buffer, дефолт ~13k по образцу CC; порог в настройках, parseProfile —
-      урок themeProfiles).
-- [ ] Суммаризация одним вызовом модели (не-стрим) по структурному промпту:
-      цель задачи / ключевые решения / файлы и правки / ошибки и фиксы /
-      все сообщения пользователя / текущий шаг / следующий шаг (9 секций CC
-      переформулировать своими словами).
-- [ ] Boundary-сообщение; реинжект: активный план (plan_update-состояние) и
-      ≤5 последних тронутых файлов (бюджет ~50k токенов); single-shot guard
-      против спирали (второй автокомпакт за прогон — только по явному
-      превышению повторного порога).
-- [ ] Реактивный вариант: 400 «context length» от провайдера → удержать
-      ошибку, компакция, один повтор (по образцу reactive-compact CC).
+### Волна B2 — Autocompact (M/L, 1.5–2 вечера, после B) — детальный план 03.10
+Цель: переживать границы окна БЕЗ амнезии цели — персистентная суммаризация
+головы истории + reactive-страховка на 400 «context length». Вся чистка —
+по-прежнему только история ЗАПРОСА; в сессии появляется одно опциональное
+поле `compact` (не сообщение!), карточки чата не меняются.
+
+**Разведка (факты, на которых стоит дизайн):** `chatStream` позволяет
+безголовый вызов (tools/onToolCalls опциональны, колбэки задаёт вызывающий) —
+суммаризация идёт под ТЕМ ЖЕ requestId (Stop убивает), без касания
+streamingRef/usageAcc/HardLimit; `save_sessions(data: String)` — непрозрачный
+блоб (tooling.rs:1171), опциональное поле Session обратимо совместимо;
+«[i] …» — готовый паттерн служебных уведомлений (видно в UI, отфильтровано из
+запросов в buildHistory); окна модели в профиле нет → триггер — константа.
+
+**Новые файлы:**
+- `src/agent/autocompact.ts` (~140): константы TRIGGER=96_000 токенов
+  (буфер ~13k учтён для 128k-моделей; окно из профиля — будущая волна
+  настроек), TAIL=12, HEAD_CHAR_CAP=80k (первая 1/4 + последняя 3/4 с
+  маркером пропуска), HEAD_MSG_CAP=2k, SUMMARY_CAP=8k, MAX_PER_RUN=2.
+  Экспорты: `isContextLengthError(msg)` (реестр фраз провайдеров + HTTP 413),
+  `serializeHead(msgs)` (чистая), `buildSummaryPrompt(head)` (чистая; секции
+  СВОИМИ словами: цель задачи дословно / решения и ограничения / файлы и
+  артефакты с путями / ошибки и как исправлены / все сообщения и поправки
+  пользователя / текущее состояние и следующий шаг; ≤600 слов), `applyCompact
+  (msgs, summary)` — [system?] + [summary-user] + pair-safe хвост через
+  historyWithSummary, `compactHistory(msgs, call)` — async-оркестратор:
+  call(summarizePrompt) → string | throw; при throw → null (компакция —
+  оптимизация, никогда не фатальна), при успехе → applyCompact с капом
+  SUMMARY_CAP. Один import из history.ts (направление autocompact→history,
+  циклов нет).
+- `src/agent/autocompact.test.ts`: serialize-капы (посимвольно безопасно),
+  промпт содержит секции и голову, applyCompact сохраняет system и пары
+  (assertPairsIntact-паттерн волны B), isContextLengthError-матрица,
+  compactHistory: fake-call успех/отказ (null, вход не тронут), SUMMARY_CAP.
+- `src/agent/autocompact.perf.test.ts`: serializeHead на 300×64КБ — O(n),
+  бюджет 20мс.
+
+**Правки существующего:**
+- `src/agent/history.ts` (+~20): экспорт `historyWithSummary(summary, rest,
+  keep=30)` — [system?] + [summary-user-сообщение] + trimContextWindow(rest,
+  keep); buildHistory читает `current.compact`: raw-сообщения делятся по
+  `baseCount` (baseCount — длина RAW messages в момент компакции; append-only
+  сессий делает индекс точным; удаление пользователем → Math.min-клэмп, деградация
+  мягкая) на covered/after; rest = [...covered-tail(12), ...after];
+  регресс-тест: без compact вывод бит-в-бит прежний. Направление импортов не
+  меняется (autocompact→history).
+- `src/types.ts` (+5): `Session.compact?: { summary: string; baseCount: number;
+  createdAt: number }` с док-комментарием.
+- `src/hooks/useAgentRun.ts` (+~40, 6 аннотированных точек; каждая — вставка,
+  переписывание окружающего кода запрещено): (1) usageAcc += `lastPrompt: 0`;
+  (2) в onUsage-колбэке +1 строка `usageAcc.lastPrompt = usage.prompt` (реальные
+  промпт-токены последнего раунда — сигнал точнее оценки, буфер не тратится);
+  (3) счётчики `compactCount/lastCompactStep/reactiveCompacted` + thunk
+  (~15 строк): headless chatWithRetry — messages=[{user, prompt}], без tools,
+  onDelta копит строку, onUsage noop, requestId прогона; (4) ПРОАКТИВНЫЙ
+  триггер после applyMicrocompact в цикле: `lastPrompt ≥ TRIGGER &&
+  compactCount < 2 && step − lastCompactStep ≥ 3` → compactHistory → успех:
+  history=результат, setSessions обновляет ТОЛЬКО поле compact цели
+  (+pushMessage-уведомление «[i] Контекст сжат…»), отказ: тихий пропуск;
+  (5) РЕАКТИВНЫЙ: в catch шага ДО рисования карточки ошибки:
+  isContextLengthError && !reactiveCompacted && !gotAny → reactiveCompacted=true,
+  compactHistory, успех → снять пустую карточку assistantId (setSessions
+  filter), step−−, continue; иначе — прежнее поведение ошибки; (6) импорт.
+- Локали ×4: `chat.contextCompacted` = «[i] Контекст задачи сжат: старые шаги
+  суммаризированы» / en / zh / ja — настоящие переводы.
+
+**Осознанные упрощения v1 (зафиксировать):** реинжект plan_update-состояния и
+тронутых файлов НЕ делаем — секция 6 промпта покрывает «текущее состояние»;
+boundary — часть summary-сообщения (один user-месседж, без риска для
+anthropic-адаптера); суммаризатор не учитывается в Hard Limit (инфраструктура,
+не работа задачи); триггер по константе — привязка к окну профиля в волне
+настроек.
+
+**Гарды деградации:** 3 коммита — (1) чистый модуль+historyWithSummary+тесты,
+(2) types+buildHistory-персистентность+регресс «без compact — вывод прежний»,
+(3) врезка useAgentRun+локали; красный шаг → откат, не каскад; полный vitest
+перед каждым коммитом; существующие тесты history.test.ts обязаны остаться
+зелёными без правок (сигнатура buildHistory не меняется); если reactive-вставка
+в catch требует реструктуризации — стоп и предложить вариант отдельно.
+
+**DoD:** длинный прогон: при lastPrompt≥96k в консоли [autocompact]-лог (лог в
+thunk), в чате «[i] Контекст сжат», карточки не дублируются; после компакции
+следующий раунд отвечает (история = system+summary+хвост); Stop во время
+суммаризации не вешает прогон; рестарт приложения — compact переживает
+перезагрузку (sessions.json), следующий вопрос стартует с summary.
 
 ### Волна C — Параллельные read-only батчи (M, 1–1.5 вечера)
 - [ ] `toolFilter.ts`: второй предикат isConcurrencySafe (fs_list/fs_read/
