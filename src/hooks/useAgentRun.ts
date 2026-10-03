@@ -26,6 +26,12 @@ import {
 // Чистые фазы prepare (история/память) — в agent/history; лимиты — в limits.ts
 import { buildHistory, buildMemoryBlock } from "../agent/history";
 import { applyMicrocompact } from "../agent/microcompact";
+import {
+  compactHistory,
+  COMPACT_MAX_PER_RUN,
+  COMPACT_TRIGGER_TOKENS,
+  isContextLengthError,
+} from "../agent/autocompact";
 import { buildProfileBlock } from "../userProfile";
 import { evalHardLimit } from "../limits";
 import { filterToolSchemas, isMutatingTool } from "../agent/toolFilter";
@@ -668,6 +674,9 @@ export function useAgentRun(deps: AgentRunDeps) {
     const usageAcc = {
       prompt: budgetCarry?.prompt ?? 0,
       completion: budgetCarry?.completion ?? 0,
+      // Промпт-токены ПОСЛЕДНЕГО раунда (не сумма): сигнал размера текущего
+      // контекста для проактивного autocompact
+      lastPrompt: 0,
     };
     // Фактическая модель прогона: fallback меняет её на лету — журнал
     // расхода раньше писал всё под имя основной, статистика по моделям врала
@@ -1285,6 +1294,53 @@ export function useAgentRun(deps: AgentRunDeps) {
         );
       });
 
+    // ---- Autocompact (волна B2): персистентная суммаризация головы ----
+    let compactCount = 0;
+    let lastCompactStep = 0;
+    let reactiveCompacted = false;
+    // Безголовый вызов суммаризатора: тот же requestId (Stop убивает и его),
+    // без инструментов; usage/HardLimit не трогаются — инфраструктура, а не
+    // работа задачи
+    const compactCall = async (prompt: string): Promise<string> => {
+      let text = "";
+      await chatWithRetry({
+        requestId,
+        baseUrl: apiSettings.base_url,
+        apiKey: apiSettings.api_key,
+        model: apiSettings.model,
+        provider: apiSettings.provider,
+        messages: [{ role: "user", content: prompt }],
+        onDelta: (d) => {
+          text += d;
+        },
+        onThought: () => {},
+        onUsage: () => {},
+      });
+      return text;
+    };
+    // Персистентность: baseCount = длина RAW-сообщений сессии В МОМЕНТ
+    // компакции (append-only — индекс точен); уведомление «[i]» видно в чате
+    // и отфильтровано из запросов. baseCount снимается ДО pushMessage
+    const persistCompact = (summary: string) => {
+      const baseCount =
+        sessionsRef.current.find((s) => s.id === targetId)?.messages.length ?? 0;
+      setSessions((prev) =>
+        prev.map((s) =>
+          s.id === targetId
+            ? {
+                ...s,
+                compact: { summary, baseCount, createdAt: Date.now() },
+              }
+            : s,
+        ),
+      );
+      pushMessage({
+        id: uid(),
+        role: "assistant",
+        content: t("chat.contextCompacted"),
+      });
+    };
+
     for (let step = 1; step <= MAX_STEPS; step++) {
       if (abortedRef.current.has(requestId)) return finalize();
       // Поправки, накопившиеся за прошлый шаг, попадают модели до нового запроса
@@ -1292,6 +1348,22 @@ export function useAgentRun(deps: AgentRunDeps) {
       // Цикл растит history push'ами: без по-шаговой чистки контекст
       // раздувается линейно за 25 шагов (чистая функция, identity под бюджетом)
       history = applyMicrocompact(history);
+      // Проактивный autocompact: промпт-токены прошлого раунда у порога окна.
+      // Счётчик растёт на ПОПЫТКУ (анти-шторм: упавший суммаризатор не
+      // ретраится каждым шагом), окно между попытками — 3 шага
+      if (
+        compactCount < COMPACT_MAX_PER_RUN &&
+        step - lastCompactStep >= 3 &&
+        usageAcc.lastPrompt >= COMPACT_TRIGGER_TOKENS
+      ) {
+        compactCount += 1;
+        lastCompactStep = step;
+        const compacted = await compactHistory(history, compactCall);
+        if (compacted) {
+          history = compacted.msgs;
+          persistCompact(compacted.summary);
+        }
+      }
 
       const assistantId = uid();
       // Своя точка отсчёта на шаг: workedMs от старта ПРОГОНА суммировался
@@ -1386,6 +1458,7 @@ export function useAgentRun(deps: AgentRunDeps) {
             flushDeltas();
             usageAcc.prompt += usage.prompt;
             usageAcc.completion += usage.completion;
+            usageAcc.lastPrompt = usage.prompt;
             checkHardLimit();
             // FIX: клонируем только целевую сессию, а не все сессии стора
             setSessions((prev) =>
@@ -1433,6 +1506,35 @@ export function useAgentRun(deps: AgentRunDeps) {
           },
         });
       } catch (e) {
+        // Реактивная компакция: переполнение контекста провайдера →
+        // суммаризация головы и повтор ТОГО ЖЕ шага (одна попытка за прогон;
+        // частичный ответ не теряем — ветка только при пустом ответе)
+        if (
+          !reactiveCompacted &&
+          !gotAny &&
+          !abortedRef.current.has(requestId) &&
+          (isContextLengthError(String(e)) || parseHttpCode(String(e)) === 413)
+        ) {
+          reactiveCompacted = true;
+          const compacted = await compactHistory(history, compactCall);
+          if (compacted) {
+            history = compacted.msgs;
+            persistCompact(compacted.summary);
+            // Пустая карточка шага снимается: повтор создаст новую
+            setSessions((prev) =>
+              prev.map((s) =>
+                s.id === targetId
+                  ? {
+                      ...s,
+                      messages: s.messages.filter((m) => m.id !== assistantId),
+                    }
+                  : s,
+              ),
+            );
+            step -= 1; // повтор шага: инкремент for-заголовка скомпенсирует
+            continue;
+          }
+        }
         failed = true;
         runErroredRef.current.add(requestId);
         setMsgError(assistantId, String(e));

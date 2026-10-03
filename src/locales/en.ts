@@ -558,6 +558,7 @@ export const en = {
     "hook.back": "Hide result",
     "hook.blockedSend": "Send blocked by a UserPromptSubmit hook",
     "chat.modelChanged": "[i] Model changed to {model}",
+    "chat.contextCompacted": "[i] Task context compacted: earlier steps summarized",
     "settings.usage": "Usage stats",
     "settings.reflect": "Overview",
     "reflect.period": "Period",

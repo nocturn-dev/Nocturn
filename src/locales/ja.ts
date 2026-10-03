@@ -587,6 +587,7 @@ export const ja = {
     "hook.back": "結果を隠す",
     "hook.blockedSend": "送信は UserPromptSubmit フックによってブロックされました",
     "chat.modelChanged": "[i] モデルを変更：{model}",
+    "chat.contextCompacted": "[i] タスクのコンテキストを圧縮しました：以前のステップを要約しました",
     "settings.usage": "統計",
     "settings.reflect": "概要",
     "reflect.period": "期間",
