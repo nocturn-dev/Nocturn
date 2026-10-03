@@ -1008,10 +1008,18 @@ pub async fn ensure_connected(
     }
     note_transport_fail(&name);
 
-    let cfg = load_servers(&app)?
-        .into_iter()
-        .find(|s| s.name == name)
-        .ok_or_else(|| format!("MCP server \"{name}\" is not configured"))?;
+    // Конфиг с диска — в blocking-пуле: ensure_connected живёт на async-пути
+    // (сетевой профиль AppData морозил бы tokio-воркер; паттерн siblings —
+    // mcp_save_servers в spawn_blocking, аудит А2-9)
+    let cfg = tauri::async_runtime::spawn_blocking({
+        let app = app.clone();
+        move || load_servers(&app)
+    })
+    .await
+    .map_err(|e| format!("mcp config task failed: {e}"))??
+    .into_iter()
+    .find(|s| s.name == name)
+    .ok_or_else(|| format!("MCP server \"{name}\" is not configured"))?;
     if !cfg.enabled {
         return Err(format!("MCP server \"{name}\" is disabled"));
     }
