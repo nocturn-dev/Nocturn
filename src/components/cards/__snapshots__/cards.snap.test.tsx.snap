@@ -34,7 +34,9 @@ exports[`chat cards snapshots > AssistantCard: markdown + usage, вне стри
         style="width: 16px; height: 16px; font-size: 9px;"
         title="glm-5.3-flash"
       >
-        <span>
+        <span
+          style="color: rgb(59, 130, 246);"
+        >
           g
         </span>
       </span>
@@ -122,13 +124,23 @@ exports[`chat cards snapshots > AssistantCard: с thinking-блоком 1`] = `
       class="flex items-center gap-1.5"
     >
       <span
-        class="flex shrink-0 items-center justify-center rounded-full bg-halo-raised font-semibold uppercase text-halo-text"
+        class="flex shrink-0 items-center justify-center overflow-hidden rounded-full bg-halo-raised"
         style="width: 16px; height: 16px; font-size: 9px;"
         title="claude-sonnet"
       >
-        <span>
-          c
-        </span>
+        <svg
+          aria-label="claude-sonnet"
+          class="size-full"
+          height="16"
+          role="img"
+          viewBox="0 0 24 24"
+          width="16"
+        >
+          <path
+            d="M17.3041 3.541h-3.6718l6.696 16.918H24Zm-10.6082 0L0 20.459h3.7442l1.3693-3.5527h7.0052l1.3693 3.5528h3.7442L10.5363 3.5409Zm-.3712 10.2232 2.2914-5.9456 2.2914 5.9456Z"
+            fill="#D97757"
+          />
+        </svg>
       </span>
       <span
         class="max-w-44 truncate text-[0.6875rem] font-semibold text-halo-text/90"
