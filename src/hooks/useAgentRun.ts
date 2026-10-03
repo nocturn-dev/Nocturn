@@ -1307,6 +1307,10 @@ export function useAgentRun(deps: AgentRunDeps) {
     let reactiveCompacted = false;
     // Волна G: авто-продолжения после обрыва вывода — не больше 3 на прогон
     let recoveryCount = 0;
+    // Волна D: отчёты завершившихся фоновых субагентов для ЖИВОГО прогона —
+    // «будят» модель следующим шагом (task-notification, CC-паттерн своими
+    // словами). Простой движок идёт путём авто-подхвата (wakeWithBgReport)
+    const bgNotifications: string[] = [];
     // Безголовый вызов суммаризатора: тот же requestId (Stop убивает и его),
     // без инструментов; usage/HardLimit не трогаются — инфраструктура, а не
     // работа задачи
@@ -1354,6 +1358,12 @@ export function useAgentRun(deps: AgentRunDeps) {
       if (abortedRef.current.has(requestId)) return finalize();
       // Поправки, накопившиеся за прошлый шаг, попадают модели до нового запроса
       injectCorrections();
+      // Волна D: завершившиеся фоновые субагенты «будят» модель — отчёт
+      // приходит user-сообщением; UI не дублируется (отчёт уже виден в
+      // патчнутой tool-карточке)
+      for (const note of bgNotifications.splice(0)) {
+        history.push({ role: "user", content: note });
+      }
       // Цикл растит history push'ами: без по-шаговой чистки контекст
       // раздувается линейно за 25 шагов (чистая функция, identity под бюджетом)
       history = applyMicrocompact(history);
@@ -2187,6 +2197,16 @@ export function useAgentRun(deps: AgentRunDeps) {
                         : s,
                     ),
                   );
+                  // Волна D: живой прогон заберёт отчёт следующим шагом;
+                  // простой движок — авто-подхват (вердикт владельца: ДА)
+                  if (!wasCancelled && entry?.status === "done") {
+                    const note = `[Background subagent ${bgId} (${role.name}) completed. Report:\n${report}\n]`;
+                    if (!runFinished) {
+                      bgNotifications.push(note);
+                    } else {
+                      wakeWithBgReport(entry.sessionId, note, role.name);
+                    }
+                  }
                 } catch (e) {
                   if (entry) {
                     entry.status = entry.cancelled ? "cancelled" : "failed";
@@ -2711,6 +2731,33 @@ ${report}`;
         cancelInteractions(requestId);
       }
     }
+  };
+
+  // ---- Волна D: авто-подхват завершившихся фоновых субагентов ----
+  // Вердикт владельца (PLAN §19): ДА. Гарды: свободный движок, сессия жива
+  // и агентная, не больше 3 авто-продолжений на сессию за жизнь процесса
+  // (анти-спираль «бг → прогон → бг»; счётчик в памяти, снимается рестартом)
+  const autoWakeCountsRef = useRef(new Map<string, number>());
+  const wakeWithBgReport = (
+    sessionId: string,
+    note: string,
+    roleName: string,
+  ) => {
+    if (activeRunRef.current !== null) return;
+    const sess = sessionsRef.current.find((s) => s.id === sessionId);
+    if (!sess || sess.archived || !sess.agentMode) return;
+    const count = autoWakeCountsRef.current.get(sessionId) ?? 0;
+    if (count >= 3) {
+      addToast(t("sub.bgWakeCapped"));
+      return;
+    }
+    autoWakeCountsRef.current.set(sessionId, count + 1);
+    addToast(t("sub.bgWaking", { s: roleName }));
+    void handleSendRef.current?.(
+      t("sub.bgWakePrompt", { report: note }),
+      undefined,
+      sessionId,
+    );
   };
 
   const handleStop = () => {

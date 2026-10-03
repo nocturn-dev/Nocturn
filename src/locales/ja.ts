@@ -265,6 +265,9 @@ export const ja = {
     // Фазы генерации
     // Живой статус модели (TypingBubble)
     "sub.bgDone": "バックグラウンドサブエージェント {s} が完了 — レポートはチャット内",
+    "sub.bgWaking": "バックグラウンドサブエージェント {s} が完了 — タスクを自動再開しました",
+    "sub.bgWakeCapped": "自動継続を停止：タスクあたり上限 3 回",
+    "sub.bgWakePrompt": "バックグラウンドサブエージェントが完了しました。以下のレポートを分析してタスクを続けてください。\n\n{report}",
     "activity.subagent": "サブエージェント {role} が作業中…",
     "activity.thinking": "思考中…",
     "activity.toolCall": "呼び出し中：{name}",

@@ -265,6 +265,9 @@ export const zh = {
     // Фазы генерации
     // Живой статус модели (TypingBubble)
     "sub.bgDone": "后台子代理 {s} 已完成 — 报告在对话中",
+    "sub.bgWaking": "后台子代理 {s} 已完成 — 任务已自动继续",
+    "sub.bgWakeCapped": "自动继续已暂停：每个任务上限 3 次",
+    "sub.bgWakePrompt": "后台子代理已完成。请分析以下报告并继续执行任务。\n\n{report}",
     "activity.subagent": "子代理 {role} 正在工作…",
     "activity.thinking": "思考中…",
     "activity.toolCall": "正在调用：{name}",
