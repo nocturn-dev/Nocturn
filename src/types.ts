@@ -112,6 +112,12 @@ export interface Session {
   tag?: string;
   /** План задач агента: перезаписывается только вызовом plan_update */
   plan?: PlanTask[];
+  /** Сжатие контекста (autocompact): суммаризация шагов до baseCount,
+   *  вшивается в system при сборке запроса (buildHistory). baseCount — длина
+   *  messages в момент компакции; сессии append-only, поэтому индекс точен,
+   *  а после ручного удаления сообщений деградирует мягко (Math.min-клэмп).
+   *  Сообщения сессии при этом НЕ удаляются — карточки чата остаются полными */
+  compact?: { summary: string; baseCount: number; createdAt: number };
   /** Происхождение ветки (edit-and-resend): сессия и сообщение, от которых
    *  форкнулись. Оригинальная сессия при форке не меняется */
   branchedFrom?: { sessionId: string; messageId: string };

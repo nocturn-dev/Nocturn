@@ -222,3 +222,75 @@ describe("historyWithSummary", () => {
     }
   });
 });
+
+describe("buildHistory + compact", () => {
+  const assistantMsg = (id: string, callId: string): Message =>
+    msg({ id, role: "assistant", content: "", toolCalls: [{ id: callId, name: "fs_read", arguments: "{}" }] });
+  const toolMsg = (id: string, callId: string, content: string): Message =>
+    msg({ id, role: "tool", toolCallId: callId, content });
+
+  it("summary вшивается в system, до baseCount виден только хвост 12", () => {
+    const messages: Message[] = [msg({ id: "u0", content: "первая задача" })];
+    for (let i = 0; i < 30; i++) {
+      messages.push(assistantMsg(`a${i}`, `tc${i}`), toolMsg(`t${i}`, `tc${i}`, `res ${i}`));
+    }
+    const current: Session = {
+      id: "s1",
+      title: "t",
+      createdAt: 0,
+      systemPrompt: "Ты ассистент",
+      messages,
+      compact: { summary: "Итог: цель была X", baseCount: messages.length, createdAt: 0 },
+    };
+    const history = buildHistory(current, msg({ id: "new", content: "продолжай" }));
+    // system = промт + summary
+    expect(history[0]?.role).toBe("system");
+    const c0 = history[0]?.content as string;
+    expect(c0).toContain("Ты ассистент");
+    expect(c0).toContain("Conversation compacted");
+    expect(c0).toContain("Итог: цель была X");
+    // covered-хвост: 12 сообщений = 6 пар, старые результаты не вернулись
+    const toolContents = history.filter((m) => m.role === "tool").map((m) => m.content);
+    expect(toolContents).toHaveLength(6);
+    expect(toolContents).not.toContain("res 0");
+    expect(toolContents).toContain("res 29");
+    // after-baseCount пуст, новое сообщение замыкает
+    expect(history[history.length - 1]?.content).toBe("продолжай");
+  });
+
+  it("после baseCount сообщения едут в окно целиком", () => {
+    const messages: Message[] = [msg({ id: "u0", content: "задача" })];
+    for (let i = 0; i < 3; i++) {
+      messages.push(assistantMsg(`a${i}`, `tc${i}`), toolMsg(`t${i}`, `tc${i}`, `res ${i}`));
+    }
+    const current: Session = {
+      id: "s1",
+      title: "t",
+      createdAt: 0,
+      messages,
+      compact: { summary: "S", baseCount: 1, createdAt: 0 },
+    };
+    const history = buildHistory(current, msg({ id: "new", content: "дальше" }));
+    const contents = history.map((m) => String(m.content));
+    // covered = [u0] (хвост из 1), after = все 6 сообщений — ничего не потеряно
+    for (const res of ["res 0", "res 1", "res 2"]) {
+      expect(contents).toContain(res);
+    }
+    expect(contents).toContain("задача");
+    expect(history[0]?.role).toBe("system");
+  });
+
+  it("ручное удаление сообщений после компакции — мягкий клэмп", () => {
+    const current: Session = {
+      id: "s1",
+      title: "t",
+      createdAt: 0,
+      messages: [msg({ id: "u0", content: "задача" })],
+      compact: { summary: "S", baseCount: 50, createdAt: 0 },
+    };
+    const history = buildHistory(current, msg({ id: "n", content: "дальше" }));
+    expect(history[0]?.role).toBe("system");
+    expect(String(history[0]?.content)).toContain("S");
+    expect(history.some((m) => m.role === "user" && m.content === "задача")).toBe(true);
+  });
+});

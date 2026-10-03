@@ -1,5 +1,5 @@
 import type { ChatMsgParam } from "../api";
-import { historyWithSummary } from "./history";
+import { COMPACT_TAIL_MESSAGES, historyWithSummary } from "./history";
 
 /**
  * Autocompact — персистентный слой контекст-менеджмента поверх microcompact:
@@ -20,9 +20,6 @@ import { historyWithSummary } from "./history";
 /** Порог промпт-токенов последнего раунда (usageAcc.lastPrompt): буфер ~13k
     учтён для 128k-моделей; малые окна ловит reactive-ветка по 400/413 */
 export const COMPACT_TRIGGER_TOKENS = 96_000;
-
-/** Сколько последних сообщений переживают компакцию дословно */
-export const COMPACT_TAIL_MESSAGES = 12;
 
 /** Анти-спираль: не больше двух компакций за прогон */
 export const COMPACT_MAX_PER_RUN = 2;
