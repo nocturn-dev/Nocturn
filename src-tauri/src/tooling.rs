@@ -449,6 +449,22 @@ pub async fn execute_tool_inner(
                     .map_err(|e| format!("mcp {server}.{tool}: reconnect: {e}"))?;
                 mcp_attempt!(fresh, args.clone())?
             }
+            Err(e) if mcp::is_session_expired(&e) => {
+                // Волна F2: сессия удалённого сервера истекла — невидимый
+                // реконнект (drop + ensure_connected), повтор инициирует сама
+                // модель следующим вызовом (аннотаций readOnlyHint нет,
+                // авто-повтор задвоил бы побочные эффекты)
+                registry_arc
+                    .lock()
+                    .map_err(|err| err.to_string())?
+                    .remove(&server);
+                mcp::ensure_connected(app.clone(), registry_arc.clone(), server.clone())
+                    .await
+                    .map_err(|e| format!("mcp {server}.{tool}: reconnect: {e}"))?;
+                return Err(format!(
+                    "mcp {server}.{tool}: session expired, server reconnected — retry the call"
+                ));
+            }
             Err(e) => return Err(e),
         };
         return Ok(result);

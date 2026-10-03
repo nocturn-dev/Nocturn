@@ -125,6 +125,14 @@ pub fn is_transport_err(e: &str) -> bool {
     e.starts_with("mcp transport:")
 }
 
+/// Сессия удалённого сервера истекла (волна F2): 404 с jsonrpc -32001.
+/// Соединение дропается и переподключается невидимо; повтор вызова
+/// инициирует сама модель (аннотаций readOnlyHint нет — авто-повтор
+/// задвоил бы побочные эффекты)
+pub fn is_session_expired(e: &str) -> bool {
+    e.contains("HTTP 404") || e.contains("-32001")
+}
+
 /// Моменты последней транспортной ошибки по серверам: backoff против спама
 /// перезапусками упавшего сервера (одна попытка реконнекта в 5 с)
 static TRANSPORT_FAILS: std::sync::LazyLock<Mutex<HashMap<String, Instant>>> =
