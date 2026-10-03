@@ -65,6 +65,18 @@ fn kb_dir(app: &tauri::AppHandle, id: &str) -> Result<PathBuf, String> {
 
 fn open_db(dir: &std::path::Path) -> Result<Connection, String> {
     let conn = Connection::open(dir.join("index.db")).map_err(|e| e.to_string())?;
+    // Волна KB-H1: busy_timeout — чтение (kb_query перед каждой отправкой)
+    // больше не падает мгновенным SQLITE_BUSY, пока идёт запись документа
+    // (BEGIN IMMEDIATE держит блокировку секунды на мегабайтах)
+    conn.busy_timeout(std::time::Duration::from_secs(5))
+        .map_err(|e| e.to_string())?;
+    // WAL: читатели не блокируют писателя и наоборот. На сетевом AppData
+    // может не переключиться — тихо остаёмся на журнале по умолчанию
+    // (busy_timeout всё равно стоит)
+    let _ = conn.query_row("PRAGMA journal_mode = WAL", [], |r| {
+        let _: String = r.get(0)?;
+        Ok(())
+    });
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS docs(
             id INTEGER PRIMARY KEY,
@@ -494,6 +506,25 @@ pub async fn kb_query(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn open_db_sets_busy_timeout_and_wal() {
+        // Волна KB-H1: чтение не падает мгновенным BUSY при записи; WAL —
+        // читатели не блокируют писателя
+        let dir = std::env::temp_dir().join(format!("haloui-kb-open-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let conn = open_db(&dir).unwrap();
+        let timeout: u64 = conn
+            .query_row("PRAGMA busy_timeout", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(timeout, 5000);
+        let mode: String = conn
+            .query_row("PRAGMA journal_mode", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(mode.to_lowercase(), "wal");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn chunks_respect_size_and_overlap() {

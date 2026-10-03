@@ -864,6 +864,7 @@ export const en = {
     "kb.attached": "Attached to chat ✓",
     "kb.chunksLabel": "chunks",
     "kb.contextBlock": "Relevant snippets from the knowledge base (local document search):",
+    "kb.queryFailed": "Knowledge base unavailable — document search skipped (details in console)",
     "kb.needChat": "Open a chat to attach a base",
     "import.externalTitle": "Import history from ChatGPT / Gemini",
     "import.externalHint": "Pick conversations.json from a ChatGPT export or a dialogs JSON from Gemini Takeout — chats appear in the task list, nothing is overwritten.",
