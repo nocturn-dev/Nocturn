@@ -455,38 +455,14 @@ impl McpConnection {
         }
     }
 
-    /// Вызов инструмента: склеиваем text-блоки content в одну строку для модели
+    /// Вызов инструмента: склейка text-блоков content в одну строку для модели
     pub fn call_tool(&self, tool: &str, arguments: Value) -> Result<String, String> {
         let result = self.request(
             "tools/call",
             json!({ "name": tool, "arguments": arguments }),
             CALL_TIMEOUT,
         )?;
-
-        let mut out = String::new();
-        if let Some(content) = result.get("content").and_then(|c| c.as_array()) {
-            for item in content {
-                if item.get("type").and_then(|t| t.as_str()) == Some("text") {
-                    if let Some(text) = item.get("text").and_then(|t| t.as_str()) {
-                        if !out.is_empty() {
-                            out.push('\n');
-                        }
-                        out.push_str(text);
-                    }
-                }
-            }
-        }
-        if result.get("isError").and_then(|e| e.as_bool()) == Some(true) {
-            return Err(if out.is_empty() {
-                "tool reported an error".to_string()
-            } else {
-                out
-            });
-        }
-        if out.is_empty() {
-            return Ok("(empty result)".to_string());
-        }
-        Ok(out)
+        finish_tool_result(result)
     }
 
     fn stderr_tail(&self) -> String {
@@ -730,7 +706,7 @@ impl RemoteConnection {
         Ok(text)
     }
 
-    /// Вызов инструмента: та же склейка text-блоков, что у stdio
+    /// Вызов инструмента: та же нормализация, что у stdio
     pub async fn call_tool(&self, tool: &str, arguments: Value) -> Result<String, String> {
         let result = self
             .request(
@@ -739,11 +715,61 @@ impl RemoteConnection {
                 CALL_TIMEOUT,
             )
             .await?;
-        Ok(extract_content_text(&result))
+        finish_tool_result(result)
     }
 }
 
-/// Склейка text-блоков MCP content (общая для stdio и remote)
+/// Общая нормализация ответа tools/call для stdio и remote: isError → Err,
+/// пустой результат → плейсхолдер, склейка с капом. Раньше remote не проверял
+/// isError — ошибка инструмента уходила модели как успешный текст
+fn finish_tool_result(result: Value) -> Result<String, String> {
+    let text = extract_content_text(&result);
+    if result.get("isError").and_then(|e| e.as_bool()) == Some(true) {
+        return Err(if text.is_empty() {
+            "tool reported an error".to_string()
+        } else {
+            text
+        });
+    }
+    if text.is_empty() {
+        return Ok("(empty result)".to_string());
+    }
+    Ok(text)
+}
+
+/// Кап склеенного text-результата вызова MCP-инструмента: без потолка
+/// гигантский вывод сервера целиком уходит в контекст модели. Голова тяжелее
+/// хвоста: начало вывода обычно важнее конца
+const MCP_RESULT_HEAD_CHARS: usize = 30 * 1024;
+const MCP_RESULT_TAIL_CHARS: usize = 2 * 1024;
+
+/// Голова+хвост с маркером, в маркере — число потерянных символов; None — влезло
+fn cap_result_text(s: &str, head: usize, tail: usize) -> Option<String> {
+    let total = s.chars().count();
+    if total <= head + tail {
+        return None;
+    }
+    let dropped = total - head - tail;
+    let head_text: String = s.chars().take(head).collect();
+    let tail_text: String = s.chars().skip(total - tail).collect();
+    Some(format!(
+        "{head_text}\n...[truncated {dropped} chars]...\n{tail_text}"
+    ))
+}
+
+/// Кап описания MCP-инструмента в схеме для модели: простыни-описания
+/// серверов входят в каждый запрос (в UI описание показывается целиком)
+fn cap_description(desc: &str) -> String {
+    const MAX: usize = 2048;
+    if desc.chars().count() <= MAX {
+        return desc.to_string();
+    }
+    let mut out: String = desc.chars().take(MAX).collect();
+    out.push_str("...[truncated]");
+    out
+}
+
+/// Склейка text-блоков MCP content (общая для stdio и remote), с капом длины
 fn extract_content_text(result: &Value) -> String {
     let mut out = String::new();
     if let Some(content) = result.get("content").and_then(|c| c.as_array()) {
@@ -758,7 +784,10 @@ fn extract_content_text(result: &Value) -> String {
             }
         }
     }
-    out
+    match cap_result_text(&out, MCP_RESULT_HEAD_CHARS, MCP_RESULT_TAIL_CHARS) {
+        Some(capped) => capped,
+        None => out,
+    }
 }
 
 /// Реестр живых соединений: имя сервера → соединение
@@ -842,7 +871,7 @@ impl McpRegistry {
                         "description": if tool.description.is_empty() {
                             format!("MCP tool {}.{}", server, tool.name)
                         } else {
-                            format!("[MCP:{}] {}", server, tool.description)
+                            format!("[MCP:{}] {}", server, cap_description(&tool.description))
                         },
                         "parameters": tool.input_schema
                     }
@@ -1280,6 +1309,65 @@ data: {\"jsonrpc\":\"2.0\",\"method\":\"ping\"}", 9).is_err());
         let v: Value = serde_json::from_str(r#"{"jsonrpc":"2.0","id":1,"result":{"content":[]}}"#).unwrap();
         assert!(parse_rpc_result(v).is_ok());
     }
+
+    #[test]
+    fn finish_tool_result_maps_error_and_empty() {
+        // isError → Err с текстом content (раньше remote-ветка не проверяла
+        // isError и отдавала ошибку инструмента модели как успешный текст)
+        let v: Value = serde_json::from_str(
+            r#"{"isError":true,"content":[{"type":"text","text":"boom detail"}]}"#,
+        )
+        .unwrap();
+        assert_eq!(finish_tool_result(v).unwrap_err(), "boom detail");
+        // isError без content — плейсхолдер ошибки
+        let v: Value = serde_json::from_str(r#"{"isError":true,"content":[]}"#).unwrap();
+        assert_eq!(finish_tool_result(v).unwrap_err(), "tool reported an error");
+        // Пустой успех — плейсхолдер
+        let v: Value = serde_json::from_str(r#"{"content":[]}"#).unwrap();
+        assert_eq!(finish_tool_result(v).unwrap(), "(empty result)");
+        // Обычный успех — склейка text-блоков
+        let v: Value = serde_json::from_str(
+            r#"{"content":[{"type":"text","text":"a"},{"type":"text","text":"b"}]}"#,
+        )
+        .unwrap();
+        assert_eq!(finish_tool_result(v).unwrap(), "a\nb");
+    }
+
+    #[test]
+    fn cap_result_text_head_tail_and_marker() {
+        assert_eq!(cap_result_text("short", 10, 5), None);
+        let s = "abcdefghij".repeat(10); // 100 символов
+        let capped = cap_result_text(&s, 40, 10).unwrap();
+        assert!(capped.contains("...[truncated 50 chars]..."));
+        assert!(capped.starts_with(&s[..40]));
+        assert!(capped.ends_with(&s[90..]));
+    }
+
+    #[test]
+    fn extract_content_text_caps_giant_results() {
+        // 3-байтовый символ: кап по символам, а не по байтам, без паники на границе
+        let big = "ж".repeat(40_000);
+        let v = json!({ "content": [ { "type": "text", "text": big } ] });
+        let out = extract_content_text(&v);
+        let total = out.chars().count();
+        assert!(total < 33_200, "total={total}");
+        assert!(out.contains("...[truncated 7232 chars]..."));
+        let head10: String = big.chars().take(10).collect();
+        let tail10: String = big.chars().skip(40_000 - 10).collect();
+        assert!(out.starts_with(&head10));
+        assert!(out.ends_with(&tail10));
+    }
+
+    #[test]
+    fn cap_description_truncates_with_marker() {
+        assert_eq!(cap_description("ok"), "ok");
+        let long = "x".repeat(3000);
+        let capped = cap_description(&long);
+        assert!(capped.starts_with(&"x".repeat(2048)));
+        assert!(capped.ends_with("...[truncated]"));
+        assert_eq!(capped.chars().count(), 2048 + "...[truncated]".len());
+    }
+
     // Полный e2e-цикл клиента (рукопожатие → tools/list → tools/call) —
     // в tests/mcp_e2e.rs: он спавнит отдельный bin mcp_echo_helper,
     // который недоступен из юнит-тестов (CARGO_BIN_EXE ставится только там).
