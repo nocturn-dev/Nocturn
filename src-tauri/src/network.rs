@@ -178,3 +178,45 @@ pub async fn network_set_config(
     .await
     .map_err(|e| format!("network config task failed: {e}"))?
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Старые network.json без новых полей читаются дефолтами (serde default
+    /// на каждом поле) — миграции конфига не нужны
+    #[test]
+    fn config_deserializes_from_empty_object() {
+        let cfg: NetworkConfig = serde_json::from_value(serde_json::json!({})).unwrap();
+        assert!(cfg.proxy.is_empty());
+        assert!(cfg.no_proxy.is_empty());
+        assert!(cfg.ca_path.is_empty());
+    }
+
+    /// Кривой proxy URL не пропускает запрос молча: apply() отдаёт ошибку
+    /// наружу (контракт doc-комментария apply — «запрос не уйдёт в обход
+    /// настройки»). Глобал CONFIG сохраняем и восстанавливаем: тесты
+    /// крутятся в одном процессе
+    #[test]
+    fn apply_rejects_invalid_proxy_url() {
+        let saved = config();
+        set_config(NetworkConfig {
+            proxy: "not a url".into(),
+            ..Default::default()
+        });
+        let res = apply(reqwest::ClientBuilder::new());
+        set_config(saved);
+        let err = res.expect_err("invalid proxy must fail");
+        assert!(err.contains("invalid proxy URL"), "неожиданная ошибка: {err}");
+    }
+
+    /// Пустой конфиг — прямое соединение, builder не меняется
+    #[test]
+    fn apply_without_proxy_is_ok() {
+        let saved = config();
+        set_config(NetworkConfig::default());
+        let res = apply(reqwest::ClientBuilder::new());
+        set_config(saved);
+        assert!(res.is_ok());
+    }
+}
