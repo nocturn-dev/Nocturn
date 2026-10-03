@@ -699,8 +699,7 @@ url, headers}, env литеральный (без ${}), headers статичес
 - Тумблер в McpSection (localStorage haloui-mcp-deferred, дефолт ON).
 - Тесты: порог, форма индекса, discover-скоринг, лимит.
 
-**F5 — OAuth (3–5, последняя; дробить F5a/F5b) — ОТЛОЖЕНА до следующего
-захода (план готов, оговорка владельца ниже зашита):**
+**F5 — OAuth (3–5, последняя; дробить F5a/F5b) — СДЕЛАНА 03.10 (05ec3ac) по решению владельца (вариант «б»), философия-оговорка соблюдена целиком:**
 - Scope: только http-транспорт. Authorization Code + PKCE; discovery
   (.well-known/oauth-authorization-server + protected-resource, RFC 8414).
 - **Философия-оговорка владельца (обязательная):** OAuth-сервер помечается в
