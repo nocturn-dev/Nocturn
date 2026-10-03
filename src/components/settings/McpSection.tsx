@@ -22,6 +22,13 @@ export function McpSection() {
   const [importOpen, setImportOpen] = useState(false);
   const [importText, setImportText] = useState("");
   const [importMsg, setImportMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  // Волна F4: deferred-схемы (дефолт ON) — сверх порога MCP-схемы сворачиваются
+  // в индекс, полные разворачивает mcp_tool_discover
+  const [deferred, setDeferred] = useState(
+    localStorage.getItem("haloui-mcp-deferred") !== "0",
+  );
+  // Волна F3: переменные окружения в конфиге (${VAR}) — предупреждение
+  const [envNote, setEnvNote] = useState<string | null>(null);
 
   /**
    * Разбор JSON-конфига в формате Claude Desktop / ZCode:
@@ -135,6 +142,15 @@ export function McpSection() {
     } catch (e) {
       setError(String(e));
     }
+    // Волна F3: ${VAR} в конфиге — предупредить о переменных окружения
+    const vars = new Set<string>();
+    for (const s of next) {
+      const hay = JSON.stringify(s);
+      for (const m of hay.matchAll(/\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-[^}]*)?\}/g)) {
+        vars.add(m[1] as string);
+      }
+    }
+    setEnvNote(vars.size ? t("mcp.envNote", { vars: [...vars].join(", ") }) : null);
   };
 
   const addServer = async () => {
@@ -243,6 +259,31 @@ export function McpSection() {
       <p className="mb-4 text-xs leading-relaxed text-halo-muted">
         {t("mcp.desc")}
       </p>
+
+      {/* Волна F4: тумблер deferred-схем */}
+      <div className="mb-3 flex items-center justify-between gap-2 rounded-lg border border-halo-line bg-halo-surface/40 px-3 py-2">
+        <div className="min-w-0">
+          <div className="text-xs font-medium text-halo-text">{t("mcp.deferred")}</div>
+          <div className="text-[0.6875rem] leading-relaxed text-halo-muted">
+            {t("mcp.deferredHint")}
+          </div>
+        </div>
+        <button
+          onClick={() => {
+            const v = !deferred;
+            setDeferred(v);
+            localStorage.setItem("haloui-mcp-deferred", v ? "1" : "0");
+            invalidateToolSchemas();
+          }}
+          className={`shrink-0 rounded-md border px-2 py-0.5 text-[0.625rem] transition-colors ${
+            deferred
+              ? "border-emerald-400/40 text-emerald-400"
+              : "border-halo-line text-halo-muted hover:text-halo-text"
+          }`}
+        >
+          {deferred ? t("mcp.enabled") : t("mcp.off")}
+        </button>
+      </div>
 
       <div className="space-y-2">
         {servers.length === 0 && (
@@ -359,6 +400,11 @@ export function McpSection() {
       {error && (
         <p className="mt-3 break-all rounded-lg border border-red-400/30 bg-red-400/10 px-3 py-2 text-xs leading-relaxed text-red-400">
           {error}
+        </p>
+      )}
+      {envNote && (
+        <p className="mt-2 break-all rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-xs leading-relaxed text-amber-400">
+          {envNote}
         </p>
       )}
 
