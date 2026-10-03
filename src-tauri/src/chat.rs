@@ -530,19 +530,32 @@ async fn chat_stream_impl(
     let mut saw_usage = false;
     let mut completion_chars = 0usize;
     'outer: loop {
-        let chunk = match tokio::time::timeout(STREAM_IDLE_TIMEOUT, stream.next()).await {
-            Ok(item) => item,
-            Err(_) => {
-                return Err("stream idle: no data for 300s".to_string());
-            }
+        // Abort рвется ещё ОЖИДАЮЩИМ next(): раньше флаг читался только
+        // после разрешения next() — Stop на «молчащем» стриме (провайдер
+        // держит TCP, но не шлёт байт) не работал до idle-таймаута 300 с
+        // (аудит А1-1). Поллинг флага 100 мс — тот же паттерн, что
+        // wait_for_abort в tooling.rs
+        let chunk = tokio::select! {
+            biased;
+            _ = async {
+                loop {
+                    if flag.load(Ordering::Relaxed) {
+                        return;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                }
+            } => None,
+            item = tokio::time::timeout(STREAM_IDLE_TIMEOUT, stream.next()) => match item {
+                Ok(item) => item,
+                Err(_) => {
+                    return Err("stream idle: no data for 300s".to_string());
+                }
+            },
         };
         let Some(chunk) = chunk else {
-            break;
-        };
-        // Прерывание: агент ушёл «в бесконечное размышление» — гасим поток
-        if flag.load(Ordering::Relaxed) {
+            // Прерывание: агент ушёл «в бесконечное размышление» — гасим поток
             return Ok(());
-        }
+        };
         let bytes = chunk.map_err(|e| format!("stream interrupted: {e}"))?;
         buf.extend_from_slice(&bytes);
         if buf.len() > SSE_BUF_LIMIT {
