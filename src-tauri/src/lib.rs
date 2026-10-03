@@ -883,10 +883,21 @@ fn position_quickentry(app: &tauri::AppHandle, w: &tauri::WebviewWindow) {
         })
     });
     let Some(m) = monitor.or_else(|| w.current_monitor().ok().flatten()) else { return };
-    let scale = m.scale_factor();
-    let screen_w = m.size().width as f64 / scale;
-    let (ww, _wh) = w.inner_size().map(|s| (s.width as f64 / scale, s.height as f64 / scale)).unwrap_or((540.0, 96.0));
-    let _ = w.set_position(tauri::LogicalPosition::new((screen_w - ww) / 2.0, 80.0));
+    // Аудит: LogicalPosition конвертируется tao по scale ОКНА, а не целевого
+    // монитора, и без m.position() точка уходила в глобальные координаты —
+    // на втором мониторе окно всплывало top-center primary. Считаем в
+    // ФИЗИЧЕСКИХ пикселях целевого монитора: размер окна переводим в
+    // логические величины по scale самого окна, затем в физику монитора
+    let win_scale = w.scale_factor().unwrap_or_else(|_| m.scale_factor());
+    let ww_logical = w
+        .inner_size()
+        .map(|s| s.width as f64 / win_scale)
+        .unwrap_or(540.0);
+    let target_scale = m.scale_factor();
+    let ww_phys = (ww_logical * target_scale).round() as i32;
+    let x = m.position().x + (m.size().width as i32 - ww_phys).max(0) / 2;
+    let y = m.position().y + (80.0 * target_scale).round() as i32;
+    let _ = w.set_position(tauri::PhysicalPosition::new(x, y));
 }
 
 /// Зарегистрирован ли сейчас глобальный комбо Quick Entry (setup/ремап):
