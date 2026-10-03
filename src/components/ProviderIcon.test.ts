@@ -23,9 +23,11 @@ describe("matchBrand", () => {
     expect(matchBrand("meta-llama/llama-3.3-70b")?.slug).toBe("meta");
     // ключ "xai" не равен семье "x-ai" — теперь ловит /x-ai/
     expect(matchBrand("x-ai/grok-2")?.key).toBe("xai");
-    // ключи "zhipu"/"glm" не равны семье "z-ai" — теперь ловит /glm/
+    // ключи "zhipu"/"glm" не равны семье "z-ai" — теперь ловит /glm/,
+    // бренд — tile-марка z.ai (плитка + slashed-Z)
+    expect(matchBrand("z-ai/glm-4.6")?.slug).toBe("zai");
     expect(matchBrand("z-ai/glm-4.6")?.name).toBe("GLM");
-    expect(matchBrand("moonshotai/kimi-k2")?.slug).toBe("moonshotai");
+    expect(matchBrand("moonshotai/kimi-k2")?.tile?.letter).toBe("K");
   });
 
   it("точные ключи по-прежнему в приоритете (семья до слэша)", () => {

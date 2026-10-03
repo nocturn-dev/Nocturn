@@ -1,4 +1,4 @@
-import { PROVIDER_ICONS } from "./providerIconsData";
+import { PROVIDER_ICONS, TILE_RECT_PATH } from "./providerIconsData";
 
 /**
  * Логотип провайдера: локальный брендовый SVG (данные simple-icons, CC0),
@@ -26,6 +26,14 @@ export interface BrandDef {
   /** slug в PROVIDER_ICONS; нет — цветная буква-фолбэк */
   slug?: string;
   color: string;
+  /** Волна иконок: tile-марка — брендовая плитка + буква + точка
+   *  (Kimi «K·»: буква из шрифта приложения на брендовой плитке) */
+  tile?: {
+    bg: string;
+    fg: string;
+    letter: string;
+    dot?: { cx: number; cy: number; r: number; fill: string };
+  };
 }
 
 /** Порядок важен: первый совпавший паттерн выигрывает */
@@ -41,12 +49,12 @@ const BRAND_DEFS: BrandDef[] = [
   { key: "mistralai", match: /mistral|mixtral/, name: "Mistral", slug: "mistralai", color: "FF7000" },
   { key: "mistral", match: /mistral/, name: "Mistral", slug: "mistralai", color: "FF7000" },
   { key: "qwen", match: /qwen/, name: "Qwen", slug: "qwen", color: "615CED" },
-  { key: "glm", match: /glm|zhipu|z-ai/, name: "GLM", color: "3B82F6" },
-  { key: "zhipu", match: /zhipu/, name: "GLM", color: "3B82F6" },
-  { key: "thudm", match: /thudm/, name: "GLM", color: "3B82F6" },
-  { key: "moonshotai", match: /kimi|moonshot/, name: "Kimi", slug: "moonshotai", color: "1B1B1B" },
-  { key: "moonshot", match: /moonshot/, name: "Kimi", slug: "moonshotai", color: "1B1B1B" },
-  { key: "kimi", match: /kimi/, name: "Kimi", slug: "moonshotai", color: "1B1B1B" },
+  { key: "glm", match: /glm|zhipu|z-ai/, name: "GLM", slug: "zai", color: "3B82F6" },
+  { key: "zhipu", match: /zhipu/, name: "GLM", slug: "zai", color: "3B82F6" },
+  { key: "thudm", match: /thudm/, name: "GLM", slug: "zai", color: "3B82F6" },
+  { key: "moonshotai", match: /kimi|moonshot/, name: "Kimi", tile: { bg: "#111111", fg: "#FFFFFF", letter: "K", dot: { cx: 17.4, cy: 5.9, r: 1.7, fill: "#4C6DF5" } }, color: "1B1B1B" },
+  { key: "moonshot", match: /moonshot/, name: "Kimi", tile: { bg: "#111111", fg: "#FFFFFF", letter: "K", dot: { cx: 17.4, cy: 5.9, r: 1.7, fill: "#4C6DF5" } }, color: "1B1B1B" },
+  { key: "kimi", match: /kimi/, name: "Kimi", tile: { bg: "#111111", fg: "#FFFFFF", letter: "K", dot: { cx: 17.4, cy: 5.9, r: 1.7, fill: "#4C6DF5" } }, color: "1B1B1B" },
   { key: "nvidia", match: /nvidia|nemotron/, name: "NVIDIA", slug: "nvidia", color: "76B900" },
   { key: "microsoft", match: /\bphi|microsoft/, name: "Phi", slug: "microsoft", color: "5E5E5E" },
   { key: "perplexity", match: /perplexity|sonar/, name: "Perplexity", slug: "perplexity", color: "20808D" },
@@ -144,6 +152,67 @@ export default function ProviderIcon({ modelId, size = 18 }: ProviderIconProps) 
     height: size,
     fontSize: Math.max(9, Math.round(size * 0.5)),
   };
+
+  // Волна иконок: tile-марка (Kimi «K·») — брендовая плитка + буква + точка
+  if (brand?.tile) {
+    const t = brand.tile;
+    return (
+      <span
+        style={circleStyle}
+        title={family}
+        className="flex shrink-0 items-center justify-center overflow-hidden rounded-full"
+      >
+        <svg
+          role="img"
+          aria-label={family}
+          width={size}
+          height={size}
+          viewBox="0 0 24 24"
+          className="size-full"
+        >
+          <path d={TILE_RECT_PATH} fill={t.bg} />
+          <text
+            x="12"
+            y="12.4"
+            textAnchor="middle"
+            dominantBaseline="central"
+            fontSize="13"
+            fontWeight={700}
+            fill={t.fg}
+          >
+            {t.letter}
+          </text>
+          {t.dot && (
+            <circle cx={t.dot.cx} cy={t.dot.cy} r={t.dot.r} fill={t.dot.fill} />
+          )}
+        </svg>
+      </span>
+    );
+  }
+
+  // Волна иконок: многозаливочные марки (z.ai — плитка + slashed-Z)
+  if (icon?.shapes) {
+    return (
+      <span
+        style={circleStyle}
+        title={family}
+        className="flex shrink-0 items-center justify-center overflow-hidden rounded-full"
+      >
+        <svg
+          role="img"
+          aria-label={family}
+          width={size}
+          height={size}
+          viewBox="0 0 24 24"
+          className="size-full"
+        >
+          {icon.shapes.map((s, i) => (
+            <path key={i} d={s.d} fill={s.fill} />
+          ))}
+        </svg>
+      </span>
+    );
+  }
 
   if (!icon) {
     // Фолбэк: первая буква семейства. Цвет: фирменный бренда, у нишевых —
