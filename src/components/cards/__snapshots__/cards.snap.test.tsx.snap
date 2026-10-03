@@ -73,7 +73,28 @@ exports[`chat cards snapshots > AssistantCard: markdown + usage, вне стри
         class="flex shrink-0 items-center rounded-md p-1 transition-colors text-halo-muted/70 hover:bg-halo-hover hover:text-halo-text"
         title="Copy"
       >
-        📋
+        <svg
+          aria-hidden="true"
+          fill="none"
+          height="13"
+          stroke="currentColor"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="1.8"
+          viewBox="0 0 24 24"
+          width="13"
+        >
+          <rect
+            height="12"
+            rx="2"
+            width="12"
+            x="9"
+            y="9"
+          />
+          <path
+            d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"
+          />
+        </svg>
       </button>
     </span>
   </div>
@@ -185,7 +206,28 @@ exports[`chat cards snapshots > AssistantCard: с thinking-блоком 1`] = `
         class="flex shrink-0 items-center rounded-md p-1 transition-colors text-halo-muted/70 hover:bg-halo-hover hover:text-halo-text"
         title="Copy"
       >
-        📋
+        <svg
+          aria-hidden="true"
+          fill="none"
+          height="13"
+          stroke="currentColor"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="1.8"
+          viewBox="0 0 24 24"
+          width="13"
+        >
+          <rect
+            height="12"
+            rx="2"
+            width="12"
+            x="9"
+            y="9"
+          />
+          <path
+            d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"
+          />
+        </svg>
       </button>
     </span>
   </div>
@@ -356,32 +398,83 @@ exports[`chat cards snapshots > ToolStepCard: shell_run с выводом 1`] = 
 
 exports[`chat cards snapshots > UserCard: текст + вложение 1`] = `
 <div
-  class="anim-fade-up group relative ml-auto flex w-fit max-w-[85%] items-end gap-2 shadow-sm"
+  class="anim-fade-up group user-card-root relative ml-auto flex w-fit max-w-[85%] items-end gap-2 shadow-sm"
   data-mid="u1"
 >
   <div
     class="min-w-0 w-fit rounded-2xl rounded-br-md px-4 py-3 bg-halo-raised"
   >
     <div
-      class="absolute -bottom-7 left-1 z-10 flex gap-1 opacity-0 transition duration-150 group-hover:opacity-100"
+      class="absolute right-0 top-full z-10 mt-0.5 flex items-center gap-0.5 opacity-0 pointer-events-none transition duration-150 group-hover:pointer-events-auto group-hover:opacity-100"
     >
       <button
-        class="rounded-md border border-halo-line bg-halo-deep px-1.5 py-0.5 text-[0.625rem] transition-colors text-halo-muted hover:bg-halo-hover hover:text-halo-text"
+        class="rounded-md p-1 transition-colors text-halo-muted hover:bg-halo-hover hover:text-halo-text"
         title="Copy"
       >
-        📋
+        <svg
+          aria-hidden="true"
+          fill="none"
+          height="13"
+          stroke="currentColor"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="1.8"
+          viewBox="0 0 24 24"
+          width="13"
+        >
+          <rect
+            height="12"
+            rx="2"
+            width="12"
+            x="9"
+            y="9"
+          />
+          <path
+            d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"
+          />
+        </svg>
       </button>
       <button
-        class="rounded-md border border-halo-line bg-halo-deep px-1.5 py-0.5 text-[0.625rem] text-halo-muted transition-colors hover:bg-halo-hover hover:text-halo-text"
+        class="rounded-md p-1 text-halo-muted transition-colors hover:bg-halo-hover hover:text-halo-text"
         title="Edit and resend"
       >
-        ✎
+        <svg
+          aria-hidden="true"
+          fill="none"
+          height="13"
+          stroke="currentColor"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="1.8"
+          viewBox="0 0 24 24"
+          width="13"
+        >
+          <path
+            d="M21.17 6.83a2.83 2.83 0 0 0-4-4L3.5 16.5 2 22l5.5-1.5Z"
+          />
+          <path
+            d="m18 5 1 1"
+          />
+        </svg>
       </button>
       <button
-        class="rounded-md border border-halo-line bg-halo-deep px-1.5 py-0.5 text-[0.625rem] leading-none text-halo-muted transition-colors hover:bg-halo-hover hover:text-halo-text"
+        class="rounded-md p-1 text-halo-muted transition-colors hover:bg-halo-hover hover:text-halo-text"
         title="Collapse"
       >
-        −
+        <svg
+          aria-hidden="true"
+          fill="none"
+          height="13"
+          stroke="currentColor"
+          stroke-linecap="round"
+          stroke-width="2"
+          viewBox="0 0 24 24"
+          width="13"
+        >
+          <path
+            d="M5 12h14"
+          />
+        </svg>
       </button>
     </div>
     <div

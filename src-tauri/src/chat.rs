@@ -512,6 +512,10 @@ async fn chat_stream_impl(
     // 300 с: reasoning-модели (o-серия, Gemini thinking) могут молчать до
     // первого байта заметно дольше двух минут — 120 с рвал легитимный стрим
     const STREAM_IDLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
+    // Post-usage тишина режется коротко: ответ полный, дальше только хвост
+    // протокола ([DONE]/message_stop) и keep-alive прокси. До usage — длинный
+    // reasoning-таймаут (легитимные паузы thinking-моделей)
+    const POST_USAGE_IDLE: std::time::Duration = std::time::Duration::from_secs(10);
     // Потолок буфера неполной строки: провайдер, шлющий байты без '\n' — сломан
     const SSE_BUF_LIMIT: usize = 1024 * 1024;
 
@@ -528,6 +532,14 @@ async fn chat_stream_impl(
     // стрима уезжает оценка (см. хвост ниже), иначе «Обзор», тренды и
     // Hard Limit молчат на таких провайдерах вечно
     let mut saw_usage = false;
+    // Волна GUI-fix: после usage стрим семантически закончен — провайдеры
+    // типа Ashna держат TCP и продолжают слать keep-alive (SSE-комментарии,
+    // пустые строки), сбрасывая наивный idle-таймер на каждом байте: «Работает»
+    // крутилось бесконечно и при 10-секундном варианте. Дедлайн НЕ продлевается
+    // «мусорными» байтами — только строками data: (легитимный хвост протокола:
+    // message_stop у Anthropic, [DONE]-путь у OpenAI), чтобы нестандартные
+    // провайдеры с ранним usage не резались посреди ответа
+    let mut post_usage_deadline: Option<std::time::Instant> = None;
     let mut completion_chars = 0usize;
     'outer: loop {
         // Abort рвется ещё ОЖИДАЮЩИМ next(): раньше флаг читался только
@@ -535,14 +547,12 @@ async fn chat_stream_impl(
         // держит TCP, но не шлёт байт) не работал до idle-таймаута 300 с
         // (аудит А1-1). Поллинг флага 100 мс — тот же паттерн, что
         // wait_for_abort в tooling.rs
-        // Волна GUI-fix: после usage стрим семантически закончен — провайдеры
-        // типа Ashna держат TCP молча (забыв [DONE]) и «Работает» крутилось
-        // до полного таймаута. Post-usage тишина режется коротко (10 с),
-        // до usage — длинный reasoning-таймаут
-        let idle = if saw_usage {
-            std::time::Duration::from_secs(10)
-        } else {
-            STREAM_IDLE_TIMEOUT
+        let idle = match post_usage_deadline {
+            // Дедлайн прошёл — нулевой таймаут, Err-ветка ниже уводит в break
+            Some(d) => d
+                .checked_duration_since(std::time::Instant::now())
+                .unwrap_or(std::time::Duration::ZERO),
+            None => STREAM_IDLE_TIMEOUT,
         };
         let chunk = tokio::select! {
             biased;
@@ -587,9 +597,22 @@ async fn chat_stream_impl(
                 // Естественное завершение: хвост ниже дочитает usage/tool_calls
                 break 'outer;
             }
+            // Post-usage дедлайн продлевает только настоящая data-строка:
+            // keep-alive пинги (SSE-комментарии/пустые строки) отсюда не проходят
+            if saw_usage {
+                post_usage_deadline = Some(std::time::Instant::now() + POST_USAGE_IDLE);
+            }
             for event in acc.feed(data) {
                 match &event {
-                    FeedEvent::Usage { .. } => saw_usage = true,
+                    FeedEvent::Usage { .. } => {
+                        if !saw_usage {
+                            // Первый usage — старт пост-usage отсчёта (нормальный
+                            // путь: usage в последнем чанке/message_delta)
+                            post_usage_deadline =
+                                Some(std::time::Instant::now() + POST_USAGE_IDLE);
+                        }
+                        saw_usage = true;
+                    }
                     FeedEvent::Content { delta } | FeedEvent::Thought { delta } => {
                         completion_chars += delta.chars().count();
                     }

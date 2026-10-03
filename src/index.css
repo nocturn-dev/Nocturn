@@ -840,6 +840,15 @@ html.light.inline-code-claude .markdown code:not(pre code) {
   contain: content;
 }
 
+/* Ряд действий user-карточки (копировать/править/свернуть) уезжает НИЖЕ
+   коробки (top-full, ZCode-стиль) — paint-containment правила выше резал его
+   по границе карточки, и ряд молча не рисовался (computed-стили при этом
+   оставались «видимыми»). У user-карточки containment без paint: цель S17
+   (изоляция layout/style на пересчётах) сохранена, клиппинг выключен */
+.msg-feed > .user-card-root {
+  contain: layout style;
+}
+
 /* ---------- Индикатор «Печатает…» ---------- */
 @keyframes halo-blink {
   0%,
