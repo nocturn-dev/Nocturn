@@ -152,6 +152,7 @@ export function SectionIcon({ name }: { name: string }) {
     skill: "M12 2l2.4 5.9L20 10l-5.6 2.1L12 18l-2.4-5.9L4 10l5.6-2.1L12 2z",
     terminal: "M4 17l6-5-6-5 M12 19h8",
     command: "M15 6a3 3 0 1 1 3 3h-3zM9 6a3 3 0 1 0-3 3h3zM15 18a3 3 0 1 0 3-3h-3zM9 18a3 3 0 1 1-3-3h3zM9 9h6v6H9z",
+    shield: "M12 2l8 3v6c0 5-3.4 9.2-8 11-4.6-1.8-8-6-8-11V5z M9 12l2 2 4-4.5",
     anchor: "M12 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6z M12 8v13 M5 12a7 7 0 0 0 14 0 M3 12h4 M17 12h4",
     chart: "M3 21h18 M7 21V9 M12 21V3 M17 21v-8",
     image: "M3 5h18v14H3z M8.5 11a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3z M21 15l-5-5L5 21",

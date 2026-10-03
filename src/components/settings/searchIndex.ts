@@ -229,4 +229,15 @@ export const SETTINGS_SEARCH_INDEX: { section: Section; keys: MsgKey[] }[] = [
     section: "docs",
     keys: ["docs.intro"],
   },
+  {
+    section: "permissions",
+    keys: [
+      "settings.permissions",
+      "perm.desc",
+      "perm.denyTitle",
+      "perm.alwaysAskTitle",
+      "perm.allowTitle",
+      "perm.allowHint",
+    ],
+  },
 ];
