@@ -1,9 +1,9 @@
 import { useLang } from "../../locales";
 import { type Attachment } from "../../types";
-import { CollapseButton } from "./CollapseButton";
 import { PlusIcon, QuoteIcon, ReuseImgIcon } from "./icons";
 import { memo, useState } from "react";
 import { getUserAvatar } from "../../userProfile";
+import { copyText } from "../../clipboard";
 
 function UserCardBase({
   mid,
@@ -32,6 +32,15 @@ function UserCardBase({
   const [collapsed, setCollapsed] = useState(false);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(content);
+  // Волна GUI-fix: ряд действий под сообщением (копировать / править /
+  // свернуть) — появление по ховеру, раньше кнопки висели по краям и резались
+  const [copied, setCopied] = useState(false);
+  const copyMessage = async () => {
+    if (await copyText(content)) {
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    }
+  };
   const preview =
     content.replace(/\s+/g, " ").slice(0, 70) ||
     (attachments?.length
@@ -72,19 +81,40 @@ function UserCardBase({
           correction ? "border-l-2 border-amber-400/50 " : ""
         }${glassEffect ? "glass-pane msg-glass bg-halo-surface/40" : "bg-halo-raised"}`}
       >
-      <CollapseButton onClick={() => setCollapsed(true)} />
-      {/* Карандаш: редактирование отправленного сообщения */}
-      {!editing && onEdit && (
-        <button
-          onClick={() => {
-            setDraft(content);
-            setEditing(true);
-          }}
-          title={t("card.edit")}
-          className="absolute -left-7 top-2 z-10 rounded-md p-1 text-halo-muted opacity-0 transition hover:bg-halo-hover hover:text-halo-text group-hover:opacity-100"
-        >
-          ✎
-        </button>
+      {/* Волна GUI-fix: старый плавающий карандаш (-left-7) резался краем
+          списка и висел за аватаром — теперь весь ряд действий под
+          сообщением: копировать / править / свернуть */}
+      {!editing && (
+        <div className="absolute -bottom-7 left-1 z-10 flex gap-1 opacity-0 transition duration-150 group-hover:opacity-100">
+          <button
+            onClick={() => void copyMessage()}
+            title={t("cp.copy")}
+            className={`rounded-md border border-halo-line bg-halo-deep px-1.5 py-0.5 text-[0.625rem] transition-colors ${
+              copied
+                ? "text-emerald-400"
+                : "text-halo-muted hover:bg-halo-hover hover:text-halo-text"
+            }`}
+          >
+            {copied ? "✓" : "📋"}
+          </button>
+          <button
+            onClick={() => {
+              setDraft(content);
+              setEditing(true);
+            }}
+            title={t("card.edit")}
+            className="rounded-md border border-halo-line bg-halo-deep px-1.5 py-0.5 text-[0.625rem] text-halo-muted transition-colors hover:bg-halo-hover hover:text-halo-text"
+          >
+            ✎
+          </button>
+          <button
+            onClick={() => setCollapsed(true)}
+            title={t("card.collapse")}
+            className="rounded-md border border-halo-line bg-halo-deep px-1.5 py-0.5 text-[0.625rem] leading-none text-halo-muted transition-colors hover:bg-halo-hover hover:text-halo-text"
+          >
+            −
+          </button>
+        </div>
       )}
       {editing ? (
         <div className="w-72 sm:w-96">
