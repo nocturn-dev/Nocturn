@@ -104,6 +104,14 @@ export function PermissionsSection() {
       <h3 className="mb-1 text-sm font-semibold text-halo-text">{t("settings.permissions")}</h3>
       <p className="mb-3 text-xs leading-relaxed text-halo-muted">{t("perm.desc")}</p>
 
+      {/* Выпадающий список известных инструментов (builtin + подключённые MCP):
+          ввод фильтрует, выбор подставляет имя — префикс дописывается вручную */}
+      <datalist id="perm-tools-list">
+        {[...known].sort().map((n) => (
+          <option key={n} value={n} />
+        ))}
+      </datalist>
+
       <div className="space-y-4">
         {KINDS.map(({ kind, titleKey, descKey, forAllow }) => (
           <div key={kind} className="rounded-lg border border-halo-line bg-halo-surface/40 p-3">
@@ -137,6 +145,7 @@ export function PermissionsSection() {
                   // IME-подтверждение (китайский/японский ввод) не коммитит
                   if (e.key === "Enter" && !e.nativeEvent.isComposing) add(kind);
                 }}
+                list="perm-tools-list"
                 placeholder={t("perm.addPlaceholder")}
                 className="min-w-0 flex-1 rounded-md border border-halo-line bg-halo-bg px-2.5 py-1.5 font-mono text-[11px] text-halo-text placeholder:text-halo-muted/50 focus:border-halo-accent focus:outline-none"
               />
