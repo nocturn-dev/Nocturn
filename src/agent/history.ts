@@ -147,6 +147,42 @@ export function buildHistory(
   ];
 }
 
+// ---------- Autocompact (волна B2): персистентная суммаризация головы ----------
+
+/**
+ * Заголовок summary-блока autocompact. Суммаризация вшивается в SYSTEM-
+ * сообщение, а не отдельным user-ходом: подряд идущие user-сообщения
+ * Messages API (Anthropic) отвергает — см. комментарий к build_anthropic_body,
+ * где из-за этого tool-результаты группируются в один user-ход. System
+ * адаптеры извлекают в отдельное поле из любой позиции массива.
+ */
+export const COMPACT_SUMMARY_HEADER =
+  "[Conversation compacted — summary of the earlier task steps]";
+
+/**
+ * История с вшитой суммаризацией: [system+summary] + pair-safe окно rest.
+ * Единая форма для applyCompact (autocompact, хвост 12) и buildHistory
+ * (персистентная перегенерация, окно 30). System без summary не остаётся:
+ * если первый элемент rest — system, summary дописывается к нему; иначе
+ * синтезируется новый system-месседж (build_anthropic_body вынесет его
+ * в поле system из любой позиции).
+ */
+export function historyWithSummary(
+  summary: string,
+  rest: ChatMsgParam[],
+  keep: number = 30,
+): ChatMsgParam[] {
+  const boundary = `${COMPACT_SUMMARY_HEADER}\n${summary}\n\n[The task continues below — earlier tool results are no longer available verbatim. Work from this summary and the recent messages.]`;
+  const first = rest[0];
+  if (first?.role === "system" && typeof first.content === "string") {
+    return [
+      { role: "system", content: `${first.content}\n\n${boundary}` },
+      ...trimContextWindow(rest.slice(1), keep),
+    ];
+  }
+  return [{ role: "system", content: boundary }, ...trimContextWindow(rest, keep)];
+}
+
 /**
  * Память проектов: краткий контекст предыдущих задач того же проекта
  * (название + первый запрос), до 10 последних. Пустая строка — добавить
