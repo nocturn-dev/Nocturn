@@ -252,17 +252,21 @@ claude-code-source-code-full) против Nocturn по трём доменам:
 передачей — `verify all`; изменения perm/toolFilter — с зеркалом и золотым
 списком; UI-ключи — локали ×4.
 
-### Волна A — баги из аудита и дешёвые капы (S, 0.5–1 вечер)
-- [ ] Баг: `additionalContext` от PreToolUse-хуков парсится (hooks.rs:246),
+### Волна A — баги из аудита и дешёвые капы (S, 0.5–1 вечер) — СДЕЛАНА 03.10
+- [x] Баг: `additionalContext` от PreToolUse-хуков парсится (hooks.rs:246),
       но `run_tool` потребляет его только у PostToolUse (tooling.rs:241-268) —
       у PreToolUse теряется. Дописывать к результату инструмента так же, как
-      PostToolUse. Тест rust.
-- [ ] Кап описаний MCP-инструментов 2048 символов + маркер обрезки
-      (сборка схем mcp.rs:842-845).
-- [ ] Кап tool-результата MCP: склейка text-блоков без потолка — при
+      PostToolUse. Тест rust. (fff0558)
+- [x] Кап описаний MCP-инструментов 2048 символов + маркер обрезки
+      (сборка схем mcp.rs:842-845). (b4f2105)
+- [x] Кап tool-результата MCP: склейка text-блоков без потолка — при
       превышении ~32КБ оставлять голову+хвост с маркером `[truncated N chars]`.
-- [ ] NTFS-стримы `name:$DATA` (и альтернативные потоки) в path_allowed /
-      rejects_sensitive_path + тесты (если не влезет в A — уйти в E3).
+      Попутно: общий finish_tool_result для stdio/remote — remote НЕ проверял
+      isError, ошибка инструмента уходила модели как успешный текст (b4f2105)
+- [x] NTFS-стримы `name:$DATA` (и альтернативные потоки) в path_allowed /
+      rejects_sensitive_path + тесты. Попутно закрыта дыра relative-гейта
+      perm.rs: путь с двоеточием проходил проверку относительности; в
+      settings.rs IPv6-литерал UNC-хоста — fail closed (f8c0a04)
 
 ### Волна B — Microcompact (S/M, 1 вечер)
 Идея CC: чистка старых tool_result без LLM-вызова — самый дешёвый слой
