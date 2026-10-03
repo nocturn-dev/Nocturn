@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useLang } from "../../locales";
-import { type McpServerCfg, type McpServerStatus, mcpListServers, mcpSaveServers, mcpConnect, mcpDisconnect, mcpStatus, invalidateToolSchemas } from "../../api";
+import { type McpServerCfg, type McpServerStatus, type McpServerState, mcpListServers, mcpSaveServers, mcpConnect, mcpDisconnect, mcpStatus, invalidateToolSchemas } from "../../api";
 import { MiniTrashIcon } from "./parts";
 
 export function McpSection() {
@@ -253,6 +253,31 @@ export function McpSection() {
         {servers.map((s, i) => {
           const st = statusOf(s.name);
           const connected = st?.connected ?? false;
+          // Волна F1: состояние из машины статусов (failed/needs_auth несут
+          // причину; idle — включён, ещё не пытались в этом процессе)
+          const state: McpServerState = st?.state ?? (s.enabled ? "idle" : "disabled");
+          const reason = st?.reason;
+          const dotClass =
+            connected
+              ? "bg-emerald-400"
+              : state === "failed"
+                ? "bg-red-400"
+                : state === "needs_auth"
+                  ? "bg-amber-400"
+                  : s.enabled
+                    ? "bg-amber-400/70"
+                    : "bg-halo-muted/40";
+          const dotTitle =
+            reason ??
+            (connected
+              ? t("mcp.connected")
+              : state === "failed"
+                ? t("mcp.stFailed")
+                : state === "needs_auth"
+                  ? t("mcp.stNeedsAuth")
+                  : state === "idle"
+                    ? t("mcp.stIdle")
+                    : t("mcp.off"));
           return (
             <div
               key={s.name}
@@ -260,22 +285,7 @@ export function McpSection() {
             >
               <div className="flex items-center gap-2">
                 {/* Статус-точка */}
-                <span
-                  className={`size-2 shrink-0 rounded-full ${
-                    connected
-                      ? "bg-emerald-400"
-                      : s.enabled
-                        ? "bg-amber-400/70"
-                        : "bg-halo-muted/40"
-                  }`}
-                  title={
-                    connected
-                      ? t("mcp.connected")
-                      : s.enabled
-                        ? t("mcp.disconnected")
-                        : t("mcp.off")
-                  }
-                />
+                <span className={`size-2 shrink-0 rounded-full ${dotClass}`} title={dotTitle} />
                 <span className="min-w-0 truncate text-sm font-medium text-halo-text">
                   {s.name}
                 </span>
@@ -317,6 +327,13 @@ export function McpSection() {
                   <MiniTrashIcon />
                 </button>
               </div>
+              {/* Волна F1: причина падения/needs_auth — stderr-хвост или
+                  ошибка spawn/init; raw-текст (технический) в tooltip и тут */}
+              {!connected && reason && (state === "failed" || state === "needs_auth") && (
+                <div className="mt-1.5 break-all pl-4 text-[0.6875rem] leading-relaxed text-red-400/80">
+                  {reason}
+                </div>
+              )}
               {/* Обнаруженные инструменты */}
               {st && st.tools.length > 0 && (
                 <div className="mt-2 flex flex-wrap gap-1 pl-4">

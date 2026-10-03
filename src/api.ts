@@ -948,9 +948,20 @@ export interface McpToolInfo {
   description: string;
 }
 
+export type McpServerState =
+  | "connected"
+  | "failed"
+  | "needs_auth"
+  | "disabled"
+  | "idle";
+
 export interface McpServerStatus {
   name: string;
+  state: McpServerState;
+  /** Совместимость: вычисляемое из state */
   connected: boolean;
+  /** Причина для failed/needs_auth (stderr-хвост, ошибка spawn/init) */
+  reason?: string;
   tools: McpToolInfo[];
 }
 

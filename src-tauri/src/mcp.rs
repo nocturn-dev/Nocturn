@@ -69,12 +69,40 @@ pub struct McpToolInfo {
     pub input_schema: Value,
 }
 
-/// Состояние сервера для фронтового статуса
+/// Состояние сервера для фронтового статуса (волна F1): Failed/NeedsAuth
+/// несут причину. Idle — включён, но ещё ни одной попытки в этом процессе
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum McpServerState {
+    Connected,
+    Failed,
+    NeedsAuth,
+    Disabled,
+    Idle,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct McpServerStatus {
     pub name: String,
+    pub state: McpServerState,
+    /// Совместимость фронта (вычисляемое из state)
     pub connected: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
     pub tools: Vec<McpToolInfo>,
+}
+
+/// Последний статус каждого сервера (волна F1): единая точка записи —
+/// ensure_connected (успех/сбой), process-global — реестр хранит только
+/// живые соединения, а статус переживает disconnect
+static SERVER_STATES: std::sync::LazyLock<
+    Mutex<HashMap<String, (McpServerState, Option<String>)>>,
+> = std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
+
+fn set_server_state(name: &str, state: McpServerState, reason: Option<String>) {
+    if let Ok(mut map) = SERVER_STATES.lock() {
+        map.insert(name.to_string(), (state, reason));
+    }
 }
 
 /// Таймауты: рукопожатие может быть долгим (npx качает пакет), вызов — ещё дольше
@@ -302,15 +330,58 @@ impl McpConnection {
             }
         });
 
-        // Читатель stderr: серверы пишут туда логи; копим последнюю строку —
-        // она попадёт в сообщение об ошибке, если рукопожатие провалится
+        // Читатель stderr: кольцевой хвост последних 8 КБ (заметка владельца,
+        // волна F1) — бесконечно спамящий ошибками MCP-скрипт не съедает
+        // оперативку, а причина падения видна целиком. Строки с потолком
+        // 2 КБ (окно последних байт, срез по границе символа): гигабайтная
+        // строка без '\n' не растёт буфер бесконечно
+        const STDERR_TAIL_CAP: usize = 8 * 1024;
+        const STDERR_LINE_CAP: usize = 2 * 1024;
         let last_err = Arc::clone(&last_stderr);
         std::thread::spawn(move || {
-            // FIX: flatten() крутится вечно, если итератор постоянно отдаёт Err
-            // (поток битого UTF-8 без '\n'). map_while гасит цикл на первом Err.
-            for line in BufReader::new(stderr).lines().map_while(Result::ok) {
-                if let Ok(mut buf) = last_err.lock() {
-                    *buf = line;
+            let mut reader = BufReader::new(stderr);
+            let mut line: Vec<u8> = Vec::with_capacity(512);
+            let mut byte = [0u8; 1];
+            let mut truncated = false;
+            loop {
+                match reader.read(&mut byte) {
+                    Ok(0) => break, // EOF
+                    Ok(_) => {
+                        if byte[0] == b'\n' {
+                            let mut text = String::from_utf8_lossy(&line).into_owned();
+                            if truncated {
+                                text.insert_str(0, "…[truncated] ");
+                            }
+                            if let Ok(mut buf) = last_err.lock() {
+                                if !buf.is_empty() {
+                                    buf.push('\n');
+                                }
+                                buf.push_str(&text);
+                                if buf.len() > STDERR_TAIL_CAP {
+                                    let cut = buf.len() - STDERR_TAIL_CAP;
+                                    let mut b = cut;
+                                    while b < buf.len() && !buf.is_char_boundary(b) {
+                                        b += 1;
+                                    }
+                                    *buf = buf[b..].to_string();
+                                }
+                            }
+                            line.clear();
+                            truncated = false;
+                            } else {
+                                // окно последних байт строки (срез по границе
+                                // UTF-8: продолжающие байты 0b10xxxxxx съедаются)
+                                line.push(byte[0]);
+                                let overflow = line.len() - STDERR_LINE_CAP;
+                                let mut cut = overflow;
+                                while cut < line.len() && (line[cut] & 0xC0) == 0x80 {
+                                    cut += 1;
+                                }
+                                line.drain(..cut);
+                                truncated = true;
+                            }
+                    }
+                    Err(_) => break,
                 }
             }
         });
@@ -1048,12 +1119,22 @@ pub async fn ensure_connected(
     .map_err(|e| format!("mcp config task failed: {e}"))??
     .into_iter()
     .find(|s| s.name == name)
-    .ok_or_else(|| format!("MCP server \"{name}\" is not configured"))?;
+    .ok_or_else(|| {
+        set_server_state(&name, McpServerState::Failed, Some("not configured".into()));
+        format!("MCP server \"{name}\" is not configured")
+    })?;
     if !cfg.enabled {
+        set_server_state(&name, McpServerState::Disabled, None);
         return Err(format!("MCP server \"{name}\" is disabled"));
     }
     if is_remote(&cfg) {
-        let handle = RemoteConnection::connect(&cfg).await?;
+        let handle = match RemoteConnection::connect(&cfg).await {
+            Ok(h) => h,
+            Err(e) => {
+                set_server_state(&name, McpServerState::Failed, Some(e.clone()));
+                return Err(e);
+            }
+        };
         let mut map = registry.lock().unwrap_or_else(|p| p.into_inner());
         // Двойная проверка: параллельный коннект мог вставить первым —
         // лишний хендл гасим, чужой возвращаем
@@ -1062,22 +1143,32 @@ pub async fn ensure_connected(
             return Ok(Arc::clone(existing));
         }
         clear_transport_fail(&name);
+        set_server_state(&name, McpServerState::Connected, None);
         map.insert(name.clone(), Arc::clone(&handle));
         return Ok(handle);
     }
     // stdio: рукопожатие до десятков секунд — spawn_blocking
-    let handle =
-        tauri::async_runtime::spawn_blocking(move || McpConnection::connect(&cfg))
-            .await
-            .map_err(|e| format!("join error: {e}"))?
-            .map(McpHandle::Stdio)
-            .map(Arc::new)?;
+    let handle = match tauri::async_runtime::spawn_blocking(move || McpConnection::connect(&cfg))
+        .await
+    {
+        Err(e) => {
+            let msg = format!("join error: {e}");
+            set_server_state(&name, McpServerState::Failed, Some(msg.clone()));
+            return Err(msg);
+        }
+        Ok(Err(e)) => {
+            set_server_state(&name, McpServerState::Failed, Some(e.clone()));
+            return Err(e);
+        }
+        Ok(Ok(conn)) => Arc::new(McpHandle::Stdio(conn)),
+    };
     let mut map = registry.lock().unwrap_or_else(|p| p.into_inner());
     if let Some(existing) = map.get(&name) {
         handle.kill();
         return Ok(Arc::clone(existing));
     }
     clear_transport_fail(&name);
+    set_server_state(&name, McpServerState::Connected, None);
     map.insert(name.clone(), Arc::clone(&handle));
     Ok(handle)
 }
@@ -1105,20 +1196,58 @@ pub async fn mcp_disconnect(
     Ok(())
 }
 
-/// Живые соединения и их инструменты (для вкладки MCP в настройках).
-/// connected всегда true и это не заглушка: реестр содержит только живые
-/// соединения, «отключён» фронт выражает ОТСУТСТВИЕМ записи (McpSection
-/// сверяет список серверов с этим ответом)
+/// Живые соединения, статусы и инструменты (для вкладки MCP в настройках).
+/// Волна F1: возвращает ВСЕ серверы конфига — упавший виден красным с
+/// причиной до первого вызова инструмента; «отключён» больше не выражается
+/// отсутствием записи
 #[tauri::command(async)]
-pub fn mcp_status(registry: tauri::State<'_, McpRegistry>) -> Vec<McpServerStatus> {
-    let map = registry.0.lock().unwrap_or_else(|p| p.into_inner());
-    map.iter()
-        .map(|(name, handle)| McpServerStatus {
-            name: name.clone(),
-            connected: true,
-            tools: handle.tools_clone(),
+pub async fn mcp_status(
+    app: tauri::AppHandle,
+    registry: tauri::State<'_, McpRegistry>,
+) -> Result<Vec<McpServerStatus>, String> {
+    let servers = tauri::async_runtime::spawn_blocking(move || load_servers(&app))
+        .await
+        .map_err(|e| format!("join error: {e}"))?
+        .unwrap_or_else(|_| Vec::new());
+    let conns = registry.0.lock().unwrap_or_else(|p| p.into_inner());
+    let states = SERVER_STATES.lock().unwrap_or_else(|p| p.into_inner());
+    Ok(servers
+        .iter()
+        .map(|cfg| {
+            if !cfg.enabled {
+                return McpServerStatus {
+                    name: cfg.name.clone(),
+                    state: McpServerState::Disabled,
+                    connected: false,
+                    reason: None,
+                    tools: vec![],
+                };
+            }
+            match conns.get(&cfg.name) {
+                // Живое соединение авторитетнее сохранённого статуса
+                Some(h) => McpServerStatus {
+                    name: cfg.name.clone(),
+                    state: McpServerState::Connected,
+                    connected: true,
+                    reason: None,
+                    tools: h.tools_clone(),
+                },
+                None => {
+                    let (state, reason) = match states.get(&cfg.name) {
+                        Some((s, r)) => (s.clone(), r.clone()),
+                        None => (McpServerState::Idle, None),
+                    };
+                    McpServerStatus {
+                        name: cfg.name.clone(),
+                        connected: false,
+                        state,
+                        reason,
+                        tools: vec![],
+                    }
+                }
+            }
         })
-        .collect()
+        .collect())
 }
 
 /// Автоконнект всех включённых серверов при старте приложения.
