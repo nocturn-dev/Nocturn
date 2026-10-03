@@ -34,6 +34,10 @@ pub struct PermState {
     pub roots_canon: Vec<String>,
     /// true после первого perm_set: фронт синхронизировал режим задачи
     pub synced: bool,
+    /// Волна E1: персистентные правила (perm_set валидирует fail-closed)
+    pub rules: PermRules,
+    /// Волна E3: канонизованный app-config каталог — самозащита конфига
+    pub config_dir: Option<String>,
 }
 
 /// Глобальное состояние (одно на процесс). None = ещё не синхронизировано
@@ -49,6 +53,8 @@ pub(crate) fn current() -> PermState {
             roots: Vec::new(),
             roots_canon: Vec::new(),
             synced: false,
+            rules: PermRules::default(),
+            config_dir: None,
         })
 }
 
@@ -59,6 +65,164 @@ pub(crate) fn current() -> PermState {
 pub(crate) fn set(state: PermState) {
     let mut g = PERM.lock().unwrap_or_else(|p| p.into_inner());
     *g = Some(state);
+}
+
+/// Персистентные правила прав (волна E1). deny — серверный блок во всех
+/// режимах; allow/always_ask — политика ПОДТВЕРЖДЕНИЙ фронта: бекенд их
+/// не исполняет (он не может отличить «юзер подтвердил» от «фронт забыл
+/// спросить» — как и в Ask-режиме), и правила не пробивают жёсткие границы
+/// режима (Plan read-only, Edit shell/delete — выше allow, fail-closed).
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct PermRules {
+    #[serde(default)]
+    pub allow: Vec<String>,
+    #[serde(default)]
+    pub deny: Vec<String>,
+    #[serde(default)]
+    pub always_ask: Vec<String>,
+}
+
+/// Разобранное правило: `tool` | `tool(prefix*)` (звёздочка — только
+/// замыкающая: «git *» = команда начинается с «git»; внутри префикса
+/// звёздочка отвергается валидатором)
+#[derive(Debug, Clone, PartialEq)]
+pub struct ParsedRule {
+    pub tool: String,
+    pub prefix: Option<String>,
+}
+
+pub fn parse_rule(rule: &str) -> Option<ParsedRule> {
+    let rule = rule.trim();
+    if rule.is_empty() {
+        return None;
+    }
+    let (tool, prefix) = if let Some(i) = rule.find('(') {
+        if !rule.ends_with(')') {
+            return None;
+        }
+        let tool = rule[..i].trim();
+        let mut inner = &rule[i + 1..rule.len() - 1];
+        if let Some(stripped) = inner.strip_suffix('*') {
+            inner = stripped;
+        }
+        if inner.contains('*') {
+            return None;
+        }
+        (tool, Some(inner.trim().to_string()))
+    } else {
+        (rule, None)
+    };
+    if tool.is_empty() {
+        return None;
+    }
+    // mcp-имена: mcp__server__tool (двойное подчёркивание — разделитель,
+    // контракт mcp::split_prefixed_name); существование сервера не проверяем —
+    // он может быть ещё не подключён. Прочие — [a-z0-9_]
+    let ok_name = if let Some(rest) = tool.strip_prefix("mcp__") {
+        !rest.is_empty()
+            && rest.contains("__")
+            && rest.split("__").all(|s| !s.is_empty())
+    } else {
+        tool.chars()
+            .all(|c| c.is_ascii_lowercase() || c == '_' || c.is_ascii_digit())
+    };
+    if !ok_name {
+        return None;
+    }
+    Some(ParsedRule {
+        tool: tool.to_string(),
+        prefix,
+    })
+}
+
+/// Валидация правила (fail-closed: perm_set отвергает битое — защита
+/// «not synchronized» держит мутации, пока владелец не починит список).
+/// known — реестр builtin-имён (tooling::known_tool_names).
+/// for_allow — правило попадает в allow-список: там bare-форма на
+/// shell_run/fs_* запрещена («allow shell_run» = Full через боковую дверь,
+/// «allow fs_read» снял бы sensitive-deny везде).
+pub fn validate_rule(
+    rule: &str,
+    for_allow: bool,
+    known: &std::collections::HashSet<String>,
+) -> Result<(), String> {
+    let parsed = parse_rule(rule).ok_or_else(|| format!("invalid rule format: {rule:?}"))?;
+    let is_mcp = parsed.tool.starts_with("mcp__");
+    if !is_mcp && !known.contains(&parsed.tool) {
+        return Err(format!("unknown tool in rule: {}", parsed.tool));
+    }
+    let fs_tool = matches!(
+        parsed.tool.as_str(),
+        "fs_read" | "fs_write" | "fs_delete" | "fs_list" | "fs_grep"
+    );
+    if for_allow && parsed.prefix.is_none() && (parsed.tool == "shell_run" || fs_tool) {
+        return Err(format!(
+            "allow rule for {} requires a prefix",
+            parsed.tool
+        ));
+    }
+    if let Some(prefix) = &parsed.prefix {
+        if prefix.is_empty() {
+            return Err(format!("empty prefix in rule: {rule:?}"));
+        }
+        if fs_tool && !(prefix.contains(':') || prefix.starts_with('/')) {
+            return Err(format!(
+                "fs prefix must be an absolute path: {prefix}"
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Канонизованная нормализованная форма для матчинга правил (заметка
+/// владельца №1): 8.3-алиасы, регистр и разделители разворачивает
+/// canonicalize, сырой вход в матчинг не попадает никогда
+fn canon_norm(path: &str) -> String {
+    match canonicalize_for_compare(std::path::Path::new(path)) {
+        Some(c) => norm_for_compare(&c.to_string_lossy()),
+        None => norm_for_compare(path),
+    }
+}
+
+/// Обёртка для perm_set: канонизация config-каталога самозащиты (волна E3)
+pub(crate) fn norm_canonical_path(path: &str) -> String {
+    canon_norm(path)
+}
+
+/// Матч списка правил против (tool, arg). arg для fs_* — канонизованная
+/// форма (компонентная граница: префикс «C:\proj» не матчит «C:\projects»),
+/// для shell_run — сырая команда case-insensitive (Windows: «GIT» = «git»)
+/// с границей слова через пробел («git *» не матчит «github-cli»).
+/// Битые правила в стейте не матчатся — валидация на perm_set.
+fn rule_matches(rules: &[String], tool: &str, arg: Option<&str>, arg_is_path: bool) -> bool {
+    for r in rules {
+        let Some(p) = parse_rule(r) else { continue };
+        if p.tool != tool {
+            continue;
+        }
+        let Some(prefix) = &p.prefix else {
+            return true; // bare: весь инструмент
+        };
+        if prefix.is_empty() {
+            continue;
+        }
+        let Some(a) = arg else { continue };
+        let hit = if arg_is_path {
+            let pn = norm_for_compare(prefix);
+            let an = norm_for_compare(a);
+            let sep = if cfg!(windows) { '\\' } else { '/' };
+            an == pn
+                || (an.starts_with(&pn) && an[pn.len()..].starts_with(sep))
+        } else {
+            let pl = prefix.to_lowercase();
+            let al = a.to_lowercase();
+            al == pl || al.starts_with(&format!("{pl} "))
+        };
+        if hit {
+            return true;
+        }
+    }
+    false
 }
 
 /// Решение по инструменту. Возвращаемое Err — текст для модели.
@@ -81,6 +245,17 @@ pub(crate) fn decide(state: &PermState, name: &str, path: Option<&str>) -> Resul
         _ => false,
     };
     let fs_tool = matches!(name, "fs_read" | "fs_list" | "fs_write" | "fs_delete" | "fs_grep");
+    // Волна E1: deny-правило — серверный блок во всех режимах, на любой
+    // инструмент (включая чтения), до остальных гейтов. fs-аргумент матчится
+    // ТОЛЬКО по канонизованной форме (заметка владельца №1)
+    let rule_arg: Option<String> = if fs_tool {
+        path.map(canon_norm)
+    } else {
+        path.map(|p| p.to_string())
+    };
+    if rule_matches(&state.rules.deny, name, rule_arg.as_deref(), fs_tool) {
+        return Err(format!("blocked by deny rule ({name})"));
+    }
     if !mutating && !fs_tool {
         return Ok(());
     }
@@ -269,7 +444,28 @@ mod tests {
     fn state(mode: PermMode, roots: &[&str]) -> PermState {
         let roots: Vec<String> = roots.iter().map(|s| s.to_string()).collect();
         let roots_canon = canonicalize_roots(&roots);
-        PermState { mode, roots, roots_canon, synced: true }
+        PermState {
+            mode,
+            roots,
+            roots_canon,
+            synced: true,
+            rules: PermRules::default(),
+            config_dir: None,
+        }
+    }
+
+    fn state_with_rules(mode: PermMode, roots: &[&str], rules: PermRules) -> PermState {
+        let mut st = state(mode, roots);
+        st.rules = rules;
+        st
+    }
+
+    fn rules_with(deny: &[&str], allow: &[&str], always_ask: &[&str]) -> PermRules {
+        PermRules {
+            allow: allow.iter().map(|s| s.to_string()).collect(),
+            deny: deny.iter().map(|s| s.to_string()).collect(),
+            always_ask: always_ask.iter().map(|s| s.to_string()).collect(),
+        }
     }
 
     /// Windows-семантика путей: прямые тесты path_allowed с C:\-путями
@@ -467,5 +663,86 @@ mod tests {
         // к ним неприменим даже при непустых roots
         assert!(decide(&state(PermMode::Full, &["C:\\proj"]), "computer_screenshot", None).is_ok());
         assert!(decide(&state(PermMode::Full, &["C:\\proj"]), "browser_read", None).is_ok());
+    }
+
+    // ---------- правила (волна E1) ----------
+
+    #[test]
+    fn deny_rule_blocks_all_modes_and_reads() {
+        let st = state_with_rules(
+            PermMode::Full,
+            &["C:\\proj"],
+            rules_with(&["shell_run(rm *)", "web_search"], &[], &[]),
+        );
+        // Мутирующий по префиксу
+        assert!(decide(&st, "shell_run", Some("rm -rf C:\\tmp\\x")).is_err());
+        // Case-insensitive (Windows: «GIT» = «git»)
+        assert!(decide(&st, "shell_run", Some("RM -RF C:\\tmp")).is_err());
+        // Bare deny — весь инструмент, включая чтения
+        assert!(decide(&st, "web_search", None).is_err());
+        // Не матчит — Full исполняет
+        assert!(decide(&st, "shell_run", Some("git status")).is_ok());
+    }
+
+    #[test]
+    fn deny_prefix_word_boundary_and_canonical_fs() {
+        let st = state_with_rules(
+            PermMode::Full,
+            &["C:\\proj"],
+            rules_with(&["shell_run(git *)", "fs_read(C:\\proj\\secrets)"], &[], &[]),
+        );
+        // «git *» не матчит «github-cli» (граница слова)
+        assert!(decide(&st, "shell_run", Some("github-cli auth")).is_ok());
+        assert!(decide(&st, "shell_run", Some("git push")).is_err());
+        // fs-матчинг по компонентной границе: secrets не матчит secrets2
+        assert!(decide(&st, "fs_read", Some("C:\\proj\\secrets2\\a.txt")).is_ok());
+        assert!(decide(&st, "fs_read", Some("C:\\proj\\secrets\\k.txt")).is_err());
+    }
+
+    #[test]
+    fn allow_rule_does_not_bypass_plan_or_edit_bounds() {
+        let st = state_with_rules(
+            PermMode::Plan,
+            &["C:\\proj"],
+            rules_with(&[], &["shell_run(git *)"], &[]),
+        );
+        // Plan read-only — allow не пробивает (fail-closed)
+        assert!(decide(&st, "shell_run", Some("git status")).is_err());
+        let edit = state_with_rules(
+            PermMode::Edit,
+            &["C:\\proj"],
+            rules_with(&[], &["shell_run(git *)"], &[]),
+        );
+        // Edit-запрет shell_run — тоже выше allow
+        assert!(decide(&edit, "shell_run", Some("git status")).is_err());
+    }
+
+    #[test]
+    fn parse_and_validate_rules() {
+        let known: std::collections::HashSet<String> = [
+            "shell_run", "fs_read", "fs_write", "web_search", "plan_update",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+        // Формы
+        assert_eq!(
+            parse_rule("shell_run(git *)"),
+            Some(ParsedRule { tool: "shell_run".into(), prefix: Some("git".into()) })
+        );
+        assert_eq!(parse_rule("web_search"), Some(ParsedRule { tool: "web_search".into(), prefix: None }));
+        assert_eq!(parse_rule("tool(a*b)"), None); // звёздочка не замыкающая
+        assert_eq!(parse_rule("tool("), None);
+        assert_eq!(parse_rule("mcp__bad"), None); // нет второго сегмента
+        assert!(parse_rule("mcp__srv__tool").is_some());
+        // Валидация
+        assert!(validate_rule("shell_run(git *)", true, &known).is_ok());
+        assert!(validate_rule("shell_run", true, &known).is_err()); // bare allow
+        assert!(validate_rule("shell_run", false, &known).is_ok()); // bare deny
+        assert!(validate_rule("fs_read", true, &known).is_err()); // bare allow fs_*
+        assert!(validate_rule("future_tool", false, &known).is_err()); // неизвестное
+        assert!(validate_rule("mcp__srv__tool", true, &known).is_ok()); // mcp по форме
+        assert!(validate_rule("fs_read(proj/.env)", true, &known).is_err()); // относительный путь
+        assert!(validate_rule("web_search(x*y)", false, &known).is_err());
     }
 }

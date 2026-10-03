@@ -89,10 +89,15 @@ pub async fn run_tool(
     // разрешений (App.tsx). Err уходит модели как обычная ошибка инструмента.
     // Проверка стоит ДО PreToolUse-хуков: в Plan-режиме shell-команды хуков
     // не должны запускаться на каждый вызов заблокированного инструмента.
-    // shell_run — без path-контроля (cwd опционален); для fs_* берём путь из args.
+    // shell_run — без path-контроля (cwd опционален), но его КОМАНДА едет в
+    // perm как аргумент матчинга deny-правил (волна E1)
     {
-        let perm_path = if name.starts_with("fs_") {
+        let perm_arg = if name.starts_with("fs_") {
             args.get("path").and_then(|v| v.as_str()).map(str::to_string)
+        } else if name == "shell_run" {
+            args.get("command")
+                .and_then(|v| v.as_str())
+                .map(str::to_string)
         } else {
             None
         };
@@ -102,7 +107,7 @@ pub async fn run_tool(
         // blocking-пул, иначе на tokio-воркере это вставало поперёк всех
         // SSE-стримов (класс бага, уже починенный для load_settings/CA_PEM)
         tauri::async_runtime::spawn_blocking(move || {
-            perm::decide(&state, &tool, perm_path.as_deref())
+            perm::decide(&state, &tool, perm_arg.as_deref())
         })
         .await
         .map_err(|e| format!("perm task failed: {e}"))??;
@@ -918,10 +923,16 @@ pub fn keep_awake_worker(rx: mpsc::Receiver<bool>) {
         unsafe { SetThreadExecutionState(flags) };
     }
 }
-/// Фронт синхронизирует режим разрешений и корни проекта перед первым
-/// инструментом прогона (fire-and-forget из handleSend, App.tsx)
+/// Фронт синхронизирует режим разрешений, корни проекта и правила прав
+/// перед первым инструментом прогона (fire-and-forget из handleSend)
 #[tauri::command(async)]
-pub async fn perm_set(mode: String, roots: Vec<String>) -> Result<(), String> {
+pub async fn perm_set(
+    app: tauri::AppHandle,
+    mode: String,
+    roots: Vec<String>,
+    rules: Option<perm::PermRules>,
+) -> Result<(), String> {
+    use tauri::Manager;
     let mode = match mode.as_str() {
         "plan" => perm::PermMode::Plan,
         "ask" => perm::PermMode::Ask,
@@ -929,16 +940,73 @@ pub async fn perm_set(mode: String, roots: Vec<String>) -> Result<(), String> {
         "full" => perm::PermMode::Full,
         other => return Err(format!("unknown permission mode: {other}")),
     };
-    // Канонизация корней — один раз здесь (FS-работа в blocking-пул; на
-    // сетевом корне висела бы до таймаута), а не на каждый fs_* вызов
+    // Волна E1: валидация правил fail-closed — битое правило отвергает весь
+    // perm_set, защита «not synchronized» держит мутации до починки списка
+    let rules = rules.unwrap_or_default();
+    let known = known_tool_names();
+    for r in &rules.allow {
+        perm::validate_rule(r, true, &known)?;
+    }
+    for r in rules.deny.iter().chain(rules.always_ask.iter()) {
+        perm::validate_rule(r, false, &known)?;
+    }
+    // Канонизация корней и config-dir — один раз здесь (FS-работа в
+    // blocking-пул; на сетевом корне висела бы до таймаута), а не на каждый
+    // fs_* вызов. config-dir — самозащита конфига (волна E3)
     let roots_for_canon = roots.clone();
-    let roots_canon = tauri::async_runtime::spawn_blocking(move || {
-        perm::canonicalize_roots(&roots_for_canon)
+    let app_for_cfg = app.clone();
+    let (roots_canon, config_dir) = tauri::async_runtime::spawn_blocking(move || {
+        let roots_canon = perm::canonicalize_roots(&roots_for_canon);
+        let config_dir = app_for_cfg
+            .path()
+            .app_config_dir()
+            .ok()
+            .map(|d| perm::norm_canonical_path(&d.to_string_lossy()));
+        (roots_canon, config_dir)
     })
     .await
     .map_err(|e| format!("perm task failed: {e}"))?;
-    perm::set(perm::PermState { mode, roots, roots_canon, synced: true });
+    perm::set(perm::PermState {
+        mode,
+        roots,
+        roots_canon,
+        synced: true,
+        rules,
+        config_dir,
+    });
     Ok(())
+}
+
+/// Реестр builtin-имён для валидации правил (волна E1): собирается из тех же
+/// источников, что get_tool_schemas — новый источник схем = добавить сюда.
+/// mcp-имена правилами допускаются по форме (сервер может быть ещё офлайн)
+fn known_tool_names() -> std::collections::HashSet<String> {
+    let mut set = std::collections::HashSet::new();
+    let mut push = |schemas: &serde_json::Value| {
+        let items: Vec<&serde_json::Value> = match schemas {
+            serde_json::Value::Array(arr) => arr.iter().collect(),
+            v if v.is_object() => vec![v],
+            _ => vec![],
+        };
+        for s in items {
+            if let Some(n) = s["function"]["name"].as_str() {
+                set.insert(n.to_string());
+            }
+        }
+    };
+    push(&tools::tool_schemas());
+    push(&tools::vault_tool_schemas());
+    push(&crate::memory::memory_tool_schemas());
+    push(&browser::browser_tool_schemas());
+    push(&computer::computer_tool_schemas());
+    push(&websearch::websearch_tool_schema());
+    push(&imagegen::imagegen_tool_schema());
+    for s in frontend_tool_schemas() {
+        if let Some(n) = s["function"]["name"].as_str() {
+            set.insert(n.to_string());
+        }
+    }
+    set
 }
 
 #[tauri::command(async)]
