@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { filterToolSchemas, isMutatingTool } from "./toolFilter";
+import { filterToolSchemas, isConcurrencySafe, isMutatingTool } from "./toolFilter";
 
 const schema = (name: string) => ({ type: "function", function: { name } });
 const names = (out: unknown) =>
@@ -130,5 +130,67 @@ describe("isMutatingTool — золотой список perm.rs", () => {
 
   it("неизвестное имя — не мутирующий (бекенд решает по своему списку)", () => {
     expect(isMutatingTool("future_tool")).toBe(false);
+  });
+});
+
+describe("isConcurrencySafe — батчи параллельных чтений (волна C)", () => {
+  it("золотой список safe-имён", () => {
+    const safe = [
+      "fs_read",
+      "fs_list",
+      "fs_grep",
+      "vault_read",
+      "vault_search",
+      "memory_recall",
+      "web_search",
+      "browser_read",
+      "browser_screenshot",
+      "computer_screenshot",
+    ];
+    for (const n of safe) {
+      expect(isConcurrencySafe(n), n).toBe(true);
+    }
+  });
+
+  it("ключевой инвариант стыка: safe ⊆ не-мутирующих — параллель никогда не обходит ask-гейт", () => {
+    for (const n of [
+      "fs_read",
+      "fs_list",
+      "fs_grep",
+      "vault_read",
+      "vault_search",
+      "memory_recall",
+      "web_search",
+      "browser_read",
+      "browser_screenshot",
+      "computer_screenshot",
+    ]) {
+      expect(isMutatingTool(n), n).toBe(false);
+    }
+  });
+
+  it("всё неперечисленное — не safe: mcp__*, shell, запись, субагенты, code_run", () => {
+    for (const n of [
+      "mcp__server__tool",
+      "shell_run",
+      "fs_write",
+      "fs_delete",
+      "vault_write",
+      "memory_save",
+      "image_generate",
+      "subagent_run",
+      "subagent_status",
+      "workflow_run",
+      "plan_update",
+      "ask_user",
+      "code_run",
+      "browser_navigate",
+      "browser_click",
+      "browser_snapshot",
+      "computer_key",
+      "future_tool",
+    ]) {
+      expect(isConcurrencySafe(n), n).toBe(false);
+    }
   });
 });
