@@ -777,6 +777,19 @@ pub(crate) fn rejects_sensitive_path(path: &str) -> Result<(), String> {
         {
             return Err("path points to a protected system location".into());
         }
+        // macOS: /etc, /var, /root — симлинки в /private/...; канонизация на
+        // ревалидации (ensure_export_target / settings_import_read) даёт
+        // /private/etc, который без этой ветки проходил мимо блока — два пути
+        // к одному месту были защищены асимметрично (аудит А3-3)
+        #[cfg(target_os = "macos")]
+        if comps.first().is_some_and(|c| *c == "private") {
+            if comps
+                .get(1)
+                .is_some_and(|c| matches!(*c, "etc" | "var" | "root"))
+            {
+                return Err("path points to a protected system location".into());
+            }
+        }
         if comps.iter().any(|c| *c == ".ssh") {
             return Err("path points to a protected location (SSH keys)".into());
         }
