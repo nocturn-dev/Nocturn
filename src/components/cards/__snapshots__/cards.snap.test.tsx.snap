@@ -362,24 +362,28 @@ exports[`chat cards snapshots > UserCard: текст + вложение 1`] = `
   <div
     class="min-w-0 w-fit rounded-2xl rounded-br-md px-4 py-3 bg-halo-raised"
   >
-    <button
-      class="absolute right-1.5 top-1.5 flex size-5 items-center justify-center rounded-full border border-halo-line bg-halo-deep text-halo-muted opacity-0 shadow-sm transition duration-150 hover:text-halo-text group-hover:opacity-100"
-      title="Collapse"
+    <div
+      class="absolute -bottom-7 left-1 z-10 flex gap-1 opacity-0 transition duration-150 group-hover:opacity-100"
     >
-      <svg
-        fill="none"
-        height="10"
-        stroke="currentColor"
-        stroke-linecap="round"
-        stroke-width="2.5"
-        viewBox="0 0 24 24"
-        width="10"
+      <button
+        class="rounded-md border border-halo-line bg-halo-deep px-1.5 py-0.5 text-[0.625rem] transition-colors text-halo-muted hover:bg-halo-hover hover:text-halo-text"
+        title="Copy"
       >
-        <path
-          d="M5 12h14"
-        />
-      </svg>
-    </button>
+        📋
+      </button>
+      <button
+        class="rounded-md border border-halo-line bg-halo-deep px-1.5 py-0.5 text-[0.625rem] text-halo-muted transition-colors hover:bg-halo-hover hover:text-halo-text"
+        title="Edit and resend"
+      >
+        ✎
+      </button>
+      <button
+        class="rounded-md border border-halo-line bg-halo-deep px-1.5 py-0.5 text-[0.625rem] leading-none text-halo-muted transition-colors hover:bg-halo-hover hover:text-halo-text"
+        title="Collapse"
+      >
+        −
+      </button>
+    </div>
     <div
       class="flex flex-wrap gap-2 mb-2"
     >

@@ -535,6 +535,15 @@ async fn chat_stream_impl(
         // держит TCP, но не шлёт байт) не работал до idle-таймаута 300 с
         // (аудит А1-1). Поллинг флага 100 мс — тот же паттерн, что
         // wait_for_abort в tooling.rs
+        // Волна GUI-fix: после usage стрим семантически закончен — провайдеры
+        // типа Ashna держат TCP молча (забыв [DONE]) и «Работает» крутилось
+        // до полного таймаута. Post-usage тишина режется коротко (10 с),
+        // до usage — длинный reasoning-таймаут
+        let idle = if saw_usage {
+            std::time::Duration::from_secs(10)
+        } else {
+            STREAM_IDLE_TIMEOUT
+        };
         let chunk = tokio::select! {
             biased;
             _ = async {
@@ -545,14 +554,9 @@ async fn chat_stream_impl(
                     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
                 }
             } => None,
-            item = tokio::time::timeout(STREAM_IDLE_TIMEOUT, stream.next()) => match item {
+            item = tokio::time::timeout(idle, stream.next()) => match item {
                 Ok(item) => item,
                 Err(_) => {
-                    // Волна GUI-fix: usage уже приехал, а провайдер (прокси
-                    // типа Ashna) держит TCP и молчит, забыв [DONE]/close —
-                    // ответ полный, трактуем тишину как конец стрима. Раньше
-                    // это была Err: фронт 5 минут крутил «Работает» и потом
-                    // рисовал фантомную ошибку на нормальном ответе
                     if saw_usage {
                         break 'outer;
                     }
