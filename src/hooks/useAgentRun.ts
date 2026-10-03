@@ -26,6 +26,8 @@ import {
 // Чистые фазы prepare (история/память) — в agent/history; лимиты — в limits.ts
 import { buildHistory, buildMemoryBlock } from "../agent/history";
 import { applyMicrocompact } from "../agent/microcompact";
+import { ruleMatches } from "../agent/permRules";
+import type { PermRules } from "../agent/permRules";
 import {
   compactHistory,
   COMPACT_MAX_PER_RUN,
@@ -95,6 +97,23 @@ interface RunHandle {
  *  содержит пробелов, поэтому первый пробел однозначно делит ключ */
 const allowKey = (call: ToolCallInfo) => `${call.name} ${call.arguments}`;
 
+/** Волна E1: аргумент матчинга правил — команда shell_run / путь fs_*;
+ *  bare-правила матчат инструмент и без аргумента */
+const ruleArgument = (call: ToolCallInfo): string | null => {
+  try {
+    const p = JSON.parse(call.arguments) as { path?: unknown; command?: unknown };
+    if (call.name === "shell_run") {
+      return typeof p.command === "string" ? p.command : null;
+    }
+    if (call.name.startsWith("fs_")) {
+      return typeof p.path === "string" ? p.path : null;
+    }
+  } catch {
+    // не JSON — правила по аргументу не матчим (bare-правила всё равно работают)
+  }
+  return null;
+};
+
 export interface AgentRunDeps {
   // FIX [dead-prop]: sessions передавался, но внутри хука не читался
   // ни разу (везде используется sessionsRef) — лишний аргумент на каждый
@@ -123,6 +142,9 @@ export interface AgentRunDeps {
   setActiveId: React.Dispatch<React.SetStateAction<string | null>>;
   limitsRef: { current: HardLimits };
   memoryEnabled: boolean;
+  /** Волна E1: персистентные правила прав (allow/always_ask — политика
+   *  подтверждений фронта; deny авторитетен на бекенде) */
+  permRulesRef: { current: PermRules | undefined };
 }
 
 export function useAgentRun(deps: AgentRunDeps) {
@@ -147,6 +169,7 @@ export function useAgentRun(deps: AgentRunDeps) {
     setActiveId,
     limitsRef,
     memoryEnabled,
+    permRulesRef,
   } = deps;
   const { setSessions } = deps;
   const { t } = useLang();
@@ -526,6 +549,7 @@ export function useAgentRun(deps: AgentRunDeps) {
     void permSet(
       permSession?.permissionMode ?? "ask",
       projectRootRef.current ? [projectRootRef.current] : [],
+      permRulesRef.current,
     ).catch(() => {});
 
     // Редактирование с ветвлением: оригинальная сессия остаётся нетронутой,
@@ -2578,51 +2602,73 @@ ${report}`;
         const grantKey = allowKey(call);
         const allowed =
           mutating && (session?.allowedCommands?.includes(grantKey) ?? false);
+        // Волна E1: правила прав. always_ask — спросить даже в Full (и даже
+        // для чтений); allow — не спрашивать в Ask/Edit (бекенд-границы mode
+        // выше allow и не пробиваются). Аргумент матча — команда shell_run /
+        // путь fs_*; bare-правило матчит инструмент целиком
+        const rules = permRulesRef.current;
+        const ruleArg = ruleArgument(call);
+        const alwaysAsk = rules
+          ? ruleMatches(rules.always_ask, call.name, ruleArg, call.name.startsWith("fs_"))
+          : false;
+        const allowRule =
+          !alwaysAsk && rules
+            ? ruleMatches(rules.allow, call.name, ruleArg, call.name.startsWith("fs_"))
+            : false;
+
+        // Подтвердить и исполнить — общий хвост plan-blocked-обхода:
+        // askConfirm → deny | always (в allowedCommands задачи) | exec
+        const confirmAndExec = async () => {
+          const decision = await askConfirm(call);
+          if (decision === "deny") {
+            return [t("agent.denied"), "denied"] as const;
+          }
+          if (decision === "always") {
+            setSessions((prev) =>
+              prev.map((s) =>
+                s.id === targetId
+                  ? {
+                      ...s,
+                      allowedCommands: [
+                        ...new Set([...(s.allowedCommands ?? []), grantKey]),
+                      ],
+                    }
+                  : s,
+              ),
+            );
+          }
+          await ensureCheckpoint();
+          return [
+            await execTool(call.name, call.arguments).catch(
+              (e) => `tool error: ${e}`,
+            ),
+            undefined,
+          ] as const;
+        };
 
         let result: string;
-        // FIX: машиный статус результата — раньше "denied" распознавался на
+        // FIX: машинный статус результата — раньше "denied" распознавался на
         // рендере сравнением контента с локализованной строкой t("agent.denied"),
         // и смена языка перекрашивала историю инструментов
         let toolStatus: Message["status"];
         if (permMode === "plan" && mutating) {
           // Режим плана: запись и команды блокируются, модель должна
-          // предъявить план, не трогая систему
+          // предъявить план, не трогая систему. Правила эту границу не пробивают
           result = t("agent.planBlocked");
           toolStatus = "denied";
+        } else if (alwaysAsk) {
+          [result, toolStatus] = await confirmAndExec();
         } else if (
           permMode === "full" ||
           (permMode === "edit" && call.name === "fs_write") ||
-          (mutating && allowed)
+          (mutating && (allowed || allowRule))
         ) {
           await ensureCheckpoint();
           result = await execTool(call.name, call.arguments).catch(
             (e) => `tool error: ${e}`,
           );
         } else if (mutating) {
-          const decision = await askConfirm(call);
-          if (decision === "deny") {
-            result = t("agent.denied");
-            toolStatus = "denied";
-          } else {
-            if (decision === "always") {
-              setSessions((prev) =>
-                prev.map((s) =>
-                  s.id === targetId
-                    ? {
-                        ...s,
-                        allowedCommands: [
-                          ...new Set([...(s.allowedCommands ?? []), grantKey]),
-                        ],
-                      }
-                    : s,
-                ),
-              );
-            }
-            await ensureCheckpoint();
-            result = await execTool(call.name, call.arguments).catch(
-              (e) => `tool error: ${e}`,
-            );
-          }
+          [result, toolStatus] = await confirmAndExec();
         } else {
           // Не-mutating вне safe-списка (code_run, неизвестные имена) —
           // исполняются всегда; fs_*/скриншоты уходят параллельным батчам выше

@@ -106,6 +106,7 @@ import {
 } from "./shortcuts";
 import { buildChainPlan, parseNotePrompt, type Note } from "./vault";
 import { loadNotifyPrefs, saveNotifyPrefs, loadRunSoundPrefs, saveRunSoundPrefs, type NotifyPrefs, type RunSoundPrefs } from "./notify";
+import { loadPermRules, PERM_RULES_CHANGED, type PermRules } from "./agent/permRules";
 import { loadMediaPrefs, saveMediaPrefs, type MediaPrefs, type MediaLyricsSnapshot } from "./mediaPrefs";
 import { subagentsLoad, subagentsSave, commandsLoad, pluginsLoad, type Plugin, type UserCommand } from "./api";
 import {
@@ -953,6 +954,19 @@ export default function App() {
 
 
   const [notifyPrefs, setNotifyPrefs] = useState<NotifyPrefs>(loadNotifyPrefs);
+  // Волна E1: персистентные правила прав — реф для useAgentRun (perm_set и
+  // политика подтверждений). Секция «Права» сохраняет сама и дёргает событие
+  const [permRules, setPermRules] = useState<PermRules>(loadPermRules);
+  const permRulesRef = useRef(permRules);
+  useEffect(() => {
+    permRulesRef.current = permRules;
+  }, [permRules]);
+  useEffect(() => {
+    const onChange = () => setPermRules(loadPermRules());
+    window.addEventListener(PERM_RULES_CHANGED, onChange);
+    return () => window.removeEventListener(PERM_RULES_CHANGED, onChange);
+  }, []);
+
   const notifyPrefsRef = useRef(notifyPrefs);
   useEffect(() => {
     notifyPrefsRef.current = notifyPrefs;
@@ -1044,6 +1058,7 @@ export default function App() {
     setActiveId,
     limitsRef,
     memoryEnabled,
+    permRulesRef,
   });
   // Для автосейва: активный стрим. Эффект вместо записи в теле рендера —
   // под React Compiler мутация ref во время рендера вне модели

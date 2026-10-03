@@ -17,6 +17,7 @@ export type Section =
   | "commands"
   | "plugins"
   | "mcp"
+  | "permissions"
   | "imagegen"
   | "hooks"
   | "shortcuts"

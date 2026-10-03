@@ -222,9 +222,15 @@ export async function runTool(
 }
 
 /** Синхронизация серверного слоя прав (PermMode + project roots) */
-export async function permSet(mode: string, roots: string[]): Promise<void> {
+export async function permSet(
+  mode: string,
+  roots: string[],
+  /** Волна E1: персистентные правила (валидация fail-closed на бекенде);
+   *  snake_case always_ask — контракт serde-структуры perm.rs */
+  rules?: { allow: string[]; deny: string[]; always_ask: string[] },
+): Promise<void> {
   if (!inTauri) return;
-  return invoke("perm_set", { mode, roots });
+  return invoke("perm_set", { mode, roots, rules });
 }
 
 // FIX: ToolCallInfo определялся здесь И в types.ts (дублирующие контракты —

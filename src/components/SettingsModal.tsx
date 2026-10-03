@@ -20,6 +20,7 @@ import { useLang, type MsgKey } from "../locales";
 import type { VoiceSettings } from "../voice/prefs";
 import { MainSection } from "./settings/MainSection";
 import { McpSection } from "./settings/McpSection";
+import { PermissionsSection } from "./settings/PermissionsSection";
 import { ShortcutsSection } from "./settings/ShortcutsSection";
 import { SkillsSection } from "./settings/SkillsSection";
 import { HooksSection } from "./settings/HooksSection";
@@ -212,6 +213,7 @@ const NAV: {
       { id: "subagents", key: "settings.subagents", icon: "users" },
       { id: "plugins", key: "settings.plugins", icon: "grid" },
       { id: "mcp", key: "settings.mcp", icon: "plug" },
+      { id: "permissions", key: "settings.permissions", icon: "shield" },
       { id: "imagegen", key: "settings.imagegen", icon: "image" },
       { id: "prompts", key: "settings.prompts", icon: "skill" },
       { id: "skills", key: "settings.skills", icon: "spark" },
@@ -830,6 +832,7 @@ export default function SettingsModal({
             ))}
           {section === "docs" && <DocsSection />}
           {section === "mcp" && <McpSection />}
+          {section === "permissions" && <PermissionsSection />}
           {section === "imagegen" && <ImageGenSection />}
           {section === "hooks" && <HooksSection />}
           {section === "shortcuts" && (
