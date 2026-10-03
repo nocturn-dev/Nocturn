@@ -6,6 +6,7 @@ import type { Note } from "../vault";
 import { buildBacklinks, extractLinks, resolveLinks } from "../vault";
 import { useLang } from "../locales";
 import { MarkdownLink } from "./cards/MarkdownLink";
+import { STATUS_INFO, STATUS_OK, STATUS_WARN, STATUS_WARN_DIM } from "../statusColors";
 
 /**
  * Редактор заметки (M-N1): markdown с превью, вставка [[ссылок]],
@@ -389,7 +390,7 @@ function MiniGraph({
             y1={0}
             x2={nb.x * 0.55}
             y2={nb.y * 0.55}
-            stroke={nb.kind === "dangling" ? "rgba(212,170,80,0.5)" : "var(--halo-line)"}
+              stroke={nb.kind === "dangling" ? STATUS_WARN_DIM : "var(--halo-line)"}
             strokeWidth={1.2}
           />
         ))}
@@ -410,12 +411,12 @@ function MiniGraph({
               r={8}
               fill={
                 nb.kind === "resolved"
-                  ? "#5fbe82"
+                  ? STATUS_OK
                   : nb.kind === "backlink"
-                    ? "#5f87d4"
+                    ? STATUS_INFO
                     : "transparent"
               }
-              stroke={nb.kind === "dangling" ? "#d4aa50" : "var(--halo-surface)"}
+              stroke={nb.kind === "dangling" ? STATUS_WARN : "var(--halo-surface)"}
               strokeWidth={1.6}
               strokeDasharray={nb.kind === "dangling" ? "3 2" : undefined}
             />
@@ -438,9 +439,21 @@ function MiniGraph({
         ))}
       </svg>
       <div className="space-y-1 border-t border-halo-line/60 px-3 py-2 text-[0.625rem] text-halo-muted/70">
-        <p><span className="mr-1 inline-block size-2 rounded-full bg-[#5fbe82] align-middle" />{t("notes.mgOut")}</p>
-        <p><span className="mr-1 inline-block size-2 rounded-full bg-[#5f87d4] align-middle" />{t("notes.mgBack")}</p>
-        <p><span className="mr-1 inline-block size-2 rounded-full border border-dashed border-[#d4aa50] align-middle" />{t("notes.mgDangling")}</p>
+        <p>
+          <span className="mr-1 inline-block size-2 rounded-full align-middle" style={{ background: STATUS_OK }} />
+          {t("notes.mgOut")}
+        </p>
+        <p>
+          <span className="mr-1 inline-block size-2 rounded-full align-middle" style={{ background: STATUS_INFO }} />
+          {t("notes.mgBack")}
+        </p>
+        <p>
+          <span
+            className="mr-1 inline-block size-2 rounded-full border border-dashed align-middle"
+            style={{ borderColor: STATUS_WARN }}
+          />
+          {t("notes.mgDangling")}
+        </p>
       </div>
     </div>
   );

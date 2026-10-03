@@ -43,6 +43,30 @@ import { ArrowUpIcon, BookIcon, ChevronDownIcon, CorrectIcon, FolderIcon, MicIco
 import { fmtInt, fmtK } from "./cards/util";
 import { CHART_COLORS } from "../chartColors";
 
+/** ЕДИНАЯ точка правды видимости сообщений в ленте. Потребители: лента
+ *  (ChatArea) и якорь ленты лирики в App (composerCentered) — они обязаны
+ *  считать «пустую ленту» одинаково, иначе активная строка лирики
+ *  рисовалась в нижней полосе под центрированным композером (аудит А4-4).
+ *  Пустые ассистентские карточки — placeholders активного стрима;
+ *  сообщения пользователя скрывает тумблер в «Основном»; карточка с
+ *  ошибкой видима всегда — иначе ответ «исчезает» молча */
+export function filterVisibleMessages(
+  messages: Message[],
+  showUserMsgs: boolean,
+): Message[] {
+  return messages.filter(
+    (m) =>
+      !(m.role === "user" && !showUserMsgs) &&
+      !(
+        m.role === "assistant" &&
+        m.content === "" &&
+        !m.thought &&
+        !m.toolCalls &&
+        !m.error
+      ),
+  );
+}
+
 /** Заголовок артефакта из <title>/<h1> частичного HTML; null — заголовка
  *  ещё нет (стрим в начале). Единая эвристика для openArtifact и
  *  живого артефакта — раньше она жила только в openArtifact */
@@ -683,22 +707,8 @@ export default function ChatArea({
   // собой пересчёт ВСЕХ useMemo/useEffect, зависящих от messages (deps
   // меняли идентичность каждый кадр). Мемоизируем саму нормализацию
   const messages = useMemo(() => session?.messages ?? [], [session]);
-  // Пустые ассистентские карточки — placeholders активного стрима;
-  // сообщения пользователя можно скрыть тумблером в «Основном».
-  // Карточка с ошибкой видима всегда — иначе ответ «исчезает» молча
   const visible = useMemo(
-    () =>
-      messages.filter(
-        (m) =>
-          !(m.role === "user" && !showUserMsgs) &&
-          !(
-            m.role === "assistant" &&
-            m.content === "" &&
-            !m.thought &&
-            !m.toolCalls &&
-            !m.error
-          ),
-      ),
+    () => filterVisibleMessages(messages, showUserMsgs),
     [messages, showUserMsgs],
   );
 

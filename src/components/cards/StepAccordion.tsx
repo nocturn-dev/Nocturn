@@ -75,7 +75,7 @@ export function StepAccordion({
    *  иконка/лейбл/детали на прозрачном фоне, hover-подсветка остаётся */
   flat?: boolean;
 }) {
-  const { t } = useLang();
+  const { t, lang } = useLang();
   const [open, setOpen] = useState<Set<string>>(new Set());
   const toggle = (id: string) =>
     setOpen((prev) => {
@@ -142,7 +142,12 @@ export function StepAccordion({
               )}
               {s.secondsMs != null && s.secondsMs > 0 && (
                 <span className="w-10 shrink-0 text-right tabular-nums text-halo-muted/60">
-                  {(s.secondsMs / 1000).toFixed(1).replace(".", ",")}s
+                  {/* Разделитель по локали — как в AssistantCard/RunCard:
+                      безусловная запятая противоречила en/zh/ja (аудит А4-2) */}
+                  {(s.secondsMs / 1000)
+                    .toFixed(1)
+                    .replace(".", lang === "ru" ? "," : ".")}
+                  s
                 </span>
               )}
               <svg

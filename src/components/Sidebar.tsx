@@ -2,7 +2,7 @@ import { memo, useEffect, useMemo, useRef, useState } from "react";
 import type { Project, Session } from "../types";
 import WindowControls from "./WindowControls";
 import { pickFolder, pickAnyFile, listDir, gitStatus, checkpointList, checkpointRestore, checkpointDelete, type CheckpointMeta, type FileEntry, type NoteInfo } from "../api";
-import { normalizePath } from "../diff";
+import { normalizePath, pathSep } from "../diff";
 import { copyText } from "../clipboard";
 import { ACCENT_PRESETS } from "../appearance";
 import { useLang, type MsgKey, type Lang, type TFn } from "../locales";
@@ -368,26 +368,25 @@ export default function Sidebar({
   // Стабильный бокс обработчиков строки: identity не меняется между
   // рендерами (поля обновляются эффектом), иначе memo(SessionRow) разбивался
   // бы инлайн-стрелками App. Обработчикам свежесть критична (замыкания над
-  // стейтом App) — эффект без deps обновляет поля после каждого рендера
-  const rowHandlersRef = useRef<SessionRowHandlers | null>(null);
-  if (rowHandlersRef.current === null) {
-    rowHandlersRef.current = {
-      onSelect,
-      onSessionMenu,
-      onRenameCommit,
-      onRenameCancel,
-      onTagSession,
-      onTogglePin,
-      onArchiveSession,
-      onDeleteSession,
-      // setTaggingId из useState стабилен — первым рендером и остаётся
-      setTaggingId,
-    };
-  }
+  // стейтом App) — эффект без deps обновляет поля после каждого рендера.
+  // Инициализация через useRef({...}), а не записью в ref в теле рендера —
+  // запись в ref во время рендера вне модели React Compiler (аудит А4-5)
+  const rowHandlersRef = useRef<SessionRowHandlers>({
+    onSelect,
+    onSessionMenu,
+    onRenameCommit,
+    onRenameCancel,
+    onTagSession,
+    onTogglePin,
+    onArchiveSession,
+    onDeleteSession,
+    // setTaggingId из useState стабилен — первым рендером и остаётся
+    setTaggingId,
+  });
   useEffect(() => {
     // Только колбэки из пропсов: setState-функции стабильны, их в refresh
     // не включаем (правило exhaustive-deps справедливо — смысла нет)
-    Object.assign(rowHandlersRef.current as SessionRowHandlers, {
+    Object.assign(rowHandlersRef.current, {
       onSelect,
       onSessionMenu,
       onRenameCommit,
@@ -1107,10 +1106,10 @@ function relTime(ts: number, lang: "ru" | "en" | "zh" | "ja"): string {
   return lang === "ru" ? `${Math.floor(h / 24)}д` : `${Math.floor(h / 24)}d`;
 }
 
-/** D14: соединение сегментов пути в нормализованной форме (разделитель "\",
- *  как в normalizePath, без хвостовых слэшей базового сегмента) */
+/** D14: соединение сегментов пути в нормализованной форме (разделитель
+ *  платформы — как в normalizePath, без хвостовых слэшей базового сегмента) */
 function joinNorm(base: string, name: string): string {
-  return `${base.replace(/[\\/]+$/, "")}\\${name}`;
+  return `${base.replace(/[\\/]+$/, "")}${pathSep()}${name}`;
 }
 
 function ClockIcon() {
@@ -1283,10 +1282,10 @@ const FileTree = memo(function FileTree({
       // внутри неё есть хоть один изменённый файл (по префиксу)
       const norm = normalizePath(childPath);
       const isModified = e.is_dir
-        ? Array.from(modifiedFiles).some((p) => p.startsWith(`${norm}\\`))
+        ? Array.from(modifiedFiles).some((p) => p.startsWith(`${norm}${pathSep()}`))
         : modifiedFiles.has(norm);
       // Git-статус (M5.1): относительный путь внутри корня
-      const relNorm = norm.startsWith(`${rootNorm}\\`)
+      const relNorm = norm.startsWith(`${rootNorm}${pathSep()}`)
         ? norm.slice(rootNorm.length + 1)
         : norm;
       const gitColor = e.is_dir ? "" : gitColorOf(relNorm);

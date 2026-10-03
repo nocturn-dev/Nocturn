@@ -74,7 +74,7 @@ import Onboarding, { type OnboardingResult } from "./components/Onboarding";
 import ResetConfirmModal from "./components/ResetConfirmModal";
 
 
-import ChatArea from "./components/ChatArea";
+import ChatArea, { filterVisibleMessages } from "./components/ChatArea";
 import { LyricsRibbon } from "./components/LyricsRibbon";
 import { YouTubeLayer } from "./components/YouTubeLayer";
 import { ytToggleOpen } from "./yt/ytPlayer";
@@ -485,6 +485,16 @@ export default function App() {
     streamingActiveRef,
     projectsRef,
   });
+  // «Пустая лента» по ЕДИНОЙ формуле с ChatArea (filterVisibleMessages):
+  // раньше App смотрел сырой messages.length, и при скрытых сообщениях
+  // пользователя композер центрировался, а лента лирики рисовалась в
+  // нижней полосе — тексты сталкивались (аудит А4-4)
+  const chatEmptyForRibbon = useMemo(
+    () =>
+      filterVisibleMessages(activeSession?.messages ?? [], showUserMsgs)
+        .length === 0,
+    [activeSession, showUserMsgs],
+  );
 
   // Pre-toggle «Agent» до создания чата: без него клик по чипу создавал
   // сессию и стирал набранный черновик (запрос при этом не отправлялся).
@@ -2503,11 +2513,7 @@ export default function App() {
           <LyricsRibbon
             snap={mediaLyrics}
             scale={mediaPrefs.ribbonScale}
-            composerCentered={
-              (activeSession?.messages.length ?? 0) === 0 &&
-              !typing &&
-              !terminalOpen
-            }
+            composerCentered={chatEmptyForRibbon && !typing && !terminalOpen}
             contentLeft={sidebarWidth}
           />
         )}

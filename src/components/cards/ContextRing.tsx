@@ -1,6 +1,7 @@
 import type { MsgKey } from "../../locales";
 import { useLang } from "../../locales";
 import { fmtInt } from "./util";
+import { STATUS_ERR, STATUS_OK, STATUS_WARN } from "../../statusColors";
 import { useState } from "react";
 
 export function ContextRing({
@@ -17,7 +18,7 @@ export function ContextRing({
   const { lang, t } = useLang();
   const [open, setOpen] = useState(false);
   const pct = limit > 0 ? Math.min(1, used / limit) : 0;
-  const color = pct >= 0.85 ? "#d14b4b" : pct >= 0.6 ? "#d4aa50" : "#5fbe82";
+  const color = pct >= 0.85 ? STATUS_ERR : pct >= 0.6 ? STATUS_WARN : STATUS_OK;
   const R = 6;
   const C = 2 * Math.PI * R;
   const fmt = (n: number) =>
