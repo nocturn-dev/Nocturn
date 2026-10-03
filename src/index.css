@@ -866,6 +866,142 @@ html.light.inline-code-claude .markdown code:not(pre code) {
   animation: halo-blink 1.2s infinite;
 }
 
+/* ---------- Маскот Нок (светлячок у композера, PLAN.md §21) ----------
+   Все темпы — через --motion-scale; reduce-motion глушит общей плиткой
+   ниже (спрайт остаётся статичным). Группы .nok-aura/.nok-lamp пульсируют
+   групповой прозрачностью: базовые opacity клеток не трогаются */
+@keyframes nok-bob {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-1.5px);
+  }
+}
+@keyframes nok-glow {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+@keyframes nok-shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  25% {
+    transform: translateX(-1px);
+  }
+  75% {
+    transform: translateX(1px);
+  }
+}
+/* Конфетти завершения: вектор разлёта — в --dx/--dy каждой искры */
+@keyframes nok-burst {
+  0% {
+    transform: translate(0, 0);
+    opacity: 1;
+  }
+  70% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate(var(--dx), var(--dy));
+    opacity: 0;
+  }
+}
+@keyframes nok-float {
+  0% {
+    transform: translateY(0);
+    opacity: 0;
+  }
+  25% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(-9px);
+    opacity: 0;
+  }
+}
+.nok {
+  cursor: pointer;
+}
+.nok-body {
+  animation: nok-bob calc(3.2s * var(--motion-scale)) ease-in-out infinite;
+}
+.nok-aura,
+.nok-lamp {
+  animation: nok-glow calc(4s * var(--motion-scale)) ease-in-out infinite;
+}
+/* Стриминг: темп как у typing-dot (1.2s), thinking-точки в том же ритме */
+.nok-streaming .nok-body {
+  animation-duration: calc(1.6s * var(--motion-scale));
+}
+.nok-streaming .nok-aura,
+.nok-streaming .nok-lamp,
+.nok-thinking .nok-aura,
+.nok-thinking .nok-lamp {
+  animation-duration: calc(1.2s * var(--motion-scale));
+}
+.nok-anger .nok-body {
+  animation: nok-shake calc(0.45s * var(--motion-scale)) ease-in-out infinite;
+}
+.nok-anger .nok-aura,
+.nok-anger .nok-lamp {
+  animation-duration: calc(0.5s * var(--motion-scale));
+}
+.nok-sleeping .nok-aura,
+.nok-sleeping .nok-lamp {
+  animation-duration: calc(8s * var(--motion-scale));
+}
+.nok-done .nok-aura,
+.nok-done .nok-lamp {
+  animation-duration: calc(0.4s * var(--motion-scale));
+}
+.nok-dot {
+  animation: nok-glow calc(1.2s * var(--motion-scale)) ease-in-out infinite;
+}
+.nok-dot:nth-of-type(2) {
+  animation-delay: calc(0.2s * var(--motion-scale));
+}
+.nok-dot:nth-of-type(3) {
+  animation-delay: calc(0.4s * var(--motion-scale));
+}
+.nok-burst {
+  animation: nok-burst calc(0.9s * var(--motion-scale)) ease-out forwards;
+}
+.nok-float,
+.nok-z {
+  animation: nok-float calc(1.6s * var(--motion-scale)) ease-out infinite;
+}
+.nok-z:nth-of-type(2) {
+  animation-delay: calc(1.2s * var(--motion-scale));
+}
+html.motion-reduced .nok-body,
+html.motion-reduced .nok-aura,
+html.motion-reduced .nok-lamp,
+html.motion-reduced .nok-dot,
+html.motion-reduced .nok-burst,
+html.motion-reduced .nok-float,
+html.motion-reduced .nok-z {
+  animation: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .nok-body,
+  .nok-aura,
+  .nok-lamp,
+  .nok-dot,
+  .nok-burst,
+  .nok-float,
+  .nok-z {
+    animation: none;
+  }
+}
+
 /* Засечка таймлайна: «домино» — появляются по очереди */
 @keyframes halo-nav-in {
   from {

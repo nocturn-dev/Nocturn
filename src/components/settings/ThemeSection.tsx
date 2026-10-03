@@ -66,6 +66,8 @@ export function ThemeSection({
   onChatMarkChange,
   msgGlass,
   onMsgGlassChange,
+  mascot,
+  onMascotChange,
 }: {
   theme: Theme;
   glass: boolean;
@@ -83,6 +85,9 @@ export function ThemeSection({
   onChatMarkChange: (v: boolean) => void;
   msgGlass: boolean;
   onMsgGlassChange: (v: boolean) => void;
+  /** Маскот Нок у композера (кастомизация) */
+  mascot: boolean;
+  onMascotChange: (v: boolean) => void;
 }) {
   const { t } = useLang();
   // Жёсткие темы (Official / Full Claude): пока активна любая, обычные
@@ -1382,6 +1387,28 @@ export function ThemeSection({
           <span
             className={`absolute top-0.5 size-4 rounded-full bg-halo-on-accent transition ${
               msgGlass ? "left-4.5" : "left-0.5"
+            }`}
+          />
+        </button>
+      </div>
+
+      {/* Маскот Нок (PLAN.md §21): светлячок у композера */}
+      <div className="mt-2.5 flex items-center justify-between rounded-xl border border-halo-line px-3.5 py-3">
+        <div>
+          <p className="text-sm text-halo-text">{t("mascot.title")}</p>
+          <p className="mt-0.5 text-xs text-halo-muted">
+            {t("mascot.desc")}
+          </p>
+        </div>
+        <button
+          onClick={() => onMascotChange(!mascot)}
+          className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${
+            mascot ? "bg-halo-accent" : "bg-halo-line"
+          }`}
+        >
+          <span
+            className={`absolute top-0.5 size-4 rounded-full bg-halo-on-accent transition ${
+              mascot ? "left-4.5" : "left-0.5"
             }`}
           />
         </button>

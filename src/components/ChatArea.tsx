@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import type { AskQuestion, Attachment, ChangedFile, Message, PermissionMode, PlanTask, Project, Session, ToolCallInfo } from "../types";
 import type { MediaPrefs, MediaLyricsSnapshot } from "../mediaPrefs";
 import { MediaBar } from "./MediaBar";
+import { Nok } from "./mascot/Nok";
 import type { PromptPreset } from "../presets";
 import type { JailbreakEntry } from "../jailbreaks";
 import { normalizePath, parseWriteResult } from "../diff";
@@ -221,6 +222,8 @@ interface ChatAreaProps {
   /** Обои чата: путь к картинке за лентой ("" — выключено) */
   /** Эффект стекла на карточках ответов ИИ */
   msgGlass: boolean;
+  /** Маскот Нок у композера (кастомизация, вкл по умолчанию) */
+  mascot: boolean;
   /** Время в шапке ответов модели (кастомизация) */
   showMsgTime: boolean;
   /** Кнопки окна в этой шапке (когда сайдбар не справа) */
@@ -342,6 +345,7 @@ export default function ChatArea({
   groupTurns,
   chatMark,
   msgGlass,
+  mascot,
   showMsgTime,
   showWindowControls,
   headerInset,
@@ -1974,6 +1978,13 @@ export default function ChatArea({
               Пропорции по ZCode: компактный радиус, тонкая рамка, без тени —
               композер не должен перетягивать фокус с ленты */}
           <div className="glass-pane relative z-30 rounded-xl border border-halo-line/70 bg-halo-surface/80 p-2 transition duration-200">
+            {/* Нок: сидит на левом углу шелла; в Hard Mode шелл не
+                рендерится — маскот скрыт вместе с ним */}
+            {mascot && (
+              <div className="absolute -top-7 left-2 z-40">
+                <Nok streaming={!!streamingMsgId} activity={activity} />
+              </div>
+            )}
             {/* Палитра скилов (&) */}
             {skillActive && skillMatches.length > 0 && (
               <div className="scroll-slim absolute bottom-full left-0 right-0 z-20 mb-2 max-h-64 overflow-y-auto rounded-xl border border-halo-line bg-halo-deep/95 p-1.5 shadow-xl backdrop-blur">

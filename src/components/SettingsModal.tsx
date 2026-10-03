@@ -155,6 +155,9 @@ interface SettingsModalProps {
   onChatMarkChange: (v: boolean) => void;
   msgGlass: boolean;
   onMsgGlassChange: (v: boolean) => void;
+  /** Маскот Нок у композера (кастомизация) */
+  mascot: boolean;
+  onMascotChange: (v: boolean) => void;
   /** Память проектов: контекст предыдущих задач в новых сессиях */
   memoryEnabled: boolean;
   onMemoryChange: (v: boolean) => void;
@@ -323,6 +326,8 @@ export default function SettingsModal({
   onChatMarkChange,
   msgGlass,
   onMsgGlassChange,
+  mascot,
+  onMascotChange,
   memoryEnabled,
   onMemoryChange,
   apiSettings,
@@ -754,6 +759,8 @@ export default function SettingsModal({
               onChatMarkChange={onChatMarkChange}
               msgGlass={msgGlass}
               onMsgGlassChange={onMsgGlassChange}
+              mascot={mascot}
+              onMascotChange={onMascotChange}
             />
           )}
           {section === "api" && (
