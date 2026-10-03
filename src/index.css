@@ -610,9 +610,6 @@ html.zen.voice-listening body::after {
    собственные keyframes гасились, а библиотечные — нет */
 @media (prefers-reduced-motion: reduce) {
   .animate-pulse,
-  .animate-ping,
-  .animate-spin,
-  .animate-bounce,
   .shimmer-text {
     animation: none !important;
   }
@@ -647,9 +644,6 @@ html.motion-reduced .shimmer-text,
 html.motion-reduced .group:hover .snake-preview-seg,
 html.motion-reduced .snake-preview-seg,
 html.motion-reduced .animate-pulse,
-html.motion-reduced .animate-ping,
-html.motion-reduced .animate-spin,
-html.motion-reduced .animate-bounce,
 html.motion-reduced body::before {
   animation: none !important;
 }
@@ -929,12 +923,9 @@ html.glass body {
   }
 }
 /* Полупрозрачность панелей. glass-pane здесь же: тот же тинт deep/70%,
-   что у bg-halo-deep (бывший дубль в начале файла объединён) */
+   что у bg-halo-deep (дубль правила удалён — правка тинта в одном месте) */
 html.glass .bg-halo-deep,
 html.glass .glass-pane {
-  background: color-mix(in srgb, var(--halo-deep) 70%, transparent);
-}
-html.glass .bg-halo-deep {
   background: color-mix(in srgb, var(--halo-deep) 70%, transparent);
 }
 html.glass .bg-halo-surface {
@@ -1315,8 +1306,11 @@ html.official .bg-halo-raised {
   background: var(--halo-raised);
 }
 /* Сайдбар (aside несёт bg-halo-deep). Обои чата не трогаем: их прозрачность
-   — целевая фича (has-wallpaper), а не стеклянный режим */
-html:not(.has-wallpaper).official aside.bg-halo-deep {
+   — целевая фича (has-wallpaper), а не стеклянный режим. ambient-behind —
+   та же категория «фон-фича, а не стекло»: без :not() ambient-правило
+   (0,4,2) переигрывало official (0,3,2), и сайдбар в монохроме становился
+   86% прозрачным (аудит А6-3) */
+html:not(.has-wallpaper):not([data-ambient-render="behind"]).official aside.bg-halo-deep {
   background: var(--halo-deep);
   backdrop-filter: none;
   -webkit-backdrop-filter: none;

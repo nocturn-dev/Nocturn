@@ -2497,7 +2497,8 @@ export default function App() {
         )}
         {/* Ambient Lyrics: лента строк лирики — режим Spotify/YouTube-
             интеграции (mediaPrefs.ribbon), НЕ зависит от ambient-фона;
-            z-[1] — поверх ambient-behind, под контентом чата (z-10) */}
+            z-behind (−1) — тот же слот, что ambient-behind, выше него по
+            порядку DOM, под всем контентом (см. .lyrics-ribbon в index.css) */}
         {mediaPrefs.ribbon && (
           <LyricsRibbon
             snap={mediaLyrics}
