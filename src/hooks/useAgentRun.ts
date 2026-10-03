@@ -1239,6 +1239,10 @@ export function useAgentRun(deps: AgentRunDeps) {
     // Волна C: кап параллельных read-only вызовов в батче (подряд идущие
     // safe-чтения гоняются Promise.all, мутирующие — строго последовательно)
     const MAX_PARALLEL_TOOLS = 5;
+    // Волна G: мета-сообщение продолжения после max_output_tokens (CC-паттерн
+    // «Resume directly»). EN — текст для модели, не UI
+    const RECOVERY_PROMPT =
+      "Your previous response was cut off by the output token limit. Continue EXACTLY where it stopped — do not repeat, summarize or re-introduce anything already written. Resume directly.";
 
     // Корректирующий запрос: пользовательские поправки уходят модели
     // в начале следующего раунда — с префиксом (agent.correctionPrefix) в
@@ -1301,6 +1305,8 @@ export function useAgentRun(deps: AgentRunDeps) {
     let compactCount = 0;
     let lastCompactStep = 0;
     let reactiveCompacted = false;
+    // Волна G: авто-продолжения после обрыва вывода — не больше 3 на прогон
+    let recoveryCount = 0;
     // Безголовый вызов суммаризатора: тот же requestId (Stop убивает и его),
     // без инструментов; usage/HardLimit не трогаются — инфраструктура, а не
     // работа задачи
@@ -1367,6 +1373,20 @@ export function useAgentRun(deps: AgentRunDeps) {
           persistCompact(compacted.summary);
         }
       }
+      // Волна G: напоминание о плане каждые 5 шагов — план живёт в UI-виджете,
+      // без напоминания модель забывает его к глубоким шагам прогона
+      if (step % 5 === 0) {
+        const plan = sessionsRef.current.find((s) => s.id === targetId)?.plan;
+        if (plan?.length) {
+          const list = plan
+            .map((p) => `- [${p.status === "done" ? "x" : " "}] ${p.title} (${p.status})`)
+            .join("\n");
+          history.push({
+            role: "system",
+            content: `[plan reminder — the current task plan; update it with plan_update]\n${list}`,
+          });
+        }
+      }
 
       const assistantId = uid();
       // Своя точка отсчёта на шаг: workedMs от старта ПРОГОНА суммировался
@@ -1378,6 +1398,8 @@ export function useAgentRun(deps: AgentRunDeps) {
       setTyping(true);
       setActivity(t("activity.thinking"));
 
+      // Волна G: причина остановки текущего раунда (доезжает в usage)
+      let roundStopReason: string | null = null;
       const toolCallsHolder: { calls: ToolCallInfo[] | null } = { calls: null };
       // Текст, отстрименный до вызова инструментов, — попадёт в историю
       // вместе с tool_calls, иначе модель «забывает» то, что уже написала
@@ -1462,6 +1484,7 @@ export function useAgentRun(deps: AgentRunDeps) {
             usageAcc.prompt += usage.prompt;
             usageAcc.completion += usage.completion;
             usageAcc.lastPrompt = usage.prompt;
+            roundStopReason = usage.stopReason ?? roundStopReason;
             checkHardLimit();
             // FIX: клонируем только целевую сессию, а не все сессии стора
             setSessions((prev) =>
@@ -1563,7 +1586,23 @@ export function useAgentRun(deps: AgentRunDeps) {
 
       // Нет вызовов инструментов — обычный ответ, цикл завершён
       const toolCalls = toolCallsHolder.calls;
-      if (failed || !toolCalls || toolCalls.length === 0) return finalize();
+      if (failed || !toolCalls || toolCalls.length === 0) {
+        // Волна G: ответ оборван лимитом вывода (length/max_tokens) —
+        // частичный текст уходит в историю, модель получает «продолжи с места
+        // обрыва» без recap. До 3 раз за прогон; шаг расходуется (MAX_STEPS)
+        if (
+          !failed &&
+          !abortedRef.current.has(requestId) &&
+          (roundStopReason === "length" || roundStopReason === "max_tokens") &&
+          recoveryCount < 3
+        ) {
+          recoveryCount += 1;
+          history.push({ role: "assistant", content: streamedText || null });
+          history.push({ role: "user", content: RECOVERY_PROMPT });
+          continue;
+        }
+        return finalize();
+      }
       if (abortedRef.current.has(requestId)) return finalize();
 
       // Вызовы инструментов в истории как assistant.tool_calls;
