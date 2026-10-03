@@ -4,7 +4,8 @@
   <img src="docs/screenshots/main.png" width="820" alt="Nocturn main window" />
 </p>
 
-**Nocturn** is a local-first, BYOK (**Bring Your Own Key**) AI client for Windows.
+**Nocturn** is a local-first, BYOK (**Bring Your Own Key**) AI client for
+Windows, Linux and macOS (Windows is the most tested).
 Your API key, your provider, your machine — no accounts, no telemetry, no backend
 of its own. Built with **Tauri 2** (native binary) + **React 19 + TypeScript** + Tailwind CSS 4.
 
@@ -97,8 +98,10 @@ but stay at the plain-chat level. Nocturn is the missing middle ground:
   on your machine. **Spotify** (desktop client via OS media controls +
   window-title fallback) and **YouTube** (official `youtube-nocookie` embed:
   paste a link, queue, collapsible popup player feeding the same mini-bar)
-  are mutually exclusive — one active integration at a time. Telegram is
-  planned.
+  are mutually exclusive — one active integration at a time. **Telegram**
+  (experimental) — your own bot sends task notifications with inline
+  confirm buttons and lets you steer the chat from your phone; the bot
+  token lives encrypted in the vault.
 - **Automations** — scheduled tasks (daily / weekdays / weekly / interval): the
   agent starts a chat and runs the prompt on schedule; optional keep-awake.
 - **MCP** — external Model Context Protocol servers over **stdio and remote

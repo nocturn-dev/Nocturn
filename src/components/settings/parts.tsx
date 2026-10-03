@@ -275,8 +275,6 @@ export function Dropdown({
   );
 }
 
-/** Раздел «Горячие клавиши»: перебиндивание действий + свои хоткеи на slash-команды */
-
 export function LangSwitch() {
   const lang = useLangState();
   const setLang = useLangSetter();
@@ -393,8 +391,6 @@ export function ToggleRow({
     </div>
   );
 }
-
-/** Раздел «Память»: долгосрочный контекст проектов */
 
 export function MiniPencilIcon() {
   return (

@@ -19,9 +19,13 @@ useState только для черновиков форм и mount-снимко
 
 **agent**
 - `ApiSection.tsx` — «API»: профили провайдеров, модели, fallback-модель,
-  reasoning effort, тест подключения, детект Ollama.
-- `BrowserUseSection.tsx` — запуск/пути браузера для CDP-инструментов.
-- `ComputerUseSection.tsx` — Computer Use (гейт Windows/macOS X11).
+  Colibri, тест подключения, детект Ollama (усилие размышлений живёт
+  в композере чата — `ChatArea`, преф `haloui-effort`).
+- `BrowserUseSection.tsx` — запуск/пути браузера для CDP-инструментов,
+  SSRF-тумблер приватных сетей.
+- `ComputerUseSection.tsx` — тумблер Computer Use; платформенный гейт
+  (Windows + macOS, Linux — только X11) живёт в самом инструменте
+  (`computer.rs`) и в схеме, не в этой секции.
 - `HooksSection.tsx` — хуки 5 событий: реестр + 6 пресетов (Windows
   powershell), тест хука, decision:block/additionalContext.
 - `ImageGenSection.tsx` — генерация изображений (openai-совместимый
