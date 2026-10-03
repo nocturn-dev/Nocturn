@@ -512,8 +512,14 @@ export function useAgentRun(deps: AgentRunDeps) {
       // оставалась пара streamingId=null + assistantId≠null, при которой
       // handleStop уходил в ранний return — кнопка Stop горела вечно
       // и «не реагировала» (багрепорт владельца)
+      // Значение захвачено ДО set: updater обязан быть чистым. Чтение
+      // мутабельного ref внутри апдейтера гонко с delete ниже — React вправе
+      // вызвать апдейтер отложенно (на рендере, пакетно с прочими setState
+      // финализации), тогда гард видел уже очищенный ref, состояние
+      // «стрим идёт» не гасилось и «Работает» тикало до ручного Stop
+      const ownedAssistantId = streamingRef.current.get(requestId);
       setStreamingAssistantId((cur) =>
-        cur != null && streamingRef.current.get(requestId) === cur ? null : cur,
+        cur != null && ownedAssistantId === cur ? null : cur,
       );
       streamingRef.current.delete(requestId);
     };
@@ -870,9 +876,14 @@ export function useAgentRun(deps: AgentRunDeps) {
       if (activeRunRef.current === requestId) {
         activeRunRef.current = null; // FIX [re-entrancy]: движок свободен
       }
-      // Чужой (более новый) ассистентский id не трогаем — сравнение по значению
+      // Чужой (более новый) ассистентский id не трогаем — сравнение по
+      // значению, захваченному ДО set: updater обязан быть чистым, чтение
+      // мутабельного ref внутри него гонко с delete ниже (React вправе
+      // вызвать апдейтер отложенно — на рендере, когда ref уже очищен:
+      // состояние «стрим идёт» не гасилось и «Работает» тикало вечно)
+      const ownedAssistantId = streamingRef.current.get(requestId);
       setStreamingAssistantId((cur) =>
-        cur != null && streamingRef.current.get(requestId) === cur ? null : cur,
+        cur != null && ownedAssistantId === cur ? null : cur,
       );
       streamingRef.current.delete(requestId);
       abortedRef.current.delete(requestId);
@@ -2800,8 +2811,10 @@ ${report}`;
         setTyping(false);
         setActivity(null);
         setStreamingId((cur) => (cur === requestId ? null : cur));
+        // Захват ДО set — чистый updater (гонка с delete ниже, см. finalize)
+        const ownedAssistantId = streamingRef.current.get(requestId);
         setStreamingAssistantId((cur) =>
-          cur != null && streamingRef.current.get(requestId) === cur ? null : cur,
+          cur != null && ownedAssistantId === cur ? null : cur,
         );
         streamingRef.current.delete(requestId);
         abortedRef.current.delete(requestId);
