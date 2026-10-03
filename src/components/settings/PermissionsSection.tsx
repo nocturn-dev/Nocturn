@@ -107,13 +107,11 @@ export function PermissionsSection() {
       <p className="mb-3 text-xs leading-relaxed text-halo-muted">{t("perm.desc")}</p>
 
       {/* Волна GUI-fix: кастомный выпадающий список вместо нативного
-          datalist — ширина по полю ввода, тема через halo-токены
-          (нативный попап ни шире, ни перекрашиваться не умел) */}
-      <datalist id="perm-tools-list" className="hidden">
-        {[...known].sort().map((n) => (
-          <option key={n} value={n} />
-        ))}
-      </datalist>
+          datalist — ширина по полю ввода, тема через halo-токены.
+          Нативный datalist удалён целиком, а не спрятан: display:none
+          на элементе не глушит нативный попап WebView2 (input с list=
+          рисовал серую системную плашку поверх кастомного списка).
+          Доступность не страдает: подсказки — обычные кнопки с фокусом */}
 
       <div className="space-y-4">
         {KINDS.map(({ kind, titleKey, descKey, forAllow }) => {
@@ -164,7 +162,6 @@ export function PermissionsSection() {
                     if (e.key === "Enter" && !e.nativeEvent.isComposing) add(kind);
                     if (e.key === "Escape") setOpenKind(null);
                   }}
-                  list="perm-tools-list"
                   placeholder={t("perm.addPlaceholder")}
                   className="w-full rounded-md border border-halo-line bg-halo-bg px-2.5 py-1.5 font-mono text-[11px] text-halo-text placeholder:text-halo-muted/50 focus:border-halo-accent focus:outline-none"
                 />

@@ -12,7 +12,7 @@ import { CollapseButton } from "./CollapseButton";
 import { ErrorNote } from "./ErrorNote";
 import { MermaidBlock } from "./MermaidBlock";
 import { ToolStepCard } from "./ToolStepCard";
-import { ChevronDownIcon, PlusIcon, SpeakerIcon, SubagentIcon, ToolIcon } from "./icons";
+import { CheckIcon, ChevronDownIcon, CopyIcon, PlusIcon, SpeakerIcon, SubagentIcon, ToolIcon } from "./icons";
 import { speak, stopSpeaking } from "../../tts";
 import {
   memo,
@@ -358,7 +358,7 @@ function AssistantCardBase({
                   : "text-halo-muted/70 hover:bg-halo-hover hover:text-halo-text"
               }`}
             >
-              {copiedMsg ? "✓" : "📋"}
+              {copiedMsg ? <CheckIcon /> : <CopyIcon />}
             </button>
             {/* TTS — SAPI, только Windows: на macOS/Linux бекенд вернёт Err,
                 а «живая» кнопка с молча гаснущим индикатором обманывала бы.

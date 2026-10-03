@@ -1,6 +1,13 @@
 import { useLang } from "../../locales";
 import { type Attachment } from "../../types";
-import { PlusIcon, QuoteIcon, ReuseImgIcon } from "./icons";
+import {
+  CheckIcon,
+  CopyIcon,
+  PencilIcon,
+  PlusIcon,
+  QuoteIcon,
+  ReuseImgIcon,
+} from "./icons";
 import { memo, useState } from "react";
 import { getUserAvatar } from "../../userProfile";
 import { copyText } from "../../clipboard";
@@ -67,7 +74,7 @@ function UserCardBase({
   return (
     <div
       data-mid={mid}
-      className="anim-fade-up group relative ml-auto flex w-fit max-w-[85%] items-end gap-2 shadow-sm"
+      className="anim-fade-up group user-card-root relative ml-auto flex w-fit max-w-[85%] items-end gap-2 shadow-sm"
     >
       {avatar ? (
         <img
@@ -81,21 +88,22 @@ function UserCardBase({
           correction ? "border-l-2 border-amber-400/50 " : ""
         }${glassEffect ? "glass-pane msg-glass bg-halo-surface/40" : "bg-halo-raised"}`}
       >
-      {/* Волна GUI-fix: старый плавающий карандаш (-left-7) резался краем
-          списка и висел за аватаром — теперь весь ряд действий под
-          сообщением: копировать / править / свернуть */}
+      {/* Волна GUI-fix: ряд действий под пузырём (копировать / править /
+          свернуть), как в ZCode — прежние плавающие кнопки резались краем
+          списка и налезали на текст. pointer-events-none в скрытом состоянии:
+          невидимый ряд не должен ловить клики в зазоре между сообщениями */}
       {!editing && (
-        <div className="absolute -bottom-7 left-1 z-10 flex gap-1 opacity-0 transition duration-150 group-hover:opacity-100">
+        <div className="absolute right-0 top-full z-10 mt-0.5 flex items-center gap-0.5 opacity-0 pointer-events-none transition duration-150 group-hover:pointer-events-auto group-hover:opacity-100">
           <button
             onClick={() => void copyMessage()}
             title={t("cp.copy")}
-            className={`rounded-md border border-halo-line bg-halo-deep px-1.5 py-0.5 text-[0.625rem] transition-colors ${
+            className={`rounded-md p-1 transition-colors ${
               copied
                 ? "text-emerald-400"
                 : "text-halo-muted hover:bg-halo-hover hover:text-halo-text"
             }`}
           >
-            {copied ? "✓" : "📋"}
+            {copied ? <CheckIcon /> : <CopyIcon />}
           </button>
           <button
             onClick={() => {
@@ -103,16 +111,27 @@ function UserCardBase({
               setEditing(true);
             }}
             title={t("card.edit")}
-            className="rounded-md border border-halo-line bg-halo-deep px-1.5 py-0.5 text-[0.625rem] text-halo-muted transition-colors hover:bg-halo-hover hover:text-halo-text"
+            className="rounded-md p-1 text-halo-muted transition-colors hover:bg-halo-hover hover:text-halo-text"
           >
-            ✎
+            <PencilIcon />
           </button>
           <button
             onClick={() => setCollapsed(true)}
             title={t("card.collapse")}
-            className="rounded-md border border-halo-line bg-halo-deep px-1.5 py-0.5 text-[0.625rem] leading-none text-halo-muted transition-colors hover:bg-halo-hover hover:text-halo-text"
+            className="rounded-md p-1 text-halo-muted transition-colors hover:bg-halo-hover hover:text-halo-text"
           >
-            −
+            <svg
+              width="13"
+              height="13"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              aria-hidden="true"
+            >
+              <path d="M5 12h14" />
+            </svg>
           </button>
         </div>
       )}
