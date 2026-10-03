@@ -30,8 +30,12 @@
    git push origin main --tags
    ```
 
-3. CI builds the installer on `windows-latest` and attaches the `.exe`/`.msi`,
-   updater signatures (`.sig`) and `latest.json` to the GitHub Release.
+3. CI builds installers on a three-OS matrix (`windows-latest`,
+   `ubuntu-22.04`, `macos-latest`) and attaches the Windows `.exe`/`.msi`,
+   the Linux `.AppImage`/`.deb`, the unsigned macOS bundle, updater
+   signatures (`.sig`) and `latest.json` to the GitHub Release. Only the
+   Windows job has the signing key; Linux/macOS artifacts are built
+   non-blocking (see the workflow `continue-on-error`).
 4. Installed clients check `latest.json` on startup and offer the update.
 
 ## Notes

@@ -130,5 +130,3 @@ export function ImageGenSection() {
     </div>
   );
 }
-
-/** Раздел «Computer Use»: скриншоты экрана + мышь/клавиатура */

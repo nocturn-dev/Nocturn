@@ -87,5 +87,3 @@ export function SkillsSection({
     </div>
   );
 }
-
-/** Раздел «Хуки»: shell-команды на событиях агента */

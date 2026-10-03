@@ -413,5 +413,3 @@ export function HooksSection() {
     </div>
   );
 }
-
-/** Раздел «Browser Use»: тумблеры и путь к браузеру */

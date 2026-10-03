@@ -1117,5 +1117,3 @@ export function describeExecutableConfigs(
   if (lines.length === 0) return null;
   return lines.slice(0, 20).join("\n");
 }
-
-/** Раздел «MCP»: управление серверами внешних инструментов (M2-MCP) */
