@@ -81,7 +81,7 @@ function UserCardBase({
             setEditing(true);
           }}
           title={t("card.edit")}
-          className="absolute -left-7 top-2 rounded-md p-1 text-halo-muted opacity-0 transition hover:bg-halo-hover hover:text-halo-text group-hover:opacity-100"
+          className="absolute -left-7 top-2 z-10 rounded-md p-1 text-halo-muted opacity-0 transition hover:bg-halo-hover hover:text-halo-text group-hover:opacity-100"
         >
           ✎
         </button>

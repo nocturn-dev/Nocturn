@@ -253,6 +253,15 @@ function AssistantCardBase({
   // Озвучка этого ответа: индикатор на кнопке динамика (гаснет сам по
   // завершении речи — tts_speak разрешается в конце)
   const [speaking, setSpeaking] = useState(false);
+  // Волна GUI-fix: копирование всего ответа — кнопка вернулась в шапку
+  // (пропала при рефакторке ленты хода)
+  const [copiedMsg, setCopiedMsg] = useState(false);
+  const copyMessage = async () => {
+    if (await copyText(message.content)) {
+      setCopiedMsg(true);
+      window.setTimeout(() => setCopiedMsg(false), 1500);
+    }
+  };
   // Настройка «показывать рассуждения»: первый блок в сообщении раскрывается
   // сам; защёлка — чтобы ручное закрытие не перебивалось каждым чанком
   const reasoningLatched = useRef(false);
@@ -337,22 +346,41 @@ function AssistantCardBase({
         {/* TTS — SAPI, только Windows: на macOS/Linux бекенд вернёт Err,
             а «живая» кнопка с молча гаснущим индикатором обманывала бы.
             Прецедент честного скрытия фичи — keep-awake в AutomationsModal */}
-        {!isStreaming && isWindows() && message.content.trim() !== "" && (
-          <button
-            onClick={() =>
-              speaking ? stopSpeaking() : speak(message.content, setSpeaking)
-            }
-            title={speaking ? t("tts.stop") : t("tts.listen")}
-            className={`ml-auto flex shrink-0 items-center rounded-md p-1 transition-colors ${
-              speaking
-                ? "bg-halo-accent/15 text-halo-accent"
-                : "text-halo-muted/70 hover:bg-halo-hover hover:text-halo-text"
-            }`}
-          >
-            <span className={speaking ? "animate-pulse" : ""}>
-              <SpeakerIcon />
-            </span>
-          </button>
+        {!isStreaming && message.content.trim() !== "" && (
+          <span className="ml-auto flex shrink-0 items-center gap-0.5">
+            {/* Волна GUI-fix: копирование всего ответа — вернули кнопку */}
+            <button
+              onClick={() => void copyMessage()}
+              title={t("cp.copy")}
+              className={`flex shrink-0 items-center rounded-md p-1 transition-colors ${
+                copiedMsg
+                  ? "text-emerald-400"
+                  : "text-halo-muted/70 hover:bg-halo-hover hover:text-halo-text"
+              }`}
+            >
+              {copiedMsg ? "✓" : "📋"}
+            </button>
+            {/* TTS — SAPI, только Windows: на macOS/Linux бекенд вернёт Err,
+                а «живая» кнопка с молча гаснущим индикатором обманывала бы.
+                Прецедент честного скрытия фичи — keep-awake в AutomationsModal */}
+            {isWindows() && (
+              <button
+                onClick={() =>
+                  speaking ? stopSpeaking() : speak(message.content, setSpeaking)
+                }
+                title={speaking ? t("tts.stop") : t("tts.listen")}
+                className={`flex shrink-0 items-center rounded-md p-1 transition-colors ${
+                  speaking
+                    ? "bg-halo-accent/15 text-halo-accent"
+                    : "text-halo-muted/70 hover:bg-halo-hover hover:text-halo-text"
+                }`}
+              >
+                <span className={speaking ? "animate-pulse" : ""}>
+                  <SpeakerIcon />
+                </span>
+              </button>
+            )}
+          </span>
         )}
       </div>
 

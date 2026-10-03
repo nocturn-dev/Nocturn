@@ -57,6 +57,8 @@ export function PermissionsSection() {
     always_ask: "",
     allow: "",
   });
+  // Волна GUI-fix: какой список подсказок открыт (кастомный дропдаун)
+  const [openKind, setOpenKind] = useState<RuleKind | null>(null);
 
   useEffect(() => {
     getToolSchemas()
@@ -104,16 +106,26 @@ export function PermissionsSection() {
       <h3 className="mb-1 text-sm font-semibold text-halo-text">{t("settings.permissions")}</h3>
       <p className="mb-3 text-xs leading-relaxed text-halo-muted">{t("perm.desc")}</p>
 
-      {/* Выпадающий список известных инструментов (builtin + подключённые MCP):
-          ввод фильтрует, выбор подставляет имя — префикс дописывается вручную */}
-      <datalist id="perm-tools-list">
+      {/* Волна GUI-fix: кастомный выпадающий список вместо нативного
+          datalist — ширина по полю ввода, тема через halo-токены
+          (нативный попап ни шире, ни перекрашиваться не умел) */}
+      <datalist id="perm-tools-list" className="hidden">
         {[...known].sort().map((n) => (
           <option key={n} value={n} />
         ))}
       </datalist>
 
       <div className="space-y-4">
-        {KINDS.map(({ kind, titleKey, descKey, forAllow }) => (
+        {KINDS.map(({ kind, titleKey, descKey, forAllow }) => {
+          const query = draft[kind].trim().toLowerCase();
+          const suggestions =
+            openKind === kind
+              ? [...known]
+                  .sort()
+                  .filter((n) => !query || n.includes(query))
+                  .slice(0, 12)
+              : [];
+          return (
           <div key={kind} className="rounded-lg border border-halo-line bg-halo-surface/40 p-3">
             <div className="mb-1 text-xs font-semibold text-halo-text">{t(titleKey)}</div>
             <div className="mb-2 text-[11px] leading-relaxed text-halo-muted">{t(descKey)}</div>
@@ -137,18 +149,44 @@ export function PermissionsSection() {
                 </span>
               ))}
             </div>
-            <div className="flex items-center gap-2">
-              <input
-                value={draft[kind]}
-                onChange={(e) => setDraft((prev) => ({ ...prev, [kind]: e.target.value }))}
-                onKeyDown={(e) => {
-                  // IME-подтверждение (китайский/японский ввод) не коммитит
-                  if (e.key === "Enter" && !e.nativeEvent.isComposing) add(kind);
-                }}
-                list="perm-tools-list"
-                placeholder={t("perm.addPlaceholder")}
-                className="min-w-0 flex-1 rounded-md border border-halo-line bg-halo-bg px-2.5 py-1.5 font-mono text-[11px] text-halo-text placeholder:text-halo-muted/50 focus:border-halo-accent focus:outline-none"
-              />
+            <div className="relative flex items-center gap-2">
+              <div className="relative min-w-0 flex-1">
+                <input
+                  value={draft[kind]}
+                  onChange={(e) => {
+                    setDraft((prev) => ({ ...prev, [kind]: e.target.value }));
+                    setOpenKind(kind);
+                  }}
+                  onFocus={() => setOpenKind(kind)}
+                  onBlur={() => window.setTimeout(() => setOpenKind((cur) => (cur === kind ? null : cur)), 120)}
+                  onKeyDown={(e) => {
+                    // IME-подтверждение (китайский/японский ввод) не коммитит
+                    if (e.key === "Enter" && !e.nativeEvent.isComposing) add(kind);
+                    if (e.key === "Escape") setOpenKind(null);
+                  }}
+                  list="perm-tools-list"
+                  placeholder={t("perm.addPlaceholder")}
+                  className="w-full rounded-md border border-halo-line bg-halo-bg px-2.5 py-1.5 font-mono text-[11px] text-halo-text placeholder:text-halo-muted/50 focus:border-halo-accent focus:outline-none"
+                />
+                {suggestions.length > 0 && (
+                  <div className="absolute left-0 right-0 top-full z-30 mt-1 max-h-56 overflow-y-auto rounded-md border border-halo-line bg-halo-deep py-1 shadow-lg scroll-slim">
+                    {suggestions.map((n) => (
+                      <button
+                        key={n}
+                        // mousedown+preventDefault: input не теряет фокус
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          setDraft((prev) => ({ ...prev, [kind]: n }));
+                          setOpenKind(null);
+                        }}
+                        className="block w-full px-2.5 py-1 text-left font-mono text-[11px] text-halo-text transition-colors hover:bg-halo-hover"
+                      >
+                        {n}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
               <button
                 onClick={() => add(kind)}
                 className="shrink-0 rounded-md border border-halo-line px-2.5 py-1.5 text-xs text-halo-text transition-colors hover:bg-halo-hover"
@@ -163,7 +201,8 @@ export function PermissionsSection() {
               <div className="mt-1.5 text-[11px] text-halo-muted/70">{t("perm.allowHint")}</div>
             )}
           </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
