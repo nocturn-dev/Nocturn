@@ -418,6 +418,8 @@ export default function App() {
   const [chatMark, setChatMark] = useBoolPref("haloui-chat-mark", true);
   // Эффект стекла на карточках ответов ИИ
   const [msgGlass, setMsgGlass] = useBoolPref("haloui-msg-glass", false);
+  // Маскот Нок у композера (PLAN.md §21)
+  const [mascot, setMascot] = useBoolPref("haloui-mascot", true);
 
   // Saved-тост (фидбек 26.09): изменения в открытых настройках не тостят
   // вовсе (слайдер масштаба хоть по 1% — ни одного лишнего окна); один тост
@@ -2718,6 +2720,7 @@ export default function App() {
         groupTurns={groupTurns}
         chatMark={chatMark}
         msgGlass={msgGlass}
+        mascot={mascot}
         showMsgTime={appearance.showMsgTime ?? false}
         showWindowControls={sidebarSide === "left"}
         headerInset={sidebarCollapsed ? sidebarSide : null}
@@ -2870,6 +2873,8 @@ export default function App() {
         onChatMarkChange={setChatMark}
         msgGlass={msgGlass}
         onMsgGlassChange={setMsgGlass}
+        mascot={mascot}
+        onMascotChange={setMascot}
         memoryEnabled={memoryEnabled}
         onMemoryChange={setMemoryEnabled}
         initialSection={settingsSection}
