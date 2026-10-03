@@ -398,17 +398,17 @@ exports[`chat cards snapshots > ToolStepCard: shell_run с выводом 1`] = 
 
 exports[`chat cards snapshots > UserCard: текст + вложение 1`] = `
 <div
-  class="anim-fade-up group user-card-root relative ml-auto flex w-fit max-w-[85%] items-end gap-2 shadow-sm"
+  class="group user-card-root relative ml-auto flex w-fit max-w-[85%] items-end gap-2 shadow-sm"
   data-mid="u1"
 >
   <div
-    class="min-w-0 w-fit rounded-2xl rounded-br-md px-4 py-3 bg-halo-raised"
+    class="anim-fade-up min-w-0 w-fit rounded-2xl rounded-br-md px-4 py-3 bg-halo-raised"
   >
     <div
-      class="absolute right-0 top-full z-10 mt-0.5 flex items-center gap-0.5 opacity-0 pointer-events-none transition duration-150 group-hover:pointer-events-auto group-hover:opacity-100"
+      class="absolute right-0 top-full z-10 -mt-1 flex items-center gap-0.5 pt-1.5 opacity-0 pointer-events-none translate-y-1 transition duration-200 ease-out group-hover:pointer-events-auto group-hover:translate-y-0 group-hover:opacity-100"
     >
       <button
-        class="rounded-md p-1 transition-colors text-halo-muted hover:bg-halo-hover hover:text-halo-text"
+        class="rounded-md p-1.5 transition-colors text-halo-muted hover:bg-halo-hover hover:text-halo-text"
         title="Copy"
       >
         <svg
@@ -435,7 +435,7 @@ exports[`chat cards snapshots > UserCard: текст + вложение 1`] = `
         </svg>
       </button>
       <button
-        class="rounded-md p-1 text-halo-muted transition-colors hover:bg-halo-hover hover:text-halo-text"
+        class="rounded-md p-1.5 text-halo-muted transition-colors hover:bg-halo-hover hover:text-halo-text"
         title="Edit and resend"
       >
         <svg
@@ -458,7 +458,7 @@ exports[`chat cards snapshots > UserCard: текст + вложение 1`] = `
         </svg>
       </button>
       <button
-        class="rounded-md p-1 text-halo-muted transition-colors hover:bg-halo-hover hover:text-halo-text"
+        class="rounded-md p-1.5 text-halo-muted transition-colors hover:bg-halo-hover hover:text-halo-text"
         title="Collapse"
       >
         <svg

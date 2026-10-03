@@ -1,0 +1,11 @@
+<svg width="1024" height="1024" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Трей-вариант classic: тонкая N из главного меню (NocturnMark, classic),
+       тот же градиент, без порезов и без плитки. Масштаб выполняет viewBox -->
+  <defs>
+    <linearGradient id="mark-gradient-c" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#38C7EE"/>
+      <stop offset="1" stop-color="#254EE1"/>
+    </linearGradient>
+  </defs>
+  <path d="M5.4 19.8 L8.7 4.4 L15.3 19.6 L18.6 4.2" stroke="url(#mark-gradient-c)" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

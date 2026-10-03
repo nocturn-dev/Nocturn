@@ -166,7 +166,7 @@ export function PermissionsSection() {
                   className="w-full rounded-md border border-halo-line bg-halo-bg px-2.5 py-1.5 font-mono text-[11px] text-halo-text placeholder:text-halo-muted/50 focus:border-halo-accent focus:outline-none"
                 />
                 {suggestions.length > 0 && (
-                  <div className="absolute left-0 right-0 top-full z-30 mt-1 max-h-56 overflow-y-auto rounded-md border border-halo-line bg-halo-deep py-1 shadow-lg scroll-slim">
+                  <div className="anim-pop absolute left-0 right-0 top-full z-30 mt-1 max-h-56 origin-top overflow-y-auto rounded-md border border-halo-line bg-halo-deep py-1 shadow-lg scroll-slim">
                     {suggestions.map((n) => (
                       <button
                         key={n}

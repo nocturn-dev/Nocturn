@@ -512,8 +512,8 @@ async fn chat_stream_impl(
     // 300 с: reasoning-модели (o-серия, Gemini thinking) могут молчать до
     // первого байта заметно дольше двух минут — 120 с рвал легитимный стрим
     const STREAM_IDLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
-    // Post-usage тишина режется коротко: ответ полный, дальше только хвост
-    // протокола ([DONE]/message_stop) и keep-alive прокси. До usage — длинный
+    // Soft-дедлайн: usage увиден, а конца сообщения нет (нестандартный ранний
+    // usage) — 10 с без data-строк закрывают стрим. До usage — длинный
     // reasoning-таймаут (легитимные паузы thinking-моделей)
     const POST_USAGE_IDLE: std::time::Duration = std::time::Duration::from_secs(10);
     // Потолок буфера неполной строки: провайдер, шлющий байты без '\n' — сломан
@@ -532,14 +532,19 @@ async fn chat_stream_impl(
     // стрима уезжает оценка (см. хвост ниже), иначе «Обзор», тренды и
     // Hard Limit молчат на таких провайдерах вечно
     let mut saw_usage = false;
-    // Волна GUI-fix: после usage стрим семантически закончен — провайдеры
-    // типа Ashna держат TCP и продолжают слать keep-alive (SSE-комментарии,
-    // пустые строки), сбрасывая наивный idle-таймер на каждом байте: «Работает»
-    // крутилось бесконечно и при 10-секундном варианте. Дедлайн НЕ продлевается
-    // «мусорными» байтами — только строками data: (легитимный хвост протокола:
-    // message_stop у Anthropic, [DONE]-путь у OpenAI), чтобы нестандартные
-    // провайдеры с ранним usage не резались посреди ответа
-    let mut post_usage_deadline: Option<std::time::Instant> = None;
+    // Волна GUI-fix: прокси (типа Ashna) после ответа держат TCP и шлют
+    // keep-alive, а usage у OpenAI-пути вообще буферизуется до flush —
+    // «тишина после usage» как единственный сигнал не работает. Два дедлайна:
+    //  - soft: usage увиден, но конца сообщения ещё нет (нестандартный ранний
+    //    usage) — продлевается каждой data-строкой, режется 10 с тишины,
+    //    чтобы контент таких провайдеров не резался посреди ответа;
+    //  - hard: сообщение семантически закончено (is_complete) — АБСОЛЮТНЫЙ
+    //    дедлайн POST_USAGE_GRACE, ничего его не продлевает. Проверяется
+    //    после каждого чанка: пинги перезапускают ожидание next(), но не
+    //    сам дедлайн — иначе «Работает» крутится бесконечно
+    const POST_USAGE_GRACE: std::time::Duration = std::time::Duration::from_secs(3);
+    let mut soft_deadline: Option<std::time::Instant> = None;
+    let mut hard_deadline: Option<std::time::Instant> = None;
     let mut completion_chars = 0usize;
     'outer: loop {
         // Abort рвется ещё ОЖИДАЮЩИМ next(): раньше флаг читался только
@@ -547,13 +552,13 @@ async fn chat_stream_impl(
         // держит TCP, но не шлёт байт) не работал до idle-таймаута 300 с
         // (аудит А1-1). Поллинг флага 100 мс — тот же паттерн, что
         // wait_for_abort в tooling.rs
-        let idle = match post_usage_deadline {
-            // Дедлайн прошёл — нулевой таймаут, Err-ветка ниже уводит в break
-            Some(d) => d
-                .checked_duration_since(std::time::Instant::now())
-                .unwrap_or(std::time::Duration::ZERO),
-            None => STREAM_IDLE_TIMEOUT,
-        };
+        let now = std::time::Instant::now();
+        let idle = [soft_deadline, hard_deadline]
+            .iter()
+            .flatten()
+            .map(|d| d.checked_duration_since(now).unwrap_or(std::time::Duration::ZERO))
+            .min()
+            .unwrap_or(STREAM_IDLE_TIMEOUT);
         let chunk = tokio::select! {
             biased;
             _ = async {
@@ -567,7 +572,7 @@ async fn chat_stream_impl(
             item = tokio::time::timeout(idle, stream.next()) => match item {
                 Ok(item) => item,
                 Err(_) => {
-                    if saw_usage {
+                    if saw_usage || hard_deadline.is_some() {
                         break 'outer;
                     }
                     return Err("stream idle: no data for 300s".to_string());
@@ -597,19 +602,17 @@ async fn chat_stream_impl(
                 // Естественное завершение: хвост ниже дочитает usage/tool_calls
                 break 'outer;
             }
-            // Post-usage дедлайн продлевает только настоящая data-строка:
-            // keep-alive пинги (SSE-комментарии/пустые строки) отсюда не проходят
-            if saw_usage {
-                post_usage_deadline = Some(std::time::Instant::now() + POST_USAGE_IDLE);
+            // Soft-дедлайн продлевает только настоящая data-строка и только
+            // пока нет семантического конца; hard не продлевается никогда
+            if saw_usage && hard_deadline.is_none() {
+                soft_deadline = Some(std::time::Instant::now() + POST_USAGE_IDLE);
             }
             for event in acc.feed(data) {
                 match &event {
                     FeedEvent::Usage { .. } => {
-                        if !saw_usage {
-                            // Первый usage — старт пост-usage отсчёта (нормальный
-                            // путь: usage в последнем чанке/message_delta)
-                            post_usage_deadline =
-                                Some(std::time::Instant::now() + POST_USAGE_IDLE);
+                        if !saw_usage && hard_deadline.is_none() {
+                            // Первый usage без конца сообщения — старт soft-отсчёта
+                            soft_deadline = Some(std::time::Instant::now() + POST_USAGE_IDLE);
                         }
                         saw_usage = true;
                     }
@@ -620,11 +623,22 @@ async fn chat_stream_impl(
                 }
                 batch.push(event)?;
             }
+            // Семантический конец: абсолютный grace на хвост протокола
+            // (usage-чанк OpenAI, message_stop Anthropic), потом разрыв
+            if hard_deadline.is_none() && acc.is_complete() {
+                hard_deadline = Some(std::time::Instant::now() + POST_USAGE_GRACE);
+            }
         }
         // Конец сетевого чанка — накопленное уезжает одним emit'ом: между
         // чанками батчер пуст (иначе дельта молчала бы до следующего чанка;
         // прерывание посреди чанка теряет только его — результаты отмены не нужны)
         batch.flush()?;
+        // Абсолютные дедлайны — после каждого чанка: входящие байты
+        // перезапускают timeout(idle, next()), но не сами дедлайны
+        let now = std::time::Instant::now();
+        if hard_deadline.is_some_and(|d| now >= d) || soft_deadline.is_some_and(|d| now >= d) {
+            break 'outer;
+        }
     }
 
     // Хвост аккумулятора (usage/tool_calls/подозрительный на частичный тег):
@@ -1143,6 +1157,14 @@ impl SseAccumulator {
 trait StreamFeed: Send {
     fn feed(&mut self, data: &str) -> Vec<FeedEvent>;
 
+    /// Сообщение семантически закончено: finish_reason (OpenAI) /
+    /// stop_reason (Anthropic) увидены. После этого в стриме идут только
+    /// usage-чанк, [DONE]/message_stop и мусор соединения — дальше читать
+    /// нечего. Дефолт false; поля у обоих аккумуляторов уже были (волна G)
+    fn is_complete(&self) -> bool {
+        false
+    }
+
     /// Хвост, оставшийся в буфере на границе чанков (дочитывается при
     /// следующей порции). Вызывается по завершении стрима, чтобы ничего
     /// не потерять — например, хвост, подозрительный на частичный тег.
@@ -1170,6 +1192,10 @@ pub fn normalize_base_url(base_url: &str) -> String {
 impl StreamFeed for SseAccumulator {
     fn feed(&mut self, data: &str) -> Vec<FeedEvent> {
         SseAccumulator::feed(self, data)
+    }
+
+    fn is_complete(&self) -> bool {
+        self.finish_reason.is_some()
     }
 
     fn flush(&mut self) -> Vec<FeedEvent> {
@@ -1413,6 +1439,12 @@ pub struct AnthropicAccumulator {
 }
 
 impl StreamFeed for AnthropicAccumulator {
+    fn is_complete(&self) -> bool {
+        // message_delta несёт stop_reason + usage — после него остаётся
+        // только message_stop, которого протокол может и не довезти (прокси)
+        self.stop_reason.is_some()
+    }
+
     fn feed(&mut self, data: &str) -> Vec<FeedEvent> {
         let mut events = Vec::new();
         let value: serde_json::Value = match serde_json::from_str(data) {
