@@ -3,7 +3,7 @@
  * LCS-подсветка: удалённые строки красным, добавленные зелёным, контекст серым.
  */
 
-import { fsIsCaseInsensitive } from "./platform";
+import { fsIsCaseInsensitive, isWindows } from "./platform";
 
 export type DiffLineType = "ctx" | "del" | "add";
 
@@ -202,12 +202,28 @@ export function summarizeArguments(
 }
 
 /**
+ * Разделитель путей платформы для ВСЕХ ключей, собранных из сегментов:
+ * checkpoint-пути приходят с "\" на Windows и "/" на Unix, а на Linux "\"
+ * — легальный символ имени файла (аудит А3-4: слепая замена "/"→"\"
+ * склеивала разные файлы в одну группу изменённых)
+ */
+export function pathSep(): string {
+  return isWindows() ? "\\" : "/";
+}
+
+/**
  * Канонизация пути для сравнения (M4.3, подсветка изменённых файлов):
- * слэши в один вид, без хвостовых разделителей. Регистр: Windows-пути
- * регистронезависимы, а на Linux (ext4) два разных файла не должны
- * склеиваться в подсветке — то же разделение делает бекенд (perm.rs).
+ * слэши в РОДНОЙ разделитель платформы, без хвостовых разделителей.
+ * Регистр: Windows-пути регистронезависимы, а на Linux (ext4) два разных
+ * файла не должны склеиваться в подсветке — то же разделение делает
+ * бекенд (perm.rs).
  */
 export function normalizePath(p: string): string {
-  const norm = p.replace(/\//g, "\\").replace(/\\+$/, "");
+  const sep = pathSep();
+  const other = sep === "\\" ? "/" : "\\";
+  const norm = p
+    .split(other)
+    .join(sep)
+    .replace(new RegExp(`\\${sep}+$`), "");
   return fsIsCaseInsensitive() ? norm.toLowerCase() : norm;
 }

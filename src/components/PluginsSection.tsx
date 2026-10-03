@@ -13,6 +13,7 @@ import {
   type Hook,
   type McpServerCfg,
   type Plugin,
+  type PluginPackFile,
 } from "../api";
 import { MiniTrashIcon } from "./settings/parts";
 
@@ -42,7 +43,9 @@ export default function PluginsSection({
       setError(null);
       const path = await pickSaveFile("nocturn-plugin-pack.json", "json");
       if (!path) return;
-      const pack = { kind: "nocturn-plugin-pack", version: 1, plugins };
+      // Тип из api.ts связывает контракт файла пака с местом создания:
+      // иначе рассинхрон shape'а не ловил компилятор (аудит А7-7)
+      const pack: PluginPackFile = { kind: "nocturn-plugin-pack", version: 1, plugins };
       await chatExportWrite(path, JSON.stringify(pack, null, 2));
     } catch (e) {
       setError(String(e));

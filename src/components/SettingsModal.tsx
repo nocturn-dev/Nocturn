@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useDelayedUnmount, withViewTransition } from "../motion";
-import { flushSync } from "react-dom";
 import type { Session, Theme, UsageEvent } from "../types";
 import { ReflectSection } from "./settings/ReflectSection";
 import { WebSearchSection } from "./settings/WebSearchSection";
@@ -436,20 +435,12 @@ export default function SettingsModal({
   }, [searchQ, searchScope, t]);
   // Плавный морф размера через View Transitions API: снапшоты старого/нового
   // состояния анимируются на композиторе — анимировать width/height напрямую
-  // нельзя (reflow всего контента каждый кадр = дёрганье). Без VT (старый
-  // WebKitGTK) и при reduce-motion — мгновенная смена размера
+  // нельзя (reflow всего контента каждый кадр = дёрганье). Гейт ЕДИНЫЙ —
+  // withViewTransition из motion.ts: локальная копия гейта не знала про
+  // ручной тумблер «Motion: Reduced» и морф анимировался вопреки ему
+  // (аудит А6-2)
   const setExpandedSmooth = (next: boolean) => {
-    const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
-    const doc = document as Document & {
-      startViewTransition?: (cb: () => void) => unknown;
-    };
-    if (!doc.startViewTransition || reduce) {
-      setExpanded(next);
-      return;
-    }
-    doc.startViewTransition(() => {
-      flushSync(() => setExpanded(next));
-    });
+    withViewTransition(() => setExpanded(next));
   };
 
   // Плавное закрытие: при open=false модалка доигрывает anim-pop-out и

@@ -287,6 +287,9 @@ export default function GraphModal({ notes, onOpenNote, onClose }: GraphModalPro
     return () => ro.disconnect();
   }, []);
   const dragNode = useRef<number | null>(null);
+  // Экранные координаты старта перетаскивания: порог «двигал/не двигал»
+  // для click (аудит А4-1 — drag всегда доигрывал click)
+  const dragStart = useRef<{ x: number; y: number } | null>(null);
   const panning = useRef(false);
   const panStart = useRef({ x: 0, y: 0, tx: 0, ty: 0 });
 
@@ -334,6 +337,7 @@ export default function GraphModal({ notes, onOpenNote, onClose }: GraphModalPro
         if (up) up.fixed = false;
         dragNode.current = null;
       }
+      dragStart.current = null;
       panning.current = false;
     };
     const onBlur = () => {
@@ -478,9 +482,21 @@ export default function GraphModal({ notes, onOpenNote, onClose }: GraphModalPro
                     onMouseDown={(e) => {
                       e.stopPropagation();
                       dragNode.current = i;
+                      dragStart.current = { x: e.clientX, y: e.clientY };
                       nd.fixed = true;
                     }}
-                    onClick={() => onOpenNote(nd.file)}
+                    onClick={(e) => {
+                      // Порог перетаскивания ~4px: mousedown и mouseup на
+                      // одном элементе всегда диспетчеризуют click, и drag
+                      // узла закрывал граф, открывая заметку (аудит А4-1)
+                      const st = dragStart.current;
+                      if (
+                        st &&
+                        Math.hypot(e.clientX - st.x, e.clientY - st.y) > 4
+                      )
+                        return;
+                      onOpenNote(nd.file);
+                    }}
                   >
                     <circle
                       r={radius(nd.degree)}

@@ -98,6 +98,13 @@ export function useSessions(opts: {
     projectsRef,
   } = opts;
   const { t } = useLang();
+  // Зеркало t для вечного эффекта автосейва ниже (deps [] — C14-очередь):
+  // замыкание держало t первого рендера, и тост сбоя печатался на прежнем
+  // языке после смены языка (аудит А4-3)
+  const tMirror = useRef(t);
+  useEffect(() => {
+    tMirror.current = t;
+  });
 
   // Демо-чаты не создаём: список стартует пустым, задачи — только те,
   // что создал пользователь («Новая задача» / автоматизации)
@@ -268,7 +275,7 @@ export function useSessions(opts: {
           // (ретрай на следующем тике) и один раз показываем ошибку
           sessionsDirtyRef.current = true;
           failStreak += 1;
-          if (failStreak === 3) addToast(t("error.saveFailed"));
+          if (failStreak === 3) addToast(tMirror.current("error.saveFailed"));
         });
     };
     /** Партиции стора: сессии проектов с папкой — в <root>/.nocturn,

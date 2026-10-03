@@ -2,6 +2,7 @@ import { useEffect, useMemo } from "react";
 import type { Note } from "../vault";
 import { extractLinks } from "../vault";
 import { useLang } from "../locales";
+import { STATUS_OK } from "../statusColors";
 
 /**
  * Монитор цепочки (M-N3.5): сплит — слева шаги со статусами,
@@ -89,7 +90,7 @@ export default function ChainMonitor({ chain, onClose }: ChainMonitorProps) {
 
   const nodeColor = (st: ChainStepStatus) =>
     st === "done"
-      ? "#5fbe82"
+      ? STATUS_OK
       : st === "running"
         ? "var(--halo-accent)"
         : st === "skipped"
