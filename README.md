@@ -51,12 +51,28 @@ but stay at the plain-chat level. Nocturn is the missing middle ground:
   a live view panel), **Computer Use** (screen capture, mouse, keyboard),
   image generation, and **Code Interpreter** — Python 3 via Pyodide (WASM) in a
   sandboxed worker: no disk, no IPC, stdout/stderr go back to the model.
-- **Permission modes** (Plan / Ask / Edit / Full), per-task command allowlists
-  with "always for this task" memory, and **plan approval** panel in Plan mode.
+  Read-only calls run in parallel batches; permission and deny checks stay
+  enforced on the Rust side.
+- **Context management for long runs** — old tool results are compacted away
+  (microcompact) and the conversation is summarized into a persistent boundary
+  when the model nears its window (autocompact); a response cut by the output
+  limit continues automatically from where it stopped, and the agent gets a
+  plan reminder every few steps.
+- **Permission modes** (Plan / Ask / Edit / Full) with **persistent rules**
+  (deny / always-ask / allow, prefix-based like `shell_run(git *)`), a
+  sensitive-path deny class (`.env`, `.ssh`, `.git/config` — overridable only
+  by an explicit owner allow-rule), unconditional self-protection of the app's
+  own config directory, and shell-command analysis (an allow rule never
+  silently covers chained or dangerous commands). Plus per-task command
+  allowlists with "always for this task" memory and a **plan approval** panel
+  in Plan mode. Rules live in Settings → Permissions.
 - **Edit & resend with branching** — editing any message forks a new session;
   the original stays intact and one click returns you to it.
 - **Subagents** — parallel role-based workers (researcher / coder / critic /
-  librarian) with a live monitor next to the send button.
+  librarian) with a live monitor next to the send button. Run them in the
+  background: when one finishes, the agent picks up its report automatically —
+  and if the run has already ended, a new one starts by itself (capped at
+  three auto-continuations per task).
 - **Memory** — persistent facts the agent saves and recalls itself
   (`memory_save` / `memory_recall`); review, edit or wipe them in settings.
 - **Project rules** — an `AGENTS.md` / `CLAUDE.md` in the project root is
@@ -105,8 +121,14 @@ but stay at the plain-chat level. Nocturn is the missing middle ground:
 - **Automations** — scheduled tasks (daily / weekdays / weekly / interval): the
   agent starts a chat and runs the prompt on schedule; optional keep-awake.
 - **MCP** — external Model Context Protocol servers over **stdio and remote
-  HTTP** (streamable, with auth headers); tools merge into the agent
-  automatically.
+  HTTP** (streamable); tools merge into the agent automatically. Servers show
+  live states with failure reasons (stderr tail) instead of silent breakage,
+  reconnect invisibly when a session expires, and support `${VAR}` environment
+  expansion in their config. Past 40 tools, schemas are deferred behind an
+  MCP tool-discovery call to keep the context lean. Optional **OAuth**
+  (Authorization Code + PKCE) for hosted servers — strictly opt-in: nothing
+  is requested until you press Authorize, tokens are stored encrypted, and
+  refresh is single-flight under parallel 401s.
 - **Hooks** — shell commands on PreToolUse / PostToolUse / UserPromptSubmit /
   Stop / SessionStart; can block or enrich agent actions.
 - **Web search** — an optional `web_search` tool via SearXNG (self-hosted) or
@@ -137,8 +159,8 @@ Nocturn keeps its power in settings rather than in your face:
 
 - **20+ sections in 6 groups** — Основное / Профиль / Кастомизация / API /
   Browser Use / Computer Use / Горячие клавиши · Память / Субагенты / Плагины /
-  MCP / Изображения / Промпты / Скиллы / Команды / Хуки · Сеть / Обзор · Отдых ·
-  Справка — plus standalone surfaces (knowledge bases, knowledge graph,
+  MCP / Права / Изображения / Промпты / Скиллы / Команды / Хуки · Сеть / Обзор ·
+  Отдых · Справка — plus standalone surfaces (knowledge bases, knowledge graph,
   automations, model comparison, usage statistics, storage manager).
 - **Dozens of settings in Customization alone**: 12 dark theme styles + light +
   **Official**
@@ -206,9 +228,12 @@ analytics, no crash reporting, no phone-home. Concretely:
 - **Dictation and read-aloud** run through local processes (whisper.cpp / Windows
   SAPI) — audio and text never leave the computer.
 - **The agent layer** is hardened by regular deep-audit passes (permission
-  checks, sensitive-path guards, command allowlists, tool-output handling) —
-  see [SECURITY.md](SECURITY.md) for the full breakdown of what is stored and
-  what leaves the machine, including known trade-offs.
+  checks, sensitive-path guards, command allowlists, tool-output handling).
+  Permission rules are enforced server-side, the app's own config directory is
+  unwritable by the agent, and OAuth tokens (if you opt into an OAuth MCP
+  server) are stored encrypted — see [SECURITY.md](SECURITY.md) for the full
+  breakdown of what is stored and what leaves the machine, including known
+  trade-offs.
 
 ## Getting started
 
