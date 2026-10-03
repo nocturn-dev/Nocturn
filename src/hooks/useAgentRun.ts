@@ -34,7 +34,7 @@ import {
 } from "../agent/autocompact";
 import { buildProfileBlock } from "../userProfile";
 import { evalHardLimit } from "../limits";
-import { filterToolSchemas, isMutatingTool } from "../agent/toolFilter";
+import { filterToolSchemas, isConcurrencySafe, isMutatingTool } from "../agent/toolFilter";
 import { runPython, CODE_RUN_SCHEMA } from "../codeRun";
 import { StreamDeltaBuffer, applyMainDeltas } from "./streamBuffer";
 import { interpolate, parseWorkflow, type WorkflowDef } from "../workflow";
@@ -1236,6 +1236,9 @@ export function useAgentRun(deps: AgentRunDeps) {
 
     // ---------- Агентный цикл: модель → инструменты → модель → … ----------
     const MAX_STEPS = 25;
+    // Волна C: кап параллельных read-only вызовов в батче (подряд идущие
+    // safe-чтения гоняются Promise.all, мутирующие — строго последовательно)
+    const MAX_PARALLEL_TOOLS = 5;
 
     // Корректирующий запрос: пользовательские поправки уходят модели
     // в начале следующего раунда — с префиксом (agent.correctionPrefix) в
@@ -2413,13 +2416,94 @@ ${report}`;
       // user-сообщение между tool-сообщениями рвёт их последовательность,
       // и OpenAI-совместимые API отвечают 400
       const shots: string[] = [];
-      for (const call of toolCalls) {
+      // Пост-обработка результата инструмента: скриншот — краткой сводкой в
+      // карточку (не base64!), картинки копятся и уходят модели ОДНИМ
+      // user-сообщением после всех tool-результатов (user-ход между
+      // tool-ходами рвёт их последовательность → 400). Единая точка для
+      // последовательного пути и параллельных батчей (волна C)
+      const finishTool = (
+        call: ToolCallInfo,
+        result: string,
+        toolStatus?: Message["status"],
+      ) => {
+        let toolContent = result;
+        let screenshot: { dataUrl: string; viewport: string } | null = null;
+        if (
+          call.name === "browser_screenshot" ||
+          call.name === "computer_screenshot"
+        ) {
+          try {
+            const parsed = JSON.parse(result) as {
+              ok?: boolean;
+              viewport?: string;
+              width?: number;
+              height?: number;
+              dataUrl?: string;
+            };
+            if (parsed.ok && parsed.dataUrl) {
+              const size =
+                parsed.viewport ??
+                (parsed.width && parsed.height
+                  ? `${parsed.width}x${parsed.height}`
+                  : "");
+              screenshot = { dataUrl: parsed.dataUrl, viewport: size };
+              toolContent = `Screenshot captured (${screenshot.viewport})`;
+            }
+          } catch {
+            // не JSON — отдаем как есть
+          }
+        }
+        pushMessage({
+          id: uid(),
+          role: "tool",
+          content: toolContent,
+          toolCallId: call.id,
+          toolName: call.name,
+          status: toolStatus, // FIX: "denied" доезжает до рендера машинно
+        });
+        history.push({
+          role: "tool",
+          tool_call_id: call.id,
+          name: call.name,
+          content: toolContent,
+        });
+        if (screenshot) shots.push(screenshot.dataUrl);
+      };
+      // Волна C: подряд идущие безопасные чтения (isConcurrencySafe) —
+      // параллельными батчами с капом; мутирующие строго последовательно.
+      // Результаты подшиваются в порядке ВЫЗОВОВ, не завершения
+      const safeRun: ToolCallInfo[] = [];
+      const flushSafeRun = async () => {
+        for (let s = 0; s < safeRun.length; s += MAX_PARALLEL_TOOLS) {
+          if (abortedRef.current.has(requestId)) return;
+          const chunk = safeRun.slice(s, s + MAX_PARALLEL_TOOLS);
+          const results = await Promise.all(
+            chunk.map((c) =>
+              execTool(c.name, c.arguments).catch((e) => `tool error: ${e}`),
+            ),
+          );
+          chunk.forEach((c, i) => finishTool(c, results[i] ?? ""));
+        }
+        safeRun.length = 0;
+      };
+      for (let ci = 0; ci < toolCalls.length; ci++) {
+        const call = toolCalls[ci];
+        if (!call) continue;
         if (abortedRef.current.has(requestId)) return finalize();
         if (call.name === "subagent_run") continue; // уже исполнены выше
         if (call.name === "subagent_status") continue; // уже исполнены выше
         if (call.name === "workflow_run") continue; // уже исполнены выше (фронтенд)
         if (call.name === "plan_update") continue; // уже исполнены выше (фронтенд)
         if (call.name === "ask_user") continue; // уже исполнены выше (фронтенд)
+
+        // Safe-чтения копятся в батч: исполнение — при первом не-safe вызове
+        // или в конце цикла. Особые вызовы выше — no-op в этом цикле,
+        // батч они не рвут
+        if (isConcurrencySafe(call.name)) {
+          safeRun.push(call);
+          continue;
+        }
+        await flushSafeRun();
 
         // Разрешения внутри прогона ограничены allowlist роли — главный
         // агент уже принял решение о запуске
@@ -2481,59 +2565,16 @@ ${report}`;
             );
           }
         } else {
-          // fs_read / fs_list — безопасны, исполняются всегда
+          // Не-mutating вне safe-списка (code_run, неизвестные имена) —
+          // исполняются всегда; fs_*/скриншоты уходят параллельным батчам выше
           result = await execTool(call.name, call.arguments).catch(
             (e) => `tool error: ${e}`,
           );
         }
 
-        // Скриншот браузера: в карточку — краткая сводка (не base64!),
-        // в контекст модели — изображение user-сообщением (vision)
-        let toolContent = result;
-        let screenshot: { dataUrl: string; viewport: string } | null = null;
-        if (
-          call.name === "browser_screenshot" ||
-          call.name === "computer_screenshot"
-        ) {
-          try {
-            const parsed = JSON.parse(result) as {
-              ok?: boolean;
-              viewport?: string;
-              width?: number;
-              height?: number;
-              dataUrl?: string;
-            };
-            if (parsed.ok && parsed.dataUrl) {
-              const size =
-                parsed.viewport ??
-                (parsed.width && parsed.height
-                  ? `${parsed.width}x${parsed.height}`
-                  : "");
-              screenshot = { dataUrl: parsed.dataUrl, viewport: size };
-              toolContent = `Screenshot captured (${screenshot.viewport})`;
-            }
-          } catch {
-            // не JSON — отдаем как есть
-          }
-        }
-
-        const toolMsg: Message = {
-          id: uid(),
-          role: "tool",
-          content: toolContent,
-          toolCallId: call.id,
-          toolName: call.name,
-          status: toolStatus, // FIX: "denied" доезжает до рендера машинно
-        };
-        pushMessage(toolMsg);
-        history.push({
-          role: "tool",
-          tool_call_id: call.id,
-          name: call.name,
-          content: toolContent,
-        });
-        if (screenshot) shots.push(screenshot.dataUrl);
+        finishTool(call, result, toolStatus);
       }
+      await flushSafeRun();
       if (shots.length > 0) {
         history.push({
           role: "user",
