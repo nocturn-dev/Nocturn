@@ -20,8 +20,8 @@ use std::time::Duration;
 const MCP_TOOL_TIMEOUT: Duration = Duration::from_secs(120);
 /// M2: исполнение инструмента агента (вызывается из агентного цикла / для тестов).
 /// Имена mcp__<server>__<tool> маршрутизируются в подключённый MCP-сервер.
-/// По пути прогоняются хуки PreToolUse (может заблокировать) и PostToolUse
-/// (additionalContext дописывается к результату).
+/// По пути прогоняются хуки PreToolUse (может заблокировать; additionalContext
+/// дописывается к результату) и PostToolUse (additionalContext к результату).
 /// Инструмент, отключённый пользователем для задачи (Session.disabledTools):
 /// серверный гардал к фронт-фильтру схем — модель может позвать скрытое.
 /// Отказ ДО perm-слоя и PreToolUse-хуков, как perm-проверка: хуки не должны
@@ -36,6 +36,26 @@ fn ensure_not_user_disabled(
             "tool \"{name}\" is disabled by the user for this task; continue without it"
         )),
         _ => Ok(()),
+    }
+}
+
+/// Склейка результата инструмента с additionalContext хуков. PreToolUse-контекст
+/// собирается до исполнения и раньше терялся: парсер hooks.rs отдаёт его для
+/// обоих событий, а run_tool потреблял только PostToolUse. Смысл тот же, что у
+/// PostToolUse: подмешать модели текст хука рядом с результатом (у ошибочного
+/// вызова контекста нет — блокирующий хук доносит причину через reason).
+fn append_hook_context(result: String, pre: &[String], post: &[String]) -> String {
+    let mut extra: Vec<String> = Vec::new();
+    if !pre.is_empty() {
+        extra.push(format!("[pre-hook context]\n{}", pre.join("\n")));
+    }
+    if !post.is_empty() {
+        extra.push(format!("[hook context]\n{}", post.join("\n")));
+    }
+    if extra.is_empty() {
+        result
+    } else {
+        format!("{result}\n\n{}", extra.join("\n"))
     }
 }
 
@@ -136,6 +156,7 @@ pub async fn run_tool(
     };
 
     // Хуки PreToolUse: любой с decision=block (или ненулевым exit) блокирует вызов
+    let mut pre_context: Vec<String> = Vec::new();
     {
         let cfg_dir = app
             .path()
@@ -166,6 +187,9 @@ pub async fn run_tool(
                     out.id,
                     if out.reason.is_empty() { "no reason given" } else { &out.reason }
                 ));
+            }
+            if !out.additional_context.is_empty() {
+                pre_context.push(out.additional_context);
             }
         }
         // Прогон отменили, пока выполнялся хук: сам инструмент не запускаем
@@ -255,16 +279,12 @@ pub async fn run_tool(
         })
         .await
         .map_err(|e| format!("hook task failed: {e}"))?;
-        let extra: Vec<String> = outs
+        let post: Vec<String> = outs
             .iter()
             .filter(|o| !o.additional_context.is_empty())
             .map(|o| o.additional_context.clone())
             .collect();
-        if extra.is_empty() {
-            Ok(result)
-        } else {
-            Ok(format!("{result}\n\n[hook context]\n{}", extra.join("\n")))
-        }
+        Ok(append_hook_context(result, &pre_context, &post))
     }
 }
 
@@ -1335,6 +1355,30 @@ mod tests {
         let err = ensure_not_user_disabled("shell_run", &disabled).unwrap_err();
         assert!(err.contains("shell_run"));
         assert!(err.contains("disabled by the user"));
+    }
+
+    #[test]
+    fn hook_context_appends_pre_and_post() {
+        // Регресс: additionalContext PreToolUse-хуков парсился, но терялся —
+        // к результату дописывался только PostToolUse
+        assert_eq!(append_hook_context("res".into(), &[], &[]), "res");
+        assert_eq!(
+            append_hook_context("res".into(), &["pre1".to_string()], &[]),
+            "res\n\n[pre-hook context]\npre1"
+        );
+        // Пост-формат не изменился против прежней склейки
+        assert_eq!(
+            append_hook_context("res".into(), &[], &["post1".to_string()]),
+            "res\n\n[hook context]\npost1"
+        );
+        assert_eq!(
+            append_hook_context(
+                "res".into(),
+                &["p1".to_string(), "p2".to_string()],
+                &["q1".to_string()],
+            ),
+            "res\n\n[pre-hook context]\np1\np2\n[hook context]\nq1"
+        );
     }
 
     // Золотой вектор whitelist импорта мелодий: расширение → MIME data URL
