@@ -489,6 +489,8 @@ export interface FileEntry {
   name: string;
   is_dir: boolean;
   size: number;
+  /** true только у последней записи: каталог обрезан лимитом ответа */
+  truncated?: boolean;
 }
 
 /** Ambient: системный диалог выбора видеофайла пользователя (mp4/webm/…).

@@ -21,6 +21,7 @@ export const zh = {
     "sidebar.tag": "对话标签",
     "sidebar.tagPrompt": "对话标签（留空则清除）：",
     "sidebar.showMore": "显示更多 ({n})",
+    "sidebar.filesMore": "未显示全部文件——请打开子文件夹",
     "sidebar.showLess": "收起",
     "sidebar.hideProjects": "隐藏项目",
     "sidebar.showProjects": "显示项目",

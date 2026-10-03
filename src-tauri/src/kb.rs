@@ -300,8 +300,16 @@ pub async fn kb_add_document(
 ) -> Result<u64, String> {
     crate::settings::rejects_sensitive_path(&path)?;
     tauri::async_runtime::spawn_blocking(move || {
+        // Аудит: строковый гардал проходит мимо симлинка/junction —
+        // read_text_capped следует по линку, и предзасаженный линк читал
+        // защищённую локацию мимо блок-листа. Эталон — settings_import_read:
+        // резолвим каноническую форму и ревалидируем её же
+        let canon = std::fs::canonicalize(&path)
+            .map_err(|e| format!("cannot resolve document path: {e}"))?;
+        let canon_str = canon.to_string_lossy().to_string();
+        crate::settings::rejects_sensitive_path(&canon_str)?;
         let dir = kb_dir(&app, &id)?;
-        let text = read_text_capped(std::path::Path::new(&path))?;
+        let text = read_text_capped(&canon)?;
         let title = std::path::Path::new(&path)
             .file_name()
             .map(|n| n.to_string_lossy().to_string())

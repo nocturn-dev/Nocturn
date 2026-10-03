@@ -183,6 +183,10 @@ fn arg_str(args: &Value, key: &str) -> Result<String, String> {
 // ---------- Vault (заметки): граф знаний как источник контекста ----------
 
 const VAULT_READ_LIMIT: usize = 64 * 1024;
+/// Потолок записи заметки: без лимита модель могла положить в notes/
+/// сотни МБ, которые vault_read потом тянул в память (аудит А1-2).
+/// 2 МБ — на порядки больше любой разумной заметки
+const VAULT_WRITE_LIMIT: usize = 2 * 1024 * 1024;
 const VAULT_RESULTS_LIMIT: usize = 12;
 const VAULT_LIST_LIMIT: usize = 50;
 
@@ -386,6 +390,12 @@ fn vault_search(notes_dir: &Path, query: &str) -> Result<String, String> {
 /// Создать/перезаписать заметку (мутирующий — на фронте в списке правок)
 fn vault_write(notes_dir: &Path, file: &str, content: &str) -> Result<String, String> {
     sanitize_note_name(file)?;
+    if content.len() > VAULT_WRITE_LIMIT {
+        return Err(format!(
+            "note too large: {} bytes (limit {VAULT_WRITE_LIMIT})",
+            content.len()
+        ));
+    }
     let path = notes_dir.join(file);
     // atomic_write: как и notes_write — 0600 на Unix, без рваных файлов
     crate::fsutil::atomic_write(&path, content.as_bytes())
@@ -401,9 +411,19 @@ fn vault_write(notes_dir: &Path, file: &str, content: &str) -> Result<String, St
 fn vault_read(notes_dir: &Path, file: &str) -> Result<String, String> {
     sanitize_note_name(file)?;
     let path = notes_dir.join(file);
-    let bytes = fs::read(&path).map_err(|e| format!("cannot read note: {e}"))?;
-    let mut content = String::from_utf8_lossy(&bytes).to_string();
-    let truncated = content.len() > VAULT_READ_LIMIT;
+    // Аудит: fs::read тянул файл в память ЦЕЛИКОМ до усечения до 64 КБ —
+    // гигантская заметка (см. vault_write без потолка до фикса) целиком
+    // уходила в heap. Крупный файл читаем с потолком (хвост дочитывается
+    // и выбрасывается), трекаем усечение по размеру ДО чтения
+    let size = fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+    let truncated = size > VAULT_READ_LIMIT as u64;
+    let mut content = if truncated {
+        crate::fsutil::read_capped_string(&path, VAULT_READ_LIMIT)
+            .map_err(|e| format!("cannot read note: {e}"))?
+    } else {
+        let bytes = fs::read(&path).map_err(|e| format!("cannot read note: {e}"))?;
+        String::from_utf8_lossy(&bytes).to_string()
+    };
     if truncated {
         crate::truncate_at_char_boundary(&mut content, VAULT_READ_LIMIT);
     }
@@ -455,7 +475,10 @@ fn fs_list(path: &Path) -> Result<String, String> {
     // node_modules/System32 уносил сотни КБ прямо в контекст модели
     use crate::files::{LIST_DIR_HARD_CAP, LIST_DIR_LIMIT};
     let entries = fs::read_dir(path).map_err(|e| format!("cannot list {path:?}: {e}"))?;
-    let mut items: Vec<String> = Vec::new();
+    // Аудит: до 100k строк форматировалось в String до сортировки, а
+    // выживали 500. Копим (имя, тип, размер), сортируем (папки первыми,
+    // дальше по имени), формат — только у выживших
+    let mut items: Vec<(String, &'static str, u64)> = Vec::new();
     let mut truncated = false;
     for entry in entries.flatten() {
         if items.len() >= LIST_DIR_HARD_CAP {
@@ -468,22 +491,26 @@ fn fs_list(path: &Path) -> Result<String, String> {
             .metadata()
             .map(|m| m.len())
             .unwrap_or(0);
-        items.push(format!("{kind}\t{size}\t{name}"));
+        items.push((name, kind, size));
     }
-    items.sort();
-    if items.len() > LIST_DIR_LIMIT {
-        items.truncate(LIST_DIR_LIMIT);
-        truncated = true;
-    }
-    if items.is_empty() {
+    items.sort_by(|a, b| a.1.cmp(b.1).then_with(|| a.0.cmp(&b.0)));
+    let total = items.len();
+    let mut lines: Vec<String> = items
+        .into_iter()
+        .take(LIST_DIR_LIMIT)
+        .map(|(name, kind, size)| format!("{kind}\t{size}\t{name}"))
+        .collect();
+    // Усечение: либо hard-cap каталога, либо просто больше лимита ответа
+    let truncated = truncated || total > LIST_DIR_LIMIT;
+    if lines.is_empty() {
         return Ok("(empty directory)".to_string());
     }
     if truncated {
-        items.push(format!(
+        lines.push(format!(
             "… ({LIST_DIR_LIMIT} of more entries shown — be more specific with a subdirectory)"
         ));
     }
-    Ok(format!("type\tsize\tname\n{}", items.join("\n")))
+    Ok(format!("type\tsize\tname\n{}", lines.join("\n")))
 }
 
 fn fs_read(path: &Path) -> Result<String, String> {
@@ -512,7 +539,30 @@ fn fs_read(path: &Path) -> Result<String, String> {
 /// Предел на «до/после» в JSON-результате: дифф в UI не нужен больше 512 КБ на сторону.
 const FS_WRITE_DIFF_LIMIT: u64 = 512 * 1024;
 
+/// Зарезервированные имена устройств Win32 (CON, NUL, COM1…, без учёта
+/// регистра; file_stem отрезает «NUL.txt» → «NUL»). Запись в такое имя
+/// «успешна», но содержимое выбрасывается драйвером: модель получала
+/// «ok», а данные терялись (аудит А3-2, живая проба CreateFileW)
+#[cfg(windows)]
+fn is_windows_device_name(path: &Path) -> bool {
+    const DEVICES: [&str; 22] = [
+        "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7",
+        "COM8", "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+    ];
+    path.file_stem()
+        .and_then(|s| s.to_str())
+        .map(|s| DEVICES.contains(&s.to_ascii_uppercase().as_str()))
+        .unwrap_or(false)
+}
+
 fn fs_write(path: &Path, content: &str) -> Result<String, String> {
+    // Аудит А3-2: молчаливая потеря данных в device-имя — сначала гард
+    #[cfg(windows)]
+    if is_windows_device_name(path) {
+        return Err(format!(
+            "{path:?} is a reserved Windows device name; writing to it would silently discard data"
+        ));
+    }
     // FIX [perf]: раньше fs::read тянул в память ВЕСЬ файл (хоть гигабайт),
     // чтобы тут же выбросить его при превышении лимита. Размер берём из
     // metadata, содержимое читаем только когда оно влезает в diff.
