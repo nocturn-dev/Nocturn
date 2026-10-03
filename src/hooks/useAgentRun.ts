@@ -25,6 +25,7 @@ import {
 // пары «assistant tool_calls ↔ tool-результаты» на границе окна (→ 400 от провайдера)
 // Чистые фазы prepare (история/память) — в agent/history; лимиты — в limits.ts
 import { buildHistory, buildMemoryBlock } from "../agent/history";
+import { applyMicrocompact } from "../agent/microcompact";
 import { buildProfileBlock } from "../userProfile";
 import { evalHardLimit } from "../limits";
 import { filterToolSchemas, isMutatingTool } from "../agent/toolFilter";
@@ -1000,6 +1001,10 @@ export function useAgentRun(deps: AgentRunDeps) {
       return;
     }
 
+    // Микрокомпакт собранной истории: старые tool-результаты под бюджет.
+    // Сессия не трогается — срезается только то, что уходит модели
+    history = applyMicrocompact(history);
+
     const isAgent = current?.agentMode ?? false;
 
     // Заголовок по первому сообщению: `current` — снимок сессии до pushMessage,
@@ -1284,6 +1289,9 @@ export function useAgentRun(deps: AgentRunDeps) {
       if (abortedRef.current.has(requestId)) return finalize();
       // Поправки, накопившиеся за прошлый шаг, попадают модели до нового запроса
       injectCorrections();
+      // Цикл растит history push'ами: без по-шаговой чистки контекст
+      // раздувается линейно за 25 шагов (чистая функция, identity под бюджетом)
+      history = applyMicrocompact(history);
 
       const assistantId = uid();
       // Своя точка отсчёта на шаг: workedMs от старта ПРОГОНА суммировался
