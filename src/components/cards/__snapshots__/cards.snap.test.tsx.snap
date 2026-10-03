@@ -30,15 +30,35 @@ exports[`chat cards snapshots > AssistantCard: markdown + usage, вне стри
       class="flex items-center gap-1.5"
     >
       <span
-        class="flex shrink-0 items-center justify-center rounded-full bg-halo-raised font-semibold uppercase text-halo-text"
+        class="flex shrink-0 items-center justify-center overflow-hidden rounded-full"
         style="width: 16px; height: 16px; font-size: 9px;"
         title="glm-5.3-flash"
       >
-        <span
-          style="color: rgb(59, 130, 246);"
+        <svg
+          aria-label="glm-5.3-flash"
+          class="size-full"
+          height="16"
+          role="img"
+          viewBox="0 0 24 24"
+          width="16"
         >
-          g
-        </span>
+          <path
+            d="M6.5 1.5h11a5 5 0 0 1 5 5v11a5 5 0 0 1-5 5h-11a5 5 0 0 1-5-5v-11a5 5 0 0 1 5-5z"
+            fill="#262626"
+          />
+          <path
+            d="M5.5 6h9.5l-2.5 3H5.5z"
+            fill="#FFFFFF"
+          />
+          <path
+            d="M16 6h2.5L8 18H5.5z"
+            fill="#FFFFFF"
+          />
+          <path
+            d="M11.5 15h7v3h-9.5z"
+            fill="#FFFFFF"
+          />
+        </svg>
       </span>
       <span
         class="max-w-44 truncate text-[0.6875rem] font-semibold text-halo-text/90"
