@@ -34,6 +34,10 @@ const WS_READ_TIMEOUT: Duration = Duration::from_secs(120);
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+// rename_all обязателен: фронт шлёт/читает allowPrivateNetworks
+// (api.ts BrowserConfig) — без camelCase SSRF-тумблер не применялся никогда
+// и всегда рисовался выключенным (аудит А5-1)
+#[serde(rename_all = "camelCase")]
 pub struct BrowserConfig {
     /// Browser Use по умолчанию выключен — включается явно в настройках
     #[serde(default = "default_browser_enabled")]
@@ -48,7 +52,9 @@ pub struct BrowserConfig {
     /// 192.168.*, 169.254.*, …). По умолчанию запрещено: страница-атакер
     /// через prompt injection заставляла агента читать внутренние сервисы
     /// (SSRF) и выводить их содержимое в чат.
-    #[serde(default = "default_false")]
+    /// alias snake_case: на диске поле исторически писалось snake'ом —
+    /// старые browser.json читаются без потери настройки
+    #[serde(default = "default_false", alias = "allow_private_networks")]
     pub allow_private_networks: bool,
 }
 
@@ -1256,6 +1262,29 @@ mod tests {
         assert!(!valid_ref("e"));
         assert!(!valid_ref("e99999999"));
         assert!(!valid_ref(""));
+    }
+
+    /// Стык с фронтом (api.ts BrowserConfig.allowPrivateNetworks): serde-
+    /// контракт camelCase в обе стороны + чтение старых дисковых конфигов
+    /// (snake) через alias. Аудит А5-1: без rename_all тумблер SSRF не
+    /// применялся никогда и всегда рисовался выключенным
+    #[test]
+    fn browser_config_camel_case_contract() {
+        // Сериализация — camelCase (фронт читает cfg.allowPrivateNetworks)
+        let v = serde_json::to_value(BrowserConfig::default()).unwrap();
+        assert!(v.get("allowPrivateNetworks").is_some());
+        assert!(v.get("allow_private_networks").is_none());
+        // Фронт шлёт camelCase — значение доходит до поля
+        let cfg: BrowserConfig = serde_json::from_value(serde_json::json!({
+            "enabled": true, "headless": true, "executable": "",
+            "allowPrivateNetworks": true
+        }))
+        .unwrap();
+        assert!(cfg.allow_private_networks, "тумблер SSRF не применился");
+        // Старый дисковый формат (snake) читается через alias
+        let legacy: BrowserConfig =
+            serde_json::from_value(serde_json::json!({ "allow_private_networks": true })).unwrap();
+        assert!(legacy.allow_private_networks);
     }
 
     #[test]

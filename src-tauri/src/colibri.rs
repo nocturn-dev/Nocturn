@@ -25,6 +25,10 @@ pub struct ColibriStatus {
 }
 
 #[derive(serde::Deserialize)]
+// rename_all обязателен: фронт шлёт apiKey (api.ts ColibriLaunch), а без
+// camelCase serde молча отбрасывал ключ — шлюз всегда стартовал с
+// nocturn-local (аудит А5-2)
+#[serde(rename_all = "camelCase")]
 pub struct ColibriLaunch {
     pub exe: String,
     #[serde(default)]
@@ -268,5 +272,21 @@ mod tests {
         assert_eq!(split_args("a   b"), vec!["a", "b"]);
         // Незакрытая кавычка — хвост остаётся одним аргументом
         assert_eq!(split_args("a \"bc"), vec!["a", "bc"]);
+    }
+
+    /// Стык с фронтом (api.ts ColibriLaunch.apiKey): serde-контракт
+    /// camelCase. Аудит А5-2: без rename_all ключ молча отбрасывался и
+    /// COLI_API_KEY всегда был «nocturn-local»
+    #[test]
+    fn colibri_launch_accepts_camel_case_api_key() {
+        let launch: ColibriLaunch = serde_json::from_value(serde_json::json!({
+            "exe": "coli",
+            "model": "m",
+            "apiKey": "sk-contract-test",
+            "args": "--port 8100"
+        }))
+        .unwrap();
+        assert_eq!(launch.api_key.as_deref(), Some("sk-contract-test"));
+        assert_eq!(launch.model.as_deref(), Some("m"));
     }
 }
