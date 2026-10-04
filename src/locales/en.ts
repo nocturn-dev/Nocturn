@@ -189,6 +189,12 @@ export const en = {
     "cp.confirmRestore": "Restore project files from this snapshot? Current contents of changed files will be overwritten.",
     "cp.restored": "Restored {n} files",
     "cp.delete": "Delete checkpoint",
+    "cp.showFiles": "Snapshot files",
+    "cp.filesLoading": "Reading states…",
+    "cp.stateModified": "modified",
+    "cp.stateDeleted": "deleted",
+    "cp.stateUnchanged": "unchanged",
+    "cp.moreFiles": "… and {n} more",
     // Terminal mode
     "terminal.toggle": "Terminal",
     "terminal.close": "Close terminal",

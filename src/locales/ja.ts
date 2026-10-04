@@ -191,6 +191,12 @@ export const ja = {
     "cp.confirmRestore": "このスナップショットからプロジェクトのファイルを復元しますか？変更済みファイルの現在の内容は上書きされます。",
     "cp.restored": "{n} 件のファイルを復元しました",
     "cp.delete": "チェックポイントを削除",
+    "cp.showFiles": "スナップショットのファイル",
+    "cp.filesLoading": "状態を読み込み中……",
+    "cp.stateModified": "変更あり",
+    "cp.stateDeleted": "削除済み",
+    "cp.stateUnchanged": "変更なし",
+    "cp.moreFiles": "……他 {n} 件",
     // Терминальный режим
     "terminal.toggle": "ターミナル",
     "terminal.close": "ターミナルを閉じる",

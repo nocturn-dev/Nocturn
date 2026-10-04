@@ -188,6 +188,12 @@ export const ru = {
     "cp.confirmRestore": "Восстановить файлы проекта из этого снимка? Текущее содержимое изменённых файлов будет перезаписано.",
     "cp.restored": "Восстановлено файлов: {n}",
     "cp.delete": "Удалить чекпоинт",
+    "cp.showFiles": "Файлы снимка",
+    "cp.filesLoading": "Читаю состояния…",
+    "cp.stateModified": "изменён",
+    "cp.stateDeleted": "удалён",
+    "cp.stateUnchanged": "не менялся",
+    "cp.moreFiles": "… и ещё {n}",
     // Терминальный режим
     "terminal.toggle": "Terminal",
     "terminal.close": "Закрыть терминал",

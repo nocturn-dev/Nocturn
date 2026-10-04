@@ -1,7 +1,7 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import type { Project, Session } from "../types";
 import WindowControls from "./WindowControls";
-import { pickFolder, pickAnyFile, listDir, gitStatus, checkpointList, checkpointRestore, checkpointDelete, type CheckpointMeta, type FileEntry, type NoteInfo } from "../api";
+import { pickFolder, pickAnyFile, listDir, gitStatus, checkpointList, checkpointRestore, checkpointDelete, checkpointFiles, type CheckpointMeta, type CheckpointFileState, type FileEntry, type NoteInfo } from "../api";
 import { normalizePath, pathSep } from "../diff";
 import { copyText } from "../clipboard";
 import { ACCENT_PRESETS } from "../appearance";
@@ -877,12 +877,40 @@ function Checkpoints({ root }: { root: string }) {
     setGitOn(next);
     localStorage.setItem("haloui-checkpoints-git", next ? "1" : "0");
   };
+  // Таймлайн: раскрытые снимки + ленивые состояния файлов (before/current
+  // из checkpoint_files — base64, сравнение строковое). Кэш по id
+  const [openFiles, setOpenFiles] = useState<Set<string>>(new Set());
+  const [fileStates, setFileStates] = useState<
+    Record<string, CheckpointFileState[] | "err">
+  >({});
+  const [filesLoading, setFilesLoading] = useState(false);
 
   const load = () => {
     checkpointList(root).then(setItems).catch(() => setItems([]));
   };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(load, [root]);
+
+  const toggleFiles = async (cp: CheckpointMeta) => {
+    const next = new Set(openFiles);
+    if (next.has(cp.id)) {
+      next.delete(cp.id);
+      setOpenFiles(next);
+      return;
+    }
+    next.add(cp.id);
+    setOpenFiles(next);
+    if (!fileStates[cp.id]) {
+      setFilesLoading(true);
+      try {
+        const st = await checkpointFiles(root, cp.id);
+        setFileStates((m) => ({ ...m, [cp.id]: st }));
+      } catch {
+        setFileStates((m) => ({ ...m, [cp.id]: "err" }));
+      }
+      setFilesLoading(false);
+    }
+  };
 
   const restore = async (cp: CheckpointMeta) => {
     if (!window.confirm(t("cp.confirmRestore"))) return;
@@ -907,6 +935,30 @@ function Checkpoints({ root }: { root: string }) {
       load();
     }
     setBusy(null);
+  };
+
+  /** Статус файла снимка: before/current — base64 из checkpoint_files;
+   *  current null = файла больше нет (или он больше капы чтения) */
+  const fileStateChip = (f: CheckpointFileState) => {
+    if (f.current === null) {
+      return (
+        <span className="shrink-0 text-[0.5625rem] text-red-400">
+          {t("cp.stateDeleted")}
+        </span>
+      );
+    }
+    if (f.current === f.before) {
+      return (
+        <span className="shrink-0 text-[0.5625rem] text-halo-muted/50">
+          {t("cp.stateUnchanged")}
+        </span>
+      );
+    }
+    return (
+      <span className="shrink-0 text-[0.5625rem] text-halo-accent">
+        {t("cp.stateModified")}
+      </span>
+    );
   };
 
   return (
@@ -943,47 +995,98 @@ function Checkpoints({ root }: { root: string }) {
         <p className="py-1 text-[0.6875rem] text-emerald-400">{status}</p>
       )}
       <ul>
-        {items.map((cp) => (
-          <li key={cp.id} className="group flex items-center gap-1 rounded-md px-1 py-1 hover:bg-halo-hover">
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-xs text-halo-text" title={cp.label || undefined}>
-                {cp.label || t("cp.unlabeled")}
-              </p>
-              <p className="text-[0.625rem] text-halo-muted/70">
-                {new Date(cp.ts).toLocaleString(lang === "ru" ? "ru-RU" : "en-US", {
-                  day: "2-digit",
-                  month: "2-digit",
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })}
-                {" · "}
-                {t("cp.files", { n: cp.files })}
-                {cp.git && (
+        {items.map((cp, i) => (
+          <li key={cp.id} className="group relative rounded-md px-1 py-1 hover:bg-halo-hover">
+            {/* Таймлайн: точка на линии истории; последняя — горит акцентом */}
+            <span
+              className={`absolute top-3.5 size-1.5 rounded-full ${
+                i === 0 ? "bg-halo-accent" : "bg-halo-line"
+              }`}
+              style={{ left: "-1.0625rem" }}
+            />
+            <div className="flex items-center gap-1">
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-xs text-halo-text" title={cp.label || undefined}>
+                  {cp.label || t("cp.unlabeled")}
+                </p>
+                <p className="text-[0.625rem] text-halo-muted/70">
+                  {new Date(cp.ts).toLocaleString(lang === "ru" ? "ru-RU" : "en-US", {
+                    day: "2-digit",
+                    month: "2-digit",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                  {" · "}
+                  {t("cp.files", { n: cp.files })}
+                  {cp.git && (
+                    <>
+                      {" · "}
+                      <span className="font-mono" title="git">
+                        {cp.git.slice(0, 7)}
+                      </span>
+                    </>
+                  )}
+                </p>
+              </div>
+              <button
+                onClick={() => void restore(cp)}
+                disabled={busy === cp.id}
+                title={t("cp.restore")}
+                className="rounded p-1 text-halo-muted opacity-0 transition group-hover:opacity-100 hover:text-halo-text disabled:opacity-30"
+              >
+                <RestoreIcon />
+              </button>
+              <button
+                onClick={() => void remove(cp)}
+                disabled={busy === cp.id}
+                title={t("cp.delete")}
+                className="rounded p-1 text-halo-muted opacity-0 transition group-hover:opacity-100 hover:text-red-400 disabled:opacity-30"
+              >
+                <XSmallIcon />
+              </button>
+            </div>
+            {/* Файлы снимка: что чекпоинт держал и что с ними стало с тех пор */}
+            {cp.files > 0 && (
+              <button
+                onClick={() => void toggleFiles(cp)}
+                className="mt-0.5 text-[0.5625rem] text-halo-muted/70 transition-colors hover:text-halo-text"
+              >
+                {openFiles.has(cp.id) ? "▾ " : "▸ "}
+                {t("cp.showFiles")}
+              </button>
+            )}
+            {openFiles.has(cp.id) && (
+              <div className="mt-1 space-y-0.5 rounded-md border border-halo-line/60 bg-halo-deep/40 px-2 py-1.5">
+                {fileStates[cp.id] === "err" && (
+                  <p className="text-[0.5625rem] text-red-400">{t("files.error")}</p>
+                )}
+                {filesLoading && !fileStates[cp.id] && (
+                  <p className="text-[0.5625rem] text-halo-muted/70">{t("cp.filesLoading")}</p>
+                )}
+                {Array.isArray(fileStates[cp.id]) && (
                   <>
-                    {" · "}
-                    <span className="font-mono" title="git">
-                      {cp.git.slice(0, 7)}
-                    </span>
+                    {(fileStates[cp.id] as CheckpointFileState[])
+                      .slice(0, 30)
+                      .map((f) => (
+                        <p key={f.rel} className="flex items-baseline gap-1.5 text-[0.5625rem]">
+                          <span className="min-w-0 flex-1 truncate font-mono text-halo-text/80" title={f.rel}>
+                            {f.rel}
+                          </span>
+                          {fileStateChip(f)}
+                        </p>
+                      ))}
+                    {Array.isArray(fileStates[cp.id]) &&
+                      (fileStates[cp.id] as CheckpointFileState[]).length > 30 && (
+                        <p className="text-[0.5625rem] text-halo-muted/60">
+                          {t("cp.moreFiles", {
+                            n: (fileStates[cp.id] as CheckpointFileState[]).length - 30,
+                          })}
+                        </p>
+                      )}
                   </>
                 )}
-              </p>
-            </div>
-            <button
-              onClick={() => void restore(cp)}
-              disabled={busy === cp.id}
-              title={t("cp.restore")}
-              className="rounded p-1 text-halo-muted opacity-0 transition group-hover:opacity-100 hover:text-halo-text disabled:opacity-30"
-            >
-              <RestoreIcon />
-            </button>
-            <button
-              onClick={() => void remove(cp)}
-              disabled={busy === cp.id}
-              title={t("cp.delete")}
-              className="rounded p-1 text-halo-muted opacity-0 transition group-hover:opacity-100 hover:text-red-400 disabled:opacity-30"
-            >
-              <XSmallIcon />
-            </button>
+              </div>
+            )}
           </li>
         ))}
       </ul>
