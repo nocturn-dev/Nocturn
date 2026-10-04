@@ -901,6 +901,7 @@ export const zh = {
     "tts.listen": "朗读回复",
     "tts.stop": "停止朗读",
     "md.showCode": "显示代码",
+    "md.toComposer": "把修改发送到输入框",
     "md.showDiagram": "显示图表",
     "cmp.open": "对比模型",
     "cmp.title": "模型对比",

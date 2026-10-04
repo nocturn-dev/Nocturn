@@ -439,6 +439,12 @@ export default function ChatArea({
   // Музыка играет (MediaBar) — Нок надевает наушники
   const [musicPlaying, setMusicPlaying] = useState(false);
   const onMusicPlaying = useCallback((v: boolean) => setMusicPlaying(v), []);
+  // Mermaid-исходник после правки — в композер отдельным абзацем (стабилен:
+  //AssistantCard мемоизирован, новая стрелка ломала memo карточек)
+  const quoteIntoDraft = useCallback((text: string) => {
+    setDraft((d) => (d.trim() ? `${d.trimEnd()}\n\n${text}` : text));
+    textareaRef.current?.focus();
+  }, []);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1860,6 +1866,7 @@ export default function ChatArea({
                             showReasoning={showReasoning}
                             caret={streamCaret}
                             onPreviewArtifact={openArtifact}
+                            onQuoteSource={quoteIntoDraft}
                           />
                         )
                       ) : null,

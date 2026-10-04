@@ -851,6 +851,7 @@ export const en = {
     "tts.listen": "Read aloud",
     "tts.stop": "Stop reading",
     "md.showCode": "Show code",
+    "md.toComposer": "Send edit to composer",
     "md.showDiagram": "Show diagram",
     "cmp.open": "Compare models",
     "cmp.title": "Model comparison",

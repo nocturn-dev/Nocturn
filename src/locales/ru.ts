@@ -887,6 +887,7 @@ export const ru = {
     "tts.listen": "Озвучить ответ",
     "tts.stop": "Остановить озвучку",
     "md.showCode": "Показать код",
+    "md.toComposer": "Правку — в композер",
     "md.showDiagram": "Показать диаграмму",
     "cmp.open": "Сравнить модели",
     "cmp.title": "Сравнение моделей",

@@ -901,6 +901,7 @@ export const ja = {
     "tts.listen": "回答を読み上げる",
     "tts.stop": "読み上げを停止",
     "md.showCode": "コードを表示",
+    "md.toComposer": "編集を入力欄へ",
     "md.showDiagram": "図を表示",
     "cmp.open": "モデルを比較",
     "cmp.title": "モデル比較",
