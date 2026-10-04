@@ -267,7 +267,7 @@ export function MediaBar({
   if (prefs.youtube) {
     const tr = yt.track;
     return (
-      <div className="anim-fade relative z-20 flex h-9 items-center gap-2.5 border-b border-halo-line/60 bg-halo-deep/60 px-4 backdrop-blur">
+      <div className="anim-fade relative z-[var(--halo-z-panel)] flex h-9 items-center gap-2.5 border-b border-halo-line/60 bg-halo-deep/60 px-4 backdrop-blur">
         {tr ? (
           <img
             src={thumbUrl(tr.videoId)}
@@ -391,7 +391,7 @@ export function MediaBar({
 
   return (
     <div
-      className={`anim-fade relative z-20 flex h-9 items-center gap-2.5 border-b border-halo-line/60 bg-halo-deep/60 px-4 backdrop-blur ${
+      className={`anim-fade relative z-[var(--halo-z-panel)] flex h-9 items-center gap-2.5 border-b border-halo-line/60 bg-halo-deep/60 px-4 backdrop-blur ${
         prefs.textShimmer ? "media-text-shimmer" : ""
       }`}
       style={shimmerVars}

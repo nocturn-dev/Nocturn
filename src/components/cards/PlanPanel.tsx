@@ -9,7 +9,7 @@ export function PlanPanel({ plan }: { plan: PlanTask[] }) {
   const done = plan.filter((p) => p.status === "done").length;
 
   return (
-    <div className="anim-fade-up absolute left-0 top-0 z-20 m-3 max-w-xs rounded-xl border border-halo-line bg-halo-deep/85 p-3 shadow-lg backdrop-blur">
+    <div className="anim-fade-up absolute left-0 top-0 z-[var(--halo-z-panel)] m-3 max-w-xs rounded-xl border border-halo-line bg-halo-deep/85 p-3 shadow-lg backdrop-blur">
       {/* Заголовок-строка: сворачивание, «Прогресс», счётчик done/total */}
       <div className="flex items-center gap-1.5">
         <button

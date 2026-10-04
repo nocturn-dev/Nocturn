@@ -54,7 +54,7 @@ export function ContextRing({
         </svg>
       </button>
       {open && (
-        <div className="glass-pane absolute bottom-full right-0 z-40 mb-2 w-72 rounded-xl border border-halo-line bg-halo-deep/95 p-3 text-xs shadow-2xl backdrop-blur">
+        <div className="glass-pane absolute bottom-full right-0 z-[var(--halo-z-panel-top)] mb-2 w-72 rounded-xl border border-halo-line bg-halo-deep/95 p-3 text-xs shadow-2xl backdrop-blur">
           <div className="mb-2 flex items-baseline justify-between">
             <span className="font-medium text-halo-text">{t("ctx.title")}</span>
             <span className="text-halo-muted">

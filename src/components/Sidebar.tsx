@@ -432,7 +432,7 @@ export default function Sidebar({
         }}
         onDoubleClick={onResizeReset}
         title={t("sidebar.resizeHint")}
-        className={`absolute top-0 z-30 h-full w-2.5 cursor-col-resize transition-colors hover:bg-halo-accent/40 ${
+        className={`absolute top-0 z-[var(--halo-z-panel-raised)] h-full w-2.5 cursor-col-resize transition-colors hover:bg-halo-accent/40 ${
           side === "left" ? "-right-1" : "-left-1"
         }`}
       />
@@ -588,7 +588,7 @@ export default function Sidebar({
                   {addMenuOpen && (
                     <>
                       <div
-                        className="fixed inset-0 z-40"
+                        className="fixed inset-0 z-[var(--halo-z-panel-top)]"
                         onClick={() => setAddMenuOpen(false)}
                       />
                       <div className="absolute right-1 top-7 z-50 w-44 rounded-lg border border-halo-line bg-halo-raised py-1 shadow-xl">
@@ -1040,7 +1040,7 @@ function ColorPalette({
 }) {
   const { t } = useLang();
   return (
-    <div className="anim-pop absolute left-0 top-6 z-40 w-44 rounded-lg border border-halo-line bg-halo-deep p-2 shadow-xl">
+    <div className="anim-pop absolute left-0 top-6 z-[var(--halo-z-panel-top)] w-44 rounded-lg border border-halo-line bg-halo-deep p-2 shadow-xl">
       <div className="mb-2 flex items-center justify-between">
         <p className="text-[0.625rem] uppercase tracking-wider text-halo-muted/70">
           {t("sidebar.headerColorTitle")}

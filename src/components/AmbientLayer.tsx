@@ -110,16 +110,23 @@ export function AmbientLayer({
   const isVideo = scene === "video";
   const src = isVideo && videoPath ? convertFileSrc(videoPath) : "";
 
-  // Видео: пауза на стриме и в скрытом окне
+  // Видео: пауза в скрытом/нефокусном окне и при системном reduce-motion.
+  // Пауза НА СТРИМЕ отменена владельцем (App: «ambient живой всегда») —
+  // комментарий раньше обещал несуществующее (аудит 2026-10-04)
   useEffect(() => {
     if (!isVideo) return;
     // Новый источник — сброс ошибки кодека (mkv/ogv на Chromium-движке)
     setVideoError(false);
     const v = videoRef.current;
     if (!v) return;
+    const reduce =
+      typeof window.matchMedia === "function" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     const sync = () => {
-      // Скрытое/не в фокусе окно → видео на паузе: декодер не жжёт батарею
-      if (pausedRef.current || document.hidden || !document.hasFocus()) v.pause();
+      // Скрытое/не в фокусе окно → видео на паузе: декодер не жжёт батарею;
+      // системный reduce-motion — та же настройка, что глушит canvas-сцены
+      if (pausedRef.current || document.hidden || !document.hasFocus() || reduce)
+        v.pause();
       else void v.play().catch(() => {});
     };
     sync();
