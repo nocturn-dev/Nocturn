@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
-import { useLang } from "../../locales";
+import { useLang, type MsgKey } from "../../locales";
 import { NOK_BASE, NOK_BLINK, NOK_COLS, NOK_ROWS } from "./nokSprites";
 
 /**
@@ -16,7 +16,9 @@ import { NOK_BASE, NOK_BLINK, NOK_COLS, NOK_ROWS } from "./nokSprites";
 type NokMood =
   | "storm" // улетел обиженным за экран
   | "anger" // лесенка злости
+  | "surprised" // смена темы
   | "fly" // пасхалка «Эй Нок, полетай»
+  | "tumble" // нелепость: «разучился летать»
   | "done" // вспышка завершения прогона
   | "petting" // поглаживание
   | "coding" // самодеятельность: ноутбук
@@ -52,6 +54,8 @@ export function Nok({
   selfActivity = true,
   flySeq = 0,
   homeSeq = 0,
+  colors,
+  themeKey,
 }: {
   streaming: boolean;
   activity: string | null;
@@ -69,6 +73,10 @@ export function Nok({
   flySeq?: number;
   /** Счётчик команд «домой» (досрочно сажает облёт) */
   homeSeq?: number;
+  /** Кастомные цвета по частям ("" — токен темы) */
+  colors?: { body?: string; glow?: string; wing?: string };
+  /** Ключ темы: смена — Нок удивляется */
+  themeKey?: string;
 }) {
   const { t } = useLang();
 
@@ -82,6 +90,9 @@ export function Nok({
   const [clickTick, setClickTick] = useState(0); // будильник сна от кликов
   const [coding, setCoding] = useState(false); // самодеятельность: ноутбук
   const [flying, setFlying] = useState(false); // пасхалка «полетай»
+  const [tumble, setTumble] = useState(false); // нелепость: «разучился летать»
+  const [surprised, setSurprised] = useState(false); // смена темы
+  const [quip, setQuip] = useState<string | null>(null); // реплика-пузырь
 
   const lastClickRef = useRef(0);
   const angerDecayRef = useRef<number | null>(null);
@@ -149,34 +160,90 @@ export function Nok({
     return () => window.clearTimeout(t);
   }, [storming, stormReturnMs]);
 
-  // Самодеятельность: в простое изредка сам достаёт ноутбук и «кодит»
+  // Самодеятельность: в простое изредка что-то затевает — то ноутбук
+  // достанет и «кодит» с репликами, то попытается летать и нелепо
+  // спикирует у сайдбара с «Oooops…» (вариант — случайный)
+  const CODE_QUIPS: MsgKey[] = [
+    "mascot.quip.think",
+    "mascot.quip.hello",
+    "mascot.quip.todo",
+    "mascot.quip.notabug",
+    "mascot.quip.letter",
+    "mascot.quip.npm",
+    "mascot.quip.rs",
+  ];
   useEffect(() => {
     if (streaming || !selfActivity) {
       setCoding(false);
+      setTumble(false);
+      setQuip(null);
       return;
     }
     let alive = true;
-    let t1 = 0;
-    let t2 = 0;
+    const timers: number[] = [];
+    const later = (fn: () => void, ms: number) => {
+      timers.push(window.setTimeout(() => alive && fn(), ms));
+    };
+    const pickQuip = (): MsgKey =>
+      CODE_QUIPS[Math.floor(Math.random() * CODE_QUIPS.length)] ?? "mascot.quip.think";
     const schedule = (delay: number) => {
       t1 = window.setTimeout(() => {
         if (!alive) return;
-        setCoding(true);
-        t2 = window.setTimeout(() => {
-          if (!alive) return;
-          setCoding(false);
-          schedule(18_000 + Math.random() * 25_000);
-        }, 7_000);
+        if (Math.random() < 0.6) {
+          // Ноутбук: 7с печати с ротацией реплик, в финале — самокритика
+          setCoding(true);
+          setQuip(t(pickQuip()));
+          const iv = window.setInterval(() => {
+            if (alive) {
+              setQuip(t(pickQuip()));
+            }
+          }, 2_200);
+          timers.push(iv);
+          later(() => {
+            setCoding(false);
+            window.clearInterval(iv);
+            setQuip(t("mascot.quip.after"));
+            later(() => setQuip(null), 2_800);
+            schedule(18_000 + Math.random() * 25_000);
+          }, 7_000);
+        } else {
+          // «Разучился летать»: взмах-взлёт, кувырок, шлёпается у сайдбара
+          setTumble(true);
+          later(() => setQuip(t("mascot.quip.oops")), 2_100);
+          later(() => setQuip(null), 3_500);
+          later(() => {
+            setTumble(false);
+            schedule(18_000 + Math.random() * 25_000);
+          }, 2_600);
+        }
       }, delay);
     };
+    let t1 = 0;
     schedule(12_000 + Math.random() * 20_000);
     return () => {
       alive = false;
+      timers.forEach((id) => window.clearTimeout(id));
       window.clearTimeout(t1);
-      window.clearTimeout(t2);
       setCoding(false);
+      setTumble(false);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- t и CODE_QUIPS стабильны по смыслу
   }, [streaming, selfActivity, activity, clickTick]);
+
+  // Удивление: смена темы — глаза по пять копеек и подпрыгивает
+  const prevThemeRef = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (themeKey !== undefined && themeKey !== prevThemeRef.current) {
+      if (prevThemeRef.current !== undefined) {
+        setSurprised(true);
+        const t = window.setTimeout(() => setSurprised(false), 1_700);
+        prevThemeRef.current = themeKey;
+        return () => window.clearTimeout(t);
+      }
+      prevThemeRef.current = themeKey;
+    }
+    prevThemeRef.current = themeKey;
+  }, [themeKey]);
 
   // Пасхалка «Эй Нок, полетай»: рост flySeq — новый 9-секундный облёт чата
   const prevFlyRef = useRef(flySeq);
@@ -229,30 +296,37 @@ export function Nok({
     ? "storm"
     : anger >= 5
       ? "anger"
-      : flying
-        ? "fly"
-        : donePulse
-          ? "done"
-          : pet
-            ? "petting"
-            : streaming
-              ? activity
-                ? "thinking"
-                : "streaming"
-              : asleep
-                ? "sleeping"
-                : coding
-                  ? "coding"
-                  : "idle";
+      : surprised
+        ? "surprised"
+        : flying
+          ? "fly"
+          : donePulse
+            ? "done"
+            : pet
+              ? "petting"
+              : streaming
+                ? activity
+                  ? "thinking"
+                  : "streaming"
+                : asleep
+                  ? "sleeping"
+                  : tumble
+                    ? "tumble"
+                    : coding
+                      ? "coding"
+                      : "idle";
 
-  // Палитра клеток по настроению (status-цвета злости — семантика)
+  // Палитра клеток: кастомные цвета частей ("" — токен темы); статусные
+  // цвета злости — семантика, кастом их не перебивает
   const hot = anger >= 10 ? RAGE : WARN;
-  const lampFill = mood === "anger" ? hot : "var(--halo-accent)";
+  const bodyColor = colors?.body || "var(--halo-deep)";
+  const lampFill = mood === "anger" ? hot : colors?.glow || "var(--halo-accent)";
+  const wingColor = colors?.wing || "var(--halo-muted)";
   const eyeFill =
     mood === "anger"
       ? hot
       : blink || mood === "sleeping"
-        ? "var(--halo-deep)"
+        ? bodyColor
         : // Глаза = text-токен: светлая точка на тёмном теле в тёмных темах
           // и тёмная на deep-теле в светлых (bg в тёмной теме слишком близок
           // к deep — глаза пропадали)
@@ -269,7 +343,9 @@ export function Nok({
         ? eyeFill
         : ch === "G" || ch === "g"
           ? lampFill
-          : "var(--halo-deep)";
+          : ch === "w"
+            ? wingColor
+            : bodyColor;
   const cellOpacity = (ch: string): number =>
     ch === "G" ? Math.min(0.85 * glowBoost, 1) : ch === "g" ? 0.32 * glowBoost : 1;
 
@@ -285,6 +361,9 @@ export function Nok({
       title={t("mascot.name")}
       role="img"
       aria-label={t("mascot.name")}
+      // --nok-scale: полётные сдвиги в CSS умножают на масштаб, чтобы
+      // «крупный» Нок летел так же далеко относительно себя
+      style={{ "--nok-scale": scale } as CSSProperties}
     >
       <svg
         width={NOK_COLS * 3 * scale}
@@ -387,21 +466,33 @@ export function Nok({
           </g>
         )}
 
-        {/* Тело: усики, голова, глаза + лампа-брюшко отдельной группой
+        {/* Тело: усики, голова, глаза (при удивлении — по пять копеек);
+            крылышки мерцают отдельной группой; лампа-брюшко тоже отдельно
             (пульс свечения — на группе, чтобы не спорить с opacity клеток) */}
         <g className="nok-body">
           {matrix.flatMap((row, y) =>
             [...row].flatMap((ch, x) => {
-              if (ch === "." || ch === "G" || ch === "g") return [];
+              if (ch === "." || ch === "G" || ch === "g" || ch === "w") return [];
+              const big = ch === "e" && mood === "surprised";
               return [
                 <rect
                   key={`${x}:${y}`}
-                  x={x}
-                  y={y}
-                  width={1}
-                  height={1}
+                  x={big ? x - 0.15 : x}
+                  y={big ? y - 0.15 : y}
+                  width={big ? 1.3 : 1}
+                  height={big ? 1.3 : 1}
                   fill={cellFill(ch)}
                 />,
+              ];
+            }),
+          )}
+        </g>
+        <g className="nok-wings">
+          {matrix.flatMap((row, y) =>
+            [...row].flatMap((ch, x) => {
+              if (ch !== "w") return [];
+              return [
+                <rect key={`${x}:${y}`} x={x} y={y} width={1} height={1} fill={cellFill("w")} opacity={0.75} />,
               ];
             }),
           )}
@@ -471,6 +562,12 @@ export function Nok({
           </g>
         )}
       </svg>
+
+      {/* Реплика-пузырёк (пасхалки/самодеятельность): молния не нужна —
+          говорит сам за себя */}
+      {quip && (
+        <div className="nok-bubble anim-pop">{quip}</div>
+      )}
     </div>
   );
 }

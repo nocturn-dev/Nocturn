@@ -167,6 +167,9 @@ interface SettingsModalProps {
   onMascotEasterChange: (v: boolean) => void;
   mascotSelf: boolean;
   onMascotSelfChange: (v: boolean) => void;
+  /** Кастомные цвета частей Нока ("" — токен темы) */
+  mascotColors: { body?: string; glow?: string; wing?: string };
+  onMascotColorChange: (part: "body" | "glow" | "wing", v: string) => void;
   /** Память проектов: контекст предыдущих задач в новых сессиях */
   memoryEnabled: boolean;
   onMemoryChange: (v: boolean) => void;
@@ -346,6 +349,8 @@ export default function SettingsModal({
   onMascotEasterChange,
   mascotSelf,
   onMascotSelfChange,
+  mascotColors,
+  onMascotColorChange,
   memoryEnabled,
   onMemoryChange,
   apiSettings,
@@ -772,6 +777,9 @@ export default function SettingsModal({
               onEasterChange={onMascotEasterChange}
               selfActivity={mascotSelf}
               onSelfActivityChange={onMascotSelfChange}
+              colors={mascotColors}
+              onColorChange={onMascotColorChange}
+              themeKey={theme}
             />
           )}
           {section === "theme" && (
