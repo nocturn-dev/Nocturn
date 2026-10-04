@@ -1060,33 +1060,40 @@ html.light.inline-code-claude .markdown code:not(pre code) {
 .nok-tumble {
   animation: nok-tumble calc(3.2s * var(--motion-scale)) ease-in-out forwards;
 }
-/* «Бууу»: прыжок на середину сайдбара (краснеет + глаза — на настроении),
-   висит, потом колобком катится обратно на край композера */
+/* «Бууу»: прыжок дугой на СЕРЕДИНУ сайдбара (~-224px, на высоте кромки),
+   краснеет, глаза по пять копеек, висит с «Бууу!» — потом колобком
+   катится домой ПО КРОМКЕ композера (вращение пропорционально пути) */
 @keyframes nok-scare {
   0% {
     transform: translate(0, 0) rotate(0);
   }
-  20% {
-    transform: translate(-110px, -64px) rotate(-10deg);
+  14% {
+    transform: translate(-70px, -92px) rotate(-18deg);
   }
   30% {
-    transform: translate(-150px, -46px) rotate(0);
+    transform: translate(-224px, -10px) rotate(180deg);
   }
-  62% {
-    transform: translate(-150px, -46px) rotate(0);
+  46% {
+    transform: translate(-224px, -10px) rotate(180deg);
   }
-  76% {
-    transform: translate(-144px, -44px) rotate(120deg);
+  60% {
+    transform: translate(-224px, -10px) rotate(180deg);
+  }
+  68% {
+    transform: translate(-190px, -8px) rotate(240deg);
+  }
+  78% {
+    transform: translate(-110px, -4px) rotate(320deg);
   }
   88% {
-    transform: translate(-70px, -18px) rotate(240deg);
+    transform: translate(-30px, -2px) rotate(400deg);
   }
   100% {
-    transform: translate(0, 0) rotate(360deg);
+    transform: translate(0, 0) rotate(430deg);
   }
 }
 .nok-scare {
-  animation: nok-scare calc(3.7s * var(--motion-scale)) ease-in-out forwards;
+  animation: nok-scare calc(3.9s * var(--motion-scale)) ease-in-out forwards;
   z-index: 50;
 }
 /* Наушники: качание в ритм (~95 BPM), тело чуть пружинит */
