@@ -573,27 +573,49 @@ fn fs_write(path: &Path, content: &str) -> Result<String, String> {
             "{path:?} is a reserved Windows device name; writing to it would silently discard data"
         ));
     }
-    // FIX [perf]: раньше fs::read тянул в память ВЕСЬ файл (хоть гигабайт),
-    // чтобы тут же выбросить его при превышении лимита. Размер берём из
-    // metadata, содержимое читаем только когда оно влезает в diff.
-    let before: Option<String> = fs::metadata(path).ok().and_then(|meta| {
-        if !meta.is_file() {
-            return None;
-        }
-        if meta.len() > FS_WRITE_DIFF_LIMIT {
-            // Слишком большой для диффа — отметим усечение, не читая файл
-            return Some(format!("[TRUNCATED: {} bytes]", meta.len()));
-        }
-        fs::read(path)
-            .ok()
-            .map(|data| String::from_utf8_lossy(&data).to_string())
-    });
-    let existed = before.is_some();
-
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir).map_err(|e| format!("cannot create directory {dir:?}: {e}"))?;
     }
-    fs::write(path, content).map_err(|e| format!("cannot write {path:?}: {e}"))?;
+    // Существовал ли файл — ДО открытия (O_CREAT создал бы его сам, и
+    // отметка «created» в результате врала бы); гонка тут некритична —
+    // поле репортажное, защиту делает открытие с верификацией ниже
+    let existed = fs::symlink_metadata(path)
+        .map(|m| m.is_file())
+        .unwrap_or(false);
+    // Symlink TOCTOU (SECURITY.md): perm-канонизация проверила путь ДО
+    // вызова, но между проверкой и записью компонент могли подменить.
+    // Открываем с отказом от симлинков и берём у дескриптора его финальный
+    // путь; perm-гейты повторно проходят по НАСТОЯЩЕМУ адресу записи —
+    // подмена компонентов меняет location и отказывается здесь
+    let (mut f, verified) = crate::fsutil::open_write_verified(path)?;
+    crate::perm::recheck_location("fs_write", &verified)?;
+    // «До» читаем ЧЕРЕЗ дескриптор: чтение пути отдельно от записи — та же
+    // гонка, модель получила бы содержимое подменённого адреса в диффе
+    let before: Option<String> = if existed {
+        let len = f.metadata().map(|m| m.len()).unwrap_or(0);
+        if len > FS_WRITE_DIFF_LIMIT {
+            Some(format!("[TRUNCATED: {len} bytes]"))
+        } else {
+            use std::io::{Seek, SeekFrom};
+            f.seek(SeekFrom::Start(0))
+                .map_err(|e| format!("cannot seek {}: {e}", path.display()))?;
+            let mut buf = Vec::new();
+            f.read_to_end(&mut buf)
+                .map_err(|e| format!("cannot read {}: {e}", path.display()))?;
+            Some(String::from_utf8_lossy(&buf).into_owned())
+        }
+    } else {
+        None
+    };
+    {
+        use std::io::{Seek, SeekFrom, Write};
+        f.set_len(0)
+            .map_err(|e| format!("cannot truncate {}: {e}", path.display()))?;
+        f.seek(SeekFrom::Start(0))
+            .map_err(|e| format!("cannot seek {}: {e}", path.display()))?;
+        f.write_all(content.as_bytes())
+            .map_err(|e| format!("cannot write {path:?}: {e}"))?;
+    }
 
     // «После» уходит в контекст модели — обрезаем тем же лимитом, что и «до»,
     // иначе запись мегабайтного файла вернёт модели весь файл обратно
@@ -608,7 +630,7 @@ fn fs_write(path: &Path, content: &str) -> Result<String, String> {
 
     Ok(json!({
         "ok": true,
-        "path": path.display().to_string(),
+        "path": crate::fsutil::display_path(&verified),
         "bytes": content.len(),
         "created": !existed,
         "before": before,
@@ -764,6 +786,35 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    /// Symlink TOCTOU (SECURITY.md): путь через симлинк-родителя резолвится
+    /// в чувствительное имя на конце — recheck_location по НАСТОЯЩЕМУ
+    /// адресу записи обязан отказать, даже если сырой путь невинен.
+    /// На Windows создание симлинков требует привилегий — без них тест
+    /// пропускается
+    #[test]
+    fn fs_write_refuses_symlinked_parent_to_sensitive_name() {
+        let dir = tmp_dir("fs-slink");
+        fs::create_dir_all(dir.join("real")).unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(dir.join("real"), dir.join("link")).unwrap();
+        #[cfg(windows)]
+        if std::os::windows::fs::symlink_dir(dir.join("real"), dir.join("link")).is_err() {
+            eprintln!("skipped: no symlink privilege on this machine");
+            return;
+        }
+        let via_link = dir.join("link").join("secret.pem");
+        let err = fs_write(&via_link, "key material").unwrap_err();
+        assert!(
+            err.contains("denied by default"),
+            "expected sensitive-path refusal, got: {err}"
+        );
+        // Содержимое не записано (O_CREAT до проверки мог оставить пустой
+        // файл — сознательно принятый мусор того же пользователя)
+        let litter = fs::read(dir.join("real").join("secret.pem")).unwrap_or_default();
+        assert!(litter.is_empty(), "content must not be written through a swapped path");
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
