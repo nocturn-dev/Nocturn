@@ -83,11 +83,14 @@ function cleanYtTitle(raw: string): string {
 export function MediaBar({
   prefs,
   onLyrics,
+  onPlayingChange,
 }: {
   prefs: MediaPrefs;
   /** Снимок лирики наверх (LyricsRibbon): смена строки/текста, null —
    *  лирики нет или компонент размонтирован */
   onLyrics?: (snap: MediaLyricsSnapshot | null) => void;
+  /** Играет ли музыка (маскоту — наушники и качание) */
+  onPlayingChange?: (playing: boolean) => void;
 }) {
   const { t } = useLang();
   const [state, setState] = useState<MediaStateDto | null>(null);
@@ -168,6 +171,11 @@ export function MediaBar({
     const iv = window.setInterval(() => setTick((v) => v + 1), 1000);
     return () => window.clearInterval(iv);
   }, [state?.playing, state?.trackId]);
+  // Наверх: играет/не играет (маскот надевает наушники под музыку)
+  const playing = !!state?.playing;
+  useEffect(() => {
+    onPlayingChange?.(playing);
+  }, [playing, onPlayingChange]);
 
   // Лирика для YouTube: автор = канал («Artist - Topic» → «Artist»),
   // название чистится. Deps — примитивы: объект track пересоздаётся

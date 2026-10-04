@@ -1060,6 +1060,52 @@ html.light.inline-code-claude .markdown code:not(pre code) {
 .nok-tumble {
   animation: nok-tumble calc(3.2s * var(--motion-scale)) ease-in-out forwards;
 }
+/* «Бууу»: прыжок на середину сайдбара (краснеет + глаза — на настроении),
+   висит, потом колобком катится обратно на край композера */
+@keyframes nok-scare {
+  0% {
+    transform: translate(0, 0) rotate(0);
+  }
+  20% {
+    transform: translate(-110px, -64px) rotate(-10deg);
+  }
+  30% {
+    transform: translate(-150px, -46px) rotate(0);
+  }
+  62% {
+    transform: translate(-150px, -46px) rotate(0);
+  }
+  76% {
+    transform: translate(-144px, -44px) rotate(120deg);
+  }
+  88% {
+    transform: translate(-70px, -18px) rotate(240deg);
+  }
+  100% {
+    transform: translate(0, 0) rotate(360deg);
+  }
+}
+.nok-scare {
+  animation: nok-scare calc(3.7s * var(--motion-scale)) ease-in-out forwards;
+  z-index: 50;
+}
+/* Наушники: качание в ритм (~95 BPM), тело чуть пружинит */
+@keyframes nok-nod {
+  0%,
+  100% {
+    transform: translateY(0) rotate(0);
+  }
+  50% {
+    transform: translateY(1.5px) rotate(-3deg);
+  }
+}
+.nok-groove .nok-body,
+.nok-groove .nok-phones {
+  animation: nok-nod calc(0.63s * var(--motion-scale)) ease-in-out infinite;
+}
+.nok-groove .nok-aura {
+  animation-duration: calc(1.26s * var(--motion-scale));
+}
 .nok-dot {
   animation: nok-glow calc(1.2s * var(--motion-scale)) ease-in-out infinite;
 }
@@ -1124,7 +1170,10 @@ html.motion-reduced .nok-fly,
 html.motion-reduced .nok-code,
 html.motion-reduced .nok-wings,
 html.motion-reduced .nok-surprised .nok-body,
-html.motion-reduced .nok-tumble {
+html.motion-reduced .nok-tumble,
+html.motion-reduced .nok-scare,
+html.motion-reduced .nok-groove .nok-body,
+html.motion-reduced .nok-groove .nok-phones {
   animation: none;
 }
 @media (prefers-reduced-motion: reduce) {
@@ -1132,7 +1181,10 @@ html.motion-reduced .nok-tumble {
   .nok-code,
   .nok-wings,
   .nok-surprised .nok-body,
-  .nok-tumble {
+  .nok-tumble,
+  .nok-scare,
+  .nok-groove .nok-body,
+  .nok-groove .nok-phones {
     animation: none;
   }
 }

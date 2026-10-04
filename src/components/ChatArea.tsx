@@ -238,6 +238,8 @@ interface ChatAreaProps {
   mascotColors: { body?: string; glow?: string; wing?: string };
   /** Ключ темы+оформления: смена — Нок удивляется */
   mascotThemeKey: string;
+  /** Настройки закрылись (счётчик): Нок выдыхает с облегчением */
+  settingsClosedSeq: number;
   /** Время в шапке ответов модели (кастомизация) */
   showMsgTime: boolean;
   /** Кнопки окна в этой шапке (когда сайдбар не справа) */
@@ -366,6 +368,7 @@ export default function ChatArea({
   mascotSelf,
   mascotColors,
   mascotThemeKey,
+  settingsClosedSeq,
   showMsgTime,
   showWindowControls,
   headerInset,
@@ -385,6 +388,9 @@ export default function ChatArea({
   // Счётчики пасхальных команд Ноку (рост seq — новая команда)
   const [nokFlySeq, setNokFlySeq] = useState(0);
   const [nokHomeSeq, setNokHomeSeq] = useState(0);
+  // Музыка играет (MediaBar) — Нок надевает наушники
+  const [musicPlaying, setMusicPlaying] = useState(false);
+  const onMusicPlaying = useCallback((v: boolean) => setMusicPlaying(v), []);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1800,7 +1806,11 @@ export default function ChatArea({
       {plan && plan.length > 0 && <PlanPanel plan={plan} />}
       {/* Мини-бар плеера: тонкая полоска под шапкой, только когда включён
           и что-то играет (вкладка «Интеграции») */}
-      <MediaBar prefs={mediaPrefs} onLyrics={onMediaLyrics} />
+      <MediaBar
+        prefs={mediaPrefs}
+        onLyrics={onMediaLyrics}
+        onPlayingChange={onMusicPlaying}
+      />
       <div
         ref={scrollRef}
         className="scroll-slim relative z-10 h-full overflow-y-auto"
@@ -2033,6 +2043,8 @@ export default function ChatArea({
                   selfActivity={mascotSelf}
                   colors={mascotColors}
                   themeKey={mascotThemeKey}
+                  musicPlaying={musicPlaying}
+                  settingsClosedSeq={settingsClosedSeq}
                   flySeq={nokFlySeq}
                   homeSeq={nokHomeSeq}
                 />

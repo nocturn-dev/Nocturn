@@ -119,6 +119,9 @@ export function MascotSection({
         <p className="mt-1 text-[0.6875rem] leading-relaxed text-halo-muted/70">
           {t("mascot.previewHint")}
         </p>
+        <p className="mt-2 border-t border-halo-line/60 pt-2 text-[0.625rem] italic leading-relaxed text-halo-muted/50">
+          {t("mascot.lore")}
+        </p>
       </div>
 
       <ToggleRow
