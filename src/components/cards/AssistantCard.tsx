@@ -69,11 +69,14 @@ export function CodeBlock({
   node: _node,
   children,
   onPreview,
+  onQuoteSource,
 }: {
   node?: unknown;
   children?: ReactNode;
   /** Приходит из ChatArea через AssistantCard; нет — кнопки не будет */
   onPreview?: (html: string) => void;
+  /** Mermaid-блоки: правка исходника уходит в композер; нет — не будет */
+  onQuoteSource?: (text: string) => void;
 }) {
   const { t } = useLang();
   const preRef = useRef<HTMLPreElement>(null);
@@ -103,10 +106,11 @@ export function CodeBlock({
     }
   };
 
-  // Mermaid: диаграмма вместо исходника (внутри — переключатель на код).
+  // Mermaid: диаграмма вместо исходника (внутри — переключатель на код
+  // и правка с отправкой в композер).
   // Возврат после хуков — хуки выше зовутся безусловно
   if (codeLanguage(_node) === "mermaid") {
-    return <MermaidBlock code={codeText(_node)} />;
+    return <MermaidBlock code={codeText(_node)} onSendSource={onQuoteSource} />;
   }
 
   return (
@@ -160,6 +164,7 @@ function AssistantCardBase({
   showReasoning,
   caret,
   onPreviewArtifact,
+  onQuoteSource,
 }: {
   mid: string;
   message: Message;
@@ -185,6 +190,8 @@ function AssistantCardBase({
   caret: boolean;
   /** Открывает панель Artifacts с ```html-блоком (стабилен от ChatArea) */
   onPreviewArtifact?: (html: string) => void;
+  /** Mermaid-исходник после правки — в композер (стабилен от ChatArea) */
+  onQuoteSource?: (text: string) => void;
 }) {
   // Плавная печать: показанный текст отстаёт от реального и догоняет
   // его rAF-циклом с ускорением (чем больше отставание, тем быстрее),
@@ -245,10 +252,14 @@ function AssistantCardBase({
     () => ({
       a: MarkdownLink,
       pre: (p: { node?: unknown; children?: ReactNode }) => (
-        <CodeBlock {...p} onPreview={onPreviewArtifact} />
+        <CodeBlock
+          {...p}
+          onPreview={onPreviewArtifact}
+          onQuoteSource={onQuoteSource}
+        />
       ),
     }),
-    [onPreviewArtifact],
+    [onPreviewArtifact, onQuoteSource],
   );
   const [openThought, setOpenThought] = useState(false);
   // Озвучка этого ответа: индикатор на кнопке динамика (гаснет сам по
