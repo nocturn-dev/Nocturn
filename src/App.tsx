@@ -351,7 +351,6 @@ export default function App() {
   // Подсветка кода во время стрима: выкл — hljs только после завершения
   // (тик плавной печати без highlight в разы дешевле на длинных ответах)
   const [highlightLive, setHighlightLive] = useBoolPref("haloui-highlight-live", true);
-  // Скорость плавной печати: множитель догоняющего темпаAssistantCard
   // Hard-Mode: терминальный скин (моношрифт, без стекла/скруглений/ambient)
   // Тумблер в «Основном» только РАЗРЕШАЕТ режим; вход/выход — хоткей
   // hard_mode (дефолт Ctrl+Shift+H, переназначается)
@@ -372,6 +371,9 @@ export default function App() {
     document.documentElement.classList.toggle("zen", zenMode);
     return () => document.documentElement.classList.remove("zen");
   }, [zenMode]);
+  // Скорость плавной печати: множитель догоняющего темпа (сегмент
+  // «Основного»; в ленту едет пропом printSpeed) — комментарий жил в 20
+  // строках выше состояния, склеенный с чужим обрывком (аудит 2026-10-04)
   const [printSpeed, setPrintSpeed] = useNumPref("haloui-print-speed", 1, (v) =>
     [0.5, 1, 2].includes(v) ? v : 1,
   );
@@ -1265,14 +1267,20 @@ export default function App() {
   // Quick Entry: применить сохранённый ремап комбо (дефолт уже зарегистрирован
   // на бекенде в setup; промах — комбо занято другим приложением, бэк вернёт
   // дефолт). Затем статус регистрации: на Wayland-подобных системах глобальный
-  // хоткей недоступен вовсе — сообщаем тостом вместо вечной тишины
+  // хоткей недоступен вовсе — сообщаем тостом вместо вечной тишины.
+  // t — через зеркало (паттерн useSessions): смена языка не должна
+  // перезапускать бинд + двойной статус-чек с паузой 6 с
+  const tMirrorQuickEntry = useRef(t);
+  useEffect(() => {
+    tMirrorQuickEntry.current = t;
+  }, [t]);
   useEffect(() => {
     let cancelled = false;
     void (async () => {
       const saved = localStorage.getItem("haloui-quickentry-bind");
       if (saved) {
         await quickentrySetBind(saved).catch(() => {
-          if (!cancelled) addToast(t("main.quickentryBindFail"));
+          if (!cancelled) addToast(tMirrorQuickEntry.current("main.quickentryBindFail"));
         });
       }
       const ok = await quickentryStatus().catch(() => true);
@@ -1282,13 +1290,14 @@ export default function App() {
         // прежде чем объявлять его недоступным
         await new Promise((r) => setTimeout(r, 6000));
         const rechecked = await quickentryStatus().catch(() => false);
-        if (!rechecked && !cancelled) addToast(t("main.quickentryUnavailable"));
+        if (!rechecked && !cancelled)
+          addToast(tMirrorQuickEntry.current("main.quickentryUnavailable"));
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [addToast, t]);
+  }, [addToast]);
 
   // pendingConfirm/pendingAsk раньше считались IIFE прямо в JSX: новый объект
   // каждый рендер убивал сравнение пропсов у карточек-подтверждений
@@ -1304,6 +1313,13 @@ export default function App() {
       ? { msgId: a.msgId, ask: { ...a.spec } }
       : null;
   }, [interactions]);
+  // Ключ темы маскота: stringify в теле JSX пересчитывался на каждый флеш
+  // стрима (App ре-рендерится на typing/activity) — тот же класс, что уже
+  // закрыт settingsFingerprint'ом (аудит 2026-10-04)
+  const mascotThemeKey = useMemo(
+    () => `${theme}|${JSON.stringify(appearance)}`,
+    [theme, appearance],
+  );
   const queuedProps = useMemo(
     () => queuedMsgs.map((q) => ({ id: q.id, text: q.text })),
     [queuedMsgs],
@@ -2755,7 +2771,8 @@ export default function App() {
         mascotEaster={mascotEaster}
         mascotSelf={mascotSelf}
         mascotColors={mascotColors}
-        mascotThemeKey={theme + "|" + JSON.stringify(appearance)}
+        mascotThemeKey={mascotThemeKey}
+        onToast={addToast}
         settingsClosedSeq={settingsClosedSeq}
         showMsgTime={appearance.showMsgTime ?? false}
         showWindowControls={sidebarSide === "left"}
@@ -3092,11 +3109,13 @@ export default function App() {
           onClose={closeContextMenu}
         />
       )}
-      </ErrorBoundary>
-      {/* Сплэш: поверх всего, убирается после фейда (onGone из Splash) */}
+      {/* Сплэш: поверх всего, убирается после фейда (onGone из Splash).
+          Внутри boundary: render-исключение в Splash иначе давало бы белый
+          экран первых секунд — ни одна граница его не ловила */}
       {splashVisible && (
         <Splash done={splashDone} onGone={() => setSplashVisible(false)} />
       )}
+      </ErrorBoundary>
     </div>
   );
 }

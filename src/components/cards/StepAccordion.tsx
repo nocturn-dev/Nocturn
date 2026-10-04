@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { memo, useMemo, useState } from "react";
 import { diffLines } from "../../diff";
 import type { StepRow } from "../../agent/steps";
 import { useLang, type MsgKey } from "../../locales";
@@ -10,6 +10,15 @@ import { DiffView } from "./DiffView";
  * Thought — не здесь: мысли показывает раскрывающийся блок «Размышления»
  * в AssistantCard; subagent_run — живые карточки SubagentCard.
  */
+
+/** Дифф ряда: diffLines (LCS до 1500×1500 + O(n·m) отсечение) считается
+ *  ТОЛЬКО здесь и кэшируется по (before, after). В теле рендера ряда он
+ *  пересчитывался на каждый флеш стрима — derived-кэш ChatArea пересобирает
+ *  ход стримящегося сообщения, memo(RunCard) пробит (аудит 2026-10-04) */
+const RowDiff = memo(function RowDiff({ before, after }: { before: string; after: string }) {
+  const lines = useMemo(() => diffLines(before, after), [before, after]);
+  return <DiffView lines={lines} hasBefore />;
+});
 
 const KIND_LABEL: Record<StepRow["kind"], MsgKey> = {
   edit: "steps.kindEdit",
@@ -167,10 +176,7 @@ export function StepAccordion({
 
             {isOpen && s.diff && (
               <div className="px-2 pb-2">
-                <DiffView
-                  lines={diffLines(s.diff.before, s.diff.after)}
-                  hasBefore
-                />
+                <RowDiff before={s.diff.before} after={s.diff.after} />
               </div>
             )}
             {isOpen && s.output && (

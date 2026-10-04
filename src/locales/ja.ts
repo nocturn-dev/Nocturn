@@ -208,6 +208,8 @@ export const ja = {
     "search.empty": "見つかりません",
     // Чат
     "chat.new": "新しいチャット",
+    "chat.attachmentTooBig": "「{name}」は大きすぎます（上限 5 MB）",
+    "chat.attachmentReadFail": "「{name}」を読み込めません",
     "chat.greeting": "何をしましょうか？",
     "chat.greetingMorning": "おはようございます！今日も良い一日を",
     "chat.greetingAfternoon": "こんにちは！素晴らしいものを作りましょう",

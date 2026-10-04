@@ -35,10 +35,12 @@ export default function GameSnake() {
   const overRef = useRef(false);
   const scoreRef = useRef(0);
 
-  const accent = useRef("#d97757");
-  useEffect(() => {
-    accent.current = getComputedStyle(document.documentElement).getPropertyValue("--halo-accent").trim() || "#d97757";
-  }, []);
+  // Accent читается при КАЖДОЙ отрисовке из живого токена: чтение один раз
+  // при монтировании оставляло старый цвет после смены темы при открытой
+  // игре (аудит 2026-10-04); getComputedStyle в кадре дешёвый
+  const readAccent = () =>
+    getComputedStyle(document.documentElement).getPropertyValue("--halo-accent").trim() ||
+    "#d97757";
 
   const placeFood = () => {
     while (true) {
@@ -142,7 +144,7 @@ export default function GameSnake() {
         }
       }
       // Еда
-      ctx.fillStyle = accent.current;
+      ctx.fillStyle = readAccent();
       ctx.beginPath();
       ctx.arc(
         foodRef.current.x * CELL + CELL / 2,
@@ -158,7 +160,7 @@ export default function GameSnake() {
         const s = snake[i];
         if (!s) continue;
         ctx.globalAlpha = i === 0 ? 1 : 0.45 + (0.5 * (snake.length - i)) / snake.length;
-        ctx.fillStyle = accent.current;
+        ctx.fillStyle = readAccent();
         ctx.beginPath();
         // roundRect — WebKit 16.4+/Chromium 99: TypeError на старом WebKitGTK
         // убивал rAF-цикл навсегда (игра замирала); фолбэк — обычный rect

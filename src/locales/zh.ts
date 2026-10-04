@@ -208,6 +208,8 @@ export const zh = {
     "search.empty": "没有找到",
     // Чат
     "chat.new": "新对话",
+    "chat.attachmentTooBig": "「{name}」太大（上限 5 MB）",
+    "chat.attachmentReadFail": "无法读取「{name}」",
     "chat.greeting": "今天做点什么？",
     "chat.greetingMorning": "早上好！今天适合大干一场",
     "chat.greetingAfternoon": "下午好！来做点酷炫的东西吧",

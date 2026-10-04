@@ -137,7 +137,12 @@ export function IntegrationsSection({
         .catch(() => {});
       void telegramGetConfig()
         .then((c) => {
-          if (!disposed) setTg(c);
+          if (disposed) return;
+          // Мерджим только серверные поля (enabled/chatId), не весь объект:
+          // полная замена каждые 3 с откатывала черновик токена посреди
+          // ввода к старому значению (аудит 2026-10-04). Первый ответ —
+          // целиком, локального стейта ещё нет
+          setTg((prev) => (prev ? { ...prev, enabled: c.enabled, chatId: c.chatId } : c));
         })
         .catch(() => {});
     };

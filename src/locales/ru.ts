@@ -205,6 +205,8 @@ export const ru = {
     "search.empty": "Ничего не найдено",
     // Чат
     "chat.new": "Новый чат",
+    "chat.attachmentTooBig": "Файл «{name}» слишком большой (до 5 МБ)",
+    "chat.attachmentReadFail": "Не удалось прочитать «{name}»",
     "chat.greeting": "Чем займёмся?",
     "chat.greetingMorning": "Доброе утро! Хороший день для работы",
     "chat.greetingAfternoon": "Добрый день! Давай создадим что-то классное",

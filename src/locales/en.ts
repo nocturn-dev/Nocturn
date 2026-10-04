@@ -204,6 +204,8 @@ export const en = {
     "search.placeholder": "Search tasks…",
     "search.empty": "Nothing found",
     "chat.new": "New chat",
+    "chat.attachmentTooBig": "«{name}» is too large (5 MB max)",
+    "chat.attachmentReadFail": "Could not read «{name}»",
     "chat.greeting": "What shall we do?",
     "chat.greetingMorning": "Morning, nice work today",
     "chat.greetingAfternoon": "Afternoon, let's build something great",
