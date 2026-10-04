@@ -35,6 +35,19 @@ const BURST: Array<{ x: number; y: number; dx: number; dy: number }> = [
   { x: 5.5, y: 7, dx: 1, dy: 5 },
 ];
 
+/** Темп анимаций (настройка «Скорость анимации», --motion-scale 0.7/1/1.4
+ *  на html). Таймеры выступлений обязаны идти в том же темпе, что их
+ *  CSS-анимации (все они calc(Xs * var(--motion-scale))): при 1.4 полёт
+ *  длится 12.6s, а фиксированный JS-таймер 9s рубил его на середине —
+ *  forwards-анимация обрывалась классом, и Нок «телепортировался» на
+ *  насест. Читается один раз на постановку таймера — это дёшево */
+function motionScale(): number {
+  const v = Number.parseFloat(
+    getComputedStyle(document.documentElement).getPropertyValue("--motion-scale"),
+  );
+  return Number.isFinite(v) && v > 0 ? v : 1;
+}
+
 export function Nok({
   streaming,
   activity,
@@ -124,7 +137,8 @@ export function Nok({
     if (quipTimerRef.current) window.clearTimeout(quipTimerRef.current);
     quipTimerRef.current = window.setTimeout(
       () => setQuips((q) => q.filter((x) => x.id !== id)),
-      2_700,
+      // Реплика живёт ровно столько, сколько её CSS-анимация (2.7s * scale)
+      2_700 * motionScale(),
     );
   }, []);
   useEffect(
@@ -144,7 +158,7 @@ export function Nok({
     if (was && !streaming) {
       if (errorSeq !== seenErrorRef.current) return;
       setDonePulse(true);
-      const t = window.setTimeout(() => setDonePulse(false), 1600);
+      const t = window.setTimeout(() => setDonePulse(false), 1_600 * motionScale());
       return () => window.clearTimeout(t);
     }
   }, [streaming, errorSeq]);
@@ -254,7 +268,11 @@ export function Nok({
   // и РЕДКИЕ: мысль может прилететь сама (ноутбука не будет), а может за
   // секунду ПЕРЕД ноутбуком («сначала мысль — потом дело»); если ноутбук
   // уже открыт — второй не достаётся. Падение: взлёт по центру, вращение,
-  // шлёп именно в сайдбар с отскоком
+  // шлёп именно в сайдбар с отскоком.
+  // Deps ТОЛЬКО streaming/selfActivity: клики (поглаживание) и смена
+  // activity не перезапускают планировщик — иначе cleanup убивал кувырок/
+  // испуг на полпути (класс слетал — мгновенный снап на насест). Завершение
+  // выступлений — в темпе CSS (3.2s/3.9s * --motion-scale)
   const CODE_QUIPS: MsgKey[] = [
     "mascot.quip.npm",
     "mascot.quip.rs",
@@ -272,6 +290,7 @@ export function Nok({
     if (streaming || !selfActivity) {
       setCoding(false);
       setTumble(false);
+      setScaring(false);
       setQuips([]);
       return;
     }
@@ -292,12 +311,12 @@ export function Nok({
     };
     const startTumble = () => {
       setTumble(true);
-      // Шлёп о сайдбар ~2с: «Oooops… I'm Nice» с отскоком
+      // Шлёп о сайдбар ~2с: «Ооопс…» с отскоком
       later(() => spawnQuip("mascot.quip.oops"), 2_000);
       later(() => {
         setTumble(false);
         schedule(18_000 + Math.random() * 25_000);
-      }, 3_400);
+      }, 3_400 * motionScale()); // анимация кувырка: 3.2s * scale
     };
     const startScare = () => {
       // «Бууу»: прыжок на середину сайдбара, краснеет, глаза по пять
@@ -307,7 +326,7 @@ export function Nok({
       later(() => {
         setScaring(false);
         schedule(18_000 + Math.random() * 25_000);
-      }, 3_900);
+      }, 3_900 * motionScale()); // анимация испуга: 3.9s * scale
     };
     const schedule = (delay: number) => {
       t1 = window.setTimeout(() => {
@@ -334,16 +353,16 @@ export function Nok({
     };
     let t1 = 0;
     schedule(10_000 + Math.random() * 18_000);
+    // Состояния выступлений НЕ сбрасываем: их завершают СВОИ таймеры выше.
+    // Re-run сюда приходит только при смене streaming/selfActivity — а та
+    // ветка сбрасывает всё в гарде; на unmount состояния умирают с компонентом
     return () => {
       alive = false;
       timers.forEach((id) => window.clearTimeout(id));
       window.clearTimeout(t1);
-      setCoding(false);
-      setTumble(false);
-      setScaring(false);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- t и пулы стабильны по смыслу
-  }, [streaming, selfActivity, activity, clickTick, visTick]);
+  }, [streaming, selfActivity, spawnQuip]);
 
   // Настройки закрылись: «Фух» — перестали тыкать (глаза прикрыты сами
   // морганием: relief держит их закрытыми 1.4с)
@@ -386,7 +405,8 @@ export function Nok({
   }, [flySeq]);
   useEffect(() => {
     if (!flying) return;
-    const t = window.setTimeout(() => setFlying(false), 9_000);
+    // Полёт в темпе CSS-анимации (9s * --motion-scale), иначе обрыв вперёд
+    const t = window.setTimeout(() => setFlying(false), 9_000 * motionScale());
     return () => window.clearTimeout(t);
   }, [flying]);
   // «Домой»: досрочная посадка по команде

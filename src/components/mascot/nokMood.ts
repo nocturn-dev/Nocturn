@@ -53,9 +53,12 @@ export function pickMood(d: MoodDeps): NokMood {
   if (d.anger >= 5) return "anger";
   if (d.waitingConfirm) return "waiting";
   if (d.errorFlash) return "error";
+  // Полёт — ЯВНАЯ команда пользователя: бьёт самодеятельность и удивление.
+  // Раньше scare/surprised были выше: случайно совпавший «Бууу» срывал
+  // полёт — forwards-анимация обрывалась классом, снап на насест
+  if (d.flying) return "fly";
   if (d.surprised) return "surprised";
   if (d.scaring) return "scare";
-  if (d.flying) return "fly";
   if (d.donePulse) return "done";
   if (d.pet) return "petting";
   if (d.streaming) return d.activity ? "thinking" : "streaming";
