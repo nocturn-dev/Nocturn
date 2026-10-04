@@ -48,6 +48,7 @@ import {
   onTelegramCommand,
   type TelegramCommand,
   pickFolder,
+  type KbTrace,
 } from "./api";
 import { stopSpeaking, speak } from "./tts";
 import { VoiceWake, stripWakeWord, type WakeHandle } from "./voice/wake";
@@ -229,6 +230,8 @@ export default function App() {
   const [compareOpen, setCompareOpen] = useState(false);
   // Базы знаний (RAG): индексы документов + привязка к активному чату
   const [knowledgeOpen, setKnowledgeOpen] = useState(false);
+  // RAG-трасса (PLAN §24 ш.3): последний поиск по базе — для KnowledgeModal
+  const [kbTrace, setKbTrace] = useState<KbTrace | null>(null);
   // Плавающие уведомления (чекпоинты и пр.) — без строк в чате
   const { toasts, addToast } = useToasts();
   // Панель живого просмотра браузера агента + тумблер автооткрытия
@@ -1097,6 +1100,7 @@ export default function App() {
     limitsRef,
     memoryEnabled,
     permRulesRef,
+    onKbTrace: setKbTrace,
   });
   // Для автосейва: активный стрим. Эффект вместо записи в теле рендера —
   // под React Compiler мутация ref во время рендера вне модели
@@ -2993,6 +2997,7 @@ export default function App() {
       <KnowledgeModal
         open={knowledgeOpen}
         onClose={closeKnowledge}
+        trace={kbTrace}
         attachedKbId={activeSession?.kbId ?? null}
         onAttach={(kbId) =>
           setSessions((prev) =>

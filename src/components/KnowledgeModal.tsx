@@ -17,6 +17,7 @@ import {
   pickDocFiles,
   type KbDoc,
   type KbMeta,
+  type KbTrace,
 } from "../api";
 import { useLang } from "../locales";
 import { XSmallIcon } from "./cards/icons";
@@ -30,6 +31,9 @@ interface KnowledgeModalProps {
   onAttach: (kbId: string | null) => void;
   /** Есть ли активный чат: без него привязывать не к чему */
   hasActiveChat: boolean;
+  /** Последняя RAG-инъекция (useAgentRun) — дебаг «почему не нашёл»
+   *  (PLAN §24 ш.3). Не персистится: живёт до рестарта приложения */
+  trace?: KbTrace | null;
 }
 
 export default function KnowledgeModal({
@@ -38,6 +42,7 @@ export default function KnowledgeModal({
   attachedKbId,
   onAttach,
   hasActiveChat,
+  trace,
 }: KnowledgeModalProps) {
   const { t } = useLang();
   const show = useDelayedUnmount(open, 170);
@@ -159,6 +164,47 @@ export default function KnowledgeModal({
           </button>
         </div>
         <p className="mb-4 text-xs leading-relaxed text-halo-muted">{t("kb.hint")}</p>
+
+        {/* Последний поиск по базе активного чата: что реально уехало в
+            контекст (PLAN §24 ш.3) — ответ на «почему агент не нашёл» */}
+        {trace && (
+          <div className="mb-4 rounded-xl border border-halo-line bg-halo-surface/40 px-3.5 py-2.5">
+            <div className="flex items-baseline justify-between gap-2">
+              <p className="text-xs font-semibold text-halo-text">{t("kb.traceTitle")}</p>
+              <p className="shrink-0 text-[0.625rem] text-halo-muted/60">
+                {new Date(trace.ts).toLocaleTimeString()} ·{" "}
+                {bases.find((b) => b.id === trace.kbId)?.name ?? trace.kbId}
+              </p>
+            </div>
+            <p className="mt-1 truncate text-xs text-halo-text" title={trace.query}>
+              «{trace.query}»
+            </p>
+            {trace.failed ? (
+              <p className="mt-1 text-[0.6875rem] text-red-400">{t("kb.traceFailed")}</p>
+            ) : trace.hits.length === 0 ? (
+              <p className="mt-1 text-[0.6875rem] text-halo-muted">{t("kb.traceEmpty")}</p>
+            ) : (
+              <>
+                <p className="mt-1 text-[0.6875rem] text-halo-muted/70">
+                  {t("kb.traceHits", { n: trace.hits.length })}
+                </p>
+                <ul className="mt-1 space-y-1">
+                  {trace.hits.map((h, i) => (
+                    <li key={i} className="min-w-0 text-[0.6875rem] leading-snug">
+                      <span className="font-medium text-halo-text">
+                        [{i + 1}] {h.docTitle}
+                      </span>{" "}
+                      <span className="text-halo-muted/60">· {h.score.toFixed(2)}</span>
+                      <p className="truncate text-halo-muted/70" title={h.text}>
+                        {h.text}
+                      </p>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+          </div>
+        )}
 
         <div className="flex flex-col gap-4 md:flex-row">
           {/* Список баз + создание */}
