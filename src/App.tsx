@@ -418,8 +418,12 @@ export default function App() {
   const [chatMark, setChatMark] = useBoolPref("haloui-chat-mark", true);
   // Эффект стекла на карточках ответов ИИ
   const [msgGlass, setMsgGlass] = useBoolPref("haloui-msg-glass", false);
-  // Маскот Нок у композера (PLAN.md §21)
+  // Маскот Нок у композера (PLAN.md §21) + его характер
   const [mascot, setMascot] = useBoolPref("haloui-mascot", true);
+  const [mascotSize, setMascotSize] = useNumPref("haloui-mascot-size", 1);
+  const [mascotGlow, setMascotGlow] = useNumPref("haloui-mascot-glow", 1);
+  const [mascotEaster, setMascotEaster] = useBoolPref("haloui-mascot-easter", true);
+  const [mascotSelf, setMascotSelf] = useBoolPref("haloui-mascot-self", true);
 
   // Saved-тост (фидбек 26.09): изменения в открытых настройках не тостят
   // вовсе (слайдер масштаба хоть по 1% — ни одного лишнего окна); один тост
@@ -2721,6 +2725,10 @@ export default function App() {
         chatMark={chatMark}
         msgGlass={msgGlass}
         mascot={mascot}
+        mascotSize={mascotSize}
+        mascotGlow={mascotGlow}
+        mascotEaster={mascotEaster}
+        mascotSelf={mascotSelf}
         showMsgTime={appearance.showMsgTime ?? false}
         showWindowControls={sidebarSide === "left"}
         headerInset={sidebarCollapsed ? sidebarSide : null}
@@ -2875,6 +2883,14 @@ export default function App() {
         onMsgGlassChange={setMsgGlass}
         mascot={mascot}
         onMascotChange={setMascot}
+        mascotSize={mascotSize}
+        onMascotSizeChange={setMascotSize}
+        mascotGlow={mascotGlow}
+        onMascotGlowChange={setMascotGlow}
+        mascotEaster={mascotEaster}
+        onMascotEasterChange={setMascotEaster}
+        mascotSelf={mascotSelf}
+        onMascotSelfChange={setMascotSelf}
         memoryEnabled={memoryEnabled}
         onMemoryChange={setMemoryEnabled}
         initialSection={settingsSection}

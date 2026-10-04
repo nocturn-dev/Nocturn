@@ -31,6 +31,7 @@ import { NetworkSection } from "./settings/NetworkSection";
 import { DocsSection } from "./settings/DocsSection";
 import { MemorySection } from "./settings/MemorySection";
 import { ThemeSection } from "./settings/ThemeSection";
+import { MascotSection } from "./settings/MascotSection";
 import { AgentSection, PromptsSection } from "./settings/AgentSection";
 import { ApiSection } from "./settings/ApiSection";
 import { SectionIcon, ExpandWinIcon, CollapseWinIcon, XIcon } from "./settings/parts";
@@ -158,6 +159,14 @@ interface SettingsModalProps {
   /** Маскот Нок у композера (кастомизация) */
   mascot: boolean;
   onMascotChange: (v: boolean) => void;
+  mascotSize: number;
+  onMascotSizeChange: (v: number) => void;
+  mascotGlow: number;
+  onMascotGlowChange: (v: number) => void;
+  mascotEaster: boolean;
+  onMascotEasterChange: (v: boolean) => void;
+  mascotSelf: boolean;
+  onMascotSelfChange: (v: boolean) => void;
   /** Память проектов: контекст предыдущих задач в новых сессиях */
   memoryEnabled: boolean;
   onMemoryChange: (v: boolean) => void;
@@ -203,6 +212,7 @@ const NAV: {
       { id: "main", key: "settings.main", icon: "gear" },
       { id: "profile", key: "settings.profile", icon: "users" },
       { id: "theme", key: "settings.themes", icon: "palette" },
+      { id: "mascot", key: "settings.mascot", icon: "spark" },
       { id: "api", key: "settings.api", icon: "box" },
       { id: "browser", key: "settings.browser", icon: "globe" },
       { id: "computer", key: "settings.computer", icon: "monitor" },
@@ -328,6 +338,14 @@ export default function SettingsModal({
   onMsgGlassChange,
   mascot,
   onMascotChange,
+  mascotSize,
+  onMascotSizeChange,
+  mascotGlow,
+  onMascotGlowChange,
+  mascotEaster,
+  onMascotEasterChange,
+  mascotSelf,
+  onMascotSelfChange,
   memoryEnabled,
   onMemoryChange,
   apiSettings,
@@ -731,8 +749,6 @@ export default function SettingsModal({
               onSettingsLargeChange={onSettingsLargeChange}
               browserPanel={browserPanel}
               onBrowserPanelChange={onBrowserPanelChange}
-              mascot={mascot}
-              onMascotChange={onMascotChange}
               notifyPrefs={notifyPrefs}
               onNotifyPrefsChange={onNotifyPrefsChange}
               runSoundPrefs={runSoundPrefs}
@@ -742,6 +758,20 @@ export default function SettingsModal({
               onImportSessions={onImportSessions}
               voice={voice}
               onVoiceChange={onVoiceChange}
+            />
+          )}
+          {section === "mascot" && (
+            <MascotSection
+              mascot={mascot}
+              onMascotChange={onMascotChange}
+              size={mascotSize}
+              onSizeChange={onMascotSizeChange}
+              glow={mascotGlow}
+              onGlowChange={onMascotGlowChange}
+              easter={mascotEaster}
+              onEasterChange={onMascotEasterChange}
+              selfActivity={mascotSelf}
+              onSelfActivityChange={onMascotSelfChange}
             />
           )}
           {section === "theme" && (

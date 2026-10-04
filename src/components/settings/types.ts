@@ -8,6 +8,7 @@ export interface ApiStatus {
 
 export type Section =
   | "main"
+  | "mascot"
   | "theme"
   | "profile"
   | "api"
