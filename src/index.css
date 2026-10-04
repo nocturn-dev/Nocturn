@@ -940,16 +940,22 @@ html.light.inline-code-claude .markdown code:not(pre code) {
     transform calc(0.55s * var(--motion-scale)) var(--ease-standard),
     opacity calc(0.55s * var(--motion-scale)) ease;
 }
-/* Работа: уехал за левую границу шелла, завис рядом с полем ввода,
+/* Насест справа: все позы и полёты зеркалятся по X (--nok-dir), иначе
+   «работа» и «Буу» уводят Нока ВНУТРЬ композера, а не за внешний край.
+   Переменную объявляет обёртка (ChatArea) — .nok только наследует */
+.nok-perch-right {
+  --nok-dir: -1;
+}
+/* Работа: уехал за внешнюю границу шелла, завис рядом с полем ввода,
    слегка наклонился «в работу» */
 .nok-streaming,
 .nok-thinking {
-  transform: translate(calc(-34px * var(--nok-scale, 1)), calc(30px * var(--nok-scale, 1))) rotate(-6deg);
+  transform: translate(calc(-34px * var(--nok-dir, 1) * var(--nok-scale, 1)), calc(30px * var(--nok-scale, 1))) rotate(calc(-6deg * var(--nok-dir, 1)));
 }
 /* Обиженный уход: растворяется за экраном, pointer-events выключены —
    вернётся по таймеру (класс держит трансформ, не анмаунт) */
 .nok-storm {
-  transform: translate(calc(-46px * var(--nok-scale, 1)), calc(-12px * var(--nok-scale, 1))) scale(0.8);
+  transform: translate(calc(-46px * var(--nok-dir, 1) * var(--nok-scale, 1)), calc(-12px * var(--nok-scale, 1))) scale(0.8);
   opacity: 0;
   pointer-events: none;
 }
@@ -1033,38 +1039,40 @@ html.light.inline-code-claude .markdown code:not(pre code) {
   animation: nok-glow calc(2.4s * var(--motion-scale)) ease-in-out infinite;
 }
 /* «Разучился летать»: взлетает по середине, крутится, шлёпается ИМЕННО
-   в сайдбар, отскакивает и сидит ошалевший — домой уходит плавным
-   переходом обёртки (без телепорта) */
+   в сайдбар (X и вращение — через --nok-dir: с правого насеста зеркально),
+   отскакивает и сидит ошалевший — домой уходит плавным переходом
+   обёртки (без телепорта) */
 @keyframes nok-tumble {
   0% {
     transform: translate(0, 0) rotate(0);
   }
   16% {
-    transform: translate(8px, -54px) rotate(12deg);
+    transform: translate(calc(8px * var(--nok-dir, 1)), -54px) rotate(calc(12deg * var(--nok-dir, 1)));
   }
   36% {
-    transform: translate(-14px, -36px) rotate(190deg);
+    transform: translate(calc(-14px * var(--nok-dir, 1)), -36px) rotate(calc(190deg * var(--nok-dir, 1)));
   }
   56% {
-    transform: translate(-34px, -12px) rotate(330deg);
+    transform: translate(calc(-34px * var(--nok-dir, 1)), -12px) rotate(calc(330deg * var(--nok-dir, 1)));
   }
   70% {
-    transform: translate(-42px, 4px) rotate(360deg);
+    transform: translate(calc(-42px * var(--nok-dir, 1)), 4px) rotate(calc(360deg * var(--nok-dir, 1)));
   }
   79% {
-    transform: translate(-36px, -12px) rotate(352deg);
+    transform: translate(calc(-36px * var(--nok-dir, 1)), -12px) rotate(calc(352deg * var(--nok-dir, 1)));
   }
   87% {
-    transform: translate(-42px, 2px) rotate(360deg);
+    transform: translate(calc(-42px * var(--nok-dir, 1)), 2px) rotate(calc(360deg * var(--nok-dir, 1)));
   }
   100% {
-    transform: translate(-42px, 4px) rotate(360deg);
+    transform: translate(calc(-42px * var(--nok-dir, 1)), 4px) rotate(calc(360deg * var(--nok-dir, 1)));
   }
 }
 .nok-tumble {
   animation: nok-tumble calc(3.2s * var(--motion-scale)) ease-in-out forwards;
 }
-/* «Бууу»: прыжок дугой на СЕРЕДИНУ сайдбара (~-224px, на высоте кромки),
+/* «Бууу»: прыжок дугой на СЕРЕДИНУ сайдбара (~-224px по X, на высоте
+   кромки; X — через --nok-dir: с правого насеста прыгает вправо),
    краснеет, глаза по пять копеек, висит с «Бууу!» — потом колобком
    катится домой ПО КРОМКЕ композера (вращение пропорционально пути) */
 @keyframes nok-scare {
@@ -1072,28 +1080,28 @@ html.light.inline-code-claude .markdown code:not(pre code) {
     transform: translate(0, 0) rotate(0);
   }
   14% {
-    transform: translate(-70px, -92px) rotate(-18deg);
+    transform: translate(calc(-70px * var(--nok-dir, 1)), -92px) rotate(calc(-18deg * var(--nok-dir, 1)));
   }
   30% {
-    transform: translate(-224px, -10px) rotate(180deg);
+    transform: translate(calc(-224px * var(--nok-dir, 1)), -10px) rotate(calc(180deg * var(--nok-dir, 1)));
   }
   46% {
-    transform: translate(-224px, -10px) rotate(180deg);
+    transform: translate(calc(-224px * var(--nok-dir, 1)), -10px) rotate(calc(180deg * var(--nok-dir, 1)));
   }
   60% {
-    transform: translate(-224px, -10px) rotate(180deg);
+    transform: translate(calc(-224px * var(--nok-dir, 1)), -10px) rotate(calc(180deg * var(--nok-dir, 1)));
   }
   68% {
-    transform: translate(-190px, -8px) rotate(240deg);
+    transform: translate(calc(-190px * var(--nok-dir, 1)), -8px) rotate(calc(240deg * var(--nok-dir, 1)));
   }
   78% {
-    transform: translate(-110px, -4px) rotate(320deg);
+    transform: translate(calc(-110px * var(--nok-dir, 1)), -4px) rotate(calc(320deg * var(--nok-dir, 1)));
   }
   88% {
-    transform: translate(-30px, -2px) rotate(400deg);
+    transform: translate(calc(-30px * var(--nok-dir, 1)), -2px) rotate(calc(400deg * var(--nok-dir, 1)));
   }
   100% {
-    transform: translate(0, 0) rotate(430deg);
+    transform: translate(0, 0) rotate(calc(430deg * var(--nok-dir, 1)));
   }
 }
 .nok-scare {
@@ -1137,22 +1145,23 @@ html.light.inline-code-claude .markdown code:not(pre code) {
 .nok-z:nth-of-type(2) {
   animation-delay: calc(1.2s * var(--motion-scale));
 }
-/* Пасхалка «Эй Нок, полетай»: облёт над чатом с посадкой на насест */
+/* Пасхалка «Эй Нок, полетай»: облёт над чатом с посадкой на насест
+   (X — через --nok-dir: с правого насеста облёт уходит влево) */
 @keyframes nok-fly {
   0% {
     transform: translate(0, 0);
   }
   15% {
-    transform: translate(60px, -190px) rotate(8deg);
+    transform: translate(calc(60px * var(--nok-dir, 1)), -190px) rotate(calc(8deg * var(--nok-dir, 1)));
   }
   35% {
-    transform: translate(240px, -260px) rotate(-6deg);
+    transform: translate(calc(240px * var(--nok-dir, 1)), -260px) rotate(calc(-6deg * var(--nok-dir, 1)));
   }
   55% {
-    transform: translate(60px, -300px) rotate(6deg);
+    transform: translate(calc(60px * var(--nok-dir, 1)), -300px) rotate(calc(6deg * var(--nok-dir, 1)));
   }
   75% {
-    transform: translate(280px, -180px) rotate(-4deg);
+    transform: translate(calc(280px * var(--nok-dir, 1)), -180px) rotate(calc(-4deg * var(--nok-dir, 1)));
   }
   100% {
     transform: translate(0, 0);
