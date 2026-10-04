@@ -21,6 +21,8 @@ type NokMood =
   | "tumble" // нелепость: «разучился летать»
   | "done" // вспышка завершения прогона
   | "petting" // поглаживание
+  | "scare" // «Бууу» с сайдбара
+  | "groove" // наушники, качание под музыку
   | "coding" // самодеятельность: ноутбук
   | "streaming"
   | "thinking"
@@ -56,6 +58,8 @@ export function Nok({
   homeSeq = 0,
   colors,
   themeKey,
+  musicPlaying = false,
+  settingsClosedSeq = 0,
 }: {
   streaming: boolean;
   activity: string | null;
@@ -77,6 +81,10 @@ export function Nok({
   colors?: { body?: string; glow?: string; wing?: string };
   /** Ключ темы: смена — Нок удивляется */
   themeKey?: string;
+  /** Музыка играет (Spotify/YouTube) — наушники и качание */
+  musicPlaying?: boolean;
+  /** Настройки закрылись (счётчик) — выдыхает с облегчением */
+  settingsClosedSeq?: number;
 }) {
   const { t } = useLang();
 
@@ -90,6 +98,7 @@ export function Nok({
   const [clickTick, setClickTick] = useState(0); // будильник сна от кликов
   const [coding, setCoding] = useState(false); // самодеятельность: ноутбук
   const [flying, setFlying] = useState(false); // пасхалка «полетай»
+  const [scaring, setScaring] = useState(false); // «Бууу» с сайдбара
   const [tumble, setTumble] = useState(false); // нелепость: «разучился летать»
   const [surprised, setSurprised] = useState(false); // смена темы
   const [quips, setQuips] = useState<{ id: number; key: MsgKey; dx: number }[]>([]);
@@ -216,15 +225,25 @@ export function Nok({
         schedule(18_000 + Math.random() * 25_000);
       }, 3_400);
     };
+    const startScare = () => {
+      // «Бууу»: прыжок на середину сайдбара, краснеет, глаза по пять
+      // копеек — потом колобком катится обратно на край композера
+      setScaring(true);
+      later(() => spawnQuip("mascot.quip.boo"), 1_200);
+      later(() => {
+        setScaring(false);
+        schedule(18_000 + Math.random() * 25_000);
+      }, 3_700);
+    };
     const schedule = (delay: number) => {
       t1 = window.setTimeout(() => {
         if (!alive) return;
         const roll = Math.random();
-        if (roll < 0.45) {
+        if (roll < 0.4) {
           // Мысль сама по себе — ноутбука не будет
           spawnQuip(pick(THOUGHT_QUIPS));
           schedule(9_000 + Math.random() * 22_000);
-        } else if (roll < 0.8) {
+        } else if (roll < 0.65) {
           // Ноутбук: в половине случаев мысль прилетает за секунду до
           if (Math.random() < 0.5) {
             spawnQuip(pick(THOUGHT_QUIPS));
@@ -232,8 +251,10 @@ export function Nok({
           } else {
             startCoding();
           }
-        } else {
+        } else if (roll < 0.8) {
           startTumble();
+        } else {
+          startScare();
         }
       }, delay);
     };
@@ -245,9 +266,25 @@ export function Nok({
       window.clearTimeout(t1);
       setCoding(false);
       setTumble(false);
+      setScaring(false);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- t и пулы стабильны по смыслу
   }, [streaming, selfActivity, activity, clickTick]);
+
+  // Настройки закрылись: «Фух» — перестали тыкать (глаза прикрыты сами
+  // морганием: relief держит их закрытыми 1.4с)
+  const [relief, setRelief] = useState(false);
+  const prevSettingsRef = useRef(settingsClosedSeq);
+  useEffect(() => {
+    if (settingsClosedSeq > prevSettingsRef.current) {
+      setRelief(true);
+      const t = window.setTimeout(() => setRelief(false), 1_400);
+      setQuips([{ id: ++quipIdRef.current, key: "mascot.quip.relief", dx: 0 }]);
+      prevSettingsRef.current = settingsClosedSeq;
+      return () => window.clearTimeout(t);
+    }
+    prevSettingsRef.current = settingsClosedSeq;
+  }, [settingsClosedSeq]);
 
   // Удивление: смена темы — глаза по пять копеек и подпрыгивает
   const prevThemeRef = useRef<string | undefined>(undefined);
@@ -317,7 +354,9 @@ export function Nok({
       ? "anger"
       : surprised
         ? "surprised"
-        : flying
+        : scaring
+          ? "scare"
+          : flying
           ? "fly"
           : donePulse
             ? "done"
@@ -333,18 +372,21 @@ export function Nok({
                     ? "tumble"
                     : coding
                       ? "coding"
-                      : "idle";
+                      : musicPlaying
+                        ? "groove"
+                        : "idle";
 
   // Палитра клеток: кастомные цвета частей ("" — токен темы); статусные
   // цвета злости — семантика, кастом их не перебивает
   const hot = anger >= 10 ? RAGE : WARN;
   const bodyColor = colors?.body || "var(--halo-deep)";
-  const lampFill = mood === "anger" ? hot : colors?.glow || "var(--halo-accent)";
+  const lampFill =
+    mood === "anger" || mood === "scare" ? hot : colors?.glow || "var(--halo-accent)";
   const wingColor = colors?.wing || "var(--halo-muted)";
   const eyeFill =
-    mood === "anger"
+    mood === "anger" || mood === "scare"
       ? hot
-      : blink || mood === "sleeping"
+      : blink || mood === "sleeping" || relief
         ? bodyColor
         : // Глаза = text-токен: светлая точка на тёмном теле в тёмных темах
           // и тёмная на deep-теле в светлых (bg в тёмной теме слишком близок
@@ -492,7 +534,7 @@ export function Nok({
           {matrix.flatMap((row, y) =>
             [...row].flatMap((ch, x) => {
               if (ch === "." || ch === "G" || ch === "g" || ch === "w") return [];
-              const big = ch === "e" && mood === "surprised";
+              const big = ch === "e" && (mood === "surprised" || mood === "scare");
               return [
                 <rect
                   key={`${x}:${y}`}
@@ -534,6 +576,33 @@ export function Nok({
             }),
           )}
         </g>
+
+        {/* Наушники: под музыкой (Spotify/YouTube) — поёт в два пикселя */}
+        {musicPlaying && mood !== "sleeping" && (
+          <g className="nok-phones">
+            <rect x={1.4} y={1.6} width={6.2} height={0.7} rx={0.35} fill={bodyColor} />
+            <rect
+              x={0.7}
+              y={2}
+              width={1.3}
+              height={2}
+              rx={0.5}
+              fill={bodyColor}
+              stroke={lampFill}
+              strokeWidth={0.3}
+            />
+            <rect
+              x={7}
+              y={2}
+              width={1.3}
+              height={2}
+              rx={0.5}
+              fill={bodyColor}
+              stroke={lampFill}
+              strokeWidth={0.3}
+            />
+          </g>
+        )}
 
         {/* Ноутбук самодеятельности: раскрыт перед Ноком, на «экране» —
             строчки кода (вспышат по очереди классом .nok-code) */}

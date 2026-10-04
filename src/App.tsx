@@ -187,6 +187,15 @@ export default function App() {
   const projectsLoadedRef = useRef(false);
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // Сколько раз настройки закрылись (Нок выдыхает с облегчением)
+  const [settingsClosedSeq, setSettingsClosedSeq] = useState(0);
+  const settingsWasOpenRef = useRef(false);
+  useEffect(() => {
+    if (settingsWasOpenRef.current && !settingsOpen) {
+      setSettingsClosedSeq((v) => v + 1);
+    }
+    settingsWasOpenRef.current = settingsOpen;
+  }, [settingsOpen]);
   // Раздел настроек для программного открытия (плагины из сайдбара)
   const [settingsSection, setSettingsSection] = useState<Section | null>(null);
   // Пользовательские шрифты: регистрация FontFace после старта
@@ -2747,6 +2756,7 @@ export default function App() {
         mascotSelf={mascotSelf}
         mascotColors={mascotColors}
         mascotThemeKey={theme + "|" + JSON.stringify(appearance)}
+        settingsClosedSeq={settingsClosedSeq}
         showMsgTime={appearance.showMsgTime ?? false}
         showWindowControls={sidebarSide === "left"}
         headerInset={sidebarCollapsed ? sidebarSide : null}
