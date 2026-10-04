@@ -574,6 +574,20 @@ export async function gitStatus(path: string): Promise<GitEntry[] | null> {
   }
 }
 
+/** Дифф ветки против базы — кнопка «Review» в шапке чата (PLAN §23) */
+export interface BranchDiff {
+  branch: string;
+  base: string;
+  stat: string;
+  diff: string;
+  truncated: boolean;
+}
+
+export async function gitBranchDiff(root: string, base: string): Promise<BranchDiff> {
+  // Ошибки (не-repo, нет базы) — наверх: кнопка показывает тост
+  return await invoke<BranchDiff>("git_branch_diff", { root, base });
+}
+
 // ---------- Чекпоинты проекта ----------
 
 export interface CheckpointMeta {

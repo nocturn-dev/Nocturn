@@ -306,6 +306,7 @@ pub fn run() {
             plugins::plugins_save,
             files::list_dir,
             files::git_status,
+            files::git_branch_diff,
             files::project_rules_read,
             files::checkpoint_save,
             files::checkpoint_list,
