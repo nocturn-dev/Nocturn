@@ -1,0 +1,38 @@
+/**
+ * Предчек правил прав в диспетчере инструментов (PLAN §24 шаг 4г) —
+ * вынесен из useAgentRun без изменения поведения. Фронтовый предчек
+ * сберегает бессмысленное подтверждение; бекенд (perm.rs) всё равно
+ * авторитетен — матч здесь best-effort.
+ */
+
+import { ruleMatches, type PermRules } from "./permRules";
+import { classifyShellRun } from "./shellRules";
+
+export interface ToolRuleVerdict {
+  denyHit: boolean;
+  alwaysAsk: boolean;
+  allowRule: boolean;
+}
+
+export function evaluateToolRules(
+  name: string,
+  rules: PermRules | null | undefined,
+  ruleArg: string | null,
+  fsTool: boolean,
+): ToolRuleVerdict {
+  const denyHit = rules ? ruleMatches(rules.deny, name, ruleArg, fsTool) : false;
+  let alwaysAsk = false;
+  let allowRule = false;
+  if (!denyHit && rules) {
+    if (name === "shell_run" && ruleArg) {
+      // Волна E2: allow не пробивает complex/dangerous (→ обычный
+      // mutating-флоу); always_ask на shell спрашивает как обычно
+      alwaysAsk = ruleMatches(rules.always_ask, name, ruleArg, false);
+      allowRule = !alwaysAsk && classifyShellRun(ruleArg, rules) === "allow";
+    } else {
+      alwaysAsk = ruleMatches(rules.always_ask, name, ruleArg, fsTool);
+      allowRule = ruleMatches(rules.allow, name, ruleArg, fsTool);
+    }
+  }
+  return { denyHit, alwaysAsk, allowRule };
+}
