@@ -44,8 +44,12 @@ but stay at the plain-chat level. Nocturn is the missing middle ground:
 ### Chat & agent
 
 - **Streaming chat** with any OpenAI-compatible provider or native Anthropic;
-  markdown, syntax highlighting, **Mermaid diagrams**, citation of any tool
-  result, quote-into-composer by selection.
+  markdown, syntax highlighting, **Mermaid diagrams** (editable source —
+  tweak the diagram by hand and send your edits back to the composer),
+  citation of any tool result, quote-into-composer by selection.
+- **Branch review** — a button in the chat header collects the diff against
+  a base branch and hands it to the agent as a strict code-review task
+  (findings by severity, verdict, no code changes) before you merge or push.
 - **Agent mode** with tools: files (read/write/grep/list), shell, live **PTY
   terminal**, **Browser Use** via CDP (navigate, read, screenshot, click — with
   a live view panel), **Computer Use** (screen capture, mouse, keyboard),
@@ -77,15 +81,19 @@ but stay at the plain-chat level. Nocturn is the missing middle ground:
   (`memory_save` / `memory_recall`); review, edit or wipe them in settings.
 - **Project rules** — an `AGENTS.md` / `CLAUDE.md` in the project root is
   automatically injected into the agent's context.
-- **Checkpoints & rollback** — automatic snapshots before agent edits, restore
-  any state in one click; optional **git auto-commit** before edits.
+- **Checkpoints & rollback** — automatic snapshots before agent edits, shown
+  as a timeline in the sidebar (expand any snapshot to see which files it
+  holds and how they changed since), restore any state in one click;
+  optional **git auto-commit** before edits.
 
 ### Knowledge
 
 - **Knowledge bases (RAG)** — index your documents (markdown, code, logs, CSV…)
   into a local SQLite FTS5 index and attach a base to a chat: relevant snippets
   are injected into context automatically. Chunking, search and storage are
-  fully local — no embedding APIs, nothing leaves the machine.
+  fully local — no embedding APIs, nothing leaves the machine. A "latest
+  search" panel shows exactly which snippets were injected (or why nothing
+  was found) — no more guessing what the agent can and cannot see.
 - **Vault** — markdown notes with `[[wiki links]]`, a visual knowledge graph,
   and vault tools the agent can read, write and search.
 
@@ -207,6 +215,25 @@ the live palette and re-tint instantly when you switch themes or accents.
 > are the friendlier choice. Keep custom clips short (~50 MB) and dim — the
 > app adds a dark overlay on top for text readability.
 
+## Mascot
+
+**Nok** — a pixel firefly who lives on the composer's edge (Settings →
+«Маскот», on by default). He is not decoration: he mirrors what the agent is
+doing. He flies to the text while streaming, leans in while thinking, bursts
+confetti when a run finishes, panics (red lamp) when it fails, raises a
+question mark when the agent waits for your answer, naps after five idle
+minutes, and — when music plays — puts on tiny headphones. Left alone he
+amuses himself: floats thought-bubbles, "writes code" on a tiny laptop,
+tumbles off the edge ("learned to fly"), or jumps at you from the sidebar.
+
+Poke him: slow clicks are petting (hearts, warmer glow), fast clicks build an
+anger ladder until he storms off screen and returns sulking. Right-click
+gives commands — fly around, come home, sleep, hide until restart — and you
+can drag him to either corner of the composer. Type "Hey Nok, fly" in the
+chat and he takes a lap over your messages (easter eggs never reach the
+model). Everything repaints from theme tokens, so he fits all 13 looks,
+respects reduced motion, and — yes — he has opinions about `rm -rf`.
+
 ## Privacy & Security
 
 Nocturn never sends anything anywhere except the API provider **you** configured.
@@ -231,10 +258,12 @@ analytics, no crash reporting, no phone-home. Concretely:
 - **The agent layer** is hardened by regular deep-audit passes (permission
   checks, sensitive-path guards, command allowlists, tool-output handling).
   Permission rules are enforced server-side, the app's own config directory is
-  unwritable by the agent, and OAuth tokens (if you opt into an OAuth MCP
-  server) are stored encrypted — see [SECURITY.md](SECURITY.md) for the full
-  breakdown of what is stored and what leaves the machine, including known
-  trade-offs.
+  unwritable by the agent, agent file writes are symlink-race-proof (the file
+  is opened refusing symlinks and its true location is re-validated against
+  the sensitive-path and project-roots gates before anything is written), and
+  OAuth tokens (if you opt into an OAuth MCP server) are stored encrypted —
+  see [SECURITY.md](SECURITY.md) for the full breakdown of what is stored and
+  what leaves the machine, including known trade-offs.
 
 ## Getting started
 
