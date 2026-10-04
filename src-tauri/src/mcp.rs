@@ -870,9 +870,17 @@ impl RemoteConnection {
             *self.session.lock().unwrap_or_else(|p| p.into_inner()) = Some(sid.to_string());
         }
         let status = resp.status();
-        let text = resp
-            .text()
+        // Тело — под тем же бюджетом, что и заголовки: stalled-соединение
+        // после ответа сервера иначе вешало вызывающего навсегда
+        // (mcp_autoconnect ждёт join_all без собственного дедлайна)
+        let text = tokio::time::timeout(timeout, resp.text())
             .await
+            .map_err(|_| {
+                format!(
+                    "mcp transport: response body timed out after {}s",
+                    timeout.as_secs()
+                )
+            })?
             .map_err(|e| format!("mcp transport: failed to read remote MCP response: {e}"))?;
         if !status.is_success() {
             // 202 Accepted на уведомления — не ошибка (некоторые серверы шлют 202)

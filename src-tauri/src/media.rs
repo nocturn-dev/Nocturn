@@ -190,21 +190,37 @@ mod windows_impl {
 
     fn run_observer() {
         // Менеджер один на систему; RequestAsync -> .get() блокирует поток
-        // наблюдателя — нарочно, он больше ничего не делает
-        let manager =
-            match GlobalSystemMediaTransportControlsSessionManager::RequestAsync() {
-                Ok(op) => match op.get() {
-                    Ok(m) => m,
+        // наблюдателя — нарочно, он больше ничего не делает.
+        // SMTC-сервис может быть не готов к моменту старта приложения:
+        // одноразовый отказ раньше убивал наблюдателя до рестарта процесса —
+        // ограниченный ретрарай на СВОЁМ потоке (минута), не в цикле опроса
+        let manager = {
+            let mut found = None;
+            for attempt in 0..12 {
+                match GlobalSystemMediaTransportControlsSessionManager::RequestAsync() {
+                    Ok(op) => match op.get() {
+                        Ok(m) => {
+                            found = Some(m);
+                            break;
+                        }
+                        Err(e) => {
+                            eprintln!("media: SMTC request failed (attempt {}): {e}", attempt + 1);
+                        }
+                    },
                     Err(e) => {
-                        eprintln!("media: SMTC request failed: {e}");
-                        return;
+                        eprintln!("media: SMTC unavailable (attempt {}): {e}", attempt + 1);
                     }
-                },
-                Err(e) => {
-                    eprintln!("media: SMTC unavailable: {e}");
+                }
+                std::thread::sleep(std::time::Duration::from_secs(5));
+            }
+            match found {
+                Some(m) => m,
+                None => {
+                    eprintln!("media: SMTC unavailable after retries — minubar disabled until restart");
                     return;
                 }
-            };
+            }
+        };
 
         let (tx, rx) = mpsc::channel::<Msg>();
         let _ = TX.set(tx);
@@ -776,13 +792,16 @@ mod windows_impl {
                 {
                     let dur = if *neg { el + du } else { *du };
                     if *el <= dur && (30..=14400).contains(&dur) {
-                        let factor = if ((*value / 1000.0).round() as i64 - *el as i64).abs() <= 2 {
-                            1000.0
-                        } else if ((*value).round() as i64 - *el as i64).abs() <= 2 {
-                            1.0
-                        } else {
+                        // Делитель — по МЕНЬШЕЙ ошибке против метки, а не по
+                        // первому прошедшему порогу: у секундного слайдера со
+                        // значением <2 с мс-ветка (|1.5/1000 − 1| ≤ 2) была
+                        // истинна первой и давала позицию 0 на 30 с кэша
+                        let err_ms = (*value / 1000.0 - *el as f64).abs();
+                        let err_sec = (*value - *el as f64).abs();
+                        if err_ms.min(err_sec) > 2.0 {
                             continue;
-                        };
+                        }
+                        let factor = if err_ms <= err_sec { 1000.0 } else { 1.0 };
                         return Some(((*value / factor).round() as u64, dur, pattern.clone(), factor));
                     }
                 }
@@ -1013,8 +1032,13 @@ mod lyrics {
         {
             let mut guard = CACHE.lock().map_err(|e| e.to_string())?;
             let map = guard.get_or_insert_with(HashMap::new);
+            // Вытеснение четверти вместо clear(): после clear() плейлист
+            // >100 треков перезагружал бы лирику всего цикла с lrclib
             if map.len() > 100 {
-                map.clear();
+                let victims: Vec<String> = map.keys().take(25).cloned().collect();
+                for k in victims {
+                    map.remove(&k);
+                }
             }
             map.insert(key, dto.clone());
         }

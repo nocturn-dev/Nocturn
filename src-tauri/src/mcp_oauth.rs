@@ -299,7 +299,15 @@ pub async fn authorize(
             .open_url(&auth_url, None::<String>)
             .map_err(|e| format!("failed to open browser: {e}"))?;
     }
-    let code = wait_for_code_on(listener, &state, LOOPBACK_TIMEOUT_SECS)?;
+    // wait_for_code_on — синхронный poll-цикл до 180 с: обязан жить в
+    // blocking-пуле, иначе занимает tokio-воркер целиком (параллельные
+    // authorize съедают пул; домовой паттерн — pty.rs/colibri.rs)
+    let state_for_wait = state.clone();
+    let code = tauri::async_runtime::spawn_blocking(move || {
+        wait_for_code_on(listener, &state_for_wait, LOOPBACK_TIMEOUT_SECS)
+    })
+    .await
+    .map_err(|e| format!("oauth wait task failed: {e}"))??;
 
     let client = reqwest::Client::builder()
         .timeout(HTTP_TIMEOUT)
