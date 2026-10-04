@@ -1913,6 +1913,17 @@ export interface KbHit {
   score: number;
 }
 
+/** Трасса последней RAG-инъекции (дебаг «почему не нашёл», PLAN §24 ш.3):
+ *  failed — kbQuery упал (KB-H2 тост); hits пуст при failed=false — честное
+ *  «нет совпадений» */
+export interface KbTrace {
+  kbId: string;
+  query: string;
+  ts: number;
+  hits: KbHit[];
+  failed: boolean;
+}
+
 /** Создать базу (каталог + meta + пустой FTS-индекс в appdata) */
 export async function kbCreate(name: string): Promise<string> {
   if (!inTauri) throw new Error("Базы знаний работают в нативном приложении (npm run tauri dev)");

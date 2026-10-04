@@ -131,6 +131,9 @@ export interface AgentRunDeps {
   activeSessionRef: { current: Session | null };
   setBrowserPanelOpen: (v: boolean) => void;
   addToast: (text: string) => void;
+  /** RAG-трасса (PLAN §24 ш.3): последний поиск по базе — для панели
+   *  Knowledge. Не передан — запись не ведётся */
+  onKbTrace?: (trace: import("../api").KbTrace) => void;
   setUsageLog: React.Dispatch<React.SetStateAction<UsageEvent[]>>;
   chainRunning: boolean;
   /** Автопродолжение ask_user без ответа (5 минут) */
@@ -161,6 +164,7 @@ export function useAgentRun(deps: AgentRunDeps) {
     activeSessionRef,
     setBrowserPanelOpen,
     addToast,
+    onKbTrace,
     setUsageLog,
     chainRunning,
     askAutoContinue,
@@ -1166,13 +1170,24 @@ export function useAgentRun(deps: AgentRunDeps) {
       // битая/занятая база означала чат без контекста документов и без
       // единого сигнала. Теперь: диагностика в консоль всегда, тост один
       // раз на базу; пустые хиты (нет совпадений) — не сбой
+      let kbFailed = false;
       const hits = await kbQuery(kbId, text, 6).catch((e) => {
         console.warn(`kb_query failed for "${kbId}":`, e);
         if (!kbWarnedRef.current.has(kbId)) {
           kbWarnedRef.current.add(kbId);
           addToast(t("kb.queryFailed"));
         }
+        kbFailed = true;
         return [];
+      });
+      // RAG-трасса (PLAN §24 ш.3): снапшот для панели Knowledge. Запись
+      // рядом с инъекцией — сама инъекция ниже не тронута
+      onKbTrace?.({
+        kbId,
+        query: text,
+        ts: Date.now(),
+        hits,
+        failed: kbFailed,
       });
       if (hits.length > 0) {
         const block = hits
