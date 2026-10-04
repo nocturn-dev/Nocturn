@@ -942,9 +942,48 @@ KnowledgeModal (App: knowledgeOpen, attachedKbId = activeSession.kbId).
 
 ### Шаг 4 — Тест-покрытие useAgentRun (L, 3–5 вечеров, ДРОБИТЬ)
 Правило §18 «один домен за шаг». Порядок:
-- 4а. Инвентаризация: карта чистых зон хука (парсинг аргументов,
-  plan_update-валидация, bg-патчи, инъекции истории) — список в этом
-  пункте, ничего не пишется;
+- 4а. Инвентаризация — СДЕЛАНО 04.10. Карта чистых зон useAgentRun
+  (2972 строки; ~2/3 — React/стейт-склейка, она НЕ извлекается).
+
+  Уже в модулях (трогать не надо): buildHistory/buildMemoryBlock/
+  historyWithSummary (agent/history), applyMicrocompact, compactHistory
+  (agent/autocompact), classifyShellRun (agent/shellRules), ruleMatches
+  (agent/permRules), filterToolSchemas/isMutatingTool/isConcurrencySafe
+  (agent/toolFilter), evalHardLimit (limits), parseWorkflow/interpolate
+  (workflow), runSubagent/mergeRoles (subagents).
+
+  Чистое НА модульном уровне хука (тесты добавляются дёшево, extractor
+  не нужен): parseHttpCode; allowKey; ruleArgument (JSON.parse →
+  command/path). Все три без единого теста сегодня.
+
+  ПАРАМЕТРИЧЕСКИЕ зоны (извлекаются с передачей колбэков/refs):
+  • chatWithRetry (212–296) — ретрай ×2 + фолбэк 429/5xx до первого
+    токена + aborted-барьеры. Зависимости: isAborted(), onRetry,
+    onFallback, chatStream. САМАЯ ценная непокрытая транспортная логика;
+  • план-валидация (2040–2093, applyPlan) — parsePlanUpdate(raw) →
+    PlanTask[] | null: массив объектов, непустой title, статус-enum.
+    Чистая целиком;
+  • ask_user-валидация (1866–1900) — parseAskSpec(args) → spec | null:
+    question, 2–4 опции с label, header cap 24, multiSelect. Чистая;
+  • resolveRole (2093+ и 2470+) — дублированная фолбэк-цепочка
+    mergeRoles → find → coder → [0] → литеральный фолбэк. Вынесение
+    убирает КОПИЮ (два места, оба с ручным литеральным фолбэком — при
+    изменении ролей разъедутся);
+  • диспетчерные правила (2660–2690) — deny/alwaysAsk/allow + ветка
+    shell_run с classifyShellRun → evaluateToolRules(...) → {
+    denyHit, alwaysAsk, allowRule }. Табличные тесты «allow git * не
+    пробивает complex» и т.п.
+
+  НЕ извлекать (React/стейт-склейка, осознанно): finalize (839–980 —
+  дренаж стейта, очередь, звуки/TG), bg-IIFE субагентов (2170–2390),
+  finishTool/flushSafeRun (2554–2606), ensureCheckpoint (1759), execTool
+  (1718), buildHistory-склейка инъекций (1160–1330 — IPC-композиция),
+  wake/handleStop/handleAskAnswer (2852–2972).
+
+  Вывод для 4б/4в/4г: 4б = planUpdate + тесты на модульные хелперы
+  (parseHttpCode/allowKey/ruleArgument) — S; 4в = askSpec + resolveRole
+  (убирает дубль) — S; 4г = chatRetry + evaluateToolRules — M (самое
+  ценное, требует инъекции isAborted в chatWithRetry).
 - 4б. Экстракция plan_update-валидации в чистый модуль + табличные тесты
   (она уже почти чистая — седловая точка);
 - 4в. Экстракция парсинга ask_user-спеки (валидация question/options) —
