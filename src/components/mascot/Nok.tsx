@@ -1,33 +1,22 @@
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { useLang, type MsgKey } from "../../locales";
-import { NOK_BASE, NOK_BLINK, NOK_COLS, NOK_ROWS } from "./nokSprites";
+import { NOK_BASE, NOK_BLINK, NOK_COLS, NOK_FLY, NOK_ROWS } from "./nokSprites";
+import { pickMood, type NokMood, type PostRunQuip } from "./nokMood";
 
 /**
  * Нок — светлячок-маскот Nocturn (PLAN.md §21). Живёт у композера:
  * сопровождает стриминг (свечение пульсирует в ритме typing-точек),
  * thinking (точки над головой — тот же темп индикатора), завершение прогона
- * (вспышка + конфетти, синхронно со звуком complete), сон при простое.
- * Клики: медленные — поглаживание (сердечки, свет теплеет), частые — лесенка
- * злости (янтарный warn → красный строб, улетает за экран, возвращается
- * через 30с). Палитра — theme-токены: перекрашивается во всех темах сам.
- * Reduce-motion глушится общими правилами index.css (спрайт статичен).
+ * (вспышка + конфетти, синхронно со звуком complete), сон при простое,
+ * сон при свёрнутом окне. Статус-маячок агента: ждёт подтверждения ask_user
+ * (знак вопроса, клик ведёт к вопросу) и ошибка прогона (восклицание,
+ * красная лампа, клик скроллит к ошибке). Клики: медленные — поглаживание
+ * (сердечки, свет теплеет), частые — лесенка злости (янтарный warn →
+ * красный строб, улетает за экран, возвращается через 30с). В полёте
+ * машет крыльями (второй кадр спрайта, кадры меняет CSS). Палитра —
+ * theme-токены: перекрашивается во всех темах сам. Reduce-motion глушится
+ * общими правилами index.css (спрайт статичен).
  */
-
-type NokMood =
-  | "storm" // улетел обиженным за экран
-  | "anger" // лесенка злости
-  | "surprised" // смена темы
-  | "fly" // пасхалка «Эй Нок, полетай»
-  | "tumble" // нелепость: «разучился летать»
-  | "done" // вспышка завершения прогона
-  | "petting" // поглаживание
-  | "scare" // «Бууу» с сайдбара
-  | "groove" // наушники, качание под музыку
-  | "coding" // самодеятельность: ноутбук
-  | "streaming"
-  | "thinking"
-  | "sleeping"
-  | "idle";
 
 /** Статусные цвета злости — семантика warn/error (сознательное исключение
  *  из theme-токенов, как палитры статусов в карточках) */
@@ -60,6 +49,11 @@ export function Nok({
   themeKey,
   musicPlaying = false,
   settingsClosedSeq = 0,
+  waitingConfirm = false,
+  errorSeq = 0,
+  postRunQuip = null,
+  napSeq = 0,
+  onSignal,
 }: {
   streaming: boolean;
   activity: string | null;
@@ -85,6 +79,16 @@ export function Nok({
   musicPlaying?: boolean;
   /** Настройки закрылись (счётчик) — выдыхает с облегчением */
   settingsClosedSeq?: number;
+  /** Агент ждёт подтверждения (ask_user): знак вопроса, клик — сигнал чату */
+  waitingConfirm?: boolean;
+  /** Рост счётчика — прогон упал: тревожная вспышка + реплика */
+  errorSeq?: number;
+  /** Квип после завершения прогона (±дифф / «перерыв») — решает ChatArea */
+  postRunQuip?: PostRunQuip | null;
+  /** Рост счётчика — «Спать» из меню */
+  napSeq?: number;
+  /** Клик в waiting/error ведёт к карточке (скролл/подсветка) — не гладит */
+  onSignal?: (kind: "confirm" | "error") => void;
 }) {
   const { t } = useLang();
 
@@ -101,26 +105,102 @@ export function Nok({
   const [scaring, setScaring] = useState(false); // «Бууу» с сайдбара
   const [tumble, setTumble] = useState(false); // нелепость: «разучился летать»
   const [surprised, setSurprised] = useState(false); // смена темы
-  const [quips, setQuips] = useState<{ id: number; key: MsgKey; dx: number }[]>([]);
+  const [errorFlash, setErrorFlash] = useState(false); // прогон упал
+  const [visTick, setVisTick] = useState(0); // свёрнутое окно: сон/пробуждение
+  const [quips, setQuips] = useState<{ id: number; key: MsgKey; dx: number; n?: number }[]>([]);
   const quipIdRef = useRef(0);
+  const quipTimerRef = useRef<number | null>(null);
 
   const lastClickRef = useRef(0);
   const angerDecayRef = useRef<number | null>(null);
   const petTimerRef = useRef<number | null>(null);
 
-  // Завершение прогона: вспышка + конфетти (переход streaming true→false)
+  // Плавающая реплика: всплыла над головой и тает (не засоряет ленту).
+  // Поднята из эффекта самодеятельности: квипы теперь приходят и извне
+  // (ошибка, завершение прогона, ожидание подтверждения)
+  const spawnQuip = useCallback((key: MsgKey, n?: number) => {
+    const id = ++quipIdRef.current;
+    setQuips([{ id, key, dx: Math.round(Math.random() * 26 - 13), n }]);
+    if (quipTimerRef.current) window.clearTimeout(quipTimerRef.current);
+    quipTimerRef.current = window.setTimeout(
+      () => setQuips((q) => q.filter((x) => x.id !== id)),
+      2_700,
+    );
+  }, []);
+  useEffect(
+    () => () => {
+      if (quipTimerRef.current) window.clearTimeout(quipTimerRef.current);
+    },
+    [],
+  );
+
+  // Завершение прогона: вспышка + конфетти (переход streaming true→false).
+  // Ошибка бьёт конфетти: её отыгрывает эффект errorSeq ниже
   const prevStreamingRef = useRef(streaming);
+  const seenErrorRef = useRef(errorSeq);
   useEffect(() => {
     const was = prevStreamingRef.current;
     prevStreamingRef.current = streaming;
     if (was && !streaming) {
+      if (errorSeq !== seenErrorRef.current) return;
       setDonePulse(true);
       const t = window.setTimeout(() => setDonePulse(false), 1600);
       return () => window.clearTimeout(t);
     }
-  }, [streaming]);
+  }, [streaming, errorSeq]);
 
-  // Сон: 5 минут без событий — Нок тлеет на краю композера
+  // Прогон упал: тревожная вспышка — лампа краснеет, «!» над головой,
+  // реплика; клик в этом состоянии ведёт к карточке ошибки
+  useEffect(() => {
+    if (errorSeq <= seenErrorRef.current) return;
+    seenErrorRef.current = errorSeq;
+    setErrorFlash(true);
+    setAsleep(false);
+    spawnQuip("mascot.quip.error");
+    const t = window.setTimeout(() => setErrorFlash(false), 3_000);
+    return () => window.clearTimeout(t);
+  }, [errorSeq, spawnQuip]);
+
+  // Квип после завершения (±дифф / каждая 10-я задача дня): решение
+  // принимает ChatArea (pickPostRunQuip) — здесь только показ по seq
+  const seenPostRef = useRef(0);
+  useEffect(() => {
+    if (postRunQuip && postRunQuip.seq > seenPostRef.current) {
+      seenPostRef.current = postRunQuip.seq;
+      spawnQuip(postRunQuip.key, postRunQuip.n);
+    }
+  }, [postRunQuip, spawnQuip]);
+
+  // Агент ждёт подтверждения: просыпается + один квип на эпизод ожидания
+  const prevWaitingRef = useRef(waitingConfirm);
+  useEffect(() => {
+    if (waitingConfirm && !prevWaitingRef.current) {
+      setAsleep(false);
+      spawnQuip("mascot.quip.wait");
+    }
+    prevWaitingRef.current = waitingConfirm;
+  }, [waitingConfirm, spawnQuip]);
+
+  // Свёрнутое окно: спит сразу, вернулись — проснулся. visTick перезапускает
+  // таймеры сна и самодеятельности (их эффекты читают его в зависимостях)
+  useEffect(() => {
+    const onVis = () => {
+      setAsleep(document.hidden);
+      setVisTick((v) => v + 1);
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, []);
+
+  // «Спать» из меню: принудительная дремота до клика/стрима
+  const prevNapRef = useRef(napSeq);
+  useEffect(() => {
+    if (napSeq > prevNapRef.current) setAsleep(true);
+    prevNapRef.current = napSeq;
+  }, [napSeq]);
+
+  // Сон: 5 минут без событий — Нок тлеет на краю композера; visTick
+  // перезапускает отсчёт после сворачивания/разворачивания окна
   useEffect(() => {
     if (streaming) {
       setAsleep(false);
@@ -128,7 +208,7 @@ export function Nok({
     }
     const t = window.setTimeout(() => setAsleep(true), sleepAfterMs);
     return () => window.clearTimeout(t);
-  }, [streaming, activity, clickTick, sleepAfterMs]);
+  }, [streaming, activity, clickTick, sleepAfterMs, visTick]);
 
   // Моргание: случайный цикл, пока не спит
   useEffect(() => {
@@ -200,12 +280,6 @@ export function Nok({
     const later = (fn: () => void, ms: number) => {
       timers.push(window.setTimeout(() => alive && fn(), ms));
     };
-    // Плавающая реплика: всплывает над головой и тает (не засоряет ленту)
-    const spawnQuip = (key: MsgKey) => {
-      const id = ++quipIdRef.current;
-      setQuips([{ id, key, dx: Math.round(Math.random() * 26 - 13) }]);
-      later(() => setQuips((q) => q.filter((x) => x.id !== id)), 2_700);
-    };
     const startCoding = () => {
       setCoding(true);
       // Серединная реплика во время кодинга — не всегда (шанс 40%)
@@ -269,7 +343,7 @@ export function Nok({
       setScaring(false);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- t и пулы стабильны по смыслу
-  }, [streaming, selfActivity, activity, clickTick]);
+  }, [streaming, selfActivity, activity, clickTick, visTick]);
 
   // Настройки закрылись: «Фух» — перестали тыкать (глаза прикрыты сами
   // морганием: relief держит их закрытыми 1.4с)
@@ -330,6 +404,16 @@ export function Nok({
   };
 
   const handleClick = () => {
+    // waiting/error — клик это навигация к карточке (скролл/подсветка),
+    // не поглаживание: рука тянется к Ноку, чтобы ответить агенту
+    if (waitingConfirm) {
+      onSignal?.("confirm");
+      return;
+    }
+    if (errorFlash) {
+      onSignal?.("error");
+      return;
+    }
     const now = Date.now();
     const gap = now - lastClickRef.current;
     lastClickRef.current = now;
@@ -348,40 +432,35 @@ export function Nok({
     startAngerDecay();
   };
 
-  const mood: NokMood = storming
-    ? "storm"
-    : anger >= 5
-      ? "anger"
-      : surprised
-        ? "surprised"
-        : scaring
-          ? "scare"
-          : flying
-          ? "fly"
-          : donePulse
-            ? "done"
-            : pet
-              ? "petting"
-              : streaming
-                ? activity
-                  ? "thinking"
-                  : "streaming"
-                : asleep
-                  ? "sleeping"
-                  : tumble
-                    ? "tumble"
-                    : coding
-                      ? "coding"
-                      : musicPlaying
-                        ? "groove"
-                        : "idle";
+  // Приоритеты настроений — чистая функция (nokMood.ts, табличные тесты)
+  const mood: NokMood = pickMood({
+    storming,
+    anger,
+    waitingConfirm,
+    errorFlash,
+    surprised,
+    scaring,
+    flying,
+    donePulse,
+    pet,
+    streaming,
+    activity,
+    asleep,
+    tumble,
+    coding,
+    musicPlaying,
+  });
 
   // Палитра клеток: кастомные цвета частей ("" — токен темы); статусные
-  // цвета злости — семантика, кастом их не перебивает
+  // цвета злости/ошибки — семантика, кастом их не перебивает
   const hot = anger >= 10 ? RAGE : WARN;
   const bodyColor = colors?.body || "var(--halo-deep)";
   const lampFill =
-    mood === "anger" || mood === "scare" ? hot : colors?.glow || "var(--halo-accent)";
+    mood === "anger" || mood === "scare"
+      ? hot
+      : mood === "error"
+        ? RAGE
+        : colors?.glow || "var(--halo-accent)";
   const wingColor = colors?.wing || "var(--halo-muted)";
   const eyeFill =
     mood === "anger" || mood === "scare"
@@ -479,6 +558,26 @@ export function Nok({
           </g>
         )}
 
+        {/* Ждёт подтверждения: знак вопроса над головой; клик ведёт к
+            панели вопроса — рука тянется к Ноку, чтобы ответить агенту */}
+        {mood === "waiting" && (
+          <g className="nok-float" fill="var(--halo-accent)" transform="translate(3.7 -5.2)">
+            <rect x={0} y={0} width={1} height={1} />
+            <rect x={1} y={0} width={1} height={1} />
+            <rect x={2} y={1} width={1} height={1} />
+            <rect x={1} y={2} width={1} height={1} />
+            <rect x={1} y={4} width={1} height={1} />
+          </g>
+        )}
+
+        {/* Ошибка прогона: восклицание над головой, лампа — RAGE */}
+        {mood === "error" && (
+          <g className="nok-float" fill={RAGE} transform="translate(4.4 -6)">
+            <rect x={0} y={0} width={1.2} height={2.8} />
+            <rect x={0} y={3.8} width={1.2} height={1.2} />
+          </g>
+        )}
+
         {/* Конфетти завершения: разлёт + оседание */}
         {mood === "done" &&
           BURST.map((p, i) => (
@@ -534,7 +633,8 @@ export function Nok({
           {matrix.flatMap((row, y) =>
             [...row].flatMap((ch, x) => {
               if (ch === "." || ch === "G" || ch === "g" || ch === "w") return [];
-              const big = ch === "e" && (mood === "surprised" || mood === "scare");
+              const big =
+                ch === "e" && (mood === "surprised" || mood === "scare" || mood === "error");
               return [
                 <rect
                   key={`${x}:${y}`}
@@ -558,6 +658,20 @@ export function Nok({
             }),
           )}
         </g>
+        {/* Полётный кадр крыльев (подняты): кадры низ/верх меняет CSS,
+            компонент на взмахах не перерисовывается */}
+        {mood === "fly" && (
+          <g className="nok-wings-alt">
+            {NOK_FLY.flatMap((row, y) =>
+              [...row].flatMap((ch, x) => {
+                if (ch !== "w") return [];
+                return [
+                  <rect key={`${x}:${y}`} x={x} y={y} width={1} height={1} fill={cellFill("w")} opacity={0.75} />,
+                ];
+              }),
+            )}
+          </g>
+        )}
         <g className="nok-lamp">
           {matrix.flatMap((row, y) =>
             [...row].flatMap((ch, x) => {
@@ -651,14 +765,15 @@ export function Nok({
         )}
       </svg>
 
-      {/* Плавающие реплики: всплыли, растаяли — ленту не засоряют */}
+      {/* Плавающие реплики: всплыли, растаяли — ленту не засоряют.
+          {n} — подстановка числа (±строк диффа / задач за день) */}
       {quips.map((q) => (
         <div
           key={q.id}
           className="nok-quip"
           style={{ "--qx": `${q.dx}px` } as CSSProperties}
         >
-          {t(q.key)}
+          {t(q.key, q.n !== undefined ? { n: q.n } : undefined)}
         </div>
       ))}
     </div>

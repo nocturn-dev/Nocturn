@@ -1,13 +1,15 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import type { AskQuestion, Attachment, ChangedFile, Message, PermissionMode, PlanTask, Project, Session, ToolCallInfo } from "../types";
 import type { MediaPrefs, MediaLyricsSnapshot } from "../mediaPrefs";
 import { MediaBar } from "./MediaBar";
 import { Nok } from "./mascot/Nok";
 import { matchNokTrigger } from "./mascot/nokTriggers";
+import { pickPostRunQuip, type PostRunQuip } from "./mascot/nokMood";
 import { NOK_ROWS } from "./mascot/nokSprites";
+import ContextMenu, { type MenuItem } from "./ContextMenu";
 import type { PromptPreset } from "../presets";
 import type { JailbreakEntry } from "../jailbreaks";
-import { normalizePath, parseWriteResult } from "../diff";
+import { normalizePath, parseWriteResult, diffLines, diffStats } from "../diff";
 import type { SlashCommand } from "../commands";
 import QuickSettings from "./QuickSettings";
 import NocturnMark from "./NocturnMark";
@@ -243,6 +245,12 @@ interface ChatAreaProps {
   mascotThemeKey: string;
   /** Настройки закрылись (счётчик): Нок выдыхает с облегчением */
   settingsClosedSeq: number;
+  /** Насест Нока: драг по кромке шелла переносит его на другую сторону */
+  mascotSide: "left" | "right";
+  onMascotSideChange: (side: "left" | "right") => void;
+  /** Спрятан до рестарта (ПКМ-меню); сознательно не персистится */
+  mascotShooed: boolean;
+  onMascotShoo: () => void;
   /** Время в шапке ответов модели (кастомизация) */
   showMsgTime: boolean;
   /** Кнопки окна в этой шапке (когда сайдбар не справа) */
@@ -372,6 +380,10 @@ export default function ChatArea({
   mascotSelf,
   mascotColors,
   mascotThemeKey,
+  mascotSide,
+  onMascotSideChange,
+  mascotShooed,
+  onMascotShoo,
   settingsClosedSeq,
   showMsgTime,
   showWindowControls,
@@ -392,6 +404,23 @@ export default function ChatArea({
   // Счётчики пасхальных команд Ноку (рост seq — новая команда)
   const [nokFlySeq, setNokFlySeq] = useState(0);
   const [nokHomeSeq, setNokHomeSeq] = useState(0);
+  // Статус-маячок агента: ошибка прогона, «спать» из меню, квип после
+  // завершения (seq-паттерн, как settingsClosedSeq)
+  const [nokErrorSeq, setNokErrorSeq] = useState(0);
+  const [nokNapSeq, setNokNapSeq] = useState(0);
+  const [nokPostQuip, setNokPostQuip] = useState<PostRunQuip | null>(null);
+  // ПКМ-меню Нока (координаты клика; портал ContextMenu)
+  const [nokMenu, setNokMenu] = useState<{ x: number; y: number } | null>(null);
+  // Подсветка панели вопроса после клика по ждущему Ноку
+  const [askPing, setAskPing] = useState(false);
+  const askPingTimerRef = useRef<number | null>(null);
+  // Драг Нока по кромке шелла: короткое движение = клик (глажение внутри
+  // Нока), перенос через середину шелла — смена насеста. Transform живёт
+  // на ref (не в state): ChatArea — тяжёлый компонент, 60 ререндеров в
+  // секунду на mousemove недопустимы
+  const nokDragRef = useRef<{ x0: number; moved: boolean } | null>(null);
+  const suppressNokClickRef = useRef(false);
+  const nokWrapRef = useRef<HTMLDivElement | null>(null);
   // Музыка играет (MediaBar) — Нок надевает наушники
   const [musicPlaying, setMusicPlaying] = useState(false);
   const onMusicPlaying = useCallback((v: boolean) => setMusicPlaying(v), []);
@@ -752,6 +781,10 @@ export default function ChatArea({
   // собой пересчёт ВСЕХ useMemo/useEffect, зависящих от messages (deps
   // меняли идентичность каждый кадр). Мемоизируем саму нормализацию
   const messages = useMemo(() => session?.messages ?? [], [session]);
+  // Снимок для эффекта конца прогона: сам эффект слушает только
+  // streamingMsgId, чтобы не перезапускаться на каждом сообщении
+  const messagesRef = useRef(messages);
+  messagesRef.current = messages;
   const visible = useMemo(
     () => filterVisibleMessages(messages, showUserMsgs),
     [messages, showUserMsgs],
@@ -787,6 +820,117 @@ export default function ChatArea({
     return [...map.values()];
     // eslint-disable-next-line react-hooks/exhaustive-deps -- ключ отсекает ежекадровый пересчёт
   }, [writeKey]);
+
+  // ±строк за задачу — квип Нока после завершения (тот же diffStats, что
+  // у карточки изменений; diffLines мемоизирован, дубль вызова дёшев)
+  const sessionChangedLines = useMemo(() => {
+    let n = 0;
+    for (const f of sessionWrites) {
+      const s = diffStats(diffLines(f.before ?? "", f.after));
+      n += s.added + s.removed;
+    }
+    return n;
+  }, [sessionWrites]);
+  const changedLinesRef = useRef(sessionChangedLines);
+  changedLinesRef.current = sessionChangedLines;
+
+  // Конец прогона: ошибка → тревога Нока; счётчик задач дня (квип «перерыв»
+  // на каждой 10-й) и выбор квипа — pickPostRunQuip (чистая, протестирована)
+  const prevStreamRef = useRef<string | null>(null);
+  useEffect(() => {
+    const prev = prevStreamRef.current;
+    prevStreamRef.current = streamingMsgId;
+    if (!prev || streamingMsgId) return;
+    const ended = messagesRef.current.find((m) => m.id === prev);
+    const failed = !!ended?.error;
+    if (failed) setNokErrorSeq((v) => v + 1);
+    const today = new Date().toISOString().slice(0, 10);
+    let n = 0;
+    try {
+      const raw = JSON.parse(localStorage.getItem("haloui-mascot-runs") ?? "") as {
+        d?: string;
+        n?: number;
+      };
+      if (raw?.d === today && typeof raw.n === "number") n = raw.n;
+    } catch {
+      /* нет/битый счётчик — начинаем с единицы ниже */
+    }
+    n += 1;
+    try {
+      localStorage.setItem("haloui-mascot-runs", JSON.stringify({ d: today, n }));
+    } catch {
+      /* приватный режим — счётчик необязателен */
+    }
+    const quip = pickPostRunQuip({
+      failed,
+      changedLines: changedLinesRef.current,
+      runsToday: n,
+      hidden: document.hidden,
+    });
+    if (quip) {
+      setNokPostQuip((p) => ({ seq: (p?.seq ?? 0) + 1, key: quip.key, n: quip.n }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- refs/сеттеры стабильны; nokPostQuip только для seq
+  }, [streamingMsgId]);
+
+  // Клик по Ноку в waiting/error: вопрос уже над композером — подсветить
+  // панель; ошибка — последняя карточка, достаточно проскроллить вниз
+  const handleNokSignal = useCallback((kind: "confirm" | "error") => {
+    if (kind === "error") {
+      const el = scrollRef.current;
+      if (el) el.scrollTop = el.scrollHeight;
+      return;
+    }
+    setAskPing(true);
+    if (askPingTimerRef.current) window.clearTimeout(askPingTimerRef.current);
+    askPingTimerRef.current = window.setTimeout(() => setAskPing(false), 1_400);
+  }, []);
+  useEffect(
+    () => () => {
+      if (askPingTimerRef.current) window.clearTimeout(askPingTimerRef.current);
+    },
+    [],
+  );
+
+  const onNokPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    suppressNokClickRef.current = false; // новое нажатие — чистый лист
+    nokDragRef.current = { x0: e.clientX, moved: false };
+    // Захват: move/up приходят к обёртке, даже если курсор ушёл с маскота
+    e.currentTarget.setPointerCapture(e.pointerId);
+  };
+  const onNokPointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
+    const d = nokDragRef.current;
+    if (!d) return;
+    const dx = e.clientX - d.x0;
+    if (!d.moved && Math.abs(dx) > 6) d.moved = true;
+    if (d.moved && nokWrapRef.current) {
+      nokWrapRef.current.style.transform = `translateX(${dx}px)`;
+    }
+  };
+  const onNokPointerUp = (e: ReactPointerEvent<HTMLDivElement>) => {
+    const d = nokDragRef.current;
+    nokDragRef.current = null;
+    if (nokWrapRef.current) nokWrapRef.current.style.transform = "";
+    if (!d || !d.moved) return;
+    suppressNokClickRef.current = true; // click после драга не гладит
+    const shell = e.currentTarget.parentElement?.getBoundingClientRect();
+    if (shell) {
+      const side = e.clientX < shell.left + shell.width / 2 ? "left" : "right";
+      if (side !== mascotSide) onMascotSideChange(side);
+    }
+  };
+  const onNokPointerCancel = () => {
+    nokDragRef.current = null;
+    if (nokWrapRef.current) nokWrapRef.current.style.transform = "";
+  };
+
+  const nokMenuItems = (): MenuItem[] => [
+    { label: t("mascot.menu.fly"), onSelect: () => setNokFlySeq((v) => v + 1) },
+    { label: t("mascot.menu.home"), onSelect: () => setNokHomeSeq((v) => v + 1) },
+    { label: t("mascot.menu.sleep"), onSelect: () => setNokNapSeq((v) => v + 1) },
+    { label: t("mascot.menu.hide"), onSelect: onMascotShoo },
+  ];
 
   // ── Производные данные ленты ──
   // IIFE рендера исполняется на каждый рендер; без кэша он пересоздавал
@@ -2047,14 +2191,33 @@ export default function ChatArea({
               Пропорции по ZCode: компактный радиус, тонкая рамка, без тени —
               композер не должен перетягивать фокус с ленты */}
           <div className="glass-pane relative z-[var(--halo-z-panel-raised)] rounded-xl border border-halo-line/70 bg-halo-surface/80 p-2 transition duration-200">
-            {/* Нок: сидит на левом углу шелла; в Hard Mode шелл не
-                рендерится — маскот скрыт вместе с ним */}
-            {mascot && (
+            {/* Нок: сидит на углу шелла (сторона — преф, переносится драгом);
+                в Hard Mode шелл не рендерится — маскот скрыт вместе с ним.
+                Спрятанный через ПКМ-меню не рендерится до рестарта */}
+            {mascot && !mascotShooed && (
               // Посадка масштабо-зависима: лапы всегда на кромке шелла,
               // крупный Нок не наезжает на текст поля ввода
               <div
-                className="absolute z-[var(--halo-z-panel-top)]"
-                style={{ top: -(NOK_ROWS * 3 * mascotSize) + 3, left: 6 }}
+                ref={nokWrapRef}
+                className="absolute z-[var(--halo-z-panel-top)] select-none touch-none"
+                style={{
+                  top: -(NOK_ROWS * 3 * mascotSize) + 3,
+                  ...(mascotSide === "left" ? { left: 6 } : { right: 6 }),
+                }}
+                onPointerDown={onNokPointerDown}
+                onPointerMove={onNokPointerMove}
+                onPointerUp={onNokPointerUp}
+                onPointerCancel={onNokPointerCancel}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  setNokMenu({ x: e.clientX, y: e.clientY });
+                }}
+                onClickCapture={(e) => {
+                  if (suppressNokClickRef.current) {
+                    e.stopPropagation();
+                    suppressNokClickRef.current = false;
+                  }
+                }}
               >
                 <Nok
                   streaming={!!streamingMsgId}
@@ -2068,8 +2231,21 @@ export default function ChatArea({
                   settingsClosedSeq={settingsClosedSeq}
                   flySeq={nokFlySeq}
                   homeSeq={nokHomeSeq}
+                  waitingConfirm={!!pendingAsk && !terminalOpen}
+                  errorSeq={nokErrorSeq}
+                  postRunQuip={nokPostQuip}
+                  napSeq={nokNapSeq}
+                  onSignal={handleNokSignal}
                 />
               </div>
+            )}
+            {nokMenu && (
+              <ContextMenu
+                x={nokMenu.x}
+                y={nokMenu.y}
+                items={nokMenuItems()}
+                onClose={() => setNokMenu(null)}
+              />
             )}
             {/* Палитра скилов (&) */}
             {skillActive && skillMatches.length > 0 && (
@@ -2199,12 +2375,15 @@ export default function ChatArea({
                 </button>
               </div>
             )}
-            {/* Живой вопрос агента: панель над композером, прикреплена к нему */}
+            {/* Живой вопрос агента: панель над композером, прикреплена к нему.
+                ask-ping — клик по ждущему Ноку: панель мигает каймой */}
             {pendingAsk && !terminalOpen && (
-              <AskPanel
-                ask={pendingAsk.ask}
-                onAnswer={(ans) => onAskAnswer(pendingAsk.msgId, ans)}
-              />
+              <div className={askPing ? "ask-ping rounded-xl" : undefined}>
+                <AskPanel
+                  ask={pendingAsk.ask}
+                  onAnswer={(ans) => onAskAnswer(pendingAsk.msgId, ans)}
+                />
+              </div>
             )}
             {/* Вложения — квадратные плитки НАД полем ввода (как у Claude):
                 картинка заливает квадрат, документ — квадрат с именем */}
