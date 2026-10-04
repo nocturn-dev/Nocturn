@@ -59,8 +59,8 @@ describe("pickMood — приоритеты", () => {
   it("ошибка бьёт удивление и самодеятельность", () => {
     expect(pickMood({ ...base, errorFlash: true, surprised: true, coding: true })).toBe("error");
   });
-  it("испуг бьёт полёт", () => {
-    expect(pickMood({ ...base, scaring: true, flying: true })).toBe("scare");
+  it("полёт — команда пользователя: бьёт удивление и испуг", () => {
+    expect(pickMood({ ...base, flying: true, surprised: true, scaring: true })).toBe("fly");
   });
   it("полёт бьёт конфетти завершения", () => {
     expect(pickMood({ ...base, flying: true, donePulse: true })).toBe("fly");
