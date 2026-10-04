@@ -950,13 +950,32 @@ html.light.inline-code-claude .markdown code:not(pre code) {
   opacity: 0;
   pointer-events: none;
 }
-/* Реплика-пузырёк над головой */
-.nok-bubble {
+/* Плавающая реплика: всплыла над головой, повисла, растаяла вверх —
+   ленту чтения не засоряет (--qx — случайный дрейф по горизонтали) */
+@keyframes nok-quip {
+  0% {
+    opacity: 0;
+    transform: translate(calc(-50% + var(--qx, 0px)), 10px);
+  }
+  14% {
+    opacity: 1;
+    transform: translate(calc(-50% + var(--qx, 0px)), 0);
+  }
+  72% {
+    opacity: 1;
+    transform: translate(calc(-50% + var(--qx, 0px)), -6px);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(calc(-50% + var(--qx, 0px)), -18px);
+  }
+}
+.nok-quip {
   position: absolute;
-  bottom: calc(100% + 4px);
+  bottom: calc(100% + 8px);
   left: 50%;
-  transform: translateX(-50%);
-  z-index: 5;
+  z-index: 6;
+  pointer-events: none;
   white-space: nowrap;
   max-width: 46vw;
   overflow: hidden;
@@ -969,6 +988,7 @@ html.light.inline-code-claude .markdown code:not(pre code) {
   font-size: 0.625rem;
   line-height: 1.5;
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+  animation: nok-quip calc(2.7s * var(--motion-scale)) ease-out forwards;
 }
 .nok-body {
   animation: nok-bob calc(3.2s * var(--motion-scale)) ease-in-out infinite;
@@ -1008,29 +1028,37 @@ html.light.inline-code-claude .markdown code:not(pre code) {
 .nok-wings {
   animation: nok-glow calc(2.4s * var(--motion-scale)) ease-in-out infinite;
 }
-/* «Разучился летать»: взлёт-кувырок-шлёпок у сайдбара (влево) */
+/* «Разучился летать»: взлетает по середине, крутится, шлёпается ИМЕННО
+   в сайдбар, отскакивает и сидит ошалевший — домой уходит плавным
+   переходом обёртки (без телепорта) */
 @keyframes nok-tumble {
   0% {
     transform: translate(0, 0) rotate(0);
   }
-  25% {
-    transform: translate(-26px, -42px) rotate(-16deg);
+  16% {
+    transform: translate(8px, -54px) rotate(12deg);
   }
-  45% {
-    transform: translate(-40px, -16px) rotate(22deg);
+  36% {
+    transform: translate(-14px, -36px) rotate(190deg);
   }
-  62% {
-    transform: translate(-36px, 8px) rotate(-14deg);
+  56% {
+    transform: translate(-34px, -12px) rotate(330deg);
   }
-  80% {
-    transform: translate(-18px, 10px) rotate(8deg);
+  70% {
+    transform: translate(-42px, 4px) rotate(360deg);
+  }
+  79% {
+    transform: translate(-36px, -12px) rotate(352deg);
+  }
+  87% {
+    transform: translate(-42px, 2px) rotate(360deg);
   }
   100% {
-    transform: translate(0, 0) rotate(0);
+    transform: translate(-42px, 4px) rotate(360deg);
   }
 }
 .nok-tumble {
-  animation: nok-tumble calc(2.6s * var(--motion-scale)) ease-in-out forwards;
+  animation: nok-tumble calc(3.2s * var(--motion-scale)) ease-in-out forwards;
 }
 .nok-dot {
   animation: nok-glow calc(1.2s * var(--motion-scale)) ease-in-out infinite;

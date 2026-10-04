@@ -92,7 +92,8 @@ export function Nok({
   const [flying, setFlying] = useState(false); // пасхалка «полетай»
   const [tumble, setTumble] = useState(false); // нелепость: «разучился летать»
   const [surprised, setSurprised] = useState(false); // смена темы
-  const [quip, setQuip] = useState<string | null>(null); // реплика-пузырь
+  const [quips, setQuips] = useState<{ id: number; key: MsgKey; dx: number }[]>([]);
+  const quipIdRef = useRef(0);
 
   const lastClickRef = useRef(0);
   const angerDecayRef = useRef<number | null>(null);
@@ -160,23 +161,29 @@ export function Nok({
     return () => window.clearTimeout(t);
   }, [storming, stormReturnMs]);
 
-  // Самодеятельность: в простое изредка что-то затевает — то ноутбук
-  // достанет и «кодит» с репликами, то попытается летать и нелепо
-  // спикирует у сайдбара с «Oooops…» (вариант — случайный)
+  // Самодеятельность: в простое изредка что-то затевает. Реплики — плавающие
+  // и РЕДКИЕ: мысль может прилететь сама (ноутбука не будет), а может за
+  // секунду ПЕРЕД ноутбуком («сначала мысль — потом дело»); если ноутбук
+  // уже открыт — второй не достаётся. Падение: взлёт по центру, вращение,
+  // шлёп именно в сайдбар с отскоком
   const CODE_QUIPS: MsgKey[] = [
-    "mascot.quip.think",
-    "mascot.quip.hello",
-    "mascot.quip.todo",
-    "mascot.quip.notabug",
-    "mascot.quip.letter",
     "mascot.quip.npm",
     "mascot.quip.rs",
+    "mascot.quip.notabug",
   ];
+  const THOUGHT_QUIPS: MsgKey[] = [
+    "mascot.quip.todo",
+    "mascot.quip.hello",
+    "mascot.quip.think",
+    "mascot.quip.letter",
+  ];
+  const pick = (pool: MsgKey[]): MsgKey =>
+    pool[Math.floor(Math.random() * pool.length)] ?? "mascot.quip.think";
   useEffect(() => {
     if (streaming || !selfActivity) {
       setCoding(false);
       setTumble(false);
-      setQuip(null);
+      setQuips([]);
       return;
     }
     let alive = true;
@@ -184,42 +191,54 @@ export function Nok({
     const later = (fn: () => void, ms: number) => {
       timers.push(window.setTimeout(() => alive && fn(), ms));
     };
-    const pickQuip = (): MsgKey =>
-      CODE_QUIPS[Math.floor(Math.random() * CODE_QUIPS.length)] ?? "mascot.quip.think";
+    // Плавающая реплика: всплывает над головой и тает (не засоряет ленту)
+    const spawnQuip = (key: MsgKey) => {
+      const id = ++quipIdRef.current;
+      setQuips([{ id, key, dx: Math.round(Math.random() * 26 - 13) }]);
+      later(() => setQuips((q) => q.filter((x) => x.id !== id)), 2_700);
+    };
+    const startCoding = () => {
+      setCoding(true);
+      // Серединная реплика во время кодинга — не всегда (шанс 40%)
+      if (Math.random() < 0.4) later(() => spawnQuip(pick(CODE_QUIPS)), 3_200);
+      later(() => {
+        setCoding(false);
+        spawnQuip("mascot.quip.after");
+        schedule(18_000 + Math.random() * 25_000);
+      }, 7_000);
+    };
+    const startTumble = () => {
+      setTumble(true);
+      // Шлёп о сайдбар ~2с: «Oooops… I'm Nice» с отскоком
+      later(() => spawnQuip("mascot.quip.oops"), 2_000);
+      later(() => {
+        setTumble(false);
+        schedule(18_000 + Math.random() * 25_000);
+      }, 3_400);
+    };
     const schedule = (delay: number) => {
       t1 = window.setTimeout(() => {
         if (!alive) return;
-        if (Math.random() < 0.6) {
-          // Ноутбук: 7с печати с ротацией реплик, в финале — самокритика
-          setCoding(true);
-          setQuip(t(pickQuip()));
-          const iv = window.setInterval(() => {
-            if (alive) {
-              setQuip(t(pickQuip()));
-            }
-          }, 2_200);
-          timers.push(iv);
-          later(() => {
-            setCoding(false);
-            window.clearInterval(iv);
-            setQuip(t("mascot.quip.after"));
-            later(() => setQuip(null), 2_800);
-            schedule(18_000 + Math.random() * 25_000);
-          }, 7_000);
+        const roll = Math.random();
+        if (roll < 0.45) {
+          // Мысль сама по себе — ноутбука не будет
+          spawnQuip(pick(THOUGHT_QUIPS));
+          schedule(9_000 + Math.random() * 22_000);
+        } else if (roll < 0.8) {
+          // Ноутбук: в половине случаев мысль прилетает за секунду до
+          if (Math.random() < 0.5) {
+            spawnQuip(pick(THOUGHT_QUIPS));
+            later(startCoding, 1_500);
+          } else {
+            startCoding();
+          }
         } else {
-          // «Разучился летать»: взмах-взлёт, кувырок, шлёпается у сайдбара
-          setTumble(true);
-          later(() => setQuip(t("mascot.quip.oops")), 2_100);
-          later(() => setQuip(null), 3_500);
-          later(() => {
-            setTumble(false);
-            schedule(18_000 + Math.random() * 25_000);
-          }, 2_600);
+          startTumble();
         }
       }, delay);
     };
     let t1 = 0;
-    schedule(12_000 + Math.random() * 20_000);
+    schedule(10_000 + Math.random() * 18_000);
     return () => {
       alive = false;
       timers.forEach((id) => window.clearTimeout(id));
@@ -227,7 +246,7 @@ export function Nok({
       setCoding(false);
       setTumble(false);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- t и CODE_QUIPS стабильны по смыслу
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- t и пулы стабильны по смыслу
   }, [streaming, selfActivity, activity, clickTick]);
 
   // Удивление: смена темы — глаза по пять копеек и подпрыгивает
@@ -563,11 +582,16 @@ export function Nok({
         )}
       </svg>
 
-      {/* Реплика-пузырёк (пасхалки/самодеятельность): молния не нужна —
-          говорит сам за себя */}
-      {quip && (
-        <div className="nok-bubble anim-pop">{quip}</div>
-      )}
+      {/* Плавающие реплики: всплыли, растаяли — ленту не засоряют */}
+      {quips.map((q) => (
+        <div
+          key={q.id}
+          className="nok-quip"
+          style={{ "--qx": `${q.dx}px` } as CSSProperties}
+        >
+          {t(q.key)}
+        </div>
+      ))}
     </div>
   );
 }

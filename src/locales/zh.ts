@@ -984,7 +984,7 @@ export const zh = {
     "mascot.quip.npm": "npm install 专注力-plus",
     "mascot.quip.rs": "重写 chat.rs？绝不——它很完美。",
     "mascot.quip.after": "诺克发现：你多用 Nocturn，它代码就写得更好。实测。",
-    "mascot.quip.oops": "Oooops……",
+    "mascot.quip.oops": "Oooops…… 我可是很棒",
     "mascot.self": "自娱自乐",
     "mascot.selfDesc": "偶尔自己掏出小笔记本写代码",
     "themes.textShimmer": "文字流光",

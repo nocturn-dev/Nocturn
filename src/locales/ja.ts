@@ -984,7 +984,7 @@ export const ja = {
     "mascot.quip.npm": "npm install も少し集中力",
     "mascot.quip.rs": "chat.rs を書き直す？絶対に——完璧なので。",
     "mascot.quip.after": "Nocturn にいるほどノックのコードは上達します。実証済み。",
-    "mascot.quip.oops": "Oooops……",
+    "mascot.quip.oops": "Oooops…… ノックはナイス",
     "mascot.self": "自主的に遊ぶ",
     "mascot.selfDesc": "たまに自分でノートパソコンを取り出してコードを書きます",
     "themes.textShimmer": "テキストの輝き",
