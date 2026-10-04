@@ -229,11 +229,11 @@ export function Nok({
       // «Бууу»: прыжок на середину сайдбара, краснеет, глаза по пять
       // копеек — потом колобком катится обратно на край композера
       setScaring(true);
-      later(() => spawnQuip("mascot.quip.boo"), 1_200);
+      later(() => spawnQuip("mascot.quip.boo"), 1_400);
       later(() => {
         setScaring(false);
         schedule(18_000 + Math.random() * 25_000);
-      }, 3_700);
+      }, 3_900);
     };
     const schedule = (delay: number) => {
       t1 = window.setTimeout(() => {
