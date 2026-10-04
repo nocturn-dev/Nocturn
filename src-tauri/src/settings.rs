@@ -449,6 +449,37 @@ pub async fn crypto_reset(app: tauri::AppHandle, confirm: String) -> Result<(), 
                     .as_bytes(),
             )?;
         }
+        // Секретные конфиги с.enc-полями: без чистки после RESET и нового
+        // пароля владелец получал «vault is locked» при РАЗБЛОКИРОВАННОМ
+        // vault — старый шифротекст новым ключом не расшифровывается.
+        // Plaintext-ключи не трогаем: они от сброса не утеряны
+        for (file, field) in [
+            ("imagegen.json", "api_key"),
+            ("websearch.json", "brave_key"),
+            ("telegram.json", "bot_token"),
+        ] {
+            let path = config_file(&app, file)?;
+            if !path.exists() {
+                continue;
+            }
+            let data = fs::read_to_string(&path).map_err(|e| e.to_string())?;
+            let mut v: serde_json::Value = serde_json::from_str(&data)
+                .map_err(|e| format!("cannot parse {file} — reset aborted: {e}"))?;
+            let encrypted = v
+                .get(field)
+                .and_then(|x| x.as_str())
+                .map(crypto::is_encrypted)
+                .unwrap_or(false);
+            if encrypted {
+                v[field] = serde_json::Value::String(String::new());
+                crate::fsutil::atomic_write(
+                    &path,
+                    serde_json::to_string_pretty(&v)
+                        .map_err(|e| e.to_string())?
+                        .as_bytes(),
+                )?;
+            }
+        }
         Ok(())
     })
     .await

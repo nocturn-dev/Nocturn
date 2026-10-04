@@ -110,7 +110,9 @@ fn git_status_impl(path: String) -> Result<Vec<GitEntry>, String> {
             p = p[idx + 4..].to_string();
         }
         // С core.quotepath=false пути приходят без кавычек; кавычки возможны
-        // только от спецсимволов — разворачиваем \", \\, \n, \t
+        // только от спецсимволов — разворачиваем полный C-набор git (", \\,
+        // \n, \t, \r, \a, \b, \f, \v): неполный match манглит путь («bell\f»
+        // превращался в «bellf») и тот перестаёт совпадать с файлом
         if p.starts_with('"') && p.ends_with('"') && p.len() >= 2 {
             let inner = &p[1..p.len() - 1];
             let mut unescaped = String::with_capacity(inner.len());
@@ -120,6 +122,11 @@ fn git_status_impl(path: String) -> Result<Vec<GitEntry>, String> {
                     match chars.next() {
                         Some('n') => unescaped.push('\n'),
                         Some('t') => unescaped.push('\t'),
+                        Some('r') => unescaped.push('\r'),
+                        Some('a') => unescaped.push('\u{7}'),
+                        Some('b') => unescaped.push('\u{8}'),
+                        Some('f') => unescaped.push('\u{c}'),
+                        Some('v') => unescaped.push('\u{b}'),
                         Some(other) => unescaped.push(other),
                         None => unescaped.push('\\'),
                     }
@@ -188,12 +195,15 @@ pub(crate) fn checkpoints_dir(app: &tauri::AppHandle, root: &str) -> Result<Path
         .app_data_dir()
         .map_err(|e| e.to_string())?;
     let mut hasher = sha2::Sha256::new();
-    // На Windows корень регистронезависим и разделитель `\`; на Unix —
-    // регистрозависим: Proj и proj — разные каталоги, lowercase валил
-    // коллизии каталогов чекпоинтов между разными проектами
+    // Единая модель регистра с perm.rs/platform.ts: Windows и macOS
+    // (дефолтная APFS) регистронезависимы — Proj и proj это ОДИН каталог,
+    // хэш обязан совпадать, иначе два регистра корня давали два каталога
+    // чекпоинтов и история снимков «пропадала». Linux — регистрозависим
     #[cfg(windows)]
     hasher.update(root.replace('/', "\\").to_lowercase().as_bytes());
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
+    hasher.update(root.replace('\\', "/").to_lowercase().as_bytes());
+    #[cfg(not(any(windows, target_os = "macos")))]
     hasher.update(root.replace('\\', "/").as_bytes());
     let hash = format!("{:x}", hasher.finalize());
     let dir = base.join("checkpoints").join(&hash[..16]);

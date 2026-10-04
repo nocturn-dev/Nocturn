@@ -138,18 +138,27 @@ pub async fn run_tool(
         }
     };
     // created: мы сами завели запись (стрима с этим id уже нет) — снимаем её
-    // на выходе; чужую запись (живой стрим) не трогаем, её чистит AbortGuard
+    // на выходе; чужую запись (живой стрим) не трогаем, её чистит AbortGuard.
+    // Снятие — только если в map всё ещё лежит ИМЕННО наш флаг: между
+    // созданием и drop-ом стрим с тем же request_id мог подменить слот
+    // своим (ptr_eq-семантика, как у AbortGuard в chat.rs)
     struct ToolAbortGuard<'a> {
         registry: &'a crate::chat::AbortRegistry,
         request_id: Option<String>,
         created: bool,
+        flag: Option<std::sync::Arc<AtomicBool>>,
     }
     impl Drop for ToolAbortGuard<'_> {
         fn drop(&mut self) {
             if self.created {
-                if let Some(id) = &self.request_id {
+                if let (Some(id), Some(flag)) = (&self.request_id, &self.flag) {
                     if let Ok(mut map) = self.registry.0.lock() {
-                        map.remove(id);
+                        if map
+                            .get(id)
+                            .is_some_and(|f| std::sync::Arc::ptr_eq(f, flag))
+                        {
+                            map.remove(id);
+                        }
                     }
                 }
             }
@@ -159,6 +168,7 @@ pub async fn run_tool(
         registry: &abort_registry,
         request_id: request_id.clone(),
         created: tool_abort_created,
+        flag: abort_flag.clone(),
     };
 
     // Хуки PreToolUse: любой с decision=block (или ненулевым exit) блокирует вызов
@@ -1344,11 +1354,16 @@ pub async fn load_project_sessions(root: String) -> Result<Option<String>, Strin
         return Err("project root is empty".into());
     }
     crate::settings::rejects_sensitive_path(root)?;
-    let dir = std::path::Path::new(root).join(".nocturn");
-    if !dir.is_dir() {
-        return Ok(None);
-    }
+    let root = root.to_string();
     tauri::async_runtime::spawn_blocking(move || {
+        // Проект может жить на сетевом ресурсе: stat корня — такой же
+        // сетевой вызов, как чтение файла, и обязан жить в blocking-пуле
+        // (класс crypto_status), иначе отвалившийся SMB вешает tokio-воркер
+        // на каждом переключении проекта
+        let dir = std::path::Path::new(&root).join(".nocturn");
+        if !dir.is_dir() {
+            return Ok(None);
+        }
         let path = dir.join("sessions.json");
         if !path.exists() {
             return Ok(None);
@@ -1455,6 +1470,24 @@ mod tests {
             .find("hooks::run_event_with_abort(")
             .expect("PreToolUse call site");
         assert!(perm < hooks, "perm must gate before PreToolUse hooks");
+    }
+
+    #[test]
+    fn mcp_error_routing_markers_exist_in_producer() {
+        // Стык mcp.rs↔tooling.rs склеен ТЕКСТОМ ошибки: tooling маршрутизирует
+        // oauth-refresh (401) и реконнект (404/-32001) по подстрокам, которые
+        // производит format! в mcp.rs. Правка формата одной стороны без
+        // другой = молчаливое отключение авто-refresh/реконнекта (аудит
+        // 2026-10-04). Тест привязан к литералам — рассинхрон упадёт громко
+        const MCP: &str = include_str!("mcp.rs");
+        const SELF: &str = include_str!("tooling.rs");
+        for (produced, routed) in [("HTTP {}: {}", "HTTP 401"), ("HTTP {}: {}", "HTTP 404")] {
+            assert!(MCP.contains(produced), "mcp.rs must produce {produced:?}");
+            assert!(SELF.contains(routed), "tooling.rs must route on {routed:?}");
+        }
+        // Сессионная семантика — уже типизированная: mcp::is_session_expired
+        // обязан существовать, чтобы новые ветки не возвращались к подстрокам
+        assert!(MCP.contains("pub fn is_session_expired"));
     }
 
     #[test]
