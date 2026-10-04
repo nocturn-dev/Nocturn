@@ -46,10 +46,12 @@ import { interpolate, parseWorkflow, type WorkflowDef } from "../workflow";
 import { notifyTaskDone, playRunSound, type NotifyPrefs } from "../notify";
 import { telegramNotify } from "../telegram";
 import { useLang } from "../locales";
+import { parseAskSpec } from "../agent/askSpec";
 import { dayKeyLocal } from "../time";
 import {
-  SUBAGENT_ROLES,
   mergeRoles,
+  resolveSubagentRole,
+  resolveWorkflowRole,
   runSubagent,
   type SubRunState,
   type SubagentRole,
@@ -1840,36 +1842,9 @@ export function useAgentRun(deps: AgentRunDeps) {
           });
         };
 
-        // Валидация: вопрос + 2–4 опции с label, иначе — ошибка модели
-        let parsedSpec: AskUserSpec | null = null;
-        try {
-          const parsed = JSON.parse(call.arguments) as Partial<AskUserSpec>;
-          const options = Array.isArray(parsed.options)
-            ? parsed.options
-                .filter(
-                  (o): o is AskUserSpec["options"][number] =>
-                    !!o && typeof o.label === "string" && o.label.trim() !== "",
-                )
-                .slice(0, 4)
-            : [];
-          if (
-            typeof parsed.question === "string" &&
-            parsed.question.trim() !== "" &&
-            options.length >= 2
-          ) {
-            parsedSpec = {
-              question: parsed.question,
-              header:
-                typeof parsed.header === "string" && parsed.header.trim()
-                  ? parsed.header.slice(0, 24)
-                  : undefined,
-              options,
-              multiSelect: parsed.multiSelect === true,
-            };
-          }
-        } catch {
-          parsedSpec = null;
-        }
+        // Валидация — parseAskSpec (agent/askSpec, §24 ш.4в): вопрос +
+        // 2–4 опции с label, иначе — ошибка модели
+        const parsedSpec: AskUserSpec | null = parseAskSpec(call.arguments);
         if (!parsedSpec) {
           finishAsk(
             "error: ask_user requires question (non-empty string) and options (2-4 items, each with a label)",
@@ -2062,13 +2037,12 @@ export function useAgentRun(deps: AgentRunDeps) {
             task?: string;
             background?: boolean;
           };
-          const role: SubagentRole =
-            mergeRoles(subConfigRef.current.roles).find(
-              (r) => r.id === parsed.role,
-            ) ?? SUBAGENT_ROLES[0]
-            // SUBAGENT_ROLES непустой по построению; строгие индексы требуют
-            // явности — последний фолбэк даёт валидную безопасную роль
-            ?? { id: "researcher", name: "Researcher", tools: null, maxSteps: 8, systemPrompt: "" };
+          // Роль — resolveSubagentRole (subagents.ts, §24 ш.4в): цепочка
+          // сохранена дословно, литеральный фолбэк больше не дублируется
+          const role: SubagentRole = resolveSubagentRole(
+            parsed.role,
+            mergeRoles(subConfigRef.current.roles),
+          );
           const task = (parsed.task ?? "").trim();
           if (!task) {
             subContent = "error: empty task";
@@ -2410,14 +2384,9 @@ ${report}`;
               name: `workflow:${step.id} ${i + 1}/${def.steps.length}`,
             }),
           );
-          const role: SubagentRole =
-            roles.find((r) => r.id === step.role) ??
-            roles.find((r) => r.id === "coder") ??
-            roles[0] ??
-            // SUBAGENT_ROLES непустой по построению; строгие индексы требуют
-            // явности — фолбэк даёт валидную безопасную роль
-            SUBAGENT_ROLES[0] ??
-            { id: "researcher", name: "Researcher", tools: null, maxSteps: 8, systemPrompt: "" };
+          // Роль шага — resolveWorkflowRole (subagents.ts, §24 ш.4в):
+          // шаговая → coder → первая → фолбэк, как было
+          const role: SubagentRole = resolveWorkflowRole(step.role, roles);
           const task = interpolate(step.prompt, vars);
           try {
             const report = await runSubagent({
