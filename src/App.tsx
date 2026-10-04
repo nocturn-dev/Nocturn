@@ -424,6 +424,22 @@ export default function App() {
   const [mascotGlow, setMascotGlow] = useNumPref("haloui-mascot-glow", 1);
   const [mascotEaster, setMascotEaster] = useBoolPref("haloui-mascot-easter", true);
   const [mascotSelf, setMascotSelf] = useBoolPref("haloui-mascot-self", true);
+  // Кастомные цвета частей Нока ("" — токен темы); JSON в строке-префе
+  const [mascotColorsRaw, setMascotColorsRaw] = useStringPref<string>("haloui-mascot-colors", "{}");
+  const mascotColors = useMemo(() => {
+    try {
+      const o = JSON.parse(mascotColorsRaw) as { body?: string; glow?: string; wing?: string };
+      return { body: o.body ?? "", glow: o.glow ?? "", wing: o.wing ?? "" };
+    } catch {
+      return { body: "", glow: "", wing: "" };
+    }
+  }, [mascotColorsRaw]);
+  const setMascotColor = useCallback(
+    (part: "body" | "glow" | "wing", v: string) => {
+      setMascotColorsRaw(JSON.stringify({ ...mascotColors, [part]: v }));
+    },
+    [mascotColors, setMascotColorsRaw],
+  );
 
   // Saved-тост (фидбек 26.09): изменения в открытых настройках не тостят
   // вовсе (слайдер масштаба хоть по 1% — ни одного лишнего окна); один тост
@@ -2729,6 +2745,8 @@ export default function App() {
         mascotGlow={mascotGlow}
         mascotEaster={mascotEaster}
         mascotSelf={mascotSelf}
+        mascotColors={mascotColors}
+        mascotThemeKey={theme + "|" + JSON.stringify(appearance)}
         showMsgTime={appearance.showMsgTime ?? false}
         showWindowControls={sidebarSide === "left"}
         headerInset={sidebarCollapsed ? sidebarSide : null}
@@ -2891,6 +2909,8 @@ export default function App() {
         onMascotEasterChange={setMascotEaster}
         mascotSelf={mascotSelf}
         onMascotSelfChange={setMascotSelf}
+        mascotColors={mascotColors}
+        onMascotColorChange={setMascotColor}
         memoryEnabled={memoryEnabled}
         onMemoryChange={setMemoryEnabled}
         initialSection={settingsSection}

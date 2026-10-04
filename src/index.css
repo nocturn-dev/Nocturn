@@ -929,8 +929,10 @@ html.light.inline-code-claude .markdown code:not(pre code) {
 }
 .nok {
   cursor: pointer;
+  position: relative;
   /* Полёт между позами: насест (левый угол) ↔ работа (за левым краем
-     композера, рядом с полем ввода) ↔ обиженный уход за экран */
+     композера, рядом с полем ввода) ↔ обиженный уход за экран.
+     Сдвиги умножаются на --nok-scale: крупный Нок летит дальше */
   transition:
     transform calc(0.55s * var(--motion-scale)) var(--ease-standard),
     opacity calc(0.55s * var(--motion-scale)) ease;
@@ -939,14 +941,34 @@ html.light.inline-code-claude .markdown code:not(pre code) {
    слегка наклонился «в работу» */
 .nok-streaming,
 .nok-thinking {
-  transform: translate(-34px, 30px) rotate(-6deg);
+  transform: translate(calc(-34px * var(--nok-scale, 1)), calc(30px * var(--nok-scale, 1))) rotate(-6deg);
 }
 /* Обиженный уход: растворяется за экраном, pointer-events выключены —
    вернётся по таймеру (класс держит трансформ, не анмаунт) */
 .nok-storm {
-  transform: translate(-46px, -12px) scale(0.8);
+  transform: translate(calc(-46px * var(--nok-scale, 1)), calc(-12px * var(--nok-scale, 1))) scale(0.8);
   opacity: 0;
   pointer-events: none;
+}
+/* Реплика-пузырёк над головой */
+.nok-bubble {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
+  white-space: nowrap;
+  max-width: 46vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border: 1px solid var(--halo-line);
+  background: var(--halo-deep);
+  color: var(--halo-text);
+  border-radius: 8px;
+  padding: 2px 8px;
+  font-size: 0.625rem;
+  line-height: 1.5;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
 }
 .nok-body {
   animation: nok-bob calc(3.2s * var(--motion-scale)) ease-in-out infinite;
@@ -979,6 +1001,36 @@ html.light.inline-code-claude .markdown code:not(pre code) {
 .nok-done .nok-aura,
 .nok-done .nok-lamp {
   animation-duration: calc(0.4s * var(--motion-scale));
+}
+.nok-surprised .nok-body {
+  animation: nok-bob calc(0.35s * var(--motion-scale)) ease-in-out 3;
+}
+.nok-wings {
+  animation: nok-glow calc(2.4s * var(--motion-scale)) ease-in-out infinite;
+}
+/* «Разучился летать»: взлёт-кувырок-шлёпок у сайдбара (влево) */
+@keyframes nok-tumble {
+  0% {
+    transform: translate(0, 0) rotate(0);
+  }
+  25% {
+    transform: translate(-26px, -42px) rotate(-16deg);
+  }
+  45% {
+    transform: translate(-40px, -16px) rotate(22deg);
+  }
+  62% {
+    transform: translate(-36px, 8px) rotate(-14deg);
+  }
+  80% {
+    transform: translate(-18px, 10px) rotate(8deg);
+  }
+  100% {
+    transform: translate(0, 0) rotate(0);
+  }
+}
+.nok-tumble {
+  animation: nok-tumble calc(2.6s * var(--motion-scale)) ease-in-out forwards;
 }
 .nok-dot {
   animation: nok-glow calc(1.2s * var(--motion-scale)) ease-in-out infinite;
@@ -1041,12 +1093,18 @@ html.light.inline-code-claude .markdown code:not(pre code) {
   animation: nok-type calc(0.35s * var(--motion-scale)) steps(2) infinite;
 }
 html.motion-reduced .nok-fly,
-html.motion-reduced .nok-code {
+html.motion-reduced .nok-code,
+html.motion-reduced .nok-wings,
+html.motion-reduced .nok-surprised .nok-body,
+html.motion-reduced .nok-tumble {
   animation: none;
 }
 @media (prefers-reduced-motion: reduce) {
   .nok-fly,
-  .nok-code {
+  .nok-code,
+  .nok-wings,
+  .nok-surprised .nok-body,
+  .nok-tumble {
     animation: none;
   }
 }

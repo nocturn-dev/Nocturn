@@ -1,16 +1,24 @@
-import { useLang } from "../../locales";
+import { useLang, type MsgKey } from "../../locales";
 import { Nok } from "../mascot/Nok";
+import { NOK_ROWS } from "../mascot/nokSprites";
 import { ToggleRow } from "./parts";
 
 /**
  * Секция «Маскот» (PLAN.md §21): живая карточка с настоящим Ноком (клики
- * и реакции работают прямо в настройках) + настройки поведения. Размер и
- * свечение — ступени вместо слайдеров: детерминированные пресеты, ничего
- * не уезжает мимо сетки пикселей.
+ * и реакции работают прямо в настройках) + настройки поведения и внешности.
+ * Размер и свечение — ступени вместо слайдеров: детерминированные пресеты,
+ * ничего не уезжает мимо сетки пикселей. Цвета частей — пипеткой, пусто —
+ * токен темы.
  */
 
 const SIZES = [0.8, 1, 1.3];
 const GLOWS = [0.7, 1, 1.5];
+/** Нейтральная заглушка для пипетки, пока часть красится токеном темы */
+const FALLBACK_HEX: Record<"body" | "glow" | "wing", string> = {
+  body: "#3d362e",
+  glow: "#e8864a",
+  wing: "#8a8178",
+};
 
 export function MascotSection({
   mascot,
@@ -23,6 +31,9 @@ export function MascotSection({
   onEasterChange,
   selfActivity,
   onSelfActivityChange,
+  colors,
+  onColorChange,
+  themeKey,
 }: {
   mascot: boolean;
   onMascotChange: (v: boolean) => void;
@@ -38,6 +49,11 @@ export function MascotSection({
   /** Самодеятельность в простое (ноутбук и т.п.) */
   selfActivity: boolean;
   onSelfActivityChange: (v: boolean) => void;
+  /** Кастомные цвета частей ("" — токен темы) */
+  colors: { body?: string; glow?: string; wing?: string };
+  onColorChange: (part: "body" | "glow" | "wing", v: string) => void;
+  /** Тема: смена в соседней вкладке — Нок в превью удивляется */
+  themeKey: "dark" | "light";
 }) {
   const { t } = useLang();
   const segBtn = (active: boolean) =>
@@ -46,6 +62,32 @@ export function MascotSection({
         ? "border-halo-accent/50 bg-halo-accent/10 text-halo-accent"
         : "border-halo-line text-halo-muted hover:text-halo-text"
     }`;
+  const colorRow = (part: "body" | "glow" | "wing", key: MsgKey) => (
+    <div className="flex items-center justify-between gap-2">
+      <span className="text-sm text-halo-text">{t(key)}</span>
+      <span className="flex items-center gap-2">
+        {!colors[part] && (
+          <span className="text-[0.625rem] text-halo-muted/60">{t("mascot.colorTheme")}</span>
+        )}
+        {/* «По теме»: сброс кастома — цвет вернётся к токену */}
+        {colors[part] && (
+          <button
+            onClick={() => onColorChange(part, "")}
+            className="rounded-lg border border-halo-line px-2 py-1 text-[0.625rem] text-halo-muted transition-colors hover:text-halo-text"
+          >
+            {t("mascot.colorTheme")}
+          </button>
+        )}
+        <input
+          type="color"
+          value={colors[part] || FALLBACK_HEX[part]}
+          onChange={(e) => onColorChange(part, e.target.value)}
+          className="size-6 shrink-0 cursor-pointer rounded border border-halo-line bg-transparent"
+          aria-label={t(key)}
+        />
+      </span>
+    </div>
+  );
 
   return (
     <div className="mt-5">
@@ -53,16 +95,21 @@ export function MascotSection({
       <p className="mb-3 text-xs leading-relaxed text-halo-muted">{t("mascot.sectionDesc")}</p>
 
       {/* Живая карточка: настоящий Нок на моке композера — тыкай, он живой.
-          Кнопка демо-полёта показывает пасхалку без чата */}
+          Посадка масштабо-зависима: при «Крупном» не наезжает на поле */}
       <div className="relative mb-4 overflow-hidden rounded-xl border border-halo-line bg-halo-surface/40 px-4 pb-4 pt-2">
         <div className="relative h-24">
-          <div className="absolute left-6 top-9">
+          <div
+            className="absolute left-6 z-10"
+            style={{ top: 36 - NOK_ROWS * 3 * size + 3 }}
+          >
             <Nok
               streaming={false}
               activity={null}
               scale={size}
               glowBoost={glow}
               selfActivity={selfActivity}
+              colors={colors}
+              themeKey={themeKey}
             />
           </div>
           <div className="absolute inset-x-8 bottom-2 flex h-9 items-center rounded-xl border border-halo-line bg-halo-deep/60 px-3">
@@ -101,6 +148,13 @@ export function MascotSection({
             </button>
           ))}
         </div>
+      </div>
+
+      {/* Раскраска по частям: пусто — токены темы */}
+      <div className="mt-2.5 space-y-2.5 rounded-xl border border-halo-line px-3.5 py-3">
+        {colorRow("body", "mascot.colorBody")}
+        {colorRow("glow", "mascot.colorGlow")}
+        {colorRow("wing", "mascot.colorWing")}
       </div>
 
       <div className="mt-2.5">

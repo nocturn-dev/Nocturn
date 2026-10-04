@@ -4,6 +4,7 @@ import type { MediaPrefs, MediaLyricsSnapshot } from "../mediaPrefs";
 import { MediaBar } from "./MediaBar";
 import { Nok } from "./mascot/Nok";
 import { matchNokTrigger } from "./mascot/nokTriggers";
+import { NOK_ROWS } from "./mascot/nokSprites";
 import type { PromptPreset } from "../presets";
 import type { JailbreakEntry } from "../jailbreaks";
 import { normalizePath, parseWriteResult } from "../diff";
@@ -233,6 +234,10 @@ interface ChatAreaProps {
   mascotEaster: boolean;
   /** Самодеятельность Нока в простое (ноутбук) */
   mascotSelf: boolean;
+  /** Кастомные цвета частей Нока ("" — токен темы) */
+  mascotColors: { body?: string; glow?: string; wing?: string };
+  /** Ключ темы+оформления: смена — Нок удивляется */
+  mascotThemeKey: string;
   /** Время в шапке ответов модели (кастомизация) */
   showMsgTime: boolean;
   /** Кнопки окна в этой шапке (когда сайдбар не справа) */
@@ -359,6 +364,8 @@ export default function ChatArea({
   mascotGlow,
   mascotEaster,
   mascotSelf,
+  mascotColors,
+  mascotThemeKey,
   showMsgTime,
   showWindowControls,
   headerInset,
@@ -2012,13 +2019,20 @@ export default function ChatArea({
             {/* Нок: сидит на левом углу шелла; в Hard Mode шелл не
                 рендерится — маскот скрыт вместе с ним */}
             {mascot && (
-              <div className="absolute -top-7 left-2 z-40">
+              // Посадка масштабо-зависима: лапы всегда на кромке шелла,
+              // крупный Нок не наезжает на текст поля ввода
+              <div
+                className="absolute z-40"
+                style={{ top: -(NOK_ROWS * 3 * mascotSize) + 3, left: 6 }}
+              >
                 <Nok
                   streaming={!!streamingMsgId}
                   activity={activity}
                   scale={mascotSize}
                   glowBoost={mascotGlow}
                   selfActivity={mascotSelf}
+                  colors={mascotColors}
+                  themeKey={mascotThemeKey}
                   flySeq={nokFlySeq}
                   homeSeq={nokHomeSeq}
                 />
