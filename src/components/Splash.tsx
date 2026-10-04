@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import NocturnMark from "./NocturnMark";
 import { useLang } from "../locales";
+import { STYLE_PALETTES } from "../themeStyles";
 
 /** Тайминги сплэша: этап 1 → минимальная суммарная выдержка → фейд */
 const STAGE1_MS = 900;
@@ -65,10 +66,12 @@ export default function Splash({
       style={{
         // Цвет старта = фон окна, выставленный public/boot-theme.js ДО
         // первой отрисовки (единая точка правды: читаем, не дублируем —
-        // раньше светлая тема стартовала тёмной вспышкой)
+        // раньше светлая тема стартовала тёмной вспышкой). Фолбэк — deep
+        // базовой палитры из STYLE_PALETTES, не свой литерал
         background: stage2
           ? "var(--halo-bg)"
-          : document.documentElement.style.background || "#1f1e1d",
+          : document.documentElement.style.background ||
+            STYLE_PALETTES.claude.dark.deep,
         transition: `opacity ${FADE_MS}ms ease, background 300ms ease`,
       }}
     >

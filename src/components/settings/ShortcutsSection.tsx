@@ -68,7 +68,9 @@ export function ShortcutsSection({
     onCustomChange([
       ...custom,
       {
-        id: `sc-${Date.now().toString(36)}`,
+        // uuid, не Date.now(): две команды в одну миллисекунду получали
+        // один id (паттерн ThemeSection — коллизия била React-ключи)
+        id: `sc-${crypto.randomUUID()}`,
         combo: customCombo,
         command: cmdArg.trim() ? `/${name} ${cmdArg.trim()}` : `/${name}`,
       },

@@ -116,6 +116,15 @@ const DANGEROUS_PATTERNS: RegExp[] = [
   /\bdd\b[^;&|]*of=\/dev\//,
   /\bmkfs/,
   /\bchmod\b[^;&|]*-r\b[^;&|]*777/,
+  // Windows/PowerShell-диалект: shell_run на Windows исполняет через
+  // powershell, а список ниже был POSIX-центричен — Remove-Item -Recurse
+  // и дисковые операции уходили в allow без вопроса (аудит 2026-10-04).
+  // False positive уводит в ask — безопасное направление
+  /\bremove-item\b[^;&|]*-[a-z]*r/, // Remove-Item -Recurse [-Force]
+  /\b(rd|rmdir)\b[^;&|]*\/s\b/, // rd /s /q — деревo каталогов
+  /\bdel\b[^;&|]*\/s\b/, // del /s — деревo файлов
+  /\bformat\b[^;&|]*[a-z]:/, // format c:
+  /\bdiskpart\b/,
 ];
 
 export function dangerousShellPattern(cmd: string): boolean {

@@ -219,7 +219,7 @@ export function ApiSection({
               >
                 {p.label}
                 {p.kind === "anthropic" && (
-                  <span className="ml-1 text-[0.5625rem] opacity-70">native</span>
+                  <span className="ml-1 text-[0.5625rem] opacity-70">{t("api.nativeBadge")}</span>
                 )}
               </button>
             );
@@ -407,21 +407,21 @@ export function ApiSection({
                   <span className="ml-auto flex shrink-0 items-center gap-1.5">
                     {m.vision && (
                       <span className="rounded bg-sky-400/15 px-1.5 py-0.5 text-[0.5625rem] font-medium text-sky-400">
-                        vision
+                        {t("api.visionBadge")}
                       </span>
                     )}
                     {!m.vision && m.text && (
                       <span className="rounded bg-halo-muted/15 px-1.5 py-0.5 text-[0.5625rem] font-medium text-halo-muted">
-                        text
+                        {t("api.textBadge")}
                       </span>
                     )}
                     {m.id.endsWith(":free") ? (
                       <span className="rounded bg-emerald-400/15 px-1.5 py-0.5 text-[0.5625rem] font-medium text-emerald-400">
-                        free
+                        {t("api.freeBadge")}
                       </span>
                     ) : (
                       <span className="rounded bg-amber-400/15 px-1.5 py-0.5 text-[0.5625rem] font-medium text-amber-400">
-                        paid
+                        {t("api.paidBadge")}
                       </span>
                     )}
                     {selected && <MiniCheckIcon />}

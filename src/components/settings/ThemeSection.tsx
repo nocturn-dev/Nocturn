@@ -2033,7 +2033,7 @@ export function ThemeSection({
           className="scroll-slim mt-2 min-h-24 w-full rounded-lg border border-halo-line bg-halo-surface px-2.5 py-2 font-mono text-[0.6875rem] leading-relaxed text-halo-text outline-none transition-colors placeholder:text-halo-muted/40 focus:border-halo-accent/60"
         />
         <div className="mt-1.5 flex items-center justify-between">
-          <span className="text-[0.625rem] text-halo-muted/50">CSS · auto-save</span>
+          <span className="text-[0.625rem] text-halo-muted/50">{t("css.autoSave")}</span>
           <button
             onClick={() => {
               setUserCss("");

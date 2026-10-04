@@ -110,7 +110,11 @@ export function ReflectSection({
       const stamp = `${dayKeyLocal(d)} ${String(d.getHours()).padStart(2, "0")}:${String(
         d.getMinutes(),
       ).padStart(2, "0")}`;
-      await notesWrite(`reflect-${dayKeyLocal(d)}-${d.getHours()}${d.getMinutes()}.md`, `# ${t("settings.reflect")} ${stamp}\n\n${result}\n`);
+      // Паддинг часов/минут обязателен: 02:30 и 23:00 без него давали
+      // один файл «-230» и тихо перезаписывали друг друга (аудит 2026-10-04)
+      const hh = String(d.getHours()).padStart(2, "0");
+      const mm = String(d.getMinutes()).padStart(2, "0");
+      await notesWrite(`reflect-${dayKeyLocal(d)}-${hh}${mm}.md`, `# ${t("settings.reflect")} ${stamp}\n\n${result}\n`);
       setSaved(true);
       setTick((v) => v + 1);
       window.setTimeout(() => setSaved(false), 2000);

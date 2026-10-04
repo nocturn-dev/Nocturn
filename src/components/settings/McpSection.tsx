@@ -68,10 +68,16 @@ export function McpSection() {
           command: "",
           args: [],
           env: {},
-          enabled: true,
+          // enabled/auth/client_id/oauth_scope — из вставленного конфига, не
+          // принудительно: вставка своего mcp.json превращала oauth-сервер
+          // в plain и включала выключенные серверы (аудит 2026-10-04)
+          enabled: typeof cfg.enabled === "boolean" ? cfg.enabled : true,
           transport: ctype === "sse" ? "sse" : "http",
           url: rurl,
           headers: rheaders,
+          ...(cfg.auth === "oauth" ? { auth: "oauth" } : {}),
+          ...(typeof cfg.client_id === "string" ? { client_id: cfg.client_id } : {}),
+          ...(typeof cfg.oauth_scope === "string" ? { oauth_scope: cfg.oauth_scope } : {}),
         });
         continue;
       }
@@ -89,7 +95,11 @@ export function McpSection() {
           ? cfg.args.filter((a): a is string => typeof a === "string")
           : [],
         env,
-        enabled: true,
+        // enabled — из вставленного конфига (см. комментарий выше)
+        enabled: typeof cfg.enabled === "boolean" ? cfg.enabled : true,
+        ...(cfg.auth === "oauth" ? { auth: "oauth" } : {}),
+        ...(typeof cfg.client_id === "string" ? { client_id: cfg.client_id } : {}),
+        ...(typeof cfg.oauth_scope === "string" ? { oauth_scope: cfg.oauth_scope } : {}),
       });
     }
     return out;

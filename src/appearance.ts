@@ -17,6 +17,7 @@ import {
   type CustomStyleId,
 } from "./themeStyles";
 import { applyCodeTheme, CODE_THEME_IDS } from "./codeThemes";
+import { TERMINAL_PALETTES } from "./vt";
 
 export type DarkStyle =
   | "claude"
@@ -306,7 +307,12 @@ export function loadAppearance(): Appearance {
       codeTheme: CODE_THEME_IDS.includes(p.codeTheme as string)
         ? (p.codeTheme as string)
         : "midnight",
-      termPalette: ["default", "one-dark", "gruvbox"].includes(p.termPalette as string)
+      // Белый список — из TERMINAL_PALETTES (единая точка, не дублированный
+      // литерал: четвёртая палитра в vt.ts раньше молча сбрасывалась на
+      // default при старте)
+      termPalette: (Object.keys(TERMINAL_PALETTES) as string[]).includes(
+        p.termPalette as string,
+      )
         ? (p.termPalette as string)
         : "default",
       termOpacity: clamp(p.termOpacity ?? 1, 0.3, 1),
@@ -731,7 +737,10 @@ export function applyAppearance(a: Appearance) {
     (a.inlineCodeClaude ?? false) && !a.fullClaude && !a.official,
   );
   root.style.fontSize = `${a.scale}%`;
-  root.classList.toggle("sidebar-glass", a.sidebarGlass);
+  // sidebar-glass — Global-тумблер: в Full Claude не действует (контракт
+  // «Сознательно вне каскада кастомизации», строчкой выше) — иначе глобальный
+  // тумблер стеклил «монолитную» тему поверх её собственных настроек
+  root.classList.toggle("sidebar-glass", a.sidebarGlass && !a.fullClaude);
   if (a.style === "claude") root.removeAttribute("data-style");
   else root.setAttribute("data-style", a.style);
 
