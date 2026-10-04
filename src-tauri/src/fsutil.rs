@@ -8,6 +8,218 @@ use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 
+/// Открыть файл записи с верификацией адреса (symlink TOCTOU, SECURITY.md).
+/// perm-слой канонизует путь и проверяет его ДО вызова инструмента, но между
+/// проверкой и `fs::write` локальный процесс того же пользователя мог
+/// подменить компонент пути симлинком/junction — запись ушла бы по новой
+/// ссылке. Схема «open → verify»: (1) открытие с флагом, ОТКАЗЫВАЮЩИМСЯ
+/// следовать симлинку на финальном компоненте (Unix: O_NOFOLLOW → ELOOP;
+/// Windows: FILE_FLAG_OPEN_REPARSE_POINT + отказ по атрибуту reparse);
+/// (2) у открытого дескриптора читается ФИНАЛЬНЫЙ путь, который видит ОС
+/// (Linux: /proc/self/fd; macOS/BSD: fcntl F_GETPATH; Windows:
+/// GetFinalPathNameByHandle), и сверяется с ожиданием, канонизованным
+/// в момент открытия. Подмена промежуточных компонентов между канонизацией
+/// и открытием меняет финальный путь дескриптора → отказ. Подмена ПОСЛЕ
+/// открытия дескриптор не двигает — запись привязана к проверенному inode.
+/// Вызывающий обязан повторить path-гейты (perm::recheck_location) по
+/// возвращённому пути: настоящая защита — проверка НАСТОЯЩЕГО адреса.
+///
+/// Гард «трек на паузе при старте» не нужен: O_CREAT может оставить пустой
+/// файл по адресу, который вызывающий затем отвергнет, — мусор того же
+/// пользователя, не утечка (он и так может писать куда угодно сам).
+pub fn open_write_verified(path: &Path) -> Result<(fs::File, PathBuf), String> {
+    let parent = path.parent().filter(|p| !p.as_os_str().is_empty());
+    let name = path
+        .file_name()
+        .ok_or_else(|| format!("path has no file name: {}", path.display()))?;
+    let parent = parent.ok_or_else(|| format!("no parent directory: {}", path.display()))?;
+    let expected = fs::canonicalize(parent)
+        .map_err(|e| format!("cannot resolve parent {}: {e}", parent.display()))?
+        .join(name);
+    let file = open_no_follow(path)?;
+    let final_path = final_path_of(&file)?;
+    if !paths_equivalent(&final_path, &expected) {
+        return Err(format!(
+            "symlink race refused: opened {}, expected {}",
+            final_path.display(),
+            expected.display()
+        ));
+    }
+    Ok((file, final_path))
+}
+
+/// Открытие записи без следования финальному симлинку. read(true) нужен
+/// вызывающему: «до» для диффа читается через тот же дескриптор (чтение
+/// путём отдельно от записи — та же гонка).
+#[cfg(unix)]
+fn open_no_follow(path: &Path) -> Result<fs::File, String> {
+    use std::os::unix::fs::OpenOptionsExt;
+    fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(path)
+        .map_err(|e| {
+            // ELOOP — финальный компонент оказался симлинком (O_NOFOLLOW)
+            format!("cannot open {}: {e}", path.display())
+        })
+}
+
+#[cfg(windows)]
+fn open_no_follow(path: &Path) -> Result<fs::File, String> {
+    use std::os::windows::fs::OpenOptionsExt;
+    use std::os::windows::io::AsRawHandle;
+    const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+    const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0400;
+    // OPEN_ALWAYS (create+write, без truncate): «до» для диффа читается
+    // до усечения; перезапись делает вызывающий через set_len(0)
+    let f = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
+        .open(path)
+        .map_err(|e| format!("cannot open {}: {e}", path.display()))?;
+    // OPEN_REPARSE_POINT открыл бы сам симлинк, а не цель: отказ по
+    // атрибуту reparse прямо на дескрипторе (гонки-free, в отличие от
+    // проверки пути после открытия)
+    let mut info = win::ByHandleFileInformation::default();
+    let ok = unsafe { win::GetFileInformationByHandle(f.as_raw_handle(), &mut info) };
+    if ok == 0 {
+        return Err(format!(
+            "cannot stat {}: {}",
+            path.display(),
+            std::io::Error::last_os_error()
+        ));
+    }
+    if info.attributes & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+        return Err(format!(
+            "refused: {} is a symlink/reparse point",
+            path.display()
+        ));
+    }
+    Ok(f)
+}
+
+/// Финальный путь, который ОС показывает для открытого дескриптора.
+#[cfg(target_os = "linux")]
+fn final_path_of(f: &fs::File) -> Result<PathBuf, String> {
+    use std::os::unix::io::AsRawFd;
+    fs::read_link(format!("/proc/self/fd/{}", f.as_raw_fd()))
+        .map_err(|e| format!("cannot resolve fd path (procfs unavailable?): {e}"))
+}
+
+/// macOS/BSD: /proc нет — F_GETPATH отдаёт путь vnode'а (до MAXPATHLEN)
+#[cfg(all(unix, not(target_os = "linux")))]
+fn final_path_of(f: &fs::File) -> Result<PathBuf, String> {
+    use std::os::unix::io::AsRawFd;
+    let fd = f.as_raw_fd();
+    let mut buf = vec![0u8; libc::MAXPATHLEN];
+    let n = unsafe { libc::fcntl(fd, libc::F_GETPATH, buf.as_mut_ptr()) };
+    if n < 0 {
+        return Err(format!(
+            "cannot resolve fd path: {}",
+            std::io::Error::last_os_error()
+        ));
+    }
+    let end = buf.iter().position(|&b| b == 0).unwrap_or(buf.len());
+    Ok(PathBuf::from(
+        String::from_utf8_lossy(&buf[..end]).into_owned(),
+    ))
+}
+
+#[cfg(windows)]
+fn final_path_of(f: &fs::File) -> Result<PathBuf, String> {
+    use std::os::windows::io::AsRawHandle;
+    // flags = 0 → VOLUME_NAME_DOS + FILE_NAME_NORMALIZED, форма \\?\C:\...
+    // — та же, что у fs::canonicalize на Windows
+    let mut buf = [0u16; 1024];
+    let n = unsafe {
+        win::GetFinalPathNameByHandleW(f.as_raw_handle(), buf.as_mut_ptr(), buf.len() as u32, 0)
+    };
+    if n == 0 {
+        return Err(format!(
+            "cannot resolve final path: {}",
+            std::io::Error::last_os_error()
+        ));
+    }
+    // Успех: возврат НЕ включает завершающий нуль (включает только
+    // insufficient-buffer). n == 0 уже отсечён выше
+    let len = (n as usize).min(buf.len() - 1);
+    Ok(PathBuf::from(String::from_utf16_lossy(
+        &buf[..len],
+    )))
+}
+
+/// Путь для репортажа модели/фронту: каноникал на Windows носит вербатим-
+/// префикс \\?\ (и \\?\UNC\) — срезаем для человекочитаемого вида; регистр
+/// и содержимое не трогаем. Фронтовый normalizePath этот префикс не знает
+pub fn display_path(p: &Path) -> String {
+    let s = p.to_string_lossy();
+    #[cfg(windows)]
+    {
+        if let Some(rest) = s.strip_prefix(r"\\?\UNC\") {
+            return format!(r"\\{rest}");
+        }
+        if let Some(rest) = s.strip_prefix(r"\\?\") {
+            return rest.to_string();
+        }
+    }
+    s.into_owned()
+}
+
+/// Сравнение финального пути с ожиданием: оба каноничны, но регистр и
+/// префиксы могли различаться формой (\\?\C:\ vs C:\) — нормализуем обе
+fn paths_equivalent(a: &Path, b: &Path) -> bool {
+    #[cfg(windows)]
+    {
+        win_norm(a) == win_norm(b)
+    }
+    #[cfg(not(windows))]
+    {
+        a == b
+    }
+}
+
+#[cfg(windows)]
+fn win_norm(p: &Path) -> String {
+    let mut s = p.to_string_lossy().to_lowercase().replace('/', "\\");
+    if let Some(rest) = s.strip_prefix("\\\\?\\unc\\") {
+        s = format!("\\\\{rest}");
+    } else if let Some(rest) = s.strip_prefix("\\\\?\\") {
+        s = rest.to_string();
+    }
+    s
+}
+
+/// Минимальные FFI-объявления kernel32. Платформенный FFI — только под
+/// соответствующим cfg (конвенция кодовой базы: незагейченный user32
+/// ломал линковку macOS/Linux)
+#[cfg(windows)]
+mod win {
+    use std::ffi::c_void;
+
+    /// Нужен только dwFileAttributes; остальные поля держат layout корректным
+    #[repr(C)]
+    #[derive(Default)]
+    pub struct ByHandleFileInformation {
+        pub attributes: u32,
+        pub creation: [u32; 2],
+        pub access: [u32; 2],
+        pub modification: [u32; 2],
+        pub volume_serial: u32,
+        pub size_high: u32,
+        pub size_low: u32,
+    }
+
+    #[link(name = "kernel32")]
+    extern "system" {
+        pub fn GetFileInformationByHandle(h: *mut c_void, info: *mut ByHandleFileInformation) -> i32;
+        pub fn GetFinalPathNameByHandleW(h: *mut c_void, buf: *mut u16, len: u32, flags: u32) -> u32;
+    }
+}
+
 /// Записать данные атомарно: temp-файл рядом + rename (rename в пределах
 /// одной ФС атомарен). На Unix файл получает права 600 — конфиги содержат
 /// API-ключи, дефолтные права (umask) слишком широкие.
@@ -222,6 +434,80 @@ mod tests {
             .filter(|e| e.file_name().to_string_lossy().contains(".tmp-"))
             .collect();
         assert!(leftovers.is_empty());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn open_write_verified_roundtrip_and_overwrite() {
+        let dir = std::env::temp_dir().join(format!("haloui-verified-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("f.txt");
+        let write = |data: &[u8]| {
+            let (mut f, verified) = open_write_verified(&path).unwrap();
+            use std::io::{Seek, SeekFrom, Write};
+            f.set_len(0).unwrap();
+            f.seek(SeekFrom::Start(0)).unwrap();
+            f.write_all(data).unwrap();
+            verified
+        };
+        let v1 = write(b"hello");
+        let v2 = write(b"world");
+        assert_eq!(fs::read(&path).unwrap(), b"world");
+        // Верифицированный путь — канонизованный настоящий адрес
+        assert_eq!(
+            fs::canonicalize(&path).unwrap(),
+            fs::canonicalize(&v2).unwrap()
+        );
+        let _ = fs::remove_dir_all(&dir);
+        drop(v1);
+    }
+
+    /// Финальный компонент — симлинк: открытие обязано отказать.
+    /// На Windows создание симлинков требует привилегий/Developer Mode —
+    /// если ОС не дала, тест честно пропускается (CI-раннеры возвышенны)
+    #[test]
+    fn open_write_verified_refuses_final_symlink() {
+        let dir = std::env::temp_dir().join(format!("haloui-slink-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let target = dir.join("target.txt");
+        fs::write(&target, b"real").unwrap();
+        let link = dir.join("link.txt");
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        #[cfg(windows)]
+        if std::os::windows::fs::symlink_file(&target, &link).is_err() {
+            eprintln!("skipped: no symlink privilege on this machine");
+            let _ = fs::remove_dir_all(&dir);
+            return;
+        }
+        let err = open_write_verified(&link).unwrap_err();
+        assert!(
+            err.contains("refused") || err.contains("symlink") || err.contains("Too many"),
+            "unexpected error: {err}"
+        );
+        // Цель не пострадала
+        assert_eq!(fs::read(&target).unwrap(), b"real");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// Промежуточный компонент — симлинк: финальный путь дескриптора
+    /// отражает настоящий адрес (резолв), ровно его проверяет вызывающий
+    /// через perm::recheck_location — см. тест в tools.rs
+    #[cfg(unix)]
+    #[test]
+    fn open_write_verified_resolves_parent_symlink() {
+        let dir = std::env::temp_dir().join(format!("haloui-pdir-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(dir.join("real")).unwrap();
+        std::os::unix::fs::symlink(dir.join("real"), dir.join("link")).unwrap();
+        let via_link = dir.join("link").join("f.txt");
+        let (mut f, verified) = open_write_verified(&via_link).unwrap();
+        use std::io::Write;
+        f.write_all(b"x").unwrap();
+        // Верифицированный адрес — по настоящему каталогу, не по ссылке
+        assert_eq!(verified, fs::canonicalize(dir.join("real")).unwrap().join("f.txt"));
         let _ = fs::remove_dir_all(&dir);
     }
 

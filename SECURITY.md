@@ -44,13 +44,25 @@ session store.
 
 ## Known residual risks (design trade-offs)
 
-- **Symlink TOCTOU on path writes.** File writes validate the path
-  (canonicalize + sensitive-path check) and then write through the normal
-  filesystem. A local process racing the agent could swap a path component
-  for a symlink between check and write. Single-user local machine: the
-  attacker must already run as the same user. Hardening (open with
-  `FILE_FLAG_OPEN_REPARSE_POINT` on Windows / `O_NOFOLLOW` on Unix) is
-  tracked as future work.
+- **Symlink TOCTOU on path writes — closed (2026-10-04).** File writes used
+  to validate the path (canonicalize + sensitive-path check) and then write
+  through the normal filesystem, so a local process racing the agent could
+  swap a path component for a symlink between check and write. Agent-facing
+  writes (`fs_write`) now follow an "open → verify → write" scheme: the file
+  is opened refusing to follow the final symlink component (`O_NOFOLLOW` on
+  Unix; `FILE_FLAG_OPEN_REPARSE_POINT` + reparse-attribute refusal on
+  Windows), the final path is read back **from the opened handle**
+  (`/proc/self/fd`, `F_GETPATH`, `GetFinalPathNameByHandle`) and the
+  sensitive-path and project-roots gates are re-run against that verified
+  location before anything is written through the handle. A component
+  swapped between the permission check and the open changes the handle's
+  final path and is refused; a swap after the open cannot move the handle's
+  target. Residual: the `O_CREAT` side effect can leave an empty file at a
+  swapped location before the refusal (same-user litter, no data written),
+  and tool **reads** (`fs_read`, `fs_grep`) still follow symlinks — a racing
+  local process could point a read at another file; the content goes to the
+  user's own configured provider and is visible in the tool card. Accepted
+  (single-user machine; reads are a much weaker target than writes).
 - **Broad import reads.** Settings import, plugin import and knowledge-base
   indexing can read arbitrary user-chosen files (system locations are
   rejected). This is the feature; the webview process is the trust boundary.
