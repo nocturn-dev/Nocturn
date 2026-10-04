@@ -191,6 +191,12 @@ export const zh = {
     "cp.confirmRestore": "从此快照恢复项目文件？当前已更改文件的内容将被覆盖。",
     "cp.restored": "已恢复 {n} 个文件",
     "cp.delete": "删除检查点",
+    "cp.showFiles": "快照文件",
+    "cp.filesLoading": "正在读取状态……",
+    "cp.stateModified": "已修改",
+    "cp.stateDeleted": "已删除",
+    "cp.stateUnchanged": "未改动",
+    "cp.moreFiles": "……还有 {n} 个",
     // Терминальный режим
     "terminal.toggle": "终端",
     "terminal.close": "关闭终端",
