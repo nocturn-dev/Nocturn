@@ -896,33 +896,35 @@ export default function ChatArea({
     if (e.button !== 0) return;
     suppressNokClickRef.current = false; // новое нажатие — чистый лист
     nokDragRef.current = { x0: e.clientX, moved: false };
-    // Захват: move/up приходят к обёртке, даже если курсор ушёл с маскота
-    e.currentTarget.setPointerCapture(e.pointerId);
-  };
-  const onNokPointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
-    const d = nokDragRef.current;
-    if (!d) return;
-    const dx = e.clientX - d.x0;
-    if (!d.moved && Math.abs(dx) > 6) d.moved = true;
-    if (d.moved && nokWrapRef.current) {
-      nokWrapRef.current.style.transform = `translateX(${dx}px)`;
-    }
-  };
-  const onNokPointerUp = (e: ReactPointerEvent<HTMLDivElement>) => {
-    const d = nokDragRef.current;
-    nokDragRef.current = null;
-    if (nokWrapRef.current) nokWrapRef.current.style.transform = "";
-    if (!d || !d.moved) return;
-    suppressNokClickRef.current = true; // click после драга не гладит
-    const shell = e.currentTarget.parentElement?.getBoundingClientRect();
-    if (shell) {
-      const side = e.clientX < shell.left + shell.width / 2 ? "left" : "right";
-      if (side !== mascotSide) onMascotSideChange(side);
-    }
-  };
-  const onNokPointerCancel = () => {
-    nokDragRef.current = null;
-    if (nokWrapRef.current) nokWrapRef.current.style.transform = "";
+    // Трекинг на window и БЕЗ setPointerCapture: капча ретаргетит click на
+    // обёртку, и onClick Нока (поглаживание/злость) перестаёт срабатывать
+    const onMove = (ev: PointerEvent) => {
+      const d = nokDragRef.current;
+      if (!d) return;
+      const dx = ev.clientX - d.x0;
+      if (!d.moved && Math.abs(dx) > 6) d.moved = true;
+      if (d.moved && nokWrapRef.current) {
+        nokWrapRef.current.style.transform = `translateX(${dx}px)`;
+      }
+    };
+    const onUp = (ev: PointerEvent) => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+      const d = nokDragRef.current;
+      nokDragRef.current = null;
+      if (nokWrapRef.current) nokWrapRef.current.style.transform = "";
+      if (!d || !d.moved) return;
+      suppressNokClickRef.current = true; // click после драга не гладит
+      const shell = nokWrapRef.current?.parentElement?.getBoundingClientRect();
+      if (shell) {
+        const side = ev.clientX < shell.left + shell.width / 2 ? "left" : "right";
+        if (side !== mascotSide) onMascotSideChange(side);
+      }
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
   };
 
   const nokMenuItems = (): MenuItem[] => [
@@ -2199,15 +2201,14 @@ export default function ChatArea({
               // крупный Нок не наезжает на текст поля ввода
               <div
                 ref={nokWrapRef}
-                className="absolute z-[var(--halo-z-panel-top)] select-none touch-none"
+                className={`absolute z-[var(--halo-z-panel-top)] select-none touch-none${
+                  mascotSide === "right" ? " nok-perch-right" : ""
+                }`}
                 style={{
                   top: -(NOK_ROWS * 3 * mascotSize) + 3,
                   ...(mascotSide === "left" ? { left: 6 } : { right: 6 }),
                 }}
                 onPointerDown={onNokPointerDown}
-                onPointerMove={onNokPointerMove}
-                onPointerUp={onNokPointerUp}
-                onPointerCancel={onNokPointerCancel}
                 onContextMenu={(e) => {
                   e.preventDefault();
                   setNokMenu({ x: e.clientX, y: e.clientY });
