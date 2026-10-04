@@ -451,6 +451,10 @@ export default function App() {
     },
     [mascotColors, setMascotColorsRaw],
   );
+  // Насест Нока (драг по кромке шелла) и «спрятать до рестарта» (ПКМ-меню:
+  // сознательно не персистится — рестарт возвращает маскота)
+  const [mascotSide, setMascotSide] = useStringPref<"left" | "right">("haloui-mascot-side", "left");
+  const [mascotShooed, setMascotShooed] = useState(false);
 
   // Saved-тост (фидбек 26.09): изменения в открытых настройках не тостят
   // вовсе (слайдер масштаба хоть по 1% — ни одного лишнего окна); один тост
@@ -2772,6 +2776,10 @@ export default function App() {
         mascotSelf={mascotSelf}
         mascotColors={mascotColors}
         mascotThemeKey={mascotThemeKey}
+        mascotSide={mascotSide}
+        onMascotSideChange={setMascotSide}
+        mascotShooed={mascotShooed}
+        onMascotShoo={() => setMascotShooed(true)}
         onToast={addToast}
         settingsClosedSeq={settingsClosedSeq}
         showMsgTime={appearance.showMsgTime ?? false}

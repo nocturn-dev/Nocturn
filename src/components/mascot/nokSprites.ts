@@ -35,3 +35,22 @@ export const NOK_BASE = [
 export const NOK_BLINK = NOK_BASE.map((row, y) =>
   y === 4 ? row.replace(/e/g, "b") : row,
 );
+
+/**
+ * Полётный кадр: крылышки подняты на ряд-два выше (строки 1–3 вместо 3–5).
+ * Тело не меняется — рендер крыльев берёт клетки «w» из этой матрицы,
+ * кадры низ/верх переключает CSS (.nok-fly .nok-wings / .nok-wings-alt),
+ * поэтому компонент не перерисовывается на каждом взмахе.
+ */
+export const NOK_FLY = [
+  ".a.....a..",
+  "w.a...a.w.",
+  "w.bbbb..w.",
+  "wbbbbbb.w.",
+  ".bebbeb...",
+  ".bbbbbb...",
+  "..bbbb....",
+  ".GGGGGG...",
+  "GGGGGGGG..",
+  ".GGGGGG...",
+];

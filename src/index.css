@@ -1162,6 +1162,44 @@ html.light.inline-code-claude .markdown code:not(pre code) {
   animation: nok-fly calc(9s * var(--motion-scale)) ease-in-out forwards;
   z-index: var(--halo-z-ambient-front);
 }
+/* Взмах крыльев в полёте: два кадра спрайта (низ/верх), жёсткая смена
+   на середине цикла. Альтернативный кадр скрыт вне полёта; reduce-motion
+   оставляет базовый (группы в плитках отключения ниже) */
+@keyframes nok-wing-a {
+  0%,
+  49.9% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0;
+  }
+}
+@keyframes nok-wing-b {
+  0%,
+  49.9% {
+    opacity: 0;
+  }
+  50%,
+  100% {
+    opacity: 1;
+  }
+}
+.nok-fly .nok-wings {
+  animation: nok-wing-a calc(0.36s * var(--motion-scale)) linear infinite;
+}
+.nok-wings-alt {
+  opacity: 0;
+}
+.nok-fly .nok-wings-alt {
+  opacity: 1;
+  animation: nok-wing-b calc(0.36s * var(--motion-scale)) linear infinite;
+}
+/* Ждёт подтверждения: лампа пульсирует настойчивее — «здесь нужен ты» */
+.nok-waiting .nok-aura,
+.nok-waiting .nok-lamp {
+  animation-duration: calc(1.4s * var(--motion-scale));
+}
 /* Самодеятельность: строчки «кода» мигают, тело подрагивает от печати */
 .nok-coding .nok-code {
   animation: nok-glow calc(1s * var(--motion-scale)) ease-in-out infinite;
@@ -1181,6 +1219,7 @@ html.light.inline-code-claude .markdown code:not(pre code) {
 html.motion-reduced .nok-fly,
 html.motion-reduced .nok-code,
 html.motion-reduced .nok-wings,
+html.motion-reduced .nok-fly .nok-wings-alt,
 html.motion-reduced .nok-surprised .nok-body,
 html.motion-reduced .nok-tumble,
 html.motion-reduced .nok-scare,
@@ -1195,6 +1234,7 @@ html.motion-reduced .nok-quip {
   .nok-fly,
   .nok-code,
   .nok-wings,
+  .nok-fly .nok-wings-alt,
   .nok-surprised .nok-body,
   .nok-tumble,
   .nok-scare,
@@ -1223,6 +1263,30 @@ html.motion-reduced .nok-z {
   .nok-z {
     animation: none;
   }
+}
+
+/* Подсветка панели вопроса: клик по ждущему Ноку («здесь нужен ты»).
+   color-mix в keyframes не завернуть — переменная с фолбэком до сплошного
+   акцента, @supports подмешивает прозрачность (паттерн --halo-hit-bg) */
+:root {
+  --halo-ask-ping: var(--halo-accent);
+}
+@supports (background: color-mix(in srgb, red, blue)) {
+  :root {
+    --halo-ask-ping: color-mix(in srgb, var(--halo-accent) 45%, transparent);
+  }
+}
+@keyframes ask-ping {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+  40% {
+    box-shadow: 0 0 0 5px var(--halo-ask-ping);
+  }
+}
+.ask-ping {
+  animation: ask-ping calc(1.4s * var(--motion-scale)) ease-out 1;
 }
 
 /* Засечка таймлайна: «домино» — появляются по очереди */
