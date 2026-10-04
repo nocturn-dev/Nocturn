@@ -456,6 +456,8 @@ export default function App() {
   );
   // Насест Нока (драг по кромке шелла) и «спрятать до рестарта» (ПКМ-меню:
   // сознательно не персистится — рестарт возвращает маскота)
+  // Кастомное имя Нока ("" — локализованное «Нок»); реплики с {name}
+  const [mascotName, setMascotName] = useStringPref<string>("haloui-mascot-name", "");
   const [mascotSide, setMascotSide] = useStringPref<"left" | "right">("haloui-mascot-side", "left");
   const [mascotShooed, setMascotShooed] = useState(false);
 
@@ -2744,7 +2746,7 @@ export default function App() {
         onOpenCompare={() => setCompareOpen(true)}
         onOpenKnowledge={() => setKnowledgeOpen(true)}
         onOpenSettings={() => {
-          setSettingsSection("main");
+          setSettingsSection("api");
           setSettingsOpen(true);
         }}
         onSetSystemPrompt={(p) =>
@@ -2786,6 +2788,7 @@ export default function App() {
         mascotShooed={mascotShooed}
         onMascotShoo={() => setMascotShooed(true)}
         mascotLimitSeq={limitSeq}
+        mascotName={mascotName}
         onToast={addToast}
         settingsClosedSeq={settingsClosedSeq}
         showMsgTime={appearance.showMsgTime ?? false}
@@ -2952,6 +2955,8 @@ export default function App() {
         onMascotSelfChange={setMascotSelf}
         mascotColors={mascotColors}
         onMascotColorChange={setMascotColor}
+        mascotName={mascotName}
+        onMascotNameChange={setMascotName}
         memoryEnabled={memoryEnabled}
         onMemoryChange={setMemoryEnabled}
         initialSection={settingsSection}

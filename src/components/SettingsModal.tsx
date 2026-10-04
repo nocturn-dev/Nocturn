@@ -170,6 +170,9 @@ interface SettingsModalProps {
   /** Кастомные цвета частей Нока ("" — токен темы) */
   mascotColors: { body?: string; glow?: string; wing?: string };
   onMascotColorChange: (part: "body" | "glow" | "wing", v: string) => void;
+  /** Кастомное имя маскота ("" — локализованное «Нок») */
+  mascotName: string;
+  onMascotNameChange: (v: string) => void;
   /** Память проектов: контекст предыдущих задач в новых сессиях */
   memoryEnabled: boolean;
   onMemoryChange: (v: boolean) => void;
@@ -351,6 +354,8 @@ export default function SettingsModal({
   onMascotSelfChange,
   mascotColors,
   onMascotColorChange,
+  mascotName,
+  onMascotNameChange,
   memoryEnabled,
   onMemoryChange,
   apiSettings,
@@ -779,6 +784,8 @@ export default function SettingsModal({
               onSelfActivityChange={onMascotSelfChange}
               colors={mascotColors}
               onColorChange={onMascotColorChange}
+              mascotName={mascotName}
+              onNameChange={onMascotNameChange}
               themeKey={theme}
             />
           )}

@@ -4,7 +4,7 @@ import type { MediaPrefs, MediaLyricsSnapshot } from "../mediaPrefs";
 import { MediaBar } from "./MediaBar";
 import { Nok } from "./mascot/Nok";
 import { matchNokTrigger } from "./mascot/nokTriggers";
-import { pickPostRunQuip, type PostRunQuip, type NokQuipKind } from "./mascot/nokMood";
+import { isPathLikeDraft, pickPostRunQuip, type PostRunQuip, type NokQuipKind } from "./mascot/nokMood";
 import { NOK_ROWS } from "./mascot/nokSprites";
 import ContextMenu, { type MenuItem } from "./ContextMenu";
 import type { PromptPreset } from "../presets";
@@ -251,6 +251,8 @@ interface ChatAreaProps {
   /** Спрятан до рестарта (ПКМ-меню); сознательно не персистится */
   mascotShooed: boolean;
   onMascotShoo: () => void;
+  /** Кастомное имя маскота ("" — локализованное «Нок») */
+  mascotName?: string;
   /** Hard Limit сработал (useAgentRun): рост счётчика — событие Ноку */
   mascotLimitSeq?: number;
   /** Время в шапке ответов модели (кастомизация) */
@@ -386,6 +388,7 @@ export default function ChatArea({
   onMascotSideChange,
   mascotShooed,
   onMascotShoo,
+  mascotName,
   mascotLimitSeq,
   settingsClosedSeq,
   showMsgTime,
@@ -889,6 +892,43 @@ export default function ChatArea({
     return n;
   }, [sessionWrites]);
   const changedLinesRef = useRef(sessionChangedLines);
+
+  // Реакции на печать (PLAN §25): путь/файл в черновике, простыня текста,
+  // пауза печати > 30 с. Одно срабатывание на «эпизод» (до следующей
+  // правки/очистки); шансы и кулдауны — внутри Нока
+  const typingIdleRef = useRef<number | null>(null);
+  const typingFiredRef = useRef({ path: false, long: false, idle: false });
+  useEffect(() => {
+    if (draft.trim() === "") {
+      if (typingIdleRef.current) {
+        window.clearTimeout(typingIdleRef.current);
+        typingIdleRef.current = null;
+      }
+      typingFiredRef.current = { path: false, long: false, idle: false };
+      return;
+    }
+    if (!typingFiredRef.current.path && isPathLikeDraft(draft)) {
+      typingFiredRef.current.path = true;
+      pushNokEvent("path");
+    }
+    if (!typingFiredRef.current.long && draft.length > 300) {
+      typingFiredRef.current.long = true;
+      pushNokEvent("longtext");
+    }
+    if (typingIdleRef.current) window.clearTimeout(typingIdleRef.current);
+    typingIdleRef.current = window.setTimeout(() => {
+      if (draft.trim() !== "" && !streamingMsgId) {
+        typingFiredRef.current.idle = true;
+        pushNokEvent("idle");
+      }
+    }, 30_000);
+    return () => {
+      if (typingIdleRef.current) {
+        window.clearTimeout(typingIdleRef.current);
+        typingIdleRef.current = null;
+      }
+    };
+  }, [draft, streamingMsgId, pushNokEvent]);
   changedLinesRef.current = sessionChangedLines;
 
   // Конец/старт прогона. Старт: событие Ноку (он выберет wake/night/start).
@@ -1595,9 +1635,31 @@ export default function ChatArea({
     el.style.height = "auto";
     el.style.height = `${Math.min(el.scrollHeight, 176)}px`;
   };
+  // Авторесайз при ПРОГРАММНЫХ правках черновика (скиллы &id:, цитаты,
+  // Mermaid-правка): autoGrow вешан на input, а setDraft идёт мимо него —
+  // реальный кейс 04.10: вставка скила оставляла textarea в одну строку,
+  // весь текст не виден
+  useEffect(() => {
+    if (textareaRef.current) autoGrow(textareaRef.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- autoGrow стабилен (чистая ref-логика)
+  }, [draft]);
 
   const submit = () => {
-    const text = draft.trim();
+    let text = draft.trim();
+    // Скиллы — короткая форма &id: (фидбек владельца 04.10: полная
+    // инструкция в черновике сжимала композер и мешала). Инструкция
+    // раскрывается ТОЛЬКО здесь, при отправке; в черновике видно
+    // «&review: <код/путь>» — как цитату с вопросом
+    const skillRef = /^&([a-z0-9_-]+):\s*/i.exec(text);
+    if (skillRef) {
+      const skill = allSkills.find(
+        (s) => s.id.toLowerCase() === skillRef[1]?.toLowerCase(),
+      );
+      if (skill) {
+        const rest = text.slice(skillRef[0].length).trim();
+        text = rest ? `${skill.prompt}${rest}` : skill.prompt;
+      }
+    }
     if (!text && pendingImages.length === 0) return;
     // Пасхалки Нока (PLAN.md §21): «Эй Нок, полетай» — команда перехватывается
     // ДО отправки, модели не видна (как slash-команды); черновик гасим
@@ -1657,7 +1719,9 @@ export default function ChatArea({
       if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
         e.preventDefault();
         const skill = skillMatches[skillIndex];
-        if (skill) setDraft(skill.prompt);
+        // Короткая форма &id: — инструкция раскроется при отправке
+        // (фидбек владельца: полная инструкция сжимала композер)
+        if (skill) setDraft(`&${skill.id}: `);
         return;
       }
       if (e.key === "Escape") {
@@ -2425,6 +2489,7 @@ export default function ChatArea({
                   settingsClosedSeq={settingsClosedSeq}
                   flySeq={nokFlySeq}
                   homeSeq={nokHomeSeq}
+                  mascotName={mascotName}
                   waitingConfirm={!!pendingAsk && !terminalOpen}
                   errorSeq={nokErrorSeq}
                   postRunQuip={nokPostQuip}
@@ -2451,7 +2516,7 @@ export default function ChatArea({
                 {skillMatches.map((s, i) => (
                   <button
                     key={s.id}
-                    onClick={() => setDraft(s.prompt)}
+                    onClick={() => setDraft(`&${s.id}: `)}
                     className={`flex w-full items-baseline gap-2 rounded-lg px-2 py-1.5 text-left transition-colors ${
                       i === skillIndex
                         ? "bg-halo-accent/15"
