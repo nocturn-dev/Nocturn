@@ -18,7 +18,6 @@ import {
   runTool,
   type ApiSettings,
   type ChatMsgParam,
-  type ChatUsage,
   type MemoryFact,
 } from "../api";
 // FIX: trimContextWindow заменяет голый .slice(-30), который разрывал
@@ -28,8 +27,8 @@ import { buildHistory, buildMemoryBlock } from "../agent/history";
 import { applyMicrocompact } from "../agent/microcompact";
 import { parsePlanTasks } from "../agent/planUpdate";
 import { allowKey, parseHttpCode, ruleArgument } from "../agent/toolArgs";
-import { ruleMatches } from "../agent/permRules";
-import { classifyShellRun } from "../agent/shellRules";
+import { chatWithRetry as chatWithRetryEngine } from "../agent/chatRetry";
+import { evaluateToolRules } from "../agent/toolRules";
 import type { PermRules } from "../agent/permRules";
 import {
   compactHistory,
@@ -75,11 +74,6 @@ import {
 } from "../interactions";
 
 export const uid = () => crypto.randomUUID();
-
-/** Ошибки провайдера, которые имеет смысл ретраить: перегрузка/лимиты/сеть
- *  (переедет в agent/chatRetry в шаге 4г) */
-const RETRYABLE_RE =
-  /\bHTTP (?:429|500|502|503|504|52\d)\b|failed to fetch|connection|timed?.?out/i;
 
 // Автопродолжение вопроса: без ответа пользователя N минут модель продолжит сама
 const ASK_AUTO_CONTINUE_MS = 5 * 60_000;
@@ -186,84 +180,24 @@ export function useAgentRun(deps: AgentRunDeps) {
   // Волна 5: ретраи кончились, сервер всё ещё отвечает 429/5xx — второй
   // прогон на fallback-модели (если задана и отличается от основной)
   const chatWithRetry = useCallback(
-    async (
+    (
       opts: Parameters<typeof chatStream>[0] & {
         fallbackModel?: string;
         onFallback?: (model: string) => void;
       },
-    ) => {
-      let received = false;
-      const wrapped = {
-        ...opts,
-        onDelta: (d: string, seq?: number) => {
-          received = true;
-          opts.onDelta(d, seq);
+    ) =>
+      // Ретрай/фолбэк — chatWithRetry (agent/chatRetry, §24 ш.4г): политика
+      // здесь, транспорт там. Барьеры Stop/Hard Limit — isAborted
+      chatWithRetryEngine(
+        {
+          stream: chatStream,
+          isAborted: () => abortedRef.current.has(opts.requestId),
+          onRetryNote: (n) => setActivity(t("activity.retry", { n })),
+          onFallbackNote: (m) => setActivity(t("activity.fallback", { model: m })),
         },
-        onThought: (th: string, seq?: number) => {
-          received = true;
-          opts.onThought(th, seq);
-        },
-        // FIX: usage означает «провайдер уже насчитал токены за попытку» —
-        // ретрай после него двойно считал токены в Hard-Limit и журнале
-        onUsage: (u: ChatUsage, barrier?: boolean, seq?: number) => {
-          received = true;
-          opts.onUsage(u, barrier, seq);
-        },
-        // FIX: tool_calls тоже часть частично-оплаченного ответа — не ретраим
-        onToolCalls: (c: ToolCallInfo[], barrier?: boolean, seq?: number) => {
-          received = true;
-          opts.onToolCalls?.(c, barrier, seq);
-        },
-      };
-      // Stop/Hard Limit могли сработать ещё до старта стрима (пока собирался
-      // контекст: хуки, память, KB) — не стартуем запрос впустую
-      if (abortedRef.current.has(opts.requestId)) return;
-      for (let attempt = 0; ; attempt++) {
-        try {
-          await chatStream(wrapped);
-          return;
-        } catch (e) {
-          const msg = String(e);
-          if (
-            !received &&
-            attempt < 2 &&
-            RETRYABLE_RE.test(msg) &&
-            !abortedRef.current.has(opts.requestId)
-          ) {
-            setActivity(t("activity.retry", { n: attempt + 1 }));
-            await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));
-            // Stop нажат во время паузы — новый запрос не стартуем
-            if (abortedRef.current.has(opts.requestId)) return;
-            continue;
-          }
-          // Fallback-модель: только на 429/5xx (сетевые сбои моделью не лечатся),
-          // до первого токена и пока прогон не отменён
-          const fb = opts.fallbackModel?.trim();
-          const code = parseHttpCode(msg);
-          if (
-            !received &&
-            fb &&
-            fb !== opts.model &&
-            (code === 429 || (code !== null && code >= 500)) &&
-            !abortedRef.current.has(opts.requestId)
-          ) {
-            setActivity(t("activity.fallback", { model: fb }));
-            try {
-              await chatStream({ ...wrapped, model: fb });
-              opts.onFallback?.(fb);
-              return;
-            } catch {
-              // Ошибка фолбэка не информативнее исходной — показываем исходную
-            }
-          }
-          // Прогон остановлен пользователем/лимитом: обрыв — не ошибка,
-          // карточку ошибки не рисуем (маркер «остановлено» ставит finalize)
-          if (abortedRef.current.has(opts.requestId)) return;
-          throw e;
-        }
-      }
-    },
-    [t],
+        opts,
+      ),
+    [t, setActivity],
   );
 
   // Откат записи агента: изменённый файл восстанавливаем из before,
@@ -2579,31 +2513,17 @@ ${report}`;
         const grantKey = allowKey(call);
         const allowed =
           mutating && (session?.allowedCommands?.includes(grantKey) ?? false);
-        // Волна E1: правила прав. always_ask — спросить даже в Full (и даже
-        // для чтений); allow — не спрашивать в Ask/Edit (бекенд-границыmode
-        // выше allow и не пробиваются). Аргумент матча — команда shell_run /
-        // путь fs_*; bare-правило матчит инструмент целиком
+        // Волна E1: правила прав — предчек вынесен в evaluateToolRules
+        // (agent/toolRules, §24 ш.4г); бекенд всё равно авторитетен
         const rules = permRulesRef.current;
         const ruleArg = ruleArgument(call);
         const fsTool = call.name.startsWith("fs_");
-        // Deny — серверный блок; фронтовый предчек сберегает бессмысленное
-        // подтверждение (бекенд всё равно авторитетен, матч best-effort)
-        const denyHit = rules
-          ? ruleMatches(rules.deny, call.name, ruleArg, fsTool)
-          : false;
-        let alwaysAsk = false;
-        let allowRule = false;
-        if (!denyHit && rules) {
-          if (call.name === "shell_run" && ruleArg) {
-            // Волна E2: allow не пробивает complex/dangerous (→ обычный
-            // mutating-флоу); always_ask на shell спрашивает как обычно
-            alwaysAsk = ruleMatches(rules.always_ask, call.name, ruleArg, false);
-            allowRule = !alwaysAsk && classifyShellRun(ruleArg, rules) === "allow";
-          } else {
-            alwaysAsk = ruleMatches(rules.always_ask, call.name, ruleArg, fsTool);
-            allowRule = ruleMatches(rules.allow, call.name, ruleArg, fsTool);
-          }
-        }
+        const { denyHit, alwaysAsk, allowRule } = evaluateToolRules(
+          call.name,
+          rules,
+          ruleArg,
+          fsTool,
+        );
 
         // Подтвердить и исполнить — общий хвост plan-blocked-обхода:
         // askConfirm → deny | always (в allowedCommands задачи) | exec
