@@ -26,6 +26,8 @@ import {
 // Чистые фазы prepare (история/память) — в agent/history; лимиты — в limits.ts
 import { buildHistory, buildMemoryBlock } from "../agent/history";
 import { applyMicrocompact } from "../agent/microcompact";
+import { parsePlanTasks } from "../agent/planUpdate";
+import { allowKey, parseHttpCode, ruleArgument } from "../agent/toolArgs";
 import { ruleMatches } from "../agent/permRules";
 import { classifyShellRun } from "../agent/shellRules";
 import type { PermRules } from "../agent/permRules";
@@ -70,20 +72,15 @@ import {
   type InteractionResolution,
 } from "../interactions";
 
-/** Ошибки провайдера, которые имеет смысл ретраить: перегрузка/лимиты/сеть */
+export const uid = () => crypto.randomUUID();
+
+/** Ошибки провайдера, которые имеет смысл ретраить: перегрузка/лимиты/сеть
+ *  (переедет в agent/chatRetry в шаге 4г) */
 const RETRYABLE_RE =
   /\bHTTP (?:429|500|502|503|504|52\d)\b|failed to fetch|connection|timed?.?out/i;
 
-/** Единый генератор id: раньше дублировался здесь и в App.tsx */
-export const uid = () => crypto.randomUUID();
-
 // Автопродолжение вопроса: без ответа пользователя N минут модель продолжит сама
 const ASK_AUTO_CONTINUE_MS = 5 * 60_000;
-/** HTTP-код из строки ошибки Rust-стрима ("HTTP 503: …") */
-function parseHttpCode(raw: string): number | null {
-  const m = raw.match(/\bHTTP (\d{3})\b/);
-  return m ? Number(m[1]) : null;
-}
 
 /** Хэндл активного прогона: обёртка handleSend по нему гарантированно
  *  доводит прогон до finalize / освобождения движка при ЛЮБОМ исключении */
@@ -91,29 +88,6 @@ interface RunHandle {
   requestId: string;
   finalize: (() => void) | null;
 }
-
-/** Ключ разрешения «всегда для задачи»: имя инструмента + аргументы. Раньше
- *  хранились одни аргументы — разрешение на один инструмент с `{}` покрывало
- *  любой другой мутирующий инструмент с теми же аргументами. Имя функции не
- *  содержит пробелов, поэтому первый пробел однозначно делит ключ */
-const allowKey = (call: ToolCallInfo) => `${call.name} ${call.arguments}`;
-
-/** Волна E1: аргумент матчинга правил — команда shell_run / путь fs_*;
- *  bare-правила матчат инструмент и без аргумента */
-const ruleArgument = (call: ToolCallInfo): string | null => {
-  try {
-    const p = JSON.parse(call.arguments) as { path?: unknown; command?: unknown };
-    if (call.name === "shell_run") {
-      return typeof p.command === "string" ? p.command : null;
-    }
-    if (call.name.startsWith("fs_")) {
-      return typeof p.path === "string" ? p.path : null;
-    }
-  } catch {
-    // не JSON — правила по аргументу не матчим (bare-правила всё равно работают)
-  }
-  return null;
-};
 
 export interface AgentRunDeps {
   // FIX [dead-prop]: sessions передавался, но внутри хука не читался
@@ -1814,23 +1788,10 @@ export function useAgentRun(deps: AgentRunDeps) {
         try {
           const parsed = JSON.parse(call.arguments) as { tasks?: unknown };
           const raw = parsed.tasks;
-          // Валидация: массив объектов; элемент пропускается, если title
-          // не непустая строка или status вне enum
-          const tasks: PlanTask[] = Array.isArray(raw)
-            ? raw
-                .filter((t): t is Record<string, unknown> => !!t && typeof t === "object")
-                .map((t) => ({
-                  title: typeof t.title === "string" ? t.title.trim() : "",
-                  status: t.status as PlanTask["status"],
-                }))
-                .filter(
-                  (t) =>
-                    t.title.length > 0 &&
-                    (t.status === "pending" ||
-                      t.status === "in_progress" ||
-                      t.status === "done"),
-                )
-            : [];
+          // Валидация — parsePlanTasks (agent/planUpdate, §24 ш.4б): массив
+          // объектов; элемент пропускается, если title не непустая строка
+          // или status вне enum
+          const tasks: PlanTask[] = parsePlanTasks(raw);
           if (!Array.isArray(raw)) {
             planContent =
               "error: invalid plan_update arguments — tasks array required";
