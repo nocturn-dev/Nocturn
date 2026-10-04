@@ -138,6 +138,9 @@ interface ChatAreaProps {
   customPresets: PromptPreset[];
   /** Библиотека джейлбрейков — пикер в системном промте задачи */
   jailbreaks: JailbreakEntry[];
+  /** Тосты отказов вложений (не читается/слишком большой): без него
+   *  отказ был молчаливым — файл просто не появлялся в композере */
+  onToast?: (msg: string) => void;
   /** Снимок лирики наверх (AmbientLayer): MediaBar отдаёт колбэком */
   onMediaLyrics?: (snap: MediaLyricsSnapshot | null) => void;
   onSend: (
@@ -323,6 +326,7 @@ export default function ChatArea({
   promptPresets,
   customPresets,
   jailbreaks,
+  onToast,
   onMediaLyrics,
   onSetSystemPrompt,
   onApplyPreset,
@@ -628,7 +632,11 @@ export default function ChatArea({
     const isImage = f.type.startsWith("image/");
     const name = f.name || (isImage ? "image.png" : "file.txt");
     if (!isImage) {
-      if (f.size > 5 * 1024 * 1024) return; // слишком большой — молча игнорируем
+      if (f.size > 5 * 1024 * 1024) {
+        // Молчаливый отказ раньше не имел сигнала вовсе
+        onToast?.(t("chat.attachmentTooBig", { name }));
+        return;
+      }
       const reader = new FileReader();
       reader.onload = () => {
         let text = String(reader.result);
@@ -637,6 +645,8 @@ export default function ChatArea({
         }
         setPendingImages((prev) => [...prev, { id: uid(), name, text }]);
       };
+      // Ошибка чтения (файл исчез/заперт) иначе теряла вложение молча
+      reader.onerror = () => onToast?.(t("chat.attachmentReadFail", { name }));
       reader.readAsText(f);
       return;
     }
@@ -655,6 +665,8 @@ export default function ChatArea({
           setPendingImages((prev) => [...prev, { id: uid(), name, dataUrl }]),
         );
     };
+    // Ошибка чтения (файл исчез/заперт) иначе теряла вложение молча
+    reader.onerror = () => onToast?.(t("chat.attachmentReadFail", { name }));
     reader.readAsDataURL(f);
   };
 
@@ -968,19 +980,25 @@ export default function ChatArea({
     () => contextLimitFor(model, models.length > 0 ? models : null),
     [model, models],
   );
-  // Если реальное использование ещё неизвестно — оцениваем сами (chars/4)
+  // Если реальное использование ещё неизвестно — оцениваем сами (chars/4).
+  // Тяжёлый проход по всем сообщениям выполняется только пока contextUsed
+  // равен 0: после первого ответа оценка msgs никем не читается, а prompt
+  // (одна длина строки) остаётся для разбивки rows — раньше проход гонялся
+  // на каждый флеш стрима всегда (аудит 2026-10-04)
   const contextEstimate = useMemo(() => {
     let msgs = 0;
-    for (const m of messages) {
-      msgs +=
-        Math.ceil(((m.content?.length ?? 0) + (m.thought?.length ?? 0)) / 4) + 8;
-      for (const _a of m.attachments ?? []) msgs += 1500; // скриншот ≈ патч изображения
+    if (!contextUsed) {
+      for (const m of messages) {
+        msgs +=
+          Math.ceil(((m.content?.length ?? 0) + (m.thought?.length ?? 0)) / 4) + 8;
+        for (const _a of m.attachments ?? []) msgs += 1500; // скриншот ≈ патч изображения
+      }
     }
     const prompt = session?.systemPrompt
       ? Math.ceil(session.systemPrompt.length / 4)
       : 0;
     return { msgs, prompt, sysTools: 0, mcpTools: 0 };
-  }, [messages, session?.systemPrompt]);
+  }, [messages, session?.systemPrompt, contextUsed]);
   // Схемы инструментов (агентный режим): RFC — синхронно недоступны, тянем по требованию
   const [toolsTokens, setToolsTokens] = useState<{
     sys: number;

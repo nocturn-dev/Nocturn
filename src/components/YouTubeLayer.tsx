@@ -286,7 +286,7 @@ export function YouTubeLayer({
           </button>
           <button
             onClick={ytToggle}
-            disabled={!track}
+            disabled={!track && yt.queue.length === 0}
             title={t("media.ttPlay")}
             className="rounded-full bg-halo-accent p-1.5 text-halo-on-accent transition-transform hover:scale-105 disabled:opacity-40"
           >
@@ -373,9 +373,10 @@ export function YouTubeLayer({
           </button>
         </div>
 
-        {/* Очередь: поле добавления — только когда что-то уже играет
-            (первый трек вводится в зоне видео выше) */}
-        {track && (
+        {/* Очередь: видна и после рестарта (track ещё null, но очередь
+            восстановлена — иначе сохранённую очередь не увидеть и не
+            запустить; старт пункта создаёт track по пути «первого плей») */}
+        {(track || yt.queue.length > 0) && (
           <div className="border-t border-halo-line/60 px-3.5 py-2.5">
             <div className="flex items-center gap-2">
               <input

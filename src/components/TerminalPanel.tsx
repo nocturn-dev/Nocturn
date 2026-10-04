@@ -9,6 +9,8 @@ import {
 } from "../diff";
 import { ptyCreate, ptyKill, ptyResize, ptyWrite } from "../api";
 import { Vt, type VtSpan } from "../vt";
+import { cssVarColor } from "../appearance";
+import { getPlatform } from "../platform";
 import { useLang } from "../locales";
 
 /**
@@ -66,13 +68,18 @@ function measureCharWidth(style: CSSStyleDeclaration): number | null {
   }
 }
 
-/** ANSI SGR-коды в палитре HaloUI (акцент #D97757) */
+/** ANSI SGR-коды. Акцент — живой токен темы (cssVarColor при каждом
+ *  использовании): зашитый #D97757 не перекрашивался при смене акцента
+ *  (аудит 2026-10-04). Остальные — семантика статусов, вне тем сознательно */
 const C = {
   reset: "\x1b[0m",
   dim: "\x1b[2m",
   bold: "\x1b[1m",
   italic: "\x1b[3m",
-  accent: "\x1b[38;2;217;119;87m",
+  get accent() {
+    const [r, g, b] = cssVarColor("--halo-accent", "#d97757");
+    return `\x1b[38;2;${r};${g};${b}m`;
+  },
   cyan: "\x1b[38;2;94;175;220m",
   green: "\x1b[38;2;95;190;130m",
   red: "\x1b[38;2;214;100;100m",
@@ -518,6 +525,13 @@ export default function TerminalPanel({
   const exitedRef = useRef(false);
   const [consoleRows, setConsoleRows] = useState(() => vtInstance.render());
 
+  // Смена палитры перекрашивает ЖИВУЮ консоль: Vt читает цвета при render(),
+  // пересоздание Vt стёрло бы экран — применяем поверх (аудит 2026-10-04)
+  useEffect(() => {
+    vtInstance.applyPalette(termPalette);
+    setConsoleRows(vtInstance.render());
+  }, [termPalette, vtInstance]);
+
   // Создание PTY и подписка на вывод — при первом включении консоли
   useEffect(() => {
     if (mode !== "console") return;
@@ -659,7 +673,17 @@ export default function TerminalPanel({
   const keyToBytes = (e: React.KeyboardEvent): string | null => {
     if (e.ctrlKey || e.metaKey) {
       // Раскладконезависимо: физические клавиши C/D (на русской C даёт «с»)
-      if (e.code === "KeyC") return "\x03"; // SIGINT
+      if (e.code === "KeyC") {
+        // Копирование выделения: Cmd+C на macOS (системная конвенция —
+        // раньше Meta+C уходил в PTY как SIGINT и убивал активную команду)
+        // и Ctrl+Shift+C везде; «голый» Ctrl+C остаётся SIGINT
+        if ((e.metaKey && getPlatform() === "macos") || e.shiftKey) {
+          const sel = window.getSelection()?.toString();
+          if (sel) void navigator.clipboard.writeText(sel).catch(() => {});
+          return null;
+        }
+        return "\x03"; // SIGINT
+      }
       if (e.code === "KeyD") return "\x04"; // EOF
       return null;
     }

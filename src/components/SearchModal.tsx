@@ -9,6 +9,19 @@ interface SearchModalProps {
   onClose: () => void;
 }
 
+/** Haystack сессии кэшируется по ССЫЛКЕ объекта: пересборка корпуса
+ *  «все сообщения всех сессий» на каждый флеш стрима при открытом Ctrl+K
+ *  давала полный проход по корпусу без нужды (аудит 2026-10-04). Новая
+ *  ссылка сессии (новое сообщение) пересчитывается один раз */
+const haystackCache = new WeakMap<Session, string>();
+function haystackOf(s: Session): string {
+  const cached = haystackCache.get(s);
+  if (cached !== undefined) return cached;
+  const h = (s.title + " " + s.messages.map((m) => m.content).join(" ")).toLowerCase();
+  haystackCache.set(s, h);
+  return h;
+}
+
 /** Палитра поиска (Ctrl+K): ищет по названиям и содержимому задач */
 export default function SearchModal({
   open,
@@ -58,14 +71,7 @@ export default function SearchModal({
     if (words.length === 0) return list.slice(0, 12);
     // Все слова запроса должны встречаться в названии или сообщениях
     return list
-      .filter((s) => {
-        const haystack = (
-          s.title +
-          " " +
-          s.messages.map((m) => m.content).join(" ")
-        ).toLowerCase();
-        return words.every((w) => haystack.includes(w));
-      })
+      .filter((s) => words.every((w) => haystackOf(s).includes(w)))
       .slice(0, 20);
   }, [open, sessions, searchQuery]);
 

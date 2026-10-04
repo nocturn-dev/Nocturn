@@ -115,6 +115,13 @@ export class Vt {
     for (let i = 0; i < rows; i++) this.rows.push(this.blankRow());
   }
 
+  /** Живая смена палитры (кастомизация): цвета читаются из this.colors при
+   *  render(), так что перекраска живой консоли — applyPalette + render у
+   *  вызывающего; пересоздание Vt стёрло бы экран */
+  applyPalette(palette?: string[]) {
+    this.colors = palette && palette.length === 16 ? palette : PALETTE;
+  }
+
   /** Достать базовый цвет: мусорный индекс из SGR даёт дефолт, не undefined */
   private paletteAt(i: number): string {
     return this.colors[i] ?? "#d6d3cc";

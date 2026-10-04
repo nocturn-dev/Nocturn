@@ -63,8 +63,11 @@ let state: YtState = {
 };
 
 /** Запомненные позиции: videoId → секунда остановки (resume). Держим до
- *  50 записей — при переполнении стираем самые старые (порядок вставки) */
-let positions: Record<string, number> = {};
+ *  50 записей — при переполнении стираем самые старые. Map, а не Record:
+ *  JS-объект ставит integer-like ключи (11-значный videoId валиден по
+ *  ID_RE) первыми в числовом порядке, и вытеснение по keys[0] выкидывало
+ *  не самую старую запись */
+let positions = new Map<string, number>();
 
 const listeners = new Set<() => void>();
 
@@ -103,10 +106,10 @@ export function loadYtPersisted(): void {
             (t as YtTrack).videoId.length > 0,
         )
       : [];
-    const pos: Record<string, number> = {};
+    const pos = new Map<string, number>();
     if (p.positions && typeof p.positions === "object") {
       for (const [k, v] of Object.entries(p.positions as Record<string, unknown>)) {
-        if (typeof v === "number" && v > 0 && Number.isFinite(v)) pos[k] = v;
+        if (typeof v === "number" && v > 0 && Number.isFinite(v)) pos.set(k, v);
       }
     }
     positions = pos;
@@ -132,7 +135,7 @@ function persist() {
         volume: state.volume,
         rate: state.rate,
         repeatOne: state.repeatOne,
-        positions,
+        positions: Object.fromEntries(positions),
       }),
     );
   } catch {
@@ -149,16 +152,15 @@ function savePosition(force = false) {
   const now = Date.now();
   if (!force && now - lastPosSave < 5000) return;
   lastPosSave = now;
-  positions[id] = state.currentTime;
-  const keys = Object.keys(positions);
-  const oldest = keys[0];
-  if (keys.length > 50 && oldest) delete positions[oldest];
+  positions.set(id, state.currentTime);
+  const oldest = positions.keys().next().value;
+  if (positions.size > 50 && oldest !== undefined) positions.delete(oldest);
   persist();
 }
 
 /** Стартовая секунда для трека: resume, но только если смотрели > 15 с */
 function startFor(videoId: string): number {
-  const p = positions[videoId];
+  const p = positions.get(videoId);
   return p && p > 15 ? Math.floor(p) : 0;
 }
 
@@ -407,7 +409,12 @@ export function ytPlayUrl(input: string): { ok: boolean; error?: string } {
 }
 
 export function ytToggle(): void {
-  if (!state.track) return;
+  if (!state.track) {
+    // Восстановленная очередь после рестарта: play без трека — старт с
+    // текущего (или первого) пункта очереди, иначе кнопка мертва
+    if (state.queue.length > 0) ytPlayAt(Math.max(0, state.queueIndex));
+    return;
+  }
   // iframe ещё не создан (трек добавлен из настроек, окно не открывали) —
   // плей = открыть окно: там iframe смонтируется с autoplay и стартует
   if (!state.ready) {
@@ -495,6 +502,21 @@ export function ytPlayAt(index: number): void {
   const it = index >= 0 ? state.queue[index] : undefined;
   if (!it) return;
   savePosition(true);
+  if (!state.track) {
+    // Очередь после рестарта: трека нет, iframe не создан — стартуем по
+    // пути «первого плей» (ytPlayUrl): track создаёт iframe в React-слое,
+    // src с autoplay сам стартует; иначе команды уходят в пустоту
+    set({
+      track: it,
+      queueIndex: index,
+      playing: true,
+      currentTime: 0,
+      duration: 0,
+      errorCode: null,
+    });
+    persist();
+    return;
+  }
   set({ queueIndex: index, playing: true, currentTime: 0, duration: 0 });
   send("loadVideoById", [it.videoId, startFor(it.videoId)]);
   send("playVideo");
