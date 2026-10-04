@@ -1073,6 +1073,7 @@ export default function App() {
     handleAskAnswer,
     chainAbortRef,
     lastCheckpointRef,
+    limitSeq,
   } = useAgentRun({
     setSessions,
     sessionsRef,
@@ -2780,6 +2781,7 @@ export default function App() {
         onMascotSideChange={setMascotSide}
         mascotShooed={mascotShooed}
         onMascotShoo={() => setMascotShooed(true)}
+        mascotLimitSeq={limitSeq}
         onToast={addToast}
         settingsClosedSeq={settingsClosedSeq}
         showMsgTime={appearance.showMsgTime ?? false}

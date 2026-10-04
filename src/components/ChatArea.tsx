@@ -4,7 +4,7 @@ import type { MediaPrefs, MediaLyricsSnapshot } from "../mediaPrefs";
 import { MediaBar } from "./MediaBar";
 import { Nok } from "./mascot/Nok";
 import { matchNokTrigger } from "./mascot/nokTriggers";
-import { pickPostRunQuip, type PostRunQuip } from "./mascot/nokMood";
+import { pickPostRunQuip, type PostRunQuip, type NokQuipKind } from "./mascot/nokMood";
 import { NOK_ROWS } from "./mascot/nokSprites";
 import ContextMenu, { type MenuItem } from "./ContextMenu";
 import type { PromptPreset } from "../presets";
@@ -251,6 +251,8 @@ interface ChatAreaProps {
   /** Спрятан до рестарта (ПКМ-меню); сознательно не персистится */
   mascotShooed: boolean;
   onMascotShoo: () => void;
+  /** Hard Limit сработал (useAgentRun): рост счётчика — событие Ноку */
+  mascotLimitSeq?: number;
   /** Время в шапке ответов модели (кастомизация) */
   showMsgTime: boolean;
   /** Кнопки окна в этой шапке (когда сайдбар не справа) */
@@ -384,6 +386,7 @@ export default function ChatArea({
   onMascotSideChange,
   mascotShooed,
   onMascotShoo,
+  mascotLimitSeq,
   settingsClosedSeq,
   showMsgTime,
   showWindowControls,
@@ -409,6 +412,18 @@ export default function ChatArea({
   const [nokErrorSeq, setNokErrorSeq] = useState(0);
   const [nokNapSeq, setNokNapSeq] = useState(0);
   const [nokPostQuip, setNokPostQuip] = useState<PostRunQuip | null>(null);
+  // Событийный канал Нока (старт/долгий цикл/вкладка/shell/музыка/лимит…):
+  // seq монотонный — потерянные промежуточные события не страшны, шансы и
+  // кулдауны решает Нок
+  const [nokEvent, setNokEvent] = useState<{ seq: number; kind: NokQuipKind } | null>(null);
+  const nokEventSeqRef = useRef(0);
+  const pushNokEvent = useCallback((kind: NokQuipKind) => {
+    nokEventSeqRef.current += 1;
+    setNokEvent({ seq: nokEventSeqRef.current, kind });
+  }, []);
+  // Долгий цикл: метка старта прогона + один квип «long» за прогон
+  const runStartAtRef = useRef(0);
+  const longQuippedRef = useRef(false);
   // ПКМ-меню Нока (координаты клика; портал ContextMenu)
   const [nokMenu, setNokMenu] = useState<{ x: number; y: number } | null>(null);
   // Подсветка панели вопроса после клика по ждущему Ноку
@@ -834,12 +849,19 @@ export default function ChatArea({
   const changedLinesRef = useRef(sessionChangedLines);
   changedLinesRef.current = sessionChangedLines;
 
-  // Конец прогона: ошибка → тревога Нока; счётчик задач дня (квип «перерыв»
-  // на каждой 10-й) и выбор квипа — pickPostRunQuip (чистая, протестирована)
+  // Конец/старт прогона. Старт: событие Ноку (он выберет wake/night/start).
+  // Конец: ошибка → тревога; счётчик задач дня (квип «перерыв» на каждой
+  // 10-й) и выбор квипа — pickPostRunQuip (чистая, протестирована)
   const prevStreamRef = useRef<string | null>(null);
   useEffect(() => {
     const prev = prevStreamRef.current;
     prevStreamRef.current = streamingMsgId;
+    if (!prev && streamingMsgId) {
+      pushNokEvent("start");
+      runStartAtRef.current = Date.now();
+      longQuippedRef.current = false;
+      return;
+    }
     if (!prev || streamingMsgId) return;
     const ended = messagesRef.current.find((m) => m.id === prev);
     const failed = !!ended?.error;
@@ -868,10 +890,91 @@ export default function ChatArea({
       hidden: document.hidden,
     });
     if (quip) {
-      setNokPostQuip((p) => ({ seq: (p?.seq ?? 0) + 1, key: quip.key, n: quip.n }));
+      setNokPostQuip((p) => ({ seq: (p?.seq ?? 0) + 1, outcome: quip }));
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- refs/сеттеры стабильны; nokPostQuip только для seq
-  }, [streamingMsgId]);
+  }, [streamingMsgId, pushNokEvent]);
+
+  // Новые tool-сообщения → события Нока (шансы/кулдауны — внутри Нока).
+  // Гейт по длине: во время стрима messages меняют идентичность каждый
+  // кадр, а ДОБАВЛЕНИЯ редки — тот же паттерн, что writeKey ниже
+  const scannedMsgsRef = useRef(0);
+  const scannedSessionRef = useRef<string | null>(null);
+  useEffect(() => {
+    const sid = session?.id ?? null;
+    if (sid !== scannedSessionRef.current) {
+      // Смена сессии/ветка: история новой сессии — не события
+      scannedSessionRef.current = sid;
+      scannedMsgsRef.current = messages.length;
+      return;
+    }
+    if (messages.length < scannedMsgsRef.current) {
+      // Массив короче (усечение): перезарядка без событий
+      scannedMsgsRef.current = messages.length;
+      return;
+    }
+    const fresh = messages.slice(scannedMsgsRef.current);
+    scannedMsgsRef.current = messages.length;
+    let pushed = false;
+    for (const m of fresh) {
+      if (m.role !== "tool") continue;
+      switch (m.toolName) {
+        case "shell_run":
+          pushNokEvent("shell");
+          pushed = true;
+          break;
+        case "browser_navigate":
+          pushNokEvent("tab");
+          pushed = true;
+          break;
+        case "browser_screenshot":
+        case "computer_screenshot":
+          pushNokEvent("shot");
+          pushed = true;
+          break;
+        case "code_run":
+          pushNokEvent("py");
+          pushed = true;
+          break;
+        case "fs_write":
+          pushNokEvent("edit");
+          pushed = true;
+          break;
+        case "subagent_run":
+          pushNokEvent("sub");
+          pushed = true;
+          break;
+        default:
+          break;
+      }
+    }
+    // Долгий цикл: прогон тянется дольше трёх минут — реплика один раз
+    if (
+      !pushed &&
+      streamingMsgId &&
+      !longQuippedRef.current &&
+      Date.now() - runStartAtRef.current > 3 * 60_000
+    ) {
+      longQuippedRef.current = true;
+      pushNokEvent("long");
+    }
+  }, [messages, streamingMsgId, pushNokEvent, session]);
+
+  // Смена модели — Нок комментирует (первое значение после монтирования —
+  // не событие: ref инициализирован текущим)
+  const prevModelRef = useRef(model);
+  useEffect(() => {
+    if (model !== prevModelRef.current) {
+      prevModelRef.current = model;
+      pushNokEvent("model");
+    }
+  }, [model, pushNokEvent]);
+
+  // Hard Limit (useAgentRun) — важное: Нок перебивает кулдаун
+  const prevLimitRef = useRef(mascotLimitSeq ?? 0);
+  useEffect(() => {
+    if ((mascotLimitSeq ?? 0) > prevLimitRef.current) pushNokEvent("limit");
+    prevLimitRef.current = mascotLimitSeq ?? 0;
+  }, [mascotLimitSeq, pushNokEvent]);
 
   // Клик по Ноку в waiting/error: вопрос уже над композером — подсветить
   // панель; ошибка — последняя карточка, достаточно проскроллить вниз
@@ -1977,6 +2080,7 @@ export default function ChatArea({
         prefs={mediaPrefs}
         onLyrics={onMediaLyrics}
         onPlayingChange={onMusicPlaying}
+        onTrackChange={(src) => pushNokEvent(src === "yt" ? "yt" : "track")}
       />
       <div
         ref={scrollRef}
@@ -2235,6 +2339,7 @@ export default function ChatArea({
                   waitingConfirm={!!pendingAsk && !terminalOpen}
                   errorSeq={nokErrorSeq}
                   postRunQuip={nokPostQuip}
+                  event={nokEvent}
                   napSeq={nokNapSeq}
                   onSignal={handleNokSignal}
                 />

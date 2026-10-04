@@ -84,6 +84,7 @@ export function MediaBar({
   prefs,
   onLyrics,
   onPlayingChange,
+  onTrackChange,
 }: {
   prefs: MediaPrefs;
   /** Снимок лирики наверх (LyricsRibbon): смена строки/текста, null —
@@ -91,6 +92,9 @@ export function MediaBar({
   onLyrics?: (snap: MediaLyricsSnapshot | null) => void;
   /** Играет ли музыка (маскоту — наушники и качание) */
   onPlayingChange?: (playing: boolean) => void;
+  /** Смена трека наверх (Нок: «О, моя любимая!» / «Что смотришь?»).
+   *  src — какая интеграция дала трек */
+  onTrackChange?: (src: "spotify" | "yt") => void;
 }) {
   const { t } = useLang();
   const [state, setState] = useState<MediaStateDto | null>(null);
@@ -184,6 +188,26 @@ export function MediaBar({
   const ytTrackAuthor = yt.track?.author ?? "";
   const ytTrackTitle = yt.track?.title ?? "";
   const ytTrackDuration = yt.duration;
+  // Смена трека наверх (Нок: «О, моя любимая!» / «Что смотришь?»).
+  // Гард: трек/видео, уже лежащие на паузе при старте, — не событие
+  const trackPrevRef = useRef<string | null>(null);
+  useEffect(() => {
+    const id = state?.trackId ?? null;
+    const prev = trackPrevRef.current;
+    trackPrevRef.current = id;
+    if (!id || id === prev) return;
+    if (prev === null && !playing) return;
+    onTrackChange?.("spotify");
+  }, [state?.trackId, playing, onTrackChange]);
+  const ytTrackPrevRef = useRef<string | null>(null);
+  useEffect(() => {
+    const id = ytTrackId;
+    const prev = ytTrackPrevRef.current;
+    ytTrackPrevRef.current = id;
+    if (!id || id === prev) return;
+    if (prev === null && !yt.playing) return;
+    onTrackChange?.("yt");
+  }, [ytTrackId, yt.playing, onTrackChange]);
   useEffect(() => {
     if (!prefs.youtube || !prefs.lyrics || !ytTrackId) {
       setYtLyrics(null);

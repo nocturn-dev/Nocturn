@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { pickMood, pickPostRunQuip } from "./nokMood";
+import {
+  makeQuipDecks,
+  pickMood,
+  pickPostRunQuip,
+  QUIP_COOLDOWN_MS,
+  QUIP_KEYS,
+  shouldQuip,
+} from "./nokMood";
 
 /** Базовое «ничего не происходит» — каждый тест включает только свой флаг */
 const base = {
@@ -96,7 +103,7 @@ describe("pickPostRunQuip", () => {
   it("дифф: полшанса при изменённых строках", () => {
     expect(
       pickPostRunQuip({ failed: false, changedLines: 214, runsToday: 1, hidden: false, rnd: () => 0.4 }),
-    ).toEqual({ key: "mascot.quip.diff", n: 214 });
+    ).toEqual({ kind: "diff", n: 214 });
     expect(
       pickPostRunQuip({ failed: false, changedLines: 214, runsToday: 1, hidden: false, rnd: () => 0.6 }),
     ).toBeNull();
@@ -104,9 +111,17 @@ describe("pickPostRunQuip", () => {
   it("каждая 10-я задача дня — «перерыв» (если дифф не выпал)", () => {
     expect(
       pickPostRunQuip({ failed: false, changedLines: 0, runsToday: 10, hidden: false, rnd: () => 0.9 }),
-    ).toEqual({ key: "mascot.quip.break", n: 10 });
+    ).toEqual({ kind: "break", n: 10 });
     expect(
       pickPostRunQuip({ failed: false, changedLines: 0, runsToday: 9, hidden: false, rnd: () => 0.9 }),
+    ).toBeNull();
+  });
+  it("иначе — пул «готово» с полшанса", () => {
+    expect(
+      pickPostRunQuip({ failed: false, changedLines: 0, runsToday: 1, hidden: false, rnd: () => 0.4 }),
+    ).toEqual({ kind: "done" });
+    expect(
+      pickPostRunQuip({ failed: false, changedLines: 0, runsToday: 1, hidden: false, rnd: () => 0.6 }),
     ).toBeNull();
   });
   it("ошибка — никакой бодрой реплики (тревогу отыгрывает errorFlash)", () => {
@@ -118,5 +133,43 @@ describe("pickPostRunQuip", () => {
     expect(
       pickPostRunQuip({ failed: false, changedLines: 214, runsToday: 10, hidden: true, rnd: () => 0 }),
     ).toBeNull();
+  });
+});
+
+describe("makeQuipDecks — без повторов, пока колода не прокрутится", () => {
+  it("все фразы пула выходят ровно по разу за цикл", () => {
+    const next = makeQuipDecks(() => 0.42);
+    const keys = QUIP_KEYS.start;
+    const drawn: string[] = [];
+    for (let i = 0; i < keys.length; i++) drawn.push(next("start"));
+    // За один цикл колоды повторов нет
+    expect(new Set(drawn).size).toBe(keys.length);
+    expect(drawn.sort()).toEqual([...keys].sort());
+    // Колода перетасовалась и снова полная
+    const secondCycle = new Set<string>();
+    for (let i = 0; i < keys.length; i++) secondCycle.add(next("start"));
+    expect(secondCycle.size).toBe(keys.length);
+  });
+  it("разные пулы независимы", () => {
+    const next = makeQuipDecks(() => 0.1);
+    const a = next("shell");
+    const b = next("shell");
+    expect(a).not.toBe(b);
+    expect(QUIP_KEYS.shell).toContain(a);
+  });
+});
+
+describe("shouldQuip — кулдаун и шансы", () => {
+  const now = 1_000_000;
+  it("в кулдауне обычное событие не срабатывает даже при rnd=0", () => {
+    expect(shouldQuip("shell", now - QUIP_COOLDOWN_MS + 1, now, () => 0)).toBe(false);
+  });
+  it("после кулдауна решает шанс", () => {
+    expect(shouldQuip("shell", now - QUIP_COOLDOWN_MS - 1, now, () => 0.2)).toBe(true);
+    expect(shouldQuip("shell", now - QUIP_COOLDOWN_MS - 1, now, () => 0.3)).toBe(false);
+  });
+  it("error и limit перебивают кулдаун", () => {
+    expect(shouldQuip("error", now, now, () => 0.5)).toBe(true);
+    expect(shouldQuip("limit", now, now, () => 0.5)).toBe(true);
   });
 });

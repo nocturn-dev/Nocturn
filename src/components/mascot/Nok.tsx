@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { useLang, type MsgKey } from "../../locales";
 import { NOK_BASE, NOK_BLINK, NOK_COLS, NOK_FLY, NOK_ROWS } from "./nokSprites";
-import { pickMood, type NokMood, type PostRunQuip } from "./nokMood";
+import { pickMood, makeQuipDecks, shouldQuip, type NokMood, type NokQuipKind, type PostRunQuip } from "./nokMood";
 
 /**
  * Нок — светлячок-маскот Nocturn (PLAN.md §21). Живёт у композера:
@@ -65,6 +65,7 @@ export function Nok({
   waitingConfirm = false,
   errorSeq = 0,
   postRunQuip = null,
+  event = null,
   napSeq = 0,
   onSignal,
 }: {
@@ -96,8 +97,11 @@ export function Nok({
   waitingConfirm?: boolean;
   /** Рост счётчика — прогон упал: тревожная вспышка + реплика */
   errorSeq?: number;
-  /** Квип после завершения прогона (±дифф / «перерыв») — решает ChatArea */
+  /** Квип после завершения прогона (±дифф / «перерыв» / пул «готово») */
   postRunQuip?: PostRunQuip | null;
+  /** Событие жизни (старт задачи, вкладка, shell, музыка…): рост seq —
+   *  новое событие; шансы/кулдауны/колоды решаются внутри Нока */
+  event?: { seq: number; kind: NokQuipKind } | null;
   /** Рост счётчика — «Спать» из меню */
   napSeq?: number;
   /** Клик в waiting/error ведёт к карточке (скролл/подсветка) — не гладит */
@@ -148,6 +152,19 @@ export function Nok({
     [],
   );
 
+  // Событийные квипы: колода без повторов на каждый пул + глобальный
+  // кулдаун (анти-заучивание; механика в nokMood.ts)
+  const quipDecksRef = useRef(makeQuipDecks());
+  const lastQuipAtRef = useRef(0);
+  const quipFromPool = useCallback(
+    (kind: NokQuipKind) => {
+      if (!shouldQuip(kind, lastQuipAtRef.current, Date.now())) return;
+      lastQuipAtRef.current = Date.now();
+      spawnQuip(quipDecksRef.current(kind));
+    },
+    [spawnQuip],
+  );
+
   // Завершение прогона: вспышка + конфетти (переход streaming true→false).
   // Ошибка бьёт конфетти: её отыгрывает эффект errorSeq ниже
   const prevStreamingRef = useRef(streaming);
@@ -164,26 +181,45 @@ export function Nok({
   }, [streaming, errorSeq]);
 
   // Прогон упал: тревожная вспышка — лампа краснеет, «!» над головой,
-  // реплика; клик в этом состоянии ведёт к карточке ошибки
+  // реплика из пула (важное — перебивает кулдаун); клик в этом состоянии
+  // ведёт к карточке ошибки
   useEffect(() => {
     if (errorSeq <= seenErrorRef.current) return;
     seenErrorRef.current = errorSeq;
     setErrorFlash(true);
     setAsleep(false);
-    spawnQuip("mascot.quip.error");
+    quipFromPool("error");
     const t = window.setTimeout(() => setErrorFlash(false), 3_000);
     return () => window.clearTimeout(t);
-  }, [errorSeq, spawnQuip]);
+  }, [errorSeq, quipFromPool]);
 
-  // Квип после завершения (±дифф / каждая 10-я задача дня): решение
-  // принимает ChatArea (pickPostRunQuip) — здесь только показ по seq
+  // Квип после завершения (дифф / десятка / пул «готово»): решение
+  // принимает ChatArea (pickPostRunQuip), фразу «готово» — колода здесь
   const seenPostRef = useRef(0);
   useEffect(() => {
     if (postRunQuip && postRunQuip.seq > seenPostRef.current) {
       seenPostRef.current = postRunQuip.seq;
-      spawnQuip(postRunQuip.key, postRunQuip.n);
+      lastQuipAtRef.current = Date.now();
+      const o = postRunQuip.outcome;
+      if (o.kind === "diff") spawnQuip("mascot.quip.diff", o.n);
+      else if (o.kind === "break") spawnQuip("mascot.quip.break", o.n);
+      else spawnQuip(quipDecksRef.current("done"));
     }
   }, [postRunQuip, spawnQuip]);
+
+  // События жизни: шансы/кулдаун внутри; старт задачи — контекстный пул
+  // (спящий просыпается, глубокая ночь — ночной пул)
+  const seenEventRef = useRef(0);
+  useEffect(() => {
+    if (!event || event.seq <= seenEventRef.current) return;
+    seenEventRef.current = event.seq;
+    if (event.kind === "start") {
+      const hour = new Date().getHours();
+      quipFromPool(asleep ? "wake" : hour <= 4 ? "night" : "start");
+      return;
+    }
+    quipFromPool(event.kind);
+  }, [event, quipFromPool, asleep]);
 
   // Агент ждёт подтверждения: просыпается + один квип на эпизод ожидания
   const prevWaitingRef = useRef(waitingConfirm);
