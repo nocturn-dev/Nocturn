@@ -2,7 +2,7 @@ import type * as React from "react";
 import { useLang } from "../../locales";
 import { type Message } from "../../types";
 import { shortModelName } from "../ProviderIcon";
-import { memo, useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 
 // memo: навигация рендерится рядом с лентой и пересобиралась на каждый
 // keystroke черновика. messages меняется на каждый флеш стрима — memo
@@ -18,45 +18,6 @@ export const MessageNav = memo(function MessageNav({
 }) {
   const { t } = useLang();
   const [activeId, setActiveId] = useState<string | null>(null);
-
-  // Отмечаем «текущее» сообщение при прокрутке
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    let raf = 0;
-    const measure = () => {
-      raf = 0;
-      const nodes = el.querySelectorAll<HTMLElement>("[data-mid]");
-      if (nodes.length === 0) return;
-      const top = el.getBoundingClientRect().top;
-      let current: string | null = null;
-      nodes.forEach((n) => {
-        if (n.getBoundingClientRect().top - top <= 140) {
-          current = n.dataset.mid ?? null;
-        }
-      });
-      setActiveId(current);
-    };
-    const onScroll = () => {
-      // rAF-троттлинг: без него каждое событие скролла давало
-      // querySelectorAll + getBoundingClientRect на каждый узел (forced reflow)
-      if (raf === 0) raf = requestAnimationFrame(measure);
-    };
-    el.addEventListener("scroll", onScroll, { passive: true });
-    return () => {
-      if (raf !== 0) cancelAnimationFrame(raf);
-      el.removeEventListener("scroll", onScroll);
-    };
-  }, [scrollRef, messages.length]);
-
-  const jump = (id: string) => {
-    setActiveId(id);
-    const el = scrollRef.current;
-    el?.querySelector(`[data-mid="${id}"]`)?.scrollIntoView({
-      behavior: "smooth",
-      block: "center",
-    });
-  };
 
   // Засечка — на запрос и ОДИН ход агента (каким бы длинным он ни был):
   // tool-шаги и промежуточные ответы не плодят отдельные «-»
@@ -88,8 +49,60 @@ export const MessageNav = memo(function MessageNav({
     return ticks.slice(-60);
   }, [messages]);
 
+  // Активной помечается только ЗАСЕЧКА: measure() раньше брал последний
+  // [data-mid]-узел (внутри хода это ToolStepCard/шаг ассистента, чей id
+  // не соответствует ни одной засечке) — подсветка пропадала на полпути
+  // длинного хода (реальный кейс 04.10: «засечки баганые»)
+  const tickIdsRef = useRef<Set<string>>(new Set());
+  tickIdsRef.current = new Set(visibleTicks.map((t) => t.msg.id));
+
+  // Отмечаем «текущее» сообщение при прокрутке
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    let raf = 0;
+    const measure = () => {
+      raf = 0;
+      const nodes = el.querySelectorAll<HTMLElement>("[data-mid]");
+      if (nodes.length === 0) return;
+      const top = el.getBoundingClientRect().top;
+      let current: string | null = null;
+      nodes.forEach((n) => {
+        if (
+          n.getBoundingClientRect().top - top <= 140 &&
+          tickIdsRef.current.has(n.dataset.mid ?? "")
+        ) {
+          current = n.dataset.mid ?? null;
+        }
+      });
+      setActiveId(current);
+    };
+    const onScroll = () => {
+      // rAF-троттлинг: без него каждое событие скролла давало
+      // querySelectorAll + getBoundingClientRect на каждый узел (forced reflow)
+      if (raf === 0) raf = requestAnimationFrame(measure);
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    // Смена состава засечек (новое сообщение/ход) — перемер без скролла:
+    // стрим держит ленту у низа, событие скролла может не прийти
+    measure();
+    return () => {
+      if (raf !== 0) cancelAnimationFrame(raf);
+      el.removeEventListener("scroll", onScroll);
+    };
+  }, [scrollRef, visibleTicks]);
+
+  const jump = (id: string) => {
+    setActiveId(id);
+    const el = scrollRef.current;
+    el?.querySelector(`[data-mid="${id}"]`)?.scrollIntoView({
+      behavior: "smooth",
+      block: "center",
+    });
+  };
+
   return (
-    <div className="no-scrollbar absolute right-3 top-1/2 z-10 flex max-h-[80%] -translate-y-1/2 flex-col items-end gap-2.5">
+    <div className="no-scrollbar absolute right-3 top-1/2 z-10 flex max-h-[80%] -translate-y-1/2 flex-col items-end gap-2.5 overflow-y-auto">
       {visibleTicks.map(({ msg: m, preview: rawPreview }, i) => {
         const isActive = m.id === activeId;
         const label =

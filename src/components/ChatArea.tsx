@@ -2274,6 +2274,15 @@ export default function ChatArea({
             ? "absolute inset-x-0 top-1/2 z-[var(--halo-z-panel-raised)] -translate-y-1/2 px-6"
             : "shrink-0 px-6 pb-5"
         }
+        style={
+          // Плитки вложений растят кластер на 84px/ряд; кластер центрирован
+          // -translate-y-1/2 — верх поднимается на 42px/ряд и наезжает на
+          // чипы/приветствие (реальный кейс 04.10). Компенсируем половиной
+          // роста: 7 плиток в ряд (size-20 + gap в max-w-2xl)
+          composerCentered && pendingImages.length > 0
+            ? { marginTop: Math.ceil(pendingImages.length / 7) * 42 }
+            : undefined
+        }
       >
         <div className={`mx-auto w-full ${composerCentered ? "max-w-2xl" : "max-w-3xl"}`}>
           {/* Пилюли окружения + селектор проекта — пилюли просятся быть
