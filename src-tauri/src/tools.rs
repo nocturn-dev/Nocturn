@@ -486,7 +486,17 @@ fn fs_list(path: &Path) -> Result<String, String> {
             break;
         }
         let name = entry.file_name().to_string_lossy().to_string();
-        let kind = if entry.path().is_dir() { "dir" } else { "file" };
+        // file_type() из readdir — без отдельного stat на тип: двойной
+        // syscall на каталогах в 100k записей (тот же контракт, что files.rs)
+        let kind = if entry
+            .file_type()
+            .map(|t| t.is_dir())
+            .unwrap_or_else(|_| entry.path().is_dir())
+        {
+            "dir"
+        } else {
+            "file"
+        };
         let size = entry
             .metadata()
             .map(|m| m.len())
@@ -871,7 +881,16 @@ unique_needle here
 
     #[test]
     fn shell_run_timeout_kills_process() {
-        let res = execute_tool("shell_run", r#"{"command":"Start-Sleep -Seconds 30","timeout_sec":1}"#);
+        // Команда платформенная: shell_run на unix исполняет через sh -c,
+        // где Start-Sleep не существует (exit 127 без TIMEOUT в выводе) —
+        // ветвление как в shell_run_large_output_no_false_timeout ниже
+        let command = if cfg!(windows) {
+            "Start-Sleep -Seconds 30"
+        } else {
+            "sleep 30"
+        };
+        let args = json!({ "command": command, "timeout_sec": 1 }).to_string();
+        let res = execute_tool("shell_run", &args);
         assert!(res.is_ok());
         assert!(res.unwrap().contains("TIMEOUT"));
     }

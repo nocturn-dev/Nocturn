@@ -6,6 +6,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Mutex;
+use zeroize::Zeroizing;
 
 // ---------------------------------------------------------------------------
 // Конфигурация (вкладка «Веб-поиск» в настройках)
@@ -243,9 +244,20 @@ pub async fn execute(query: &str, count: Option<u64>) -> Result<String, String> 
     if query.is_empty() {
         return Err("empty search query".to_string());
     }
+    // Ключ мог быть сохранён зашифрованным (vault): после рестарта снапшот
+    // несёт enc:v1:…, и без расшифровки на месте использования он ушёл бы в
+    // X-Subscription-Key как есть — Brave отвечал бы 401 при «в настройках
+    // всё рабочее». Понятная ошибка при заблокированном хранилище — как у
+    // imagegen; plaintext живёт в Zeroizing, пока едет в заголовок
+    let brave_key = if crate::crypto::is_encrypted(&cfg.brave_key) {
+        crate::crypto::decrypt(&cfg.brave_key)
+            .ok_or("vault is locked: enter the master password to use the Brave API key")?
+    } else {
+        Zeroizing::new(cfg.brave_key.clone())
+    };
     let count = count.unwrap_or(5).clamp(1, 10) as usize;
     match cfg.provider.as_str() {
-        "brave" => brave(&cfg.brave_key, query, count).await,
+        "brave" => brave(&brave_key, query, count).await,
         _ => searxng(&cfg.searxng_url, query, count).await,
     }
 }
