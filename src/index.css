@@ -946,11 +946,13 @@ html.light.inline-code-claude .markdown code:not(pre code) {
 .nok-perch-right {
   --nok-dir: -1;
 }
-/* Работа: уехал за внешнюю границу шелла, завис рядом с полем ввода,
-   слегка наклонился «в работу» */
+/* Работа: перелетает с насеста НА кромку ленты — вверх и чуть внутрь,
+   с наклоном к стримящемуся тексту (фидбек владельца 04.10: прежняя поза
+   «за левую границу шелла» читалась как «просто сидит сбоку», уезжая ОТ
+   текста; «к тексту» = внутрь = +dir, для правого насеста зеркально) */
 .nok-streaming,
 .nok-thinking {
-  transform: translate(calc(-34px * var(--nok-dir, 1) * var(--nok-scale, 1)), calc(30px * var(--nok-scale, 1))) rotate(calc(-6deg * var(--nok-dir, 1)));
+  transform: translate(calc(10px * var(--nok-dir, 1) * var(--nok-scale, 1)), calc(-14px * var(--nok-scale, 1))) rotate(calc(-10deg * var(--nok-dir, 1)));
 }
 /* Обиженный уход: растворяется за экраном, pointer-events выключены —
    вернётся по таймеру (класс держит трансформ, не анмаунт) */
