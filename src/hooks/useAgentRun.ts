@@ -397,6 +397,8 @@ export function useAgentRun(deps: AgentRunDeps) {
   const chainAbortRef = useRef(false);
   // Hard Limit: одноразовый триггер на задачу — сбрасывается в начале handleSend
   const limitHitRef = useRef(false);
+  // Счётчик срабатываний Hard Limit наружу (маскот Нок комментирует)
+  const [limitSeq, setLimitSeq] = useState(0);
   // Активный таймер ask-автопродолжения: отменяется в finalize — раньше
   // копился по одному на каждый вопрос и доживал 5 минут впустую
   const askTimerRef = useRef<number | null>(null);
@@ -754,6 +756,7 @@ export function useAgentRun(deps: AgentRunDeps) {
         if (lateKey) {
           bgLimitHit = true;
           cancelBgSubagents({ runId: requestId });
+          setLimitSeq((v) => v + 1);
           addToast(t(lateKey));
         }
         return;
@@ -768,6 +771,7 @@ export function useAgentRun(deps: AgentRunDeps) {
         void abortChat(requestId).catch(() => {});
         // Фоновые субагенты переживают прогон — гасим их отдельным флагом
         cancelBgSubagents({ runId: requestId });
+        setLimitSeq((v) => v + 1);
         addToast(t(hitKey));
       }
     };
@@ -2948,5 +2952,6 @@ ${report}`;
     chainAbortRef,
     lastCheckpointRef, // наружу: Review читает снимок прогона для живого диффа
     stopBackgroundSubagents, // наружу: остановка фоновых субагентов задачи (монитор)
+    limitSeq, // наружу: Hard Limit сработал (маскот комментирует)
   };
 }
