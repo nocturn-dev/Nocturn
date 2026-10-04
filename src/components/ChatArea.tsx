@@ -16,7 +16,7 @@ import NocturnMark from "./NocturnMark";
 import GreetingDashboard from "./GreetingDashboard";
 import { ArtifactsPanel, type ArtifactView } from "./ArtifactsPanel";
 import type { Appearance } from "../appearance";
-import { getToolSchemas, contextLimitFor, dictationTranscribe, type ModelInfo } from "../api";
+import { getToolSchemas, contextLimitFor, dictationTranscribe, gitBranchDiff, type ModelInfo } from "../api";
 import type { Theme } from "../types";
 import SystemPromptModal from "./SystemPromptModal";
 import TerminalPanel from "./TerminalPanel";
@@ -44,7 +44,7 @@ import { ToolStepCard } from "./cards/ToolStepCard";
 import { TypingBubble } from "./cards/TypingBubble";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { UserCard } from "./cards/UserCard";
-import { ArrowUpIcon, BookIcon, ChevronDownIcon, CorrectIcon, FileIcon, FolderIcon, MicIcon, PaperclipIcon, PermModeIcon, QueueIcon, QuoteIcon, RobotIcon, ScalesIcon, ShieldIcon, SlidersIcon, SparkIcon, StopIcon, SystemPromptIcon, TerminalIcon, TrashIcon, WarnIcon, WrenchIcon, XSmallIcon } from "./cards/icons";
+import { ArrowUpIcon, BookIcon, ChevronDownIcon, CorrectIcon, FileIcon, FolderIcon, GitBranchIcon, MicIcon, PaperclipIcon, PermModeIcon, QueueIcon, QuoteIcon, RobotIcon, ScalesIcon, ShieldIcon, SlidersIcon, SparkIcon, StopIcon, SystemPromptIcon, TerminalIcon, TrashIcon, WarnIcon, WrenchIcon, XSmallIcon } from "./cards/icons";
 import { fmtInt, fmtK } from "./cards/util";
 import { CHART_COLORS } from "../chartColors";
 
@@ -445,6 +445,42 @@ export default function ChatArea({
     setDraft((d) => (d.trim() ? `${d.trimEnd()}\n\n${text}` : text));
     textareaRef.current?.focus();
   }, []);
+  // Ревью ветки (PLAN §23): поповер в шапке — база + кнопка; дифф уходит
+  // агенту обычной задачей в текущий чат
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [reviewBase, setReviewBase] = useState("main");
+  const [reviewBusy, setReviewBusy] = useState(false);
+  const runReview = useCallback(async () => {
+    if (!projectRoot || reviewBusy) return;
+    setReviewBusy(true);
+    try {
+      const d = await gitBranchDiff(projectRoot, reviewBase.trim() || "main");
+      // Капа диффа для контекста: полный 256 КБ бекенда в промпт не едет
+      const cap = 64 * 1024;
+      let diff = d.diff;
+      let marker = "";
+      if (d.truncated || diff.length > cap) {
+        diff = diff.slice(0, cap);
+        marker = "\n... [diff truncated]";
+      }
+      // Текст для модели — английский (решение владельца §19); UI — локали
+      const prompt = [
+        "Review the branch diff below as a strict senior code reviewer.",
+        `Current branch: ${d.branch}. Base: ${d.base}.`,
+        d.stat.trim() ? `\nDiff stat:\n${d.stat.trim()}` : "",
+        `\n\`\`\`diff\n${diff}${marker}\n\`\`\``,
+        "\nDeliver findings grouped by severity (blockers / warnings / nits) with file:line references, then an overall verdict and suggested next actions. Do not modify any files unless I ask.",
+      ]
+        .filter(Boolean)
+        .join("\n");
+      setReviewOpen(false);
+      onSend(prompt);
+    } catch (e) {
+      onToast?.(String(e));
+    } finally {
+      setReviewBusy(false);
+    }
+  }, [projectRoot, reviewBase, reviewBusy, onSend, onToast]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -2017,6 +2053,43 @@ export default function ChatArea({
               Σ{fmtK(totals.all, lang)}
             </span>
           </span>
+        )}
+        {projectRoot && (
+          <div className="relative">
+            <button
+              onClick={() => setReviewOpen((v) => !v)}
+              title={t("review.title")}
+              className={`mr-1 rounded-md p-1.5 transition duration-150 hover:bg-halo-hover ${
+                reviewOpen ? "text-halo-accent" : "text-halo-muted hover:text-halo-text"
+              }`}
+            >
+              <GitBranchIcon />
+            </button>
+            {reviewOpen && (
+              <div className="absolute right-0 top-full z-[var(--halo-z-panel-raised)] mt-1 w-64 rounded-xl border border-halo-line bg-halo-deep/95 p-2.5 shadow-xl backdrop-blur">
+                <p className="text-xs font-medium text-halo-text">{t("review.title")}</p>
+                <p className="mt-0.5 text-[0.625rem] leading-snug text-halo-muted/70">
+                  {t("review.hint")}
+                </p>
+                <div className="mt-2 flex gap-1.5">
+                  <input
+                    value={reviewBase}
+                    onChange={(e) => setReviewBase(e.target.value)}
+                    placeholder="main"
+                    spellCheck={false}
+                    className="min-w-0 flex-1 rounded-lg border border-halo-line bg-halo-deep px-2 py-1 text-xs text-halo-text outline-none focus:border-halo-accent/50"
+                  />
+                  <button
+                    onClick={() => void runReview()}
+                    disabled={reviewBusy}
+                    className="shrink-0 rounded-lg border border-halo-accent/40 bg-halo-accent/10 px-2.5 py-1 text-xs text-halo-accent transition-colors hover:bg-halo-accent/20 disabled:opacity-40"
+                  >
+                    {reviewBusy ? "…" : t("review.run")}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         )}
         {onOpenCompare && (
           <button

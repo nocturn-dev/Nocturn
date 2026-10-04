@@ -64,27 +64,17 @@ pub async fn project_rules_read(root: String) -> Result<Option<String>, String> 
         Ok(None)
     })
     .await
-    .map_err(|e| format!("project rules task failed: {e}"))?
+        .map_err(|e| format!("project rules task failed: {e}"))?
 }
 
-fn git_status_impl(path: String) -> Result<Vec<GitEntry>, String> {
-    // Путь с фронтенда — общий гардал системных локаций (модель settings.rs):
-    // git status исполняет core.fsmonitor-хелперы из конфига репозитория,
-    // произвольный cwd из вебвью это эксплуатирует
-    crate::settings::rejects_sensitive_path(&path)?;
-    // core.quotepath=false: не-ASCII пути (кириллица, CJK) отдаются как есть —
-    // раньше октальные эскейпы "\320\277..." показывали мусор в подсветке.
-    // Таймаут через proc::run_command_opts: git на сетевом диске/FUSE
-    // раньше держал spawn_blocking-поток вечно
+/// Один вызов git из вебвью: core.quotepath=false (не-ASCII пути (кириллица,
+/// CJK) отдаются как есть — раньше октальные эскейпы "\320\277..." показывали
+/// мусор), таймаут через proc::run_command_opts (git на сетевом диске/FUSE
+/// раньше держал spawn_blocking-поток вечно). Err — stderr git-а
+fn git_exec(cwd: &Path, args: &[&str], timeout: std::time::Duration) -> Result<String, String> {
     let mut cmd = std::process::Command::new("git");
-    cmd.args(["-c", "core.quotepath=false", "status", "--porcelain"])
-        .current_dir(&path);
-    let out = crate::proc::run_command_opts(
-        &mut cmd,
-        std::time::Duration::from_secs(15),
-        None,
-        None,
-    )?;
+    cmd.arg("-c").arg("core.quotepath=false").args(args).current_dir(cwd);
+    let out = crate::proc::run_command_opts(&mut cmd, timeout, None, None)?;
     if let Some(code) = out.status {
         if code != 0 {
             let err = out.stderr.trim().to_string();
@@ -95,9 +85,91 @@ fn git_status_impl(path: String) -> Result<Vec<GitEntry>, String> {
             });
         }
     } else if out.timed_out {
-        return Err("git status timed out after 15s".to_string());
+        return Err(format!("git {} timed out", args.first().unwrap_or(&"")));
     }
-    let text = out.stdout;
+    Ok(out.stdout)
+}
+
+/// Дифф ветки для кнопки «Review» в шапке чата (PLAN §23): против базовой
+/// ветки собирается stat + полный дифф, фронт скармливает его агенту
+/// как обычную задачу. Кодировка параметров: base идёт АРГУМЕНТОМ git
+/// (без шелла — инъекции нет), но грязные формы отсекаем до вызова
+#[derive(Debug, Serialize)]
+pub struct BranchDiff {
+    pub branch: String,
+    pub base: String,
+    pub stat: String,
+    pub diff: String,
+    /// true — дифф срезан по капе (маркер внутри текста не ставим: фронт
+    /// сам докладывает модели об усечении)
+    pub truncated: bool,
+}
+
+const GIT_DIFF_CAP: usize = 256 * 1024;
+
+fn git_branch_diff_impl(root: String, base: String) -> Result<BranchDiff, String> {
+    crate::settings::rejects_sensitive_path(&root)?;
+    if base.is_empty()
+        || base.starts_with('-')
+        || !base
+            .chars()
+            .all(|c| c.is_alphanumeric() || matches!(c, '-' | '_' | '/' | '.' | '+'))
+    {
+        return Err(format!("invalid base branch: {base:?}"));
+    }
+    let root_path = PathBuf::from(&root);
+    if !root_path.is_dir() {
+        return Err(format!("not a directory: {root}"));
+    }
+    // Существование базы: rev-parse даёт честную ошибку git-а наверх
+    let base_ref = format!("{base}^{{commit}}");
+    git_exec(&root_path, &["rev-parse", "--verify", &base_ref], std::time::Duration::from_secs(15))?;
+    let branch = git_exec(
+        &root_path,
+        &["rev-parse", "--abbrev-ref", "HEAD"],
+        std::time::Duration::from_secs(15),
+    )?
+    .trim()
+    .to_string();
+    let range = format!("{base}...HEAD");
+    let stat = git_exec(&root_path, &["diff", "--stat", &range], std::time::Duration::from_secs(30))?;
+    let mut diff = git_exec(&root_path, &["diff", &range], std::time::Duration::from_secs(30))?;
+    let mut truncated = false;
+    if diff.len() > GIT_DIFF_CAP {
+        // Срез по границе UTF-8: паника на середине мультибайта недопустима
+        let mut cut = GIT_DIFF_CAP;
+        while cut > 0 && !diff.is_char_boundary(cut) {
+            cut -= 1;
+        }
+        diff.truncate(cut);
+        truncated = true;
+    }
+    Ok(BranchDiff {
+        branch,
+        base,
+        stat,
+        diff,
+        truncated,
+    })
+}
+
+#[tauri::command(async)]
+pub async fn git_branch_diff(root: String, base: String) -> Result<BranchDiff, String> {
+    tauri::async_runtime::spawn_blocking(move || git_branch_diff_impl(root, base))
+        .await
+        .map_err(|e| format!("join error: {e}"))?
+}
+
+fn git_status_impl(path: String) -> Result<Vec<GitEntry>, String> {
+    // Путь с фронтенда — общий гардал системных локаций (модель settings.rs):
+    // git status исполняет core.fsmonitor-хелперы из конфига репозитория,
+    // произвольный cwd из вебвью это эксплуатирует
+    crate::settings::rejects_sensitive_path(&path)?;
+    let text = git_exec(
+        std::path::Path::new(&path),
+        &["status", "--porcelain"],
+        std::time::Duration::from_secs(15),
+    )?;
     let mut out: Vec<GitEntry> = Vec::new();
     for line in text.lines() {
         if line.len() < 4 {
@@ -1007,3 +1079,71 @@ mod git_status_tests {
     }
 }
 
+
+#[cfg(test)]
+mod git_branch_diff_tests {
+    use super::*;
+
+    fn git(dir: &Path, args: &[&str]) {
+        let out = std::process::Command::new("git")
+            .args(args)
+            .current_dir(dir)
+            .env("GIT_AUTHOR_NAME", "t")
+            .env("GIT_AUTHOR_EMAIL", "t@test")
+            .env("GIT_COMMITTER_NAME", "t")
+            .env("GIT_COMMITTER_EMAIL", "t@test")
+            .output()
+            .expect("git must be available");
+        assert!(
+            out.status.success(),
+            "git {:?} failed: {}",
+            args,
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+
+    #[test]
+    fn git_branch_diff_rejects_bad_base() {
+        let dir = std::env::temp_dir().join(format!("haloui-gitdiff-bad-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let err =
+            git_branch_diff_impl(dir.to_string_lossy().into_owned(), "bad;rm".into()).unwrap_err();
+        assert!(err.contains("invalid base branch"), "{err}");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn git_branch_diff_works_on_temp_repo() {
+        let dir = std::env::temp_dir().join(format!("haloui-gitdiff-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        // git может отсутствовать в окружении — тест тогда не имеет смысла
+        let probe = std::process::Command::new("git").arg("--version").output();
+        if probe.map(|o| !o.status.success()).unwrap_or(true) {
+            eprintln!("skipped: git unavailable");
+            return;
+        }
+        git(&dir, &["init", "-q"]);
+        git(&dir, &["checkout", "-q", "-b", "main"]);
+        fs::write(dir.join("a.txt"), "one\n").unwrap();
+        git(&dir, &["add", "."]);
+        git(&dir, &["commit", "-q", "-m", "one"]);
+        git(&dir, &["checkout", "-q", "-b", "dev"]);
+        fs::write(dir.join("a.txt"), "two\n").unwrap();
+        git(&dir, &["add", "."]);
+        git(&dir, &["commit", "-q", "-m", "two"]);
+
+        let d = git_branch_diff_impl(dir.to_string_lossy().into_owned(), "main".into()).unwrap();
+        assert_eq!(d.branch, "dev");
+        assert_eq!(d.base, "main");
+        assert!(d.diff.contains("+two"), "diff: {}", d.diff);
+        assert!(d.stat.contains("a.txt"), "stat: {}", d.stat);
+        assert!(!d.truncated);
+        // Нет такой базы — честная ошибка git-а наверх
+        assert!(
+            git_branch_diff_impl(dir.to_string_lossy().into_owned(), "nope".into()).is_err()
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+}
