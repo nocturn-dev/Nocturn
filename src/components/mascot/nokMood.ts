@@ -128,7 +128,10 @@ export type NokQuipKind =
   | "limit" // Hard Limit
   | "wake" // проснулся (в Ноке — контекст старта)
   | "night" // работа глубокой ночью (в Ноке — контекст старта)
-  | "model"; // смена модели
+  | "model" // смена модели
+  | "path" // юзер печатает путь/файл проекта
+  | "idle" // печатал и замолк > 30 с
+  | "longtext"; // простыня текста в черновике
 
 export const QUIP_KEYS: Record<NokQuipKind, MsgKey[]> = {
   start: [
@@ -170,7 +173,20 @@ export const QUIP_KEYS: Record<NokQuipKind, MsgKey[]> = {
   wake: ["mascot.quip.wake1", "mascot.quip.wake2", "mascot.quip.wake3"],
   night: ["mascot.quip.night1", "mascot.quip.night2", "mascot.quip.night3"],
   model: ["mascot.quip.model1", "mascot.quip.model2", "mascot.quip.model3"],
+  path: ["mascot.quip.path1", "mascot.quip.path2", "mascot.quip.path3"],
+  idle: ["mascot.quip.idle1", "mascot.quip.idle2", "mascot.quip.idle3"],
+  longtext: ["mascot.quip.typelong1", "mascot.quip.typelong2", "mascot.quip.typelong3"],
 };
+
+/** Черновик похож на путь/файл проекта (реакция Нока «ого, ты знаешь
+ *  устройство проекта»): абсолютный/относительный путь или файл с
+ *  кодовым расширением. Различие файл↔путь не важно — реплика одна */
+export function isPathLikeDraft(s: string): boolean {
+  return (
+    /(^|\s)[/\\][\w./\\-]+/.test(s) ||
+    /[\w-]+\.(ts|tsx|rs|js|mjs|json|md|toml|css|html|py)\b/i.test(s)
+  );
+}
 
 export const QUIP_CHANCE: Record<NokQuipKind, number> = {
   start: 0.7,
@@ -189,6 +205,9 @@ export const QUIP_CHANCE: Record<NokQuipKind, number> = {
   wake: 0.8,
   night: 0.6,
   model: 0.6,
+  path: 0.6,
+  idle: 0.7,
+  longtext: 0.3,
 };
 
 /** Тихая пауза между репликами: активная работа не должна превращаться

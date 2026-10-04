@@ -3,6 +3,19 @@ import { useLang, type MsgKey } from "../../locales";
 import { NOK_BASE, NOK_BLINK, NOK_COLS, NOK_FLY, NOK_ROWS } from "./nokSprites";
 import { pickMood, makeQuipDecks, shouldQuip, type NokMood, type NokQuipKind, type PostRunQuip } from "./nokMood";
 
+/** Реплика с подстановками: {n} — число, {name} — имя маскота (кастомное
+ *  или локализованное «Нок»). Строки без плейсхолдеров проходят как есть */
+function fmtQuip(
+  t: (k: MsgKey, v?: Record<string, string | number>) => string,
+  key: MsgKey,
+  n: number | undefined,
+  name: string,
+): string {
+  const vars: Record<string, string | number> = { name };
+  if (n !== undefined) vars.n = n;
+  return t(key, vars);
+}
+
 /**
  * Нок — светлячок-маскот Nocturn (PLAN.md §21). Живёт у композера:
  * сопровождает стриминг (свечение пульсирует в ритме typing-точек),
@@ -64,6 +77,7 @@ export function Nok({
   settingsClosedSeq = 0,
   waitingConfirm = false,
   errorSeq = 0,
+  mascotName = "",
   postRunQuip = null,
   event = null,
   napSeq = 0,
@@ -95,6 +109,9 @@ export function Nok({
   settingsClosedSeq?: number;
   /** Агент ждёт подтверждения (ask_user): знак вопроса, клик — сигнал чату */
   waitingConfirm?: boolean;
+  /** Кастомное имя маскота (пусто — локализованное «Нок»): реплики с
+   *  {name} подставляют его, title/aria тоже */
+  mascotName?: string;
   /** Рост счётчика — прогон упал: тревожная вспышка + реплика */
   errorSeq?: number;
   /** Квип после завершения прогона (±дифф / «перерыв» / пул «готово») */
@@ -124,7 +141,7 @@ export function Nok({
   const [surprised, setSurprised] = useState(false); // смена темы
   const [errorFlash, setErrorFlash] = useState(false); // прогон упал
   const [visTick, setVisTick] = useState(0); // свёрнутое окно: сон/пробуждение
-  const [quips, setQuips] = useState<{ id: number; key: MsgKey; dx: number; n?: number }[]>([]);
+  const [quips, setQuips] = useState<{ id: number; key: MsgKey; dx: number; n?: number; text: string }[]>([]);
   const quipIdRef = useRef(0);
   const quipTimerRef = useRef<number | null>(null);
 
@@ -135,16 +152,22 @@ export function Nok({
   // Плавающая реплика: всплыла над головой и тает (не засоряет ленту).
   // Поднята из эффекта самодеятельности: квипы теперь приходят и извне
   // (ошибка, завершение прогона, ожидание подтверждения)
-  const spawnQuip = useCallback((key: MsgKey, n?: number) => {
-    const id = ++quipIdRef.current;
-    setQuips([{ id, key, dx: Math.round(Math.random() * 26 - 13), n }]);
-    if (quipTimerRef.current) window.clearTimeout(quipTimerRef.current);
-    quipTimerRef.current = window.setTimeout(
-      () => setQuips((q) => q.filter((x) => x.id !== id)),
-      // Реплика живёт ровно столько, сколько её CSS-анимация (2.7s * scale)
-      2_700 * motionScale(),
-    );
-  }, []);
+  const displayName = mascotName.trim() || t("mascot.name");
+  const spawnQuip = useCallback(
+    (key: MsgKey, n?: number) => {
+      const id = ++quipIdRef.current;
+      setQuips([
+        { id, key, dx: Math.round(Math.random() * 26 - 13), n, text: fmtQuip(t, key, n, displayName) },
+      ]);
+      if (quipTimerRef.current) window.clearTimeout(quipTimerRef.current);
+      quipTimerRef.current = window.setTimeout(
+        () => setQuips((q) => q.filter((x) => x.id !== id)),
+        // Реплика живёт ровно столько, сколько её CSS-анимация (2.7s * scale)
+        2_700 * motionScale(),
+      );
+    },
+    [t, displayName],
+  );
   useEffect(
     () => () => {
       if (quipTimerRef.current) window.clearTimeout(quipTimerRef.current);
@@ -407,13 +430,21 @@ export function Nok({
   useEffect(() => {
     if (settingsClosedSeq > prevSettingsRef.current) {
       setRelief(true);
-      const t = window.setTimeout(() => setRelief(false), 1_400);
-      setQuips([{ id: ++quipIdRef.current, key: "mascot.quip.relief", dx: 0 }]);
+      const timer = window.setTimeout(() => setRelief(false), 1_400);
+      setQuips([
+        {
+          id: ++quipIdRef.current,
+          key: "mascot.quip.relief",
+          dx: 0,
+          text: fmtQuip(t, "mascot.quip.relief", undefined, displayName),
+        },
+      ]);
       prevSettingsRef.current = settingsClosedSeq;
-      return () => window.clearTimeout(t);
+      return () => window.clearTimeout(timer);
     }
     prevSettingsRef.current = settingsClosedSeq;
-  }, [settingsClosedSeq]);
+    // t/displayName в deps: имя меняется редко, реплика одна — честные deps
+  }, [settingsClosedSeq, t, displayName]);
 
   // Удивление: смена темы — глаза по пять копеек и подпрыгивает
   const prevThemeRef = useRef<string | undefined>(undefined);
@@ -554,9 +585,9 @@ export function Nok({
     <div
       className={`nok nok-${mood} select-none`}
       onClick={handleClick}
-      title={t("mascot.name")}
+      title={displayName}
       role="img"
-      aria-label={t("mascot.name")}
+      aria-label={displayName}
       // --nok-scale: полётные сдвиги в CSS умножают на масштаб, чтобы
       // «крупный» Нок летел так же далеко относительно себя
       style={{ "--nok-scale": scale } as CSSProperties}
@@ -829,7 +860,7 @@ export function Nok({
           className="nok-quip"
           style={{ "--qx": `${q.dx}px` } as CSSProperties}
         >
-          {t(q.key, q.n !== undefined ? { n: q.n } : undefined)}
+          {q.text}
         </div>
       ))}
     </div>

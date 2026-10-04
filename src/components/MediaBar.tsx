@@ -175,8 +175,10 @@ export function MediaBar({
     const iv = window.setInterval(() => setTick((v) => v + 1), 1000);
     return () => window.clearInterval(iv);
   }, [state?.playing, state?.trackId]);
-  // Наверх: играет/не играет (маскот надевает наушники под музыку)
-  const playing = !!state?.playing;
+  // Играет ли музыка — с учётом режима: в YouTube-режиме SMTC-стейт (Spotify)
+  // может быть пуст, а музыка играет в embed — Нок иначе не надевает наушники
+  // и не качается (реальный кейс 04.10: «Нок не реагирует на YouTube»)
+  const playing = !!(prefs.youtube ? yt.playing : state?.playing);
   useEffect(() => {
     onPlayingChange?.(playing);
   }, [playing, onPlayingChange]);

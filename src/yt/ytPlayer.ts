@@ -409,6 +409,11 @@ export function ytPlayUrl(input: string): { ok: boolean; error?: string } {
 }
 
 export function ytToggle(): void {
+  // Самолечение канала (реальный кейс 04.10: «Play не реагирует» —
+  // хэндшейк мог умереть, команды уходили в пустоту, currentTime/playing
+  // замирали): повторный «listening» заставляет embed переанонсировать
+  // состояние — стейт синхронизируется, кнопка застрахована
+  ytHandshake();
   if (!state.track) {
     // Восстановленная очередь после рестарта: play без трека — старт с
     // текущего (или первого) пункта очереди, иначе кнопка мертва
@@ -423,6 +428,9 @@ export function ytToggle(): void {
   }
   if (state.playing) send("pauseVideo");
   else send("playVideo");
+  // Контрольный handshake после команды: если канал отвалился — стейт
+  // вернётся с фактическим playerState, иконка скорректируется
+  setTimeout(ytHandshake, 600);
 }
 
 export function ytSeek(secs: number): void {

@@ -33,6 +33,8 @@ export function MascotSection({
   onSelfActivityChange,
   colors,
   onColorChange,
+  mascotName,
+  onNameChange,
   themeKey,
 }: {
   mascot: boolean;
@@ -52,10 +54,14 @@ export function MascotSection({
   /** Кастомные цвета частей ("" — токен темы) */
   colors: { body?: string; glow?: string; wing?: string };
   onColorChange: (part: "body" | "glow" | "wing", v: string) => void;
+  /** Кастомное имя ("" — локализованное «Нок») */
+  mascotName: string;
+  onNameChange: (v: string) => void;
   /** Тема: смена в соседней вкладке — Нок в превью удивляется */
   themeKey: "dark" | "light";
 }) {
   const { t } = useLang();
+  const displayName = mascotName.trim() || t("mascot.name");
   const segBtn = (active: boolean) =>
     `rounded-lg border px-2.5 py-1 text-xs transition-colors ${
       active
@@ -120,10 +126,25 @@ export function MascotSection({
           {t("mascot.previewHint")}
         </p>
         <p className="mt-2 border-t border-halo-line/60 pt-2 text-[0.625rem] italic leading-relaxed text-halo-muted/50">
-          {t("mascot.lore")}
+          {t("mascot.lore", { name: displayName })}
         </p>
       </div>
 
+      {/* Кастомное имя: пусто — локализованное «Нок»; реплики с {name}
+          подставляют его (quip.after, лор) */}
+      <div className="mb-2.5 rounded-xl border border-halo-line px-3.5 py-3">
+        <p className="text-sm text-halo-text">{t("mascot.nameLabel")}</p>
+        <input
+          value={mascotName}
+          onChange={(e) => onNameChange(e.target.value)}
+          placeholder={t("mascot.name")}
+          maxLength={24}
+          className="mt-2 w-full rounded-lg border border-halo-line bg-halo-surface px-2.5 py-1.5 text-xs text-halo-text outline-none transition-colors placeholder:text-halo-muted/60 focus:border-halo-accent/60"
+        />
+        <p className="mt-1 text-[0.625rem] leading-snug text-halo-muted/70">
+          {t("mascot.nameHint")}
+        </p>
+      </div>
       <ToggleRow
         label={t("mascot.enabled")}
         desc={t("mascot.enabledDesc")}
