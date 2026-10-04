@@ -450,7 +450,7 @@ export function ambientGradientDefaults(): { from: string; to: string } {
  * аудита каскада); !important + перенос тега в конец head — последняя
  * инстанция каскада.
  */
-function officialCss(oled: boolean, contrast: boolean): string {
+export function officialCss(oled: boolean, contrast: boolean): string {
   const line = oled
     ? contrast
       ? "#333333"
@@ -525,7 +525,7 @@ export const FULL_CLAUDE_PALETTE = {
  * (масштаб/плотность/ширина), радиус и шрифты фиксируются в скоупе —
  * глобальные слайдеры и выборы шрифтов на неё не действуют.
  */
-function fullClaudeCss(a: Appearance): string {
+export function fullClaudeCss(a: Appearance): string {
   const r = clamp(a.fullClaudeRadius ?? 1, 0.4, 1.6);
   // Шрифты: пустое значение = системный стек ИЗ index.css (с emoji-фолбэками)
   // — var не пишем вовсе: собственная копия стека здесь уже дрейфовала

@@ -34,8 +34,9 @@
    `ubuntu-22.04`, `macos-latest`) and attaches the Windows `.exe`/`.msi`,
    the Linux `.AppImage`/`.deb`, the unsigned macOS bundle, updater
    signatures (`.sig`) and `latest.json` to the GitHub Release. Only the
-   Windows job has the signing key; Linux/macOS artifacts are built
-   non-blocking (see the workflow `continue-on-error`).
+   Windows job has the signing key; the **macOS** artifact is built
+   non-blocking (`continue-on-error`), a failing **Linux** job blocks
+   the release.
 4. Installed clients check `latest.json` on startup and offer the update.
 
 ## Notes

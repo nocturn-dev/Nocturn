@@ -34,6 +34,10 @@ useState только для черновиков форм и mount-снимко
   заголовки-токены), импорт.
 - `MemorySection.tsx` — факты агента (memory.json) + тумблер «память
   проектов».
+- `MascotSection.tsx` — маскот Nok: тумблер, размер, свечение, самодеятельность
+  (easter eggs), цветовая тема.
+- `PermissionsSection.tsx` — постоянные права (deny/always-ask/allow),
+  sensitive-path класс, shell-анализ; серверная семантика — `perm.rs`.
 - `PromptsSection` (в `AgentSection.tsx`) — системный промт и промпт-библиотека.
 - `JailbreaksCard.tsx` — карточка джейлбрейков на вкладке «Промпты»
   (название/модель/уровень мышления/год/текст; умный поиск: слова+модель+год;
