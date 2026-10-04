@@ -1727,7 +1727,10 @@ export default function ChatArea({
           </div>
         </div>
       )}
-      {/* Шапка: название задачи и очистка; вся полоса — drag-регион окна */}
+      {/* Шапка: название задачи и очистка; вся полоса — drag-регион окна.
+          transition-[padding] на header — единственный осознанный
+          layout-переход: шапка плавно уезжает/возвращается при смене
+          headerInset (сайдбар скрывается); 200 мс reflow только шапки */}
       <header
         data-tauri-drag-region
         className={`flex h-11 shrink-0 items-center border-b border-halo-line transition-[padding] duration-200 ${
@@ -1806,7 +1809,7 @@ export default function ChatArea({
         <button
           data-sel-quote-btn
           onClick={takeQuote}
-          className="glass-pane absolute z-30 flex -translate-x-1/2 -translate-y-full items-center gap-1.5 rounded-full border border-halo-accent/50 bg-halo-deep/90 px-3 py-1.5 text-xs text-halo-text shadow-xl transition-transform hover:scale-105"
+          className="glass-pane absolute z-[var(--halo-z-panel-raised)] flex -translate-x-1/2 -translate-y-full items-center gap-1.5 rounded-full border border-halo-accent/50 bg-halo-deep/90 px-3 py-1.5 text-xs text-halo-text shadow-xl transition-transform hover:scale-105"
           style={{ left: Math.max(90, Math.min(selBtn.x, (feedWrapRef.current?.clientWidth ?? 400) - 90)), top: Math.max(8, selBtn.y) }}
         >
           <span className="text-halo-accent"><QuoteIcon /></span>
@@ -1938,7 +1941,7 @@ export default function ChatArea({
       <div
         className={
           composerCentered
-            ? "absolute inset-x-0 top-1/2 z-30 -translate-y-1/2 px-6"
+            ? "absolute inset-x-0 top-1/2 z-[var(--halo-z-panel-raised)] -translate-y-1/2 px-6"
             : "shrink-0 px-6 pb-5"
         }
       >
@@ -1975,10 +1978,10 @@ export default function ChatArea({
                 {projectOpen && (
                   <>
                     <div
-                      className="fixed inset-0 z-20"
+                      className="fixed inset-0 z-[var(--halo-z-panel)]"
                       onClick={() => setProjectOpen(false)}
                     />
-                    <div className="scroll-slim anim-pop absolute bottom-full left-1/2 z-30 mb-2 max-h-64 w-64 -translate-x-1/2 overflow-y-auto rounded-xl border border-halo-line bg-halo-deep/95 p-1.5 shadow-xl backdrop-blur">
+                    <div className="scroll-slim anim-pop absolute bottom-full left-1/2 z-[var(--halo-z-panel-raised)] mb-2 max-h-64 w-64 -translate-x-1/2 overflow-y-auto rounded-xl border border-halo-line bg-halo-deep/95 p-1.5 shadow-xl backdrop-blur">
                       <p className="px-2 pb-1 text-[0.625rem] uppercase tracking-wider text-halo-muted/60">
                         {t("project.pick")}
                       </p>
@@ -2039,18 +2042,18 @@ export default function ChatArea({
               </div>
             </div>
           )}
-          {/* z-30 выше ленты сообщений (z-10): glass-pane создаёт stacking
+          {/* z-[var(--halo-z-panel-raised)] выше ленты сообщений (z-10): glass-pane создаёт stacking
               context, и палитра slash без этого слоя оказывалась под лентой.
               Пропорции по ZCode: компактный радиус, тонкая рамка, без тени —
               композер не должен перетягивать фокус с ленты */}
-          <div className="glass-pane relative z-30 rounded-xl border border-halo-line/70 bg-halo-surface/80 p-2 transition duration-200">
+          <div className="glass-pane relative z-[var(--halo-z-panel-raised)] rounded-xl border border-halo-line/70 bg-halo-surface/80 p-2 transition duration-200">
             {/* Нок: сидит на левом углу шелла; в Hard Mode шелл не
                 рендерится — маскот скрыт вместе с ним */}
             {mascot && (
               // Посадка масштабо-зависима: лапы всегда на кромке шелла,
               // крупный Нок не наезжает на текст поля ввода
               <div
-                className="absolute z-40"
+                className="absolute z-[var(--halo-z-panel-top)]"
                 style={{ top: -(NOK_ROWS * 3 * mascotSize) + 3, left: 6 }}
               >
                 <Nok
@@ -2070,7 +2073,7 @@ export default function ChatArea({
             )}
             {/* Палитра скилов (&) */}
             {skillActive && skillMatches.length > 0 && (
-              <div className="scroll-slim absolute bottom-full left-0 right-0 z-20 mb-2 max-h-64 overflow-y-auto rounded-xl border border-halo-line bg-halo-deep/95 p-1.5 shadow-xl backdrop-blur">
+              <div className="scroll-slim absolute bottom-full left-0 right-0 z-[var(--halo-z-panel)] mb-2 max-h-64 overflow-y-auto rounded-xl border border-halo-line bg-halo-deep/95 p-1.5 shadow-xl backdrop-blur">
                 <p className="px-2 pb-1 text-[0.625rem] uppercase tracking-wider text-halo-muted/60">
                   {t("skills.palette")}
                 </p>
@@ -2100,7 +2103,7 @@ export default function ChatArea({
             )}
             {/* Slash-палитра */}
             {slash && slashActive && (
-              <div className="scroll-slim absolute bottom-full left-0 right-0 z-20 mb-2 max-h-64 overflow-y-auto rounded-xl border border-halo-line bg-halo-deep/95 p-1.5 shadow-xl backdrop-blur">
+              <div className="scroll-slim absolute bottom-full left-0 right-0 z-[var(--halo-z-panel)] mb-2 max-h-64 overflow-y-auto rounded-xl border border-halo-line bg-halo-deep/95 p-1.5 shadow-xl backdrop-blur">
                 {slash.command && slash.suggestions.length > 0 ? (
                   <div>
                     <p className="px-2 pb-1 text-[0.625rem] uppercase tracking-wider text-halo-muted/60">
@@ -2383,10 +2386,10 @@ export default function ChatArea({
                 {permOpen && (
                   <>
                     <div
-                      className="fixed inset-0 z-20"
+                      className="fixed inset-0 z-[var(--halo-z-panel)]"
                       onClick={() => setPermOpen(false)}
                     />
-                    <div className="anim-pop absolute bottom-full left-0 z-30 mb-2 w-64 rounded-xl border border-halo-line bg-halo-deep/95 p-1.5 shadow-xl backdrop-blur">
+                    <div className="anim-pop absolute bottom-full left-0 z-[var(--halo-z-panel-raised)] mb-2 w-64 rounded-xl border border-halo-line bg-halo-deep/95 p-1.5 shadow-xl backdrop-blur">
                       <p className="px-2 pb-1 text-[0.625rem] uppercase tracking-wider text-halo-muted/60">
                         {t("perms.title")}
                       </p>
@@ -2451,10 +2454,10 @@ export default function ChatArea({
                 {toolsOpen && (
                   <>
                     <div
-                      className="fixed inset-0 z-20"
+                      className="fixed inset-0 z-[var(--halo-z-panel)]"
                       onClick={() => setToolsOpen(false)}
                     />
-                    <div className="scroll-slim anim-pop absolute bottom-full left-0 z-30 mb-2 max-h-80 w-64 overflow-y-auto rounded-xl border border-halo-line bg-halo-deep/95 p-1.5 shadow-xl backdrop-blur">
+                    <div className="scroll-slim anim-pop absolute bottom-full left-0 z-[var(--halo-z-panel-raised)] mb-2 max-h-80 w-64 overflow-y-auto rounded-xl border border-halo-line bg-halo-deep/95 p-1.5 shadow-xl backdrop-blur">
                       <p className="px-2 pb-1 text-[0.625rem] uppercase tracking-wider text-halo-muted/60">
                         {t("tools.title")}
                       </p>
@@ -2539,10 +2542,10 @@ export default function ChatArea({
                   {subOpen && (
                     <>
                       <div
-                        className="fixed inset-0 z-20"
+                        className="fixed inset-0 z-[var(--halo-z-panel)]"
                         onClick={() => setSubOpen(false)}
                       />
-                      <div className="anim-pop absolute bottom-full right-0 z-30 mb-2 w-80 rounded-xl border border-halo-line bg-halo-deep/95 p-1.5 shadow-xl backdrop-blur">
+                      <div className="anim-pop absolute bottom-full right-0 z-[var(--halo-z-panel-raised)] mb-2 w-80 rounded-xl border border-halo-line bg-halo-deep/95 p-1.5 shadow-xl backdrop-blur">
                         <p className="px-2 pb-1 text-[0.625rem] uppercase tracking-wider text-halo-muted/60">
                           {t("sub.monitor")}
                         </p>

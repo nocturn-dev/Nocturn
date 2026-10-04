@@ -86,9 +86,9 @@ export default function QuickSettings({
   return (
     <>
       {/* Клик вне — закрыть */}
-      <div className="fixed inset-0 z-30" onClick={onClose} />
+      <div className="fixed inset-0 z-[var(--halo-z-panel-raised)]" onClick={onClose} />
       <div
-        className="glass-pane anim-pop absolute bottom-full right-0 z-40 mb-2 w-80 overflow-hidden rounded-xl border border-halo-line bg-halo-deep/95 shadow-2xl"
+        className="glass-pane anim-pop absolute bottom-full right-0 z-[var(--halo-z-panel-top)] mb-2 w-80 overflow-hidden rounded-xl border border-halo-line bg-halo-deep/95 shadow-2xl"
       >
         {/* Вкладки */}
         <div className="flex border-b border-halo-line/60 p-1.5">

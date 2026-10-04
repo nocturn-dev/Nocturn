@@ -803,7 +803,7 @@ export default function TerminalPanel({
           onResizeStart();
         }}
         title={t("terminal.resizeHint")}
-        className="absolute left-0 right-0 top-0 z-30 h-1.5 cursor-row-resize transition-colors hover:bg-halo-accent/40"
+        className="absolute left-0 right-0 top-0 z-[var(--halo-z-panel-raised)] h-1.5 cursor-row-resize transition-colors hover:bg-halo-accent/40"
       />
       {/* Переключатель режимов */}
       <div className="flex shrink-0 items-center gap-1 border-b border-halo-line/60 px-3 py-1">

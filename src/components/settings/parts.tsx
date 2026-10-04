@@ -246,7 +246,7 @@ export function Dropdown({
       {open && (
         <div
           role="listbox"
-          className="anim-pop absolute right-0 z-30 mt-1 max-h-64 min-w-full overflow-y-auto rounded-lg border border-halo-line bg-halo-deep py-1 shadow-xl scroll-slim"
+          className="anim-pop absolute right-0 z-[var(--halo-z-panel-raised)] mt-1 max-h-64 min-w-full overflow-y-auto rounded-lg border border-halo-line bg-halo-deep py-1 shadow-xl scroll-slim"
         >
           {options.map((o, i) => (
             <button

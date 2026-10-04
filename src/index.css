@@ -50,6 +50,9 @@ html[data-mark="classic"] .nocturn-mark .mark-bold {
   /* Z-шкала: объявленная лестница слоёв вместо подбора значений. Raw CSS
      читает переменные здесь, TSX — утилиты z-[var(--halo-z-*)] */
   --halo-z-behind: -1; /* ambient-сцена «за интерфейсом» */
+  --halo-z-panel: 20; /* панели поверх контента (всплывашки, стики) */
+  --halo-z-panel-raised: 30; /* панель над панелью */
+  --halo-z-panel-top: 40; /* верх панельного диапазона, ниже ambient-front */
   --halo-z-ambient: 30; /* ambient-слой/сцены поверх контента */
   --halo-z-ambient-front: 50; /* ambient «поверх интерфейса»: выше панелей
                                  (z-40), ниже модалок */
@@ -974,6 +977,7 @@ html.light.inline-code-claude .markdown code:not(pre code) {
   position: absolute;
   bottom: calc(100% + 8px);
   left: 50%;
+  /* Локальный слой внутри контейнера маскота (не лестница страницы) */
   z-index: 6;
   pointer-events: none;
   white-space: nowrap;
@@ -1094,7 +1098,8 @@ html.light.inline-code-claude .markdown code:not(pre code) {
 }
 .nok-scare {
   animation: nok-scare calc(3.9s * var(--motion-scale)) ease-in-out forwards;
-  z-index: 50;
+  /* Полоса ambient-front: маскот «поверх интерфейса» живёт в том же слоте */
+  z-index: var(--halo-z-ambient-front);
 }
 /* Наушники: качание в ритм (~95 BPM), тело чуть пружинит */
 @keyframes nok-nod {
@@ -1155,7 +1160,7 @@ html.light.inline-code-claude .markdown code:not(pre code) {
 }
 .nok-fly {
   animation: nok-fly calc(9s * var(--motion-scale)) ease-in-out forwards;
-  z-index: 50;
+  z-index: var(--halo-z-ambient-front);
 }
 /* Самодеятельность: строчки «кода» мигают, тело подрагивает от печати */
 .nok-coding .nok-code {
@@ -1180,7 +1185,10 @@ html.motion-reduced .nok-surprised .nok-body,
 html.motion-reduced .nok-tumble,
 html.motion-reduced .nok-scare,
 html.motion-reduced .nok-groove .nok-body,
-html.motion-reduced .nok-groove .nok-phones {
+html.motion-reduced .nok-groove .nok-phones,
+/* Реплика в покое статично невидима (opacity: 0 из .nok-quip), удаляется
+   таймером Nok.tsx — animation: none безопасен */
+html.motion-reduced .nok-quip {
   animation: none;
 }
 @media (prefers-reduced-motion: reduce) {
@@ -1191,7 +1199,8 @@ html.motion-reduced .nok-groove .nok-phones {
   .nok-tumble,
   .nok-scare,
   .nok-groove .nok-body,
-  .nok-groove .nok-phones {
+  .nok-groove .nok-phones,
+  .nok-quip {
     animation: none;
   }
 }
@@ -1396,6 +1405,11 @@ html.sidebar-glass aside.bg-halo-deep {
   /* «Стекло в ответах ИИ»: плотная карточка вместо пропавшего фона */
   html:not(.glass) .msg-glass {
     background: var(--halo-deep);
+  }
+  /* Лента лирики «за интерфейсом»: без фолбэка корень чата оставался
+     непрозрачным и фича молча не работала вовсе (аудит 2026-10-04) */
+  html[data-media-ribbon="1"]:not(.glass) .chat-surface {
+    background: var(--halo-bg);
   }
   /* Зебра markdown-таблиц: сплошная подложка */
   .markdown tr:nth-child(2n) td {
@@ -1609,6 +1623,18 @@ html.has-wallpaper aside.bg-halo-deep {
   background: color-mix(in srgb, var(--halo-deep) 86%, transparent);
 }
 
+/* Полноэкранные блокирующие поверхности (CryptoGate, Onboarding) несут
+   bg-halo-bg и попадали в радиус ambient/has-wallpaper правил: сквозь
+   экран блокировки vault'а просвечивала сцена/обои. Восстанавливаем
+   непрозрачность с более высокой специфичностью (0,6,1 и 0,4,1 против
+   0,4,1 и 0,2,1 у исходных правил). pre в AskUserCard и чипы
+   PermissionsSection остаются прозрачными сознательно: они живут ВНУТРИ
+   уже полупрозрачной поверхности чата (аудит 2026-10-04) */
+html[data-ambient-render="behind"].ambient:not(.glass) .fixed.inset-0.bg-halo-bg,
+html.has-wallpaper .fixed.inset-0.bg-halo-bg {
+  background: var(--halo-bg);
+}
+
 /* Лента лирики (Ambient Lyrics) «за интерфейсом»: тот же слот z-behind,
    что у ambient-слоя (поверх него по порядку DOM — LyricsRibbon
    монтируется позже). Корень чата прозрачнее, чем у ambient (55% против
@@ -1666,9 +1692,9 @@ html.official .bg-halo-raised {
 }
 /* Сайдбар (aside несёт bg-halo-deep). Обои чата не трогаем: их прозрачность
    — целевая фича (has-wallpaper), а не стеклянный режим. ambient-behind —
-   та же категория «фон-фича, а не стекло»: без :not() ambient-правило
-   (0,4,2) переигрывало official (0,3,2), и сайдбар в монохроме становился
-   86% прозрачным (аудит А6-3) */
+   та же категория «фон-фича, а не стекло»: без гейтов official (0,2,2)
+   проигрывал ambient-правилу (0,4,2); с гейтами — (0,4,2), равенство,
+   решает позиция в конце файла (аудит А6-3) */
 html:not(.has-wallpaper):not([data-ambient-render="behind"]).official aside.bg-halo-deep {
   background: var(--halo-deep);
   backdrop-filter: none;

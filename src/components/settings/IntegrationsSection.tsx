@@ -472,7 +472,8 @@ export function IntegrationsSection({
             onChange={(v) => onMediaPrefsChange({ ...mediaPrefs, cover: v })}
           />
           {/* Изолированный шиммер текста минибара: не зависит от глобального
-              тумблера «Кастомизации» (html.media-text-shimmer, MediaBar) */}
+              тумблера «Кастомизации» (класс media-text-shimmer на корне минибара,
+              MediaBar — НЕ на html: index.css, правило шиммера) */}
           <ToggleRow
             label={t("media.textShimmer")}
             desc={t("media.textShimmerDesc")}

@@ -2582,7 +2582,7 @@ export default function App() {
         <button
           onClick={() => setSidebarCollapsed(false)}
           title={t("sidebar.expand")}
-          className={`absolute top-2 z-40 flex size-8 items-center justify-center rounded-lg text-halo-accent transition duration-200 hover:bg-halo-hover ${
+          className={`absolute top-2 z-[var(--halo-z-panel-top)] flex size-8 items-center justify-center rounded-lg text-halo-accent transition duration-200 hover:bg-halo-hover ${
             sparkVisible ? "opacity-100" : "pointer-events-none opacity-0"
           } ${
             sidebarSide === "right" ? "right-3" : "left-3"

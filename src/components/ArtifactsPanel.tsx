@@ -34,7 +34,7 @@ export function ArtifactsPanel({
   if (!show) return null;
   return (
     <div
-      className={`fixed inset-y-0 right-0 z-40 flex w-[560px] max-w-[92vw] flex-col border-l border-halo-line bg-halo-deep shadow-2xl ${open ? "anim-slide-left" : "anim-slide-left-out"}`}
+      className={`fixed inset-y-0 right-0 z-[var(--halo-z-panel-top)] flex w-[560px] max-w-[92vw] flex-col border-l border-halo-line bg-halo-deep shadow-2xl ${open ? "anim-slide-left" : "anim-slide-left-out"}`}
     >
       <div className="flex items-center justify-between gap-3 border-b border-halo-line px-4 py-3">
         <div className="min-w-0">
