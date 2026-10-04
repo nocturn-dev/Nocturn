@@ -16,8 +16,10 @@ import { NOK_BASE, NOK_BLINK, NOK_COLS, NOK_ROWS } from "./nokSprites";
 type NokMood =
   | "storm" // улетел обиженным за экран
   | "anger" // лесенка злости
+  | "fly" // пасхалка «Эй Нок, полетай»
   | "done" // вспышка завершения прогона
   | "petting" // поглаживание
+  | "coding" // самодеятельность: ноутбук
   | "streaming"
   | "thinking"
   | "sleeping"
@@ -45,6 +47,11 @@ export function Nok({
   activity,
   sleepAfterMs = 5 * 60_000,
   stormReturnMs = 30_000,
+  scale = 1,
+  glowBoost: glowCfg = 1,
+  selfActivity = true,
+  flySeq = 0,
+  homeSeq = 0,
 }: {
   streaming: boolean;
   activity: string | null;
@@ -52,6 +59,16 @@ export function Nok({
   sleepAfterMs?: number;
   /** Хвост для тестов/будущих настроек: сколько гуляет обиженным */
   stormReturnMs?: number;
+  /** Масштаб спрайта (настройка «Маскот → Размер») */
+  scale?: number;
+  /** Множитель яркости свечения (настройка «Маскот → Свечение») */
+  glowBoost?: number;
+  /** Самодеятельность в простое: сам достаёт ноутбук и «кодит» */
+  selfActivity?: boolean;
+  /** Счётчик команд «Эй Нок, полетай» (пасхалка; рост seq — новый полёт) */
+  flySeq?: number;
+  /** Счётчик команд «домой» (досрочно сажает облёт) */
+  homeSeq?: number;
 }) {
   const { t } = useLang();
 
@@ -63,6 +80,8 @@ export function Nok({
   const [storming, setStorming] = useState(false);
   const [asleep, setAsleep] = useState(false);
   const [clickTick, setClickTick] = useState(0); // будильник сна от кликов
+  const [coding, setCoding] = useState(false); // самодеятельность: ноутбук
+  const [flying, setFlying] = useState(false); // пасхалка «полетай»
 
   const lastClickRef = useRef(0);
   const angerDecayRef = useRef<number | null>(null);
@@ -130,6 +149,56 @@ export function Nok({
     return () => window.clearTimeout(t);
   }, [storming, stormReturnMs]);
 
+  // Самодеятельность: в простое изредка сам достаёт ноутбук и «кодит»
+  useEffect(() => {
+    if (streaming || !selfActivity) {
+      setCoding(false);
+      return;
+    }
+    let alive = true;
+    let t1 = 0;
+    let t2 = 0;
+    const schedule = (delay: number) => {
+      t1 = window.setTimeout(() => {
+        if (!alive) return;
+        setCoding(true);
+        t2 = window.setTimeout(() => {
+          if (!alive) return;
+          setCoding(false);
+          schedule(18_000 + Math.random() * 25_000);
+        }, 7_000);
+      }, delay);
+    };
+    schedule(12_000 + Math.random() * 20_000);
+    return () => {
+      alive = false;
+      window.clearTimeout(t1);
+      window.clearTimeout(t2);
+      setCoding(false);
+    };
+  }, [streaming, selfActivity, activity, clickTick]);
+
+  // Пасхалка «Эй Нок, полетай»: рост flySeq — новый 9-секундный облёт чата
+  const prevFlyRef = useRef(flySeq);
+  useEffect(() => {
+    if (flySeq > prevFlyRef.current) {
+      setFlying(true);
+      setAsleep(false);
+    }
+    prevFlyRef.current = flySeq;
+  }, [flySeq]);
+  useEffect(() => {
+    if (!flying) return;
+    const t = window.setTimeout(() => setFlying(false), 9_000);
+    return () => window.clearTimeout(t);
+  }, [flying]);
+  // «Домой»: досрочная посадка по команде
+  const prevHomeRef = useRef(homeSeq);
+  useEffect(() => {
+    if (homeSeq > prevHomeRef.current) setFlying(false);
+    prevHomeRef.current = homeSeq;
+  }, [homeSeq]);
+
   // Распад злости: 10с без тыканий — остыл (реф объявлен рядом с прочими
   // выше; хелпер дергается из кликов и из возврата обиженным)
   const startAngerDecay = () => {
@@ -160,17 +229,21 @@ export function Nok({
     ? "storm"
     : anger >= 5
       ? "anger"
-      : donePulse
-        ? "done"
-        : pet
-          ? "petting"
-          : streaming
-            ? activity
-              ? "thinking"
-              : "streaming"
-            : asleep
-              ? "sleeping"
-              : "idle";
+      : flying
+        ? "fly"
+        : donePulse
+          ? "done"
+          : pet
+            ? "petting"
+            : streaming
+              ? activity
+                ? "thinking"
+                : "streaming"
+              : asleep
+                ? "sleeping"
+                : coding
+                  ? "coding"
+                  : "idle";
 
   // Палитра клеток по настроению (status-цвета злости — семантика)
   const hot = anger >= 10 ? RAGE : WARN;
@@ -184,8 +257,10 @@ export function Nok({
           // и тёмная на deep-теле в светлых (bg в тёмной теме слишком близок
           // к deep — глаза пропадали)
           "var(--halo-text)";
-  // Сон: лампа тлеет; поглаживание: свет теплеет (полная яркость)
-  const glowBoost = mood === "sleeping" ? 0.35 : mood === "petting" ? 1.15 : 1;
+  // Сон: лампа тлеет; поглаживание: свет теплеет (полная яркость);
+  // настройка «Свечение» множит всё
+  const glowBoost =
+    glowCfg * (mood === "sleeping" ? 0.35 : mood === "petting" ? 1.15 : 1);
 
   const cellFill = (ch: string): string =>
     ch === "a"
@@ -212,8 +287,8 @@ export function Nok({
       aria-label={t("mascot.name")}
     >
       <svg
-        width={NOK_COLS * 3}
-        height={NOK_ROWS * 3}
+        width={NOK_COLS * 3 * scale}
+        height={NOK_ROWS * 3 * scale}
         viewBox={`0 0 ${NOK_COLS} ${NOK_ROWS}`}
         shapeRendering="crispEdges"
         overflow="visible"
@@ -277,8 +352,8 @@ export function Nok({
               fill={i % 3 === 0 ? WARN : i % 3 === 1 ? "var(--halo-accent)" : "var(--halo-text)"}
               style={
                 {
-                  "--dx": `${p.dx}px`,
-                  "--dy": `${p.dy}px`,
+                  "--dx": `${p.dx * scale}px`,
+                  "--dy": `${p.dy * scale}px`,
                   animationDelay: `${i * 40}ms`,
                 } as CSSProperties
               }
@@ -349,6 +424,52 @@ export function Nok({
             }),
           )}
         </g>
+
+        {/* Ноутбук самодеятельности: раскрыт перед Ноком, на «экране» —
+            строчки кода (вспышат по очереди классом .nok-code) */}
+        {mood === "coding" && (
+          <g className="nok-laptop">
+            <rect
+              x={1.7}
+              y={7.7}
+              width={6.6}
+              height={2.1}
+              rx={0.3}
+              fill="var(--halo-deep)"
+              stroke="var(--halo-line)"
+              strokeWidth={0.25}
+            />
+            <rect className="nok-code" x={2.4} y={8.2} width={1.5} height={0.5} fill="var(--halo-accent)" opacity={0.9} />
+            <rect
+              className="nok-code"
+              x={4.3}
+              y={8.2}
+              width={0.9}
+              height={0.5}
+              fill="var(--halo-accent)"
+              opacity={0.55}
+              style={{ animationDelay: "0.25s" }}
+            />
+            <rect
+              className="nok-code"
+              x={2.4}
+              y={8.95}
+              width={2.3}
+              height={0.5}
+              fill="var(--halo-accent)"
+              opacity={0.5}
+              style={{ animationDelay: "0.5s" }}
+            />
+            <rect
+              x={1.1}
+              y={9.75}
+              width={7.8}
+              height={0.5}
+              rx={0.25}
+              fill="var(--halo-muted)"
+            />
+          </g>
+        )}
       </svg>
     </div>
   );

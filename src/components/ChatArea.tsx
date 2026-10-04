@@ -3,6 +3,7 @@ import type { AskQuestion, Attachment, ChangedFile, Message, PermissionMode, Pla
 import type { MediaPrefs, MediaLyricsSnapshot } from "../mediaPrefs";
 import { MediaBar } from "./MediaBar";
 import { Nok } from "./mascot/Nok";
+import { matchNokTrigger } from "./mascot/nokTriggers";
 import type { PromptPreset } from "../presets";
 import type { JailbreakEntry } from "../jailbreaks";
 import { normalizePath, parseWriteResult } from "../diff";
@@ -224,6 +225,14 @@ interface ChatAreaProps {
   msgGlass: boolean;
   /** Маскот Нок у композера (кастомизация, вкл по умолчанию) */
   mascot: boolean;
+  /** Масштаб спрайта Нока (0.8 / 1 / 1.3) */
+  mascotSize: number;
+  /** Множитель свечения Нока (0.7 / 1 / 1.5) */
+  mascotGlow: number;
+  /** Пасхальные команды Ноку в чате («Эй Нок, …») */
+  mascotEaster: boolean;
+  /** Самодеятельность Нока в простое (ноутбук) */
+  mascotSelf: boolean;
   /** Время в шапке ответов модели (кастомизация) */
   showMsgTime: boolean;
   /** Кнопки окна в этой шапке (когда сайдбар не справа) */
@@ -346,6 +355,10 @@ export default function ChatArea({
   chatMark,
   msgGlass,
   mascot,
+  mascotSize,
+  mascotGlow,
+  mascotEaster,
+  mascotSelf,
   showMsgTime,
   showWindowControls,
   headerInset,
@@ -362,6 +375,9 @@ export default function ChatArea({
   onGlassChange,
 }: ChatAreaProps) {
   const { lang, t } = useLang();
+  // Счётчики пасхальных команд Ноку (рост seq — новая команда)
+  const [nokFlySeq, setNokFlySeq] = useState(0);
+  const [nokHomeSeq, setNokHomeSeq] = useState(0);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1261,6 +1277,21 @@ export default function ChatArea({
   const submit = () => {
     const text = draft.trim();
     if (!text && pendingImages.length === 0) return;
+    // Пасхалки Нока (PLAN.md §21): «Эй Нок, полетай» — команда перехватывается
+    // ДО отправки, модели не видна (как slash-команды); черновик гасим
+    if (mascot && mascotEaster) {
+      const cmd = matchNokTrigger(text);
+      if (cmd === "fly") {
+        setNokFlySeq((v) => v + 1);
+        setDraft("");
+        return;
+      }
+      if (cmd === "home") {
+        setNokHomeSeq((v) => v + 1);
+        setDraft("");
+        return;
+      }
+    }
     const attachments =
       pendingImages.length > 0 ? pendingImages : undefined;
     // Агент работает (typing мигает между шагами — надёжнее streamingMsgId):
@@ -1982,7 +2013,15 @@ export default function ChatArea({
                 рендерится — маскот скрыт вместе с ним */}
             {mascot && (
               <div className="absolute -top-7 left-2 z-40">
-                <Nok streaming={!!streamingMsgId} activity={activity} />
+                <Nok
+                  streaming={!!streamingMsgId}
+                  activity={activity}
+                  scale={mascotSize}
+                  glowBoost={mascotGlow}
+                  selfActivity={mascotSelf}
+                  flySeq={nokFlySeq}
+                  homeSeq={nokHomeSeq}
+                />
               </div>
             )}
             {/* Палитра скилов (&) */}
