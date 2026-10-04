@@ -958,7 +958,7 @@ export const en = {
     "mascot.quip.npm": "npm install a-bit-more-focus",
     "mascot.quip.rs": "Rewrite chat.rs? Never — it is perfect.",
     "mascot.quip.after": "Nok codes better when you hang out in Nocturn more. Proven.",
-    "mascot.quip.oops": "Oooops…",
+    "mascot.quip.oops": "Oooops… I'm nice",
     "mascot.self": "Self-initiated antics",
     "mascot.selfDesc": "Occasionally pulls out a tiny laptop and writes code while you think",
     "themes.textShimmer": "Text shimmer",

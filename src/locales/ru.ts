@@ -970,7 +970,7 @@ export const ru = {
     "mascot.quip.npm": "npm install ещё-чуть-усидчивости",
     "mascot.quip.rs": "Переписать chat.rs? Никогда — он идеален.",
     "mascot.quip.after": "Нок пишет код лучше, если ты чаще сидишь в Nocturn. Проверено.",
-    "mascot.quip.oops": "Oooops…",
+    "mascot.quip.oops": "Oooops… I'm Nice",
     "mascot.self": "Самодеятельность",
     "mascot.selfDesc": "Иногда сам достаёт ноутбук и пишет код, пока ты думаешь",
     "themes.textShimmer": "Переливание текста",
