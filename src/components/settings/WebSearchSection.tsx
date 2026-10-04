@@ -22,6 +22,7 @@ export function WebSearchSection() {
   }, []);
 
   const apply = async (next: WebSearchConfig) => {
+    const prev = cfg;
     setCfg(next);
     try {
       await webSearchSetConfig(next);
@@ -29,7 +30,9 @@ export function WebSearchSection() {
       setSaved(true);
       window.setTimeout(() => setSaved(false), 2000);
     } catch {
-      // файл конфига недоступен — снапшот в Rust всё равно обновлён
+      // Запись на диск не удалась: снапшот в Rust НЕ обновлялся (save_json_config
+      // идёт ДО set_config) — откатываем UI, иначе он врал об активном состоянии
+      setCfg(prev);
     }
   };
 
@@ -93,7 +96,7 @@ export function WebSearchSection() {
             ) : (
               <div className="rounded-lg px-2.5 py-2.5">
                 <span className="mb-1.5 block text-xs font-medium text-halo-muted">
-                  Brave API key
+                  {t("ws.braveKey")}
                 </span>
                 <p className="mb-2 text-xs leading-relaxed text-halo-muted">
                   {t("ws.braveKeyDesc")}

@@ -240,4 +240,23 @@ export const SETTINGS_SEARCH_INDEX: { section: Section; keys: MsgKey[] }[] = [
       "perm.allowHint",
     ],
   },
+  {
+    // Маскот (волна 7132841): секция добавлена в types.ts, но в индекс
+    // не попала — поиск настроек её не находил (аудит 2026-10-04)
+    section: "mascot",
+    keys: [
+      "mascot.title",
+      "mascot.sectionDesc",
+      "mascot.enabled",
+      "mascot.enabledDesc",
+      "mascot.size",
+      "mascot.glow",
+      "mascot.self",
+      "mascot.selfDesc",
+      "mascot.easter",
+      "mascot.easterDesc",
+      "mascot.colorTheme",
+      "mascot.lore",
+    ],
+  },
 ];

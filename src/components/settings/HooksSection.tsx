@@ -72,7 +72,9 @@ export function HooksSection() {
     await persist([
       ...hooksRef.current,
       {
-        id: `hook-${Date.now().toString(36)}`,
+        // uuid, не Date.now(): два хука в одну миллисекунду получали один id
+        // (паттерн ThemeSection/useApiSettings — коллизия била React-ключи)
+        id: `hook-${crypto.randomUUID()}`,
         event: p.event,
         matcher: p.matcher,
         command: p.command,
@@ -129,7 +131,9 @@ export function HooksSection() {
     await persist([
       ...hooksRef.current,
       {
-        id: `hook-${Date.now().toString(36)}`,
+        // uuid, не Date.now(): два хука в одну миллисекунду получали один id
+        // (паттерн ThemeSection/useApiSettings — коллизия била React-ключи)
+        id: `hook-${crypto.randomUUID()}`,
         event,
         matcher: matcher.trim(),
         command: cmd,

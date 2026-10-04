@@ -113,7 +113,7 @@ export function MascotSection({
             />
           </div>
           <div className="absolute inset-x-8 bottom-2 flex h-9 items-center rounded-xl border border-halo-line bg-halo-deep/60 px-3">
-            <span className="text-xs text-halo-muted/50">Write a message…</span>
+            <span className="text-xs text-halo-muted/50">{t("composer.placeholder")}</span>
           </div>
         </div>
         <p className="mt-1 text-[0.6875rem] leading-relaxed text-halo-muted/70">

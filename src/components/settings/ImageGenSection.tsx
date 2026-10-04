@@ -22,6 +22,7 @@ export function ImageGenSection() {
   }, []);
 
   const apply = async (next: ImageGenConfig) => {
+    const prev = cfg;
     setCfg(next);
     try {
       await imageGenSetConfig(next);
@@ -29,7 +30,9 @@ export function ImageGenSection() {
       setSaved(true);
       window.setTimeout(() => setSaved(false), 2000);
     } catch {
-      // файл конфига недоступен — снапшот в Rust всё равно обновлён
+      // Запись на диск не удалась: снапшот в Rust НЕ обновлялся (save_json_config
+      // идёт ДО set_config) — откатываем UI, иначе он врал об активном состоянии
+      setCfg(prev);
     }
   };
 
@@ -71,7 +74,7 @@ export function ImageGenSection() {
             </div>
             <div className="rounded-lg px-2.5 py-2.5">
               <span className="mb-1.5 block text-xs font-medium text-halo-muted">
-                API key
+                {t("img.apiKey")}
               </span>
               <p className="mb-2 text-xs leading-relaxed text-halo-muted">
                 {t("ig.apiKeyDesc")}

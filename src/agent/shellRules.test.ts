@@ -143,3 +143,31 @@ describe("classifyShellRun", () => {
     expect(classifyShellRun("anything", r)).toBe("deny");
   });
 });
+
+describe("powershell/windows destructive patterns (audit 2026-10-04)", () => {
+  const rules: PermRules = rulesWith(["shell_run(remove-item *)", "shell_run(format *)"], []);
+
+  it("remove-item -recurse не авто-allow под префиксом", () => {
+    expect(
+      classifyShellRun("Remove-Item -Recurse -Force C:\tmp\build", rules),
+    ).toBe("neutral");
+    expect(dangerousShellPattern("remove-item -recurse ./x")).toBe(true);
+  });
+
+  it("деревья и диски: rd /s, del /s, format c:, diskpart", () => {
+    for (const cmd of ["rd /s /q C:\tmp", "del /s /q *", "format c: /y", "diskpart"]) {
+      expect(dangerousShellPattern(cmd.toLowerCase()), cmd).toBe(true);
+    }
+  });
+
+  it("мирные команды не ловятся ложными срабатываниями", () => {
+    for (const cmd of [
+      "remove-item ./notes.txt",
+      "del notes.txt",
+      "rd tmp",
+      "git format-patch -1",
+    ]) {
+      expect(dangerousShellPattern(cmd), cmd).toBe(false);
+    }
+  });
+});

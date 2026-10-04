@@ -15,12 +15,15 @@ export function ComputerUseSection() {
   }, []);
 
   const apply = async (next: ComputerConfig) => {
+    const prev = cfg;
     setCfg(next);
     try {
       await computerSetConfig(next);
       invalidateToolSchemas();
     } catch {
-      // файл конфига недоступен — снапшот в Rust всё равно обновлён
+      // Запись на диск не удалась: снапшот в Rust НЕ обновлялся (save_json_config
+      // идёт ДО set_config) — откатываем UI, иначе он врал об активном состоянии
+      setCfg(prev);
     }
   };
 

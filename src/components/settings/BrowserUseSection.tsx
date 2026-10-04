@@ -21,6 +21,7 @@ export function BrowserUseSection() {
   }, []);
 
   const apply = async (next: BrowserConfig) => {
+    const prev = cfg;
     setCfg(next);
     try {
       await browserSetConfig(next);
@@ -28,7 +29,9 @@ export function BrowserUseSection() {
       setSaved(true);
       window.setTimeout(() => setSaved(false), 2000);
     } catch {
-      // файл конфига недоступен — снапшот в Rust всё равно обновлён
+      // Запись на диск не удалась: снапшот в Rust НЕ обновлялся (save_json_config
+      // идёт ДО set_config) — откатываем UI, иначе он врал об активном состоянии
+      setCfg(prev);
     }
   };
 

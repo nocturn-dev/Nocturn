@@ -3,6 +3,7 @@ import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
 import { useLang } from "./locales";
 import { loadSettings, quickentrySubmit } from "./api";
 import { applyAppearance, loadAppearance } from "./appearance";
+import { STYLE_PALETTES } from "./themeStyles";
 import { getPlatform } from "./platform";
 import { ArrowUpIcon, PaperclipIcon } from "./components/cards/icons";
 import ProviderIcon, { shortModelName } from "./components/ProviderIcon";
@@ -52,7 +53,9 @@ export function QuickEntry() {
     // обычной панелью, а не битым экраном (на Wayland/с композитором
     // прозрачность работает как раньше)
     document.body.style.background =
-      getPlatform() === "linux" ? "var(--halo-bg, #1f1e1d)" : "transparent";
+      getPlatform() === "linux"
+        ? `var(--halo-bg, ${STYLE_PALETTES.claude.dark.deep})`
+        : "transparent";
     ref.current?.focus();
 
     const win = getCurrentWindow();
