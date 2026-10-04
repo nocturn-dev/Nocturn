@@ -182,6 +182,17 @@ pub async fn network_set_config(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Mutex, MutexGuard, OnceLock};
+
+    /// Глобал CONFIG общий на процесс, а cargo test крутит тесты параллельно:
+    /// без этой сериализации apply_without_proxy_is_ok мог затереть конфиг
+    /// посреди apply_rejects_invalid_proxy_url (флак, всплывший при росте
+    /// числа тестов бинарника). Каждый тест, трогающий set_config, держит
+    /// локуз на всё тело
+    fn config_lock() -> MutexGuard<'static, ()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(())).lock().unwrap()
+    }
 
     /// Старые network.json без новых полей читаются дефолтами (serde default
     /// на каждом поле) — миграции конфига не нужны
@@ -199,6 +210,7 @@ mod tests {
     /// крутятся в одном процессе
     #[test]
     fn apply_rejects_invalid_proxy_url() {
+        let _guard = config_lock();
         let saved = config();
         set_config(NetworkConfig {
             proxy: "not a url".into(),
@@ -213,6 +225,7 @@ mod tests {
     /// Пустой конфиг — прямое соединение, builder не меняется
     #[test]
     fn apply_without_proxy_is_ok() {
+        let _guard = config_lock();
         let saved = config();
         set_config(NetworkConfig::default());
         let res = apply(reqwest::ClientBuilder::new());
