@@ -276,6 +276,46 @@ export function mergeRoles(stored: SubagentRole[]): SubagentRole[] {
   return [...byId.values()];
 }
 
+/** Последний фолбэк обеих цепочек выбора роли: SUBAGENT_ROLES непустой
+ *  по построению, но строгие индексы требуют явности. Жил литералом в
+ *  ДВУХ местах useAgentRun (subagent_run и workflow_run) — при изменении
+ *  списка ролей копии разъезжались (PLAN §24 ш.4в) */
+export const FALLBACK_ROLE: SubagentRole = {
+  id: "researcher",
+  name: "Researcher",
+  tools: null,
+  maxSteps: 8,
+  systemPrompt: "",
+};
+
+/** Роль для subagent_run: запрошенная → первая → фолбэк (цепочка
+ *  вызывающего сохранена дословно — экстракция без изменения поведения) */
+export function resolveSubagentRole(
+  preferredId: string | undefined,
+  roles: SubagentRole[],
+): SubagentRole {
+  return (
+    roles.find((r) => r.id === preferredId) ?? SUBAGENT_ROLES[0] ?? FALLBACK_ROLE
+  );
+}
+
+/** Роль для шага workflow: шаговая → coder → первая → фолбэк. Отличается
+ *  от subagent-цепочки предпочтением coder — сохранено как было. stepRole
+ *  опционален в WorkflowDef: undefined никогда не матчится по id — как и
+ *  в исходной цепочке */
+export function resolveWorkflowRole(
+  stepRole: string | undefined,
+  roles: SubagentRole[],
+): SubagentRole {
+  return (
+    roles.find((r) => r.id === stepRole) ??
+    roles.find((r) => r.id === "coder") ??
+    roles[0] ??
+    SUBAGENT_ROLES[0] ??
+    FALLBACK_ROLE
+  );
+}
+
 /** Разобрать сырой JSON из subagents.json */
 export function parseSubagentsConfig(raw: Record<string, unknown>): SubagentsConfig {
   const roles = Array.isArray(raw.roles)
