@@ -227,12 +227,14 @@ function AssistantCardBase({
           // эффект (deps по длине контента)
           return;
         }
-        // Множитель скорости: чем больше backlog, тем быстрее догоняем;
-        // printSpeed двигает темп (0.5 лениво / 2 почти вровень с потоком)
-        shown = Math.min(
-          target,
-          shown + Math.max(4, Math.ceil((backlog / 4) * printSpeed)),
-        );
+        // Равномерная подача (фидбек владельца 04.10: «вылетает по
+        // предложениям, дёргано»): прежняя формула прыгала пропорционально
+        // долгу (backlog/4 — пачка в 300 символов прилетала кусками по 75).
+        // Теперь базовый темп 12 симв/тик (~240 зн/с при 50 мс), при долге
+        // темп растёт так, чтобы долг дренировался примерно за секунду
+        // (20 тиков): скачков нет, отставание от быстрых моделей ≤ ~1 с
+        const speed = Math.max(12, Math.ceil(backlog / 20)) * printSpeed;
+        shown = Math.min(target, shown + Math.ceil(speed));
         shownMirror.current = shown;
         setShownLen(shown);
       }
