@@ -268,9 +268,16 @@ fn play_wavs(paths: Vec<std::path::PathBuf>, output: Option<String>, gen: u64) -
                 .map_err(|e| format!("tts wav decode: {e}"))?;
             sink.append(source);
         }
-        *SINK.lock().unwrap_or_else(|p| p.into_inner()) = Some(sink.clone());
-        // sleep_until_end вернётся сразу после sink.stop() из tts_stop
-        sink.sleep_until_end();
+        // tts_stop мог пройти между проверкой CANCELED в speak_impl и этой
+        // точкой (его sink.stop() был no-op — SINK ещё пуст), либо начался
+        // новый speak (gen сместился): в обоих случаях играть нельзя
+        if GEN.load(Ordering::Relaxed) == gen && !CANCELED.load(Ordering::Relaxed) {
+            *SINK.lock().unwrap_or_else(|p| p.into_inner()) = Some(sink.clone());
+            // sleep_until_end вернётся сразу после sink.stop() из tts_stop
+            sink.sleep_until_end();
+        } else {
+            sink.stop();
+        }
         Ok(())
     })();
     // Temp-wav не переживают воспроизведение в любом исходе
@@ -296,3 +303,41 @@ pub fn kill_on_exit() {
 
 #[cfg(not(windows))]
 pub fn kill_on_exit() {}
+
+#[cfg(all(test, windows))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn split_tts_text_keeps_every_sentence_within_limit() {
+        // Куски не превышают лимит и не теряют содержимое: конкатенация
+        // сохраняет все предложения (детерминированный генератор без
+        // вектора = незакрытая находка, аудит 2026-10-04)
+        let text = "Первое предложение. ".repeat(1500);
+        let chunks = split_tts_text(&text);
+        assert!(chunks.len() >= 2);
+        let total: usize = chunks.iter().map(|c| c.matches("Первое предложение.").count()).sum();
+        assert_eq!(total, 1500, "split lost content");
+        assert!(chunks.iter().all(|c| !c.trim().is_empty()));
+    }
+
+    #[test]
+    fn split_tts_text_short_and_empty() {
+        assert_eq!(split_tts_text("Привет"), vec!["Привет"]);
+        assert!(split_tts_text("   ").is_empty());
+    }
+
+    #[test]
+    fn split_tts_text_hard_split_respects_char_boundary() {
+        // Нет знаков препинания — жёсткий разрез по границе символа;
+        // 'ё' двухбайтовый: наивный байтовый срез паниковал бы/резал букву
+        let text = "ё".repeat(MAX_TTS_CHUNK_CHARS + 10);
+        let chunks = split_tts_text(&text);
+        assert!(chunks.len() >= 2);
+        assert_eq!(
+            chunks.concat().chars().count(),
+            MAX_TTS_CHUNK_CHARS + 10,
+            "hard split lost characters"
+        );
+    }
+}

@@ -121,10 +121,22 @@ pub fn load(dir: &std::path::Path) -> HookFile {
             }
         }
     }
-    let parsed = std::fs::read_to_string(&path)
-        .ok()
-        .and_then(|d| serde_json::from_str::<HookFile>(&d).ok())
-        .unwrap_or_default();
+    // Битый JSON не должен молча отключать ВСЕ хуки: владелец остаётся без
+    // гардалов/обогащения и не видит причины — громкая строка в stderr
+    let parsed = match std::fs::read_to_string(&path) {
+        Ok(d) => match serde_json::from_str::<HookFile>(&d) {
+            Ok(f) => f,
+            Err(e) => {
+                eprintln!(
+                    "hooks: broken {} ({e}) — hooks are disabled until the file is fixed or removed",
+                    path.display()
+                );
+                HookFile::default()
+            }
+        },
+        // Файла ещё нет — норма (хуки не настроены), без шума
+        Err(_) => HookFile::default(),
+    };
     if let Ok(mut guard) = LOAD_CACHE.lock() {
         *guard = Some((key, parsed.clone()));
     }

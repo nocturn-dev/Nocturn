@@ -230,7 +230,8 @@ async fn do_download(app: &tauri::AppHandle) -> Result<(), String> {
 }
 
 /// Транскрипция: base64(int16 LE PCM 16 кГц моно) → wav в temp → whisper-cli
-/// → текст. Файл удаляется сразу после запуска CLI.
+/// → текст. Файл удаляется после ЗАВЕРШЕНИЯ CLI (успешного или нет) —
+/// не после запуска
 #[tauri::command(async)]
 pub async fn dictation_transcribe(
     app: tauri::AppHandle,
@@ -241,24 +242,20 @@ pub async fn dictation_transcribe(
         .map_err(|e| format!("join error: {e}"))?
 }
 
-fn transcribe_impl(app: &tauri::AppHandle, audio_base64: String) -> Result<String, String> {
-    let cfg = config(app);
-    let cli = detect_cli(cfg.cli_path.as_deref())
-        .ok_or("whisper-cli not found — install whisper.cpp and add it to PATH, or set the path in settings")?;
-    let model = model_file(app, cfg.model_path.as_deref());
-    if !model.exists() {
-        return Err("whisper model not downloaded yet — use the download button in settings".into());
-    }
-    if audio_base64.len() > MAX_AUDIO_BYTES / 3 * 4 {
-        return Err("recording too long (max ~3 minutes)".into());
-    }
-    let pcm = base64::engine::general_purpose::STANDARD
-        .decode(audio_base64.as_bytes())
-        .map_err(|e| format!("bad audio payload: {e}"))?;
-    if pcm.len() < 3200 {
-        return Err("recording is too short".into());
-    }
-    // WAV: RIFF-заголовок + int16 LE PCM (16 кГц, моно) — руками, без зависимостей
+/// Порог «слишком долго» — считается из констант (int16 = 2 байта/сэмпл ×
+/// 16 кГц), а не захардкожен: текст «max ~3 minutes» уже расходился с
+/// фактическим лимитом
+fn recording_too_long_error() -> String {
+    format!(
+        "recording too long (max ~{} minutes)",
+        MAX_AUDIO_BYTES / 32000 / 60
+    )
+}
+
+/// RIFF-заголовок + int16 LE PCM (16 кГц, моно) — руками, без зависимостей.
+/// Отдельная чистая функция — под золотой тест: whisper-cli читает формат
+/// побайтово, регресс поля ломал бы расшифровку молча
+fn build_wav(pcm: &[u8]) -> Vec<u8> {
     let mut wav = Vec::with_capacity(pcm.len() + 44);
     wav.extend_from_slice(b"RIFF");
     wav.extend_from_slice(&((pcm.len() + 36) as u32).to_le_bytes());
@@ -272,7 +269,28 @@ fn transcribe_impl(app: &tauri::AppHandle, audio_base64: String) -> Result<Strin
     wav.extend_from_slice(&16u16.to_le_bytes()); // bits
     wav.extend_from_slice(b"data");
     wav.extend_from_slice(&(pcm.len() as u32).to_le_bytes());
-    wav.extend_from_slice(&pcm);
+    wav.extend_from_slice(pcm);
+    wav
+}
+
+fn transcribe_impl(app: &tauri::AppHandle, audio_base64: String) -> Result<String, String> {
+    let cfg = config(app);
+    let cli = detect_cli(cfg.cli_path.as_deref())
+        .ok_or("whisper-cli not found — install whisper.cpp and add it to PATH, or set the path in settings")?;
+    let model = model_file(app, cfg.model_path.as_deref());
+    if !model.exists() {
+        return Err("whisper model not downloaded yet — use the download button in settings".into());
+    }
+    if audio_base64.len() > MAX_AUDIO_BYTES / 3 * 4 {
+        return Err(recording_too_long_error());
+    }
+    let pcm = base64::engine::general_purpose::STANDARD
+        .decode(audio_base64.as_bytes())
+        .map_err(|e| format!("bad audio payload: {e}"))?;
+    if pcm.len() < 3200 {
+        return Err("recording is too short".into());
+    }
+    let wav = build_wav(&pcm);
 
     let wav_path = std::env::temp_dir().join(format!("nocturn-dictation-{}.wav", crate::fsutil::rand_hex8()));
     // 600 с момента создания: голый fs::write на общем /tmp оставлял
@@ -316,4 +334,49 @@ fn transcribe_impl(app: &tauri::AppHandle, audio_base64: String) -> Result<Strin
         .collect::<Vec<_>>()
         .join("\n");
     Ok(text.trim().to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn wav_header_golden() {
+        // Золотой вектор заголовка: whisper-cli читает формат побайтово,
+        // регресс любого поля (byte rate/align/биты) ломал бы расшифровку
+        // молча. 4 байта PCM → ChunkSize = 36+4 = 0x28
+        let wav = build_wav(&[0xAB, 0xCD, 0xEF, 0x01]);
+        assert_eq!(
+            &wav[..44],
+            &[
+                b'R', b'I', b'F', b'F', //
+                0x28, 0x00, 0x00, 0x00, //
+                b'W', b'A', b'V', b'E', b'f', b'm', b't', b' ', //
+                0x10, 0x00, 0x00, 0x00, // PCM-заголовок 16 байт
+                0x01, 0x00, // format = PCM
+                0x01, 0x00, // каналы = моно
+                0x80, 0x3E, 0x00, 0x00, // 16000 Гц
+                0x00, 0x7D, 0x00, 0x00, // byte rate 32000
+                0x02, 0x00, // block align
+                0x10, 0x00, // 16 бит
+                b'd', b'a', b't', b'a', //
+                0x04, 0x00, 0x00, 0x00, // 4 байта данных
+            ]
+        );
+        assert_eq!(&wav[44..], &[0xAB, 0xCD, 0xEF, 0x01]);
+    }
+
+    #[test]
+    fn too_long_error_matches_constants() {
+        // Сообщение считается из констант: захардкоженное «~3 minutes»
+        // расходилось с фактическим лимитом (аудит 2026-10-04)
+        assert_eq!(
+            recording_too_long_error(),
+            format!(
+                "recording too long (max ~{} minutes)",
+                MAX_AUDIO_BYTES / 32000 / 60
+            )
+        );
+        assert!(recording_too_long_error().contains("~6 minutes"));
+    }
 }

@@ -202,6 +202,10 @@ async fn send_message(
     let client = crate::network::shared_client(Duration::from_secs(15))?;
     // Total-таймаут обязателен (аудит: connect_timeout не спасает от
     // stalled-соединения); Telegram сам отвечает быстро на sendMessage
+    // Лимит Telegram на текст — 4096 символов: превышение даёт HTTP 400 и
+    // уведомление терялось молча (кандидат на «работает 50/50»); хвост
+    // события не критичен
+    let text: String = text.chars().take(4096).collect();
     let mut body = serde_json::json!({
         "chat_id": chat_id,
         "text": text,
@@ -228,7 +232,12 @@ async fn send_message(
         .map_err(|_| "telegram request timed out after 20s".to_string())?
         .map_err(|e| format!("telegram request failed: {}", net_err(&e)))?;
     let status = resp.status();
-    let body = resp.text().await.unwrap_or_default();
+    // Чтение тела — тоже под таймаутом: stalled-соединение после заголовков
+    // иначе вешает вызывающего (notify — навсегда, таск висит в фоне)
+    let body = tokio::time::timeout(Duration::from_secs(10), resp.text())
+        .await
+        .map_err(|_| "telegram response read timed out".to_string())?
+        .unwrap_or_default();
     if !status.is_success() {
         // Телеграм-ошибки не несут токен; тело обрезаем до причины
         let snippet: String = body.chars().take(200).collect();
@@ -252,7 +261,12 @@ async fn check_token(token: &str) -> Result<(), String> {
             resp.status().as_u16()
         ));
     }
-    let v: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+    // Чтение тела — под таймаутом (см. send_message): stalled-соединение
+    // иначе вешает UI-команду подключения на неограниченный срок
+    let v: serde_json::Value = tokio::time::timeout(Duration::from_secs(10), resp.json())
+        .await
+        .map_err(|_| "telegram response read timed out".to_string())?
+        .map_err(|e| e.to_string())?;
     if v.get("ok").and_then(|x| x.as_bool()) != Some(true) {
         return Err("token rejected by Telegram (ok=false)".into());
     }
@@ -475,6 +489,7 @@ async fn polling_loop(app: tauri::AppHandle) {
                 let app_for_bind = app.clone();
                 let chat_for_bind = chat_id.clone();
                 let saved = tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
+                    let _guard = DISK_WRITE_LOCK.lock().unwrap_or_else(|p| p.into_inner());
                     let mut disk = crate::settings::read_json_config(&app_for_bind, "telegram.json")
                         .unwrap_or_else(|_| serde_json::json!({}));
                     disk["chat_id"] = serde_json::Value::String(chat_for_bind);
@@ -520,12 +535,21 @@ async fn polling_loop(app: tauri::AppHandle) {
     }
 }
 
+/// Сериализация писателей telegram.json: четыре писателя (bind/unbind/
+/// set_config/persist_offset) делают read-modify-write целого файла.
+/// Без общего лока interleaving давал last-writer-wins — запоздалый
+/// offset-снимок перезаписывал выключенный тумблер, и Telegram
+/// «самовключался» после рестарта. std-Mutex внутри spawn_blocking:
+/// держится микросекунды, await под ним нет
+static DISK_WRITE_LOCK: Mutex<()> = Mutex::new(());
+
 /// Сохранить offset в telegram.json (поле вне типизированного TelegramConfig —
 /// serde при чтении конфига его молча игнорирует). Ошибка не фатальна:
 /// worst case — рестарт ределиверит последнюю пачку
 async fn persist_offset(app: &tauri::AppHandle, offset: u64) {
     let app2 = app.clone();
     let _ = tauri::async_runtime::spawn_blocking(move || {
+        let _guard = DISK_WRITE_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let mut disk = crate::settings::read_json_config(&app2, "telegram.json")
             .unwrap_or_else(|_| serde_json::json!({}));
         disk["offset"] = serde_json::Value::from(offset);
@@ -568,6 +592,7 @@ pub async fn telegram_set_config(
     let for_disk_input = config.clone();
     let app_for_disk = app.clone();
     tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
+        let _guard = DISK_WRITE_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let mut for_disk = for_disk_input;
         if crate::crypto::has_key()
             && !for_disk.bot_token.is_empty()
@@ -610,6 +635,7 @@ pub async fn telegram_unbind(app: tauri::AppHandle) -> Result<(), String> {
     let mut cfg = config();
     cfg.chat_id = String::new();
     tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
+        let _guard = DISK_WRITE_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let mut disk = crate::settings::read_json_config(&app, "telegram.json")
             .unwrap_or_else(|_| serde_json::json!({}));
         disk["chat_id"] = serde_json::Value::String(String::new());
