@@ -1464,6 +1464,37 @@ mod tests {
     }
 
     #[test]
+    fn mask_secrets_blanks_every_secret_branch() {
+        // Золотой вектор на КАЖДУЮ ветку mask_secrets (правило 7): опечатка
+        // в имени поля новой ветки не должна проходить молча — регресс
+        // маскирования не ловился бы ничем (аудит 2026-10-04)
+        let mut settings = serde_json::json!({ "api_key": "sk-topsecret", "encrypt_keys": true });
+        mask_secrets("settings.json", &mut settings);
+        assert_eq!(settings["api_key"], "");
+
+        let mut profiles = serde_json::json!({ "profiles": [ { "api_key": "sk-a" }, { "api_key": "sk-b" } ] });
+        mask_secrets("profiles.json", &mut profiles);
+        assert_eq!(profiles["profiles"][0]["api_key"], "");
+        assert_eq!(profiles["profiles"][1]["api_key"], "");
+
+        let mut imagegen = serde_json::json!({ "api_key": "enc:v1:zzz" });
+        mask_secrets("imagegen.json", &mut imagegen);
+        assert_eq!(imagegen["api_key"], "");
+
+        let mut websearch = serde_json::json!({ "brave_key": "enc:v1:zzz" });
+        mask_secrets("websearch.json", &mut websearch);
+        assert_eq!(websearch["brave_key"], "");
+
+        let mut telegram = serde_json::json!({ "bot_token": "123:ABC" });
+        mask_secrets("telegram.json", &mut telegram);
+        assert_eq!(telegram["bot_token"], "");
+
+        let mut network = serde_json::json!({ "proxy": "http://user:pass@host:3128" });
+        mask_secrets("network.json", &mut network);
+        assert_eq!(network["proxy"], "");
+    }
+
+    #[test]
     fn starts_dir_matches_whole_components_only() {
         let sep = std::path::MAIN_SEPARATOR;
         let dir = format!("c:{sep}cfg");

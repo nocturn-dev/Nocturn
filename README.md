@@ -136,7 +136,8 @@ but stay at the plain-chat level. Nocturn is the missing middle ground:
 - **Plugins & packs** — a plugin system with roles, prompts, skills and packs
   (hooks/MCP bundles) you can import and export as one file.
 - **Quick Entry** — a global-hotkey floating input that drops a task into
-  Nocturn from anywhere (X11 and Wayland via the GlobalShortcuts portal).
+  Nocturn from anywhere (X11 uses XGrabKey natively; on Wayland the hotkey
+  goes through the GlobalShortcuts portal).
 - **Import** — bring history from ChatGPT and Gemini exports.
 
 ### Data & safety
@@ -160,7 +161,7 @@ Nocturn keeps its power in settings rather than in your face:
 - **20+ sections in 6 groups** — Основное / Профиль / Кастомизация / API /
   Browser Use / Computer Use / Горячие клавиши · Память / Субагенты / Плагины /
   MCP / Права / Изображения / Промпты / Скиллы / Команды / Хуки · Сеть / Обзор ·
-  Отдых · Справка — plus standalone surfaces (knowledge bases, knowledge graph,
+  Отдых / Маскот · Справка — plus standalone surfaces (knowledge bases, knowledge graph,
   automations, model comparison, usage statistics, storage manager).
 - **Dozens of settings in Customization alone**: 12 dark theme styles + light +
   **Official**
@@ -255,7 +256,9 @@ platform:
 - **macOS** — builds are unsigned; on first launch right-click the app →
   *Open*, or allow it in System Settings → Privacy & Security.
 - **Linux** — use the `.AppImage` for automatic in-app updates (`.deb` updates
-  manually); Computer Use (screen capture / input) requires an **X11** session;
+  manually); the UI requires **WebKitGTK 2.40+** (Debian 12+, Ubuntu 23.04+,
+  Fedora 38+ — older versions silently degrade glass/ambient effects);
+  Computer Use (screen capture / input) requires an **X11** session;
   Quick Entry global hotkey works on Wayland via the GlobalShortcuts portal.
 
 ## Project layout
