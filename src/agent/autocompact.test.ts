@@ -5,6 +5,7 @@ import {
   compactHistory,
   isContextLengthError,
   serializeHead,
+  skillReinjectMessage,
 } from "./autocompact";
 import { COMPACT_SUMMARY_HEADER } from "./history";
 import type { ChatMsgParam } from "../api";
@@ -159,5 +160,30 @@ describe("compactHistory", () => {
   it("пустой ответ суммаризатора → null", async () => {
     const out = await compactHistory([user], async () => "   ");
     expect(out).toBeNull();
+  });
+});
+
+describe("skillReinjectMessage ([P3])", () => {
+  it("пустой/мусорный список — null", () => {
+    expect(skillReinjectMessage([])).toBeNull();
+    expect(skillReinjectMessage(["", "   "])).toBeNull();
+  });
+
+  it("инструкции попадают в system-сообщение с маркером", () => {
+    const msg = skillReinjectMessage(["инструкция A", "инструкция B"]);
+    expect(msg?.role).toBe("system");
+    expect(msg?.content).toContain("Active skill instructions");
+    expect(msg?.content).toContain("инструкция A");
+    expect(msg?.content).toContain("---");
+    expect(msg?.content).toContain("инструкция B");
+  });
+
+  it("кап 4 скиллов и 4000 символов на инструкцию", () => {
+    const msg = skillReinjectMessage(["a", "b", "c", "d", "e"]);
+    expect(msg?.content).toContain("a");
+    expect(msg?.content).not.toContain("\n\ne");
+    const long = "x".repeat(5000);
+    const m2 = skillReinjectMessage([long]);
+    expect(m2?.content.length).toBeLessThan(4500);
   });
 });

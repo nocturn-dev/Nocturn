@@ -25,6 +25,7 @@ import {
 // Чистые фазы prepare (история/память) — в agent/history; лимиты — в limits.ts
 import { buildHistory, buildMemoryBlock } from "../agent/history";
 import { applyMicrocompact } from "../agent/microcompact";
+import { skillReinjectMessage } from "../agent/autocompact";
 import { parsePlanTasks } from "../agent/planUpdate";
 import { allowKey, parseHttpCode, ruleArgument } from "../agent/toolArgs";
 import { chatWithRetry as chatWithRetryEngine } from "../agent/chatRetry";
@@ -410,6 +411,9 @@ export function useAgentRun(deps: AgentRunDeps) {
     attachments: Attachment[] | undefined,
     overrideTargetId: string | undefined,
     quote: string | undefined,
+    /** [P3] Инструкция использованного скилла: пишется в Session.activeSkills,
+     *  чтобы persistCompact пере-инъектировал её после автокомпакта */
+    skillInstruction: string | undefined,
     editMsgId: string | undefined,
     budgetCarry: { prompt: number; completion: number } | undefined,
   ) => {
@@ -468,6 +472,26 @@ export function useAgentRun(deps: AgentRunDeps) {
       setActiveId(session.id);
       targetId = session.id;
       sessionJustCreated = true;
+    }
+
+    // [P3] Активные скиллы задачи: инструкция живёт в истории прогона и
+    // после автокомпакта суммаризуется вместе с ней; отдельное поле даёт
+    // persistCompact возможность пере-инъектировать её (CC postCompact:
+    // содержимое активного скилла переживает компакты). Дедуп по строке,
+    // кап 4 — реинъекция не должна раздувать контекст
+    if (skillInstruction) {
+      setSessions((prev) =>
+        prev.map((s) =>
+          s.id === targetId
+            ? {
+                ...s,
+                activeSkills: (s.activeSkills ?? []).includes(skillInstruction)
+                  ? s.activeSkills
+                  : [...(s.activeSkills ?? []), skillInstruction].slice(-4),
+              }
+            : s,
+        ),
+      );
     }
 
     // Синхронизация серверного слоя прав: бэкенд должен знать режим и корень
@@ -871,6 +895,7 @@ export function useAgentRun(deps: AgentRunDeps) {
           next.attachments,
           targetId,
           next.quote,
+          undefined,
           undefined,
           { prompt: usageAcc.prompt, completion: usageAcc.completion },
         );
@@ -1353,6 +1378,13 @@ export function useAgentRun(deps: AgentRunDeps) {
         role: "assistant",
         content: t("chat.contextCompacted"),
       });
+      // [P3] Активные скиллы переживают компакт: их инструкции лежали в
+      // старых сообщениях и ушли в summary — возвращаем system-сообщением
+      // в хвост (следующий компакт снова реинъектирует, CC-семантика)
+      const reinject = skillReinjectMessage(
+        sessionsRef.current.find((s) => s.id === targetId)?.activeSkills ?? [],
+      );
+      if (reinject) history.push(reinject);
     };
 
     for (let step = 1; step <= MAX_STEPS; step++) {
@@ -2641,6 +2673,9 @@ ${report}`;
     attachments?: Attachment[],
     overrideTargetId?: string,
     quote?: string,
+    /** [P3] Инструкция использованного скилла (ChatArea раскрывает &id:
+     *  при отправке и отдаёт промпт скила) — см. sendImpl */
+    skillInstruction?: string,
     /** Редактирование отправленного: контент заменяется, ответы после — срезаются */
     editMsgId?: string,
     /** Расход предыдущих звеньев цепочки очереди (общий бюджет Hard Limit) */
@@ -2677,6 +2712,7 @@ ${report}`;
         attachments,
         overrideTargetId,
         quote,
+        skillInstruction,
         editMsgId,
         budgetCarry,
       );

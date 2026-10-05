@@ -1185,7 +1185,7 @@ export default function App() {
   // перестраивалась на каждый тик стрима. deps: сессия/движок
   const handleEditMessage = useCallback(
     (msgId: string, text: string) => {
-      void stableHandleSend(text, undefined, activeId ?? undefined, undefined, msgId);
+      void stableHandleSend(text, undefined, activeId ?? undefined, undefined, undefined, msgId);
     },
     [stableHandleSend, activeId],
   );

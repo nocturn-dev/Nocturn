@@ -130,3 +130,24 @@ export async function compactHistory(
     return null;
   }
 }
+
+/** [P3] Реинъекция активных скиллов после компакта: инструкции живут в
+ *  старых сообщениях и суммаризуются вместе с ними; CC-семантика —
+ *  содержимое активного скилла переживает компакты. Возвращает system-
+ *  сообщение для хвоста истории (следующий компакт снова реинъектирует)
+ *  или null, если активных скиллов нет */
+export function skillReinjectMessage(
+  activeSkills: string[],
+): { role: "system"; content: string } | null {
+  const skills = activeSkills
+    .filter((s) => typeof s === "string" && s.trim() !== "")
+    .slice(0, 4);
+  if (skills.length === 0) return null;
+  // Потолок на случай гигантских инструкций: пере-инъекция не должна сама
+  // стать причиной следующего компакта
+  const capped = skills.map((s) => s.slice(0, 4000));
+  return {
+    role: "system",
+    content: `[Active skill instructions — keep following them for this task]\n${capped.join("\n\n---\n\n")}`,
+  };
+}
