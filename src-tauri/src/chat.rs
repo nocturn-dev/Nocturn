@@ -175,6 +175,9 @@ pub async fn chat_once(
         Some(_) => false,
         None => is_anthropic_base(&base_url),
     };
+    // Проводной формат Responses API (wire_api="responses" из Codex-конфигов):
+    // POST {base}/responses с input items вместо /chat/completions
+    let responses_wire = !anthropic && provider.as_deref() == Some("openai-responses");
     let base = base_url.trim_end_matches('/');
     let client = crate::network::shared_client(std::time::Duration::from_secs(30))?;
 
@@ -191,6 +194,32 @@ pub async fn chat_once(
             .post(format!("{base}/messages"))
             .header("x-api-key", api_key.trim())
             .header("anthropic-version", "2023-06-01")
+            .json(&body)
+            .timeout(total_timeout)
+            .send()
+            .await
+            .map_err(|e| format!("failed to connect: {e}"))?
+    } else if responses_wire {
+        let msgs = vec![
+            ChatMessage {
+                role: "system".to_string(),
+                content: serde_json::json!(system),
+                tool_call_id: None,
+                tool_calls: None,
+                thinking: None,
+            },
+            ChatMessage {
+                role: "user".to_string(),
+                content: serde_json::json!(user),
+                tool_call_id: None,
+                tool_calls: None,
+                thinking: None,
+            },
+        ];
+        let body = build_responses_body(&model, &msgs, None, None, false);
+        client
+            .post(format!("{base}/responses"))
+            .bearer_auth(api_key.trim())
             .json(&body)
             .timeout(total_timeout)
             .send()
@@ -239,6 +268,26 @@ pub async fn chat_once(
                         out.push('\n');
                     }
                     out.push_str(t);
+                }
+            }
+        }
+        out
+    } else if responses_wire {
+        // output items: текст живёт в message-итемах content[].output_text
+        let mut out = String::new();
+        if let Some(items) = json.get("output").and_then(|v| v.as_array()) {
+            for item in items {
+                if item.get("type").and_then(|t| t.as_str()) != Some("message") {
+                    continue;
+                }
+                if let Some(parts) = item.get("content").and_then(|c| c.as_array()) {
+                    for part in parts {
+                        if part.get("type").and_then(|t| t.as_str()) == Some("output_text") {
+                            if let Some(t) = part.get("text").and_then(|v| v.as_str()) {
+                                out.push_str(t);
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -386,6 +435,9 @@ async fn chat_stream_impl(
         Some(_) => false,
         None => is_anthropic_base(&base_url),
     };
+    // Проводной формат Responses API (wire_api="responses" из Codex-конфигов):
+    // POST {base}/responses с input items вместо /chat/completions
+    let responses_wire = !anthropic && provider.as_deref() == Some("openai-responses");
     let base = base_url.trim_end_matches('/');
 
     let client = crate::network::shared_client(std::time::Duration::from_secs(30))?;
@@ -423,6 +475,25 @@ async fn chat_stream_impl(
             .post(format!("{base}/messages"))
             .header("x-api-key", api_key.trim())
             .header("anthropic-version", "2023-06-01")
+            .header(reqwest::header::CONTENT_TYPE, "application/json")
+            .body(payload)
+            .send()
+            .await
+            .map_err(|e| format!("failed to connect: {e}"))?
+    } else if responses_wire {
+        let body = build_responses_body(
+            &model,
+            &messages,
+            tools.as_ref().filter(|t| !t.is_null()),
+            reasoning_effort.as_deref(),
+            true,
+        );
+        let payload = serde_json::to_string(&body)
+            .map_err(|e| format!("failed to serialize body: {e}"))?;
+        prompt_chars = payload.chars().count();
+        client
+            .post(format!("{base}/responses"))
+            .bearer_auth(api_key.trim())
             .header(reqwest::header::CONTENT_TYPE, "application/json")
             .body(payload)
             .send()
@@ -503,6 +574,8 @@ async fn chat_stream_impl(
     let mut buf: Vec<u8> = Vec::new();
     let mut acc: Box<dyn StreamFeed + Send> = if anthropic {
         Box::new(AnthropicAccumulator::default())
+    } else if responses_wire {
+        Box::new(ResponsesAccumulator::default())
     } else {
         Box::new(SseAccumulator::default())
     };
@@ -1238,6 +1311,277 @@ impl StreamFeed for SseAccumulator {
                 FeedEvent::Thought { delta: tail }
             } else {
                 FeedEvent::Content { delta: tail }
+            });
+        }
+        events
+    }
+}
+
+/// Текст из content-чанков (строка или массив vision-чанков): склейка text-частей
+fn content_to_plain_text(content: &serde_json::Value) -> String {
+    match content {
+        serde_json::Value::String(s) => s.clone(),
+        serde_json::Value::Array(items) => items
+            .iter()
+            .filter_map(|it| it.get("text").and_then(|t| t.as_str()))
+            .collect::<Vec<_>>()
+            .join("\n"),
+        _ => String::new(),
+    }
+}
+
+/// user-content в формате Responses: строка и массив чанков → input_text /
+/// input_image (в chat/completions картинка — {type:"image_url",
+/// image_url:{url}}, в Responses — плоский {type:"input_image", image_url})
+fn user_content_responses(content: &serde_json::Value) -> serde_json::Value {
+    match content {
+        serde_json::Value::String(s) => {
+            serde_json::json!([{ "type": "input_text", "text": s }])
+        }
+        serde_json::Value::Array(items) => serde_json::json!(items
+            .iter()
+            .map(|it| match it.get("type").and_then(|t| t.as_str()) {
+                Some("image_url") => serde_json::json!({
+                    "type": "input_image",
+                    "image_url": it["image_url"]["url"].as_str().unwrap_or_default(),
+                }),
+                _ => serde_json::json!({
+                    "type": "input_text",
+                    "text": it.get("text").and_then(|t| t.as_str()).unwrap_or_default(),
+                }),
+            })
+            .collect::<Vec<_>>()),
+        v => v.clone(),
+    }
+}
+
+/// Тело Responses API (проводной формат `wire_api = "responses"` из
+/// Codex-конфигов; POST {base}/responses). Отличия от chat/completions:
+/// system → instructions; история → input items, где вызовы инструментов —
+/// самостоятельные items function_call / function_call_output (не поля
+/// tool_calls/tool с tool_call_id); инструменты — ПЛОСКИЙ формат
+/// {type:"function", name, description, parameters} (без вложения в function)
+pub fn build_responses_body(
+    model: &str,
+    messages: &[ChatMessage],
+    tools: Option<&serde_json::Value>,
+    reasoning_effort: Option<&str>,
+    stream: bool,
+) -> serde_json::Value {
+    let mut instructions = String::new();
+    let mut input: Vec<serde_json::Value> = Vec::new();
+    for m in messages {
+        match m.role.as_str() {
+            "system" | "developer" => {
+                let text = content_to_plain_text(&m.content);
+                if !text.is_empty() {
+                    if !instructions.is_empty() {
+                        instructions.push_str("\n\n");
+                    }
+                    instructions.push_str(&text);
+                }
+            }
+            "tool" => {
+                input.push(serde_json::json!({
+                    "type": "function_call_output",
+                    "call_id": m.tool_call_id.clone().unwrap_or_default(),
+                    "output": content_to_plain_text(&m.content),
+                }));
+            }
+            "assistant" => {
+                let text = content_to_plain_text(&m.content);
+                if !text.is_empty() {
+                    input.push(serde_json::json!({
+                        "role": "assistant",
+                        "content": [{ "type": "output_text", "text": text }],
+                    }));
+                }
+                if let Some(calls) = m.tool_calls.as_ref().and_then(|t| t.as_array()) {
+                    for c in calls {
+                        input.push(serde_json::json!({
+                            "type": "function_call",
+                            "call_id": c["id"].as_str().unwrap_or_default(),
+                            "name": c["function"]["name"].as_str().unwrap_or_default(),
+                            "arguments": c["function"]["arguments"].as_str().unwrap_or("{}"),
+                        }));
+                    }
+                }
+            }
+            _ => {
+                input.push(serde_json::json!({
+                    "role": "user",
+                    "content": user_content_responses(&m.content),
+                }));
+            }
+        }
+    }
+    let mut body = serde_json::json!({
+        "model": model,
+        "input": input,
+        // store=false: клиент stateless — провайдер не хранит прогон у себя
+        "store": false,
+    });
+    if stream {
+        body["stream"] = serde_json::json!(true);
+    }
+    if !instructions.is_empty() {
+        body["instructions"] = serde_json::json!(instructions);
+    }
+    if let Some(tools) = tools.and_then(|t| t.as_array()) {
+        let flat: Vec<serde_json::Value> = tools
+            .iter()
+            .filter_map(|t| {
+                let function = t.get("function")?;
+                Some(serde_json::json!({
+                    "type": "function",
+                    "name": function.get("name")?,
+                    "description": function.get("description"),
+                    "parameters": function.get("parameters"),
+                }))
+            })
+            .collect();
+        if !flat.is_empty() {
+            body["tools"] = serde_json::json!(flat);
+        }
+    }
+    if let Some(eff) = reasoning_effort.map(str::trim).filter(|s| !s.is_empty()) {
+        let mapped = if eff == "max" { "high" } else { eff };
+        body["reasoning"] = serde_json::json!({ "effort": mapped });
+    }
+    body
+}
+
+/// Аккумулятор SSE Responses API: тип события размечен полем type в data
+/// (event:-строки парсер цикла пропускает — в data дублируется то же type,
+/// поэтому роутеры, не шлющие event:-строки, обрабатываются тем же кодом)
+#[derive(Debug, Default)]
+struct ResponsesAccumulator {
+    tool_calls: Vec<StreamToolCall>,
+    tool_calls_emitted: bool,
+    pending_usage: Option<(u64, u64, u64)>,
+    finish_reason: Option<String>,
+    complete: bool,
+}
+
+impl ResponsesAccumulator {
+    fn feed(&mut self, data: &str, events: &mut Vec<FeedEvent>) {
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(data) else {
+            return;
+        };
+        match value.get("type").and_then(|t| t.as_str()).unwrap_or("") {
+            "response.output_text.delta" => {
+                if let Some(d) = value.get("delta").and_then(|v| v.as_str()) {
+                    if !d.is_empty() {
+                        events.push(FeedEvent::Content {
+                            delta: d.to_string(),
+                        });
+                    }
+                }
+            }
+            // reasoning_summary_text — у o-серии/gpt-5, reasoning_text — raw
+            "response.reasoning_summary_text.delta" | "response.reasoning_text.delta" => {
+                if let Some(d) = value.get("delta").and_then(|v| v.as_str()) {
+                    if !d.is_empty() {
+                        events.push(FeedEvent::Thought {
+                            delta: d.to_string(),
+                        });
+                    }
+                }
+            }
+            "response.output_item.done" => {
+                let item = &value["item"];
+                if item.get("type").and_then(|t| t.as_str()) == Some("function_call") {
+                    self.tool_calls.push(StreamToolCall {
+                        index: self.tool_calls.len(),
+                        id: item
+                            .get("call_id")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or_default()
+                            .to_string(),
+                        name: item
+                            .get("name")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or_default()
+                            .to_string(),
+                        arguments: item
+                            .get("arguments")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("{}")
+                            .to_string(),
+                    });
+                }
+            }
+            "response.completed" | "response.incomplete" => {
+                if let Some(usage) = value["response"].get("usage").filter(|u| !u.is_null()) {
+                    let prompt = usage
+                        .get("input_tokens")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(0);
+                    let completion = usage
+                        .get("output_tokens")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(0);
+                    self.pending_usage = Some((prompt, completion, prompt + completion));
+                }
+                if value.get("type").and_then(|t| t.as_str()) == Some("response.incomplete") {
+                    // max_output_tokens → "length": фронт делает авто-продолжение
+                    self.finish_reason = Some("length".to_string());
+                }
+                self.complete = true;
+            }
+            "response.failed" => {
+                // отказ провайдера посреди стрима: код+сообщение уходят текстом,
+                // иначе юзер видит вечное «печатает» вместо ошибки
+                let err = &value["response"]["error"];
+                let code = err
+                    .get("code")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("failed");
+                let msg = err
+                    .get("message")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown error");
+                events.push(FeedEvent::Content {
+                    delta: format!("\n\n[provider error: {code}] {msg}"),
+                });
+                self.complete = true;
+            }
+            _ => {}
+        }
+    }
+}
+
+impl StreamFeed for ResponsesAccumulator {
+    fn feed(&mut self, data: &str) -> Vec<FeedEvent> {
+        let mut events = Vec::new();
+        self.feed(data, &mut events);
+        events
+    }
+
+    fn is_complete(&self) -> bool {
+        self.complete
+    }
+
+    fn flush(&mut self) -> Vec<FeedEvent> {
+        let mut events = Vec::new();
+        // Вызовы — после завершения ответа (item.done копит, completed
+        // закрывает); страховой эмит на обрыв соединения до completed
+        if !self.tool_calls.is_empty() && !self.tool_calls_emitted {
+            self.tool_calls_emitted = true;
+            let mut calls = self.tool_calls.clone();
+            for c in &mut calls {
+                if c.arguments.trim().is_empty() {
+                    c.arguments = "{}".to_string();
+                }
+            }
+            events.push(FeedEvent::ToolCallsFinished { calls });
+        }
+        if let Some((p, c, t)) = self.pending_usage.take() {
+            events.push(FeedEvent::Usage {
+                prompt: p,
+                completion: c,
+                total: t,
+                stop_reason: self.finish_reason.clone(),
             });
         }
         events
@@ -2441,5 +2785,160 @@ mod tests {
             provider_error(status, "<html>502</html>"),
             "HTTP 429: <html>502</html>"
         );
+    }
+}
+
+#[cfg(test)]
+mod responses_wire_tests {
+    use super::*;
+
+    fn msg(role: &str, content: serde_json::Value) -> ChatMessage {
+        ChatMessage {
+            role: role.to_string(),
+            content,
+            tool_call_id: None,
+            tool_calls: None,
+            thinking: None,
+        }
+    }
+
+    #[test]
+    fn build_responses_body_maps_shapes() {
+        let tool_msg = ChatMessage {
+            role: "tool".to_string(),
+            content: serde_json::json!("содержимое файла"),
+            tool_call_id: Some("call_1".to_string()),
+            tool_calls: None,
+            thinking: None,
+        };
+        let messages = vec![
+            msg("system", serde_json::json!("Будь краток")),
+            msg("user", serde_json::json!("привет")),
+            msg(
+                "user",
+                serde_json::json!([
+                    { "type": "text", "text": "что на картинке" },
+                    { "type": "image_url", "image_url": { "url": "data:image/png;base64,AAA" } }
+                ]),
+            ),
+            msg("assistant", serde_json::json!("смотрю")),
+            {
+                let mut m = msg("assistant", serde_json::json!(""));
+                m.tool_calls = Some(serde_json::json!([
+                    { "id": "call_1", "type": "function",
+                      "function": { "name": "fs_read", "arguments": "{\"path\":\"a\"}" } }
+                ]));
+                m
+            },
+            tool_msg,
+        ];
+        let tools = serde_json::json!([
+            { "type": "function", "function": {
+                "name": "fs_read", "description": "читать файл",
+                "parameters": { "type": "object", "properties": {} } } }
+        ]);
+        let body = build_responses_body("m1", &messages, Some(&tools), Some("max"), true);
+
+        // system → instructions, истории messages нет
+        assert!(body.get("messages").is_none());
+        assert_eq!(body["instructions"], "Будь краток");
+        assert_eq!(body["stream"], true);
+        assert_eq!(body["store"], false);
+        assert_eq!(body["reasoning"]["effort"], "high"); // max → high
+        // инструменты — плоский формат без вложения function
+        assert_eq!(body["tools"][0]["type"], "function");
+        assert_eq!(body["tools"][0]["name"], "fs_read");
+        assert!(body["tools"][0].get("function").is_none());
+
+        let input = body["input"].as_array().unwrap();
+        assert_eq!(input[0]["role"], "user");
+        assert_eq!(input[0]["content"][0]["type"], "input_text");
+        // мультимодальный user: текст + плоская input_image
+        assert_eq!(input[1]["content"][0]["type"], "input_text");
+        assert_eq!(input[1]["content"][1]["type"], "input_image");
+        assert_eq!(
+            input[1]["content"][1]["image_url"],
+            "data:image/png;base64,AAA"
+        );
+        // текст ассистента + вызов как самостоятельный item
+        assert_eq!(input[2]["content"][0]["type"], "output_text");
+        assert_eq!(input[3]["type"], "function_call");
+        assert_eq!(input[3]["call_id"], "call_1");
+        assert_eq!(input[3]["name"], "fs_read");
+        // результат инструмента: call_id из tool_call_id
+        assert_eq!(input[4]["type"], "function_call_output");
+        assert_eq!(input[4]["call_id"], "call_1");
+        assert_eq!(input[4]["output"], "содержимое файла");
+        // non-stream: поле stream отсутствует
+        let once = build_responses_body("m1", &messages, None, None, false);
+        assert!(once.get("stream").is_none());
+    }
+
+    #[test]
+    fn responses_accumulator_streams_and_completes() {
+        let mut acc = ResponsesAccumulator::default();
+        let mut events = Vec::new();
+        for line in [
+            r#"{"type":"response.output_text.delta","delta":"При"}"#,
+            r#"{"type":"response.reasoning_summary_text.delta","delta":"думаю"}"#,
+            r#"{"type":"response.output_item.done","item":{"type":"function_call","call_id":"c1","name":"fs_read","arguments":"{\"path\":\"a\"}"}}"#,
+            r#"{"type":"response.completed","response":{"usage":{"input_tokens":10,"output_tokens":5,"total_tokens":15}}}"#,
+        ] {
+            acc.feed(line, &mut events);
+        }
+        assert!(acc.is_complete());
+        assert_eq!(events[0], FeedEvent::Content { delta: "При".into() });
+        assert_eq!(events[1], FeedEvent::Thought { delta: "думаю".into() });
+        // вызовы и usage эмитятся в flush — ровно один раз
+        let flushed = acc.flush();
+        assert!(matches!(&flushed[0], FeedEvent::ToolCallsFinished { calls } if calls.len() == 1 && calls[0].id == "c1" && calls[0].name == "fs_read"));
+        assert!(matches!(
+            &flushed[1],
+            FeedEvent::Usage { prompt: 10, completion: 5, total: 15, stop_reason: None }
+        ));
+        // повторный flush — пусто (usage не накручивается)
+        assert!(acc.flush().is_empty());
+    }
+
+    #[test]
+    fn responses_accumulator_incomplete_maps_to_length() {
+        // max_output_tokens → stop_reason "length": фронт делает авто-продолжение
+        let mut acc = ResponsesAccumulator::default();
+        let mut events = Vec::new();
+        acc.feed(
+            r#"{"type":"response.incomplete","response":{"usage":{"input_tokens":3,"output_tokens":9,"total_tokens":12},"incomplete_details":{"reason":"max_output_tokens"}}}"#,
+            &mut events,
+        );
+        assert!(acc.is_complete());
+        let flushed = acc.flush();
+        assert!(matches!(
+            &flushed[0],
+            FeedEvent::Usage { prompt: 3, completion: 9, total: 12, stop_reason: Some(r) } if r == "length"
+        ));
+    }
+
+    #[test]
+    fn responses_accumulator_failed_surfaces_error_text() {
+        let mut acc = ResponsesAccumulator::default();
+        let mut events = Vec::new();
+        acc.feed(
+            r#"{"type":"response.failed","response":{"error":{"code":"rate_limit","message":"slow down"}}}"#,
+            &mut events,
+        );
+        assert!(acc.is_complete());
+        assert!(matches!(
+            &events[0],
+            FeedEvent::Content { delta } if delta.contains("rate_limit") && delta.contains("slow down")
+        ));
+    }
+
+    #[test]
+    fn responses_accumulator_tolerates_garbage_and_event_lines() {
+        let mut acc = ResponsesAccumulator::default();
+        let mut events = Vec::new();
+        acc.feed("не json вообще", &mut events);
+        acc.feed(r#"{"type":"unknown.event","x":1}"#, &mut events);
+        assert!(events.is_empty());
+        assert!(!acc.is_complete());
     }
 }
