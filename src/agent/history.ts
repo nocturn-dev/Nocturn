@@ -245,3 +245,12 @@ export function buildMemoryBlock(
     })
     .join("\n");
 }
+
+/** [P5] Свежесть фактов памяти: наблюдение старше суток получает оговорку
+ *  о возрасте — модель не должна уверенно цитировать протухшее (CC
+ *  memory_freshness своими словами). nowMs — параметр тестов */
+export function annotateFactFreshness(text: string, ts: number, nowMs: number): string {
+  const ageDays = Math.floor((nowMs - ts) / 86_400_000);
+  if (!(ageDays >= 1)) return `- ${text}`;
+  return `- ${text} (remembered ${ageDays}d ago — may be stale, verify against the current state)`;
+}

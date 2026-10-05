@@ -23,13 +23,14 @@ import {
 // FIX: trimContextWindow заменяет голый .slice(-30), который разрывал
 // пары «assistant tool_calls ↔ tool-результаты» на границе окна (→ 400 от провайдера)
 // Чистые фазы prepare (история/память) — в agent/history; лимиты — в limits.ts
-import { buildHistory, buildMemoryBlock } from "../agent/history";
+import { annotateFactFreshness, buildHistory, buildMemoryBlock } from "../agent/history";
 import { applyMicrocompact } from "../agent/microcompact";
 import { skillReinjectMessage } from "../agent/autocompact";
 import { parsePlanTasks } from "../agent/planUpdate";
 import { allowKey, parseHttpCode, ruleArgument } from "../agent/toolArgs";
 import { chatWithRetry as chatWithRetryEngine } from "../agent/chatRetry";
-import { evaluateToolRules } from "../agent/toolRules";
+import { evaluateToolRules, mergePermRules } from "../agent/toolRules";
+import { extractCommandPrefix } from "../agent/shellRules";
 import type { PermRules } from "../agent/permRules";
 import {
   compactHistory,
@@ -1108,8 +1109,11 @@ export function useAgentRun(deps: AgentRunDeps) {
       const facts = await memoryList().catch(() => [] as MemoryFact[]);
       const lines: string[] = [];
       let budget = 4096;
+      const nowMs = Date.now();
       for (const f of facts) {
-        const line = `- ${f.text}`;
+        // [P5] Старые факты получают оговорку о возрасте — модель не должна
+        // уверенно цитировать протухшее наблюдение
+        const line = annotateFactFreshness(f.text, f.ts, nowMs);
         if (lines.length >= 40 || line.length > budget) break;
         budget -= line.length;
         lines.push(line);
@@ -1310,7 +1314,7 @@ export function useAgentRun(deps: AgentRunDeps) {
     };
 
     const askConfirm = (call: ToolCallInfo) =>
-      new Promise<"once" | "always" | "deny">((resolve) => {
+      new Promise<"once" | "always" | "prefix" | "deny">((resolve) => {
         // Звук подтверждения (opt-in): юзер мог скроллить ленту и не увидеть
         // карточку; вне фокуса продублирует notifyTaskDone ниже
         playRunSound("confirm");
@@ -2701,8 +2705,12 @@ ${report}`;
         const allowed =
           mutating && (session?.allowedCommands?.includes(grantKey) ?? false);
         // Волна E1: правила прав — предчек вынесен в evaluateToolRules
-        // (agent/toolRules, §24 ш.4г); бекенд всё равно авторитетен
-        const rules = permRulesRef.current;
+        // (agent/toolRules, §24 ш.4г); бекенд всё равно авторитетен.
+        // [P9] Сессионные префикс-правила мержатся после перманентных
+        const rules = mergePermRules(
+          permRulesRef.current,
+          session?.sessionRules,
+        );
         const ruleArg = ruleArgument(call);
         const fsTool = call.name.startsWith("fs_");
         const { denyHit, alwaysAsk, allowRule } = evaluateToolRules(
@@ -2732,6 +2740,34 @@ ${report}`;
                   : s,
               ),
             );
+          }
+          if (decision === "prefix") {
+            // [P9] «По префиксу до конца задачи»: shell_run(<prefix> *) в
+            // Session.sessionRules (формат PermRules); complex/dangerous
+            // префикс не покрывает — классификатор shell в evaluateToolRules
+            const prefix = extractCommandPrefix(ruleArg ?? "");
+            if (prefix) {
+              const rule = `shell_run(${prefix} *)`;
+              setSessions((prev) =>
+                prev.map((s) =>
+                  s.id === targetId
+                    ? {
+                        ...s,
+                        sessionRules: {
+                          allow: [
+                            ...new Set([
+                              ...(s.sessionRules?.allow ?? []),
+                              rule,
+                            ]),
+                          ],
+                          deny: s.sessionRules?.deny ?? [],
+                          always_ask: s.sessionRules?.always_ask ?? [],
+                        },
+                      }
+                    : s,
+                ),
+              );
+            }
           }
           await ensureCheckpoint();
           return [
@@ -2833,6 +2869,25 @@ ${report}`;
     activeRunRef.current = requestId;
     runStartedRef.current = true;
     const run: RunHandle = { requestId, finalize: null };
+    // [P9] Префикс-разрешения живут до конца ЗАДАЧИ: новая отправка
+    // пользователя сбрасывает их; звенья очереди (budgetCarry) — та же
+    // задача, не чистят. Чужой прогон не трогаем
+    if (!budgetCarry) {
+      const clearTarget = overrideTargetId ?? activeId;
+      if (
+        clearTarget &&
+        (sessionsRef.current
+          .find((s) => s.id === clearTarget)
+          ?.sessionRules?.allow.length ?? 0) > 0
+      ) {
+        setSessions((prev) =>
+          prev.map((s) =>
+            s.id === clearTarget ? { ...s, sessionRules: undefined } : s,
+          ),
+        );
+      }
+    }
+
     // TG: «начало работы» (opt-in, fire-and-forget) — по требованию владельца
     telegramNotify("start", raw.trim().slice(0, 200));
 
@@ -2950,7 +3005,7 @@ ${report}`;
   };
 
   // Быстрая роль: применяется к активной задаче, если её нет — создаём
-  const handleConfirmDecision = (d: "once" | "always" | "deny") => {
+  const handleConfirmDecision = (d: "once" | "always" | "prefix" | "deny") => {
     // Карточка [y/n/a] показывает первое confirm-взаимодействие — его и решаем
     const pending = interactions.find((i) => i.kind === "confirm");
     if (pending) resolveInteraction(pending.id, { kind: "confirm", decision: d });
