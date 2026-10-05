@@ -15,7 +15,6 @@ climb to ~200–300 MB — the agent's own headless browser is a separate proces
 on top of that. No background services.
 
 > Интерфейс на русском и английском (плюс 中文 / 日本語). Основной язык разработки — TypeScript, нативная часть — Rust.
-> Журнал изменений — [UPDATE.md](UPDATE.md) (на русском, ведётся с самого первого коммита).
 
 ## Why Nocturn
 
@@ -38,6 +37,88 @@ but stay at the plain-chat level. Nocturn is the missing middle ground:
   plain, inspectable JSON/markdown/SQLite.
 - **Safety rails built in** — permission modes, per-task command allowlists,
   sensitive-path guards and hard token/cost budgets with automatic run abortion.
+
+## What's new in 0.2.x
+
+The jump from 0.1 to 0.2.2 grew the codebase several times over (~79k lines
+of TypeScript + Rust today). The highlights, by theme:
+
+### Agent engine
+- **Context management for long runs** — old tool results are compacted out
+  of the request without an LLM call (microcompact); when the model nears its
+  window the conversation head is summarized into a persistent boundary that
+  survives restarts (autocompact); an answer cut by the output limit
+  continues exactly where it stopped; the task plan is re-injected every few
+  steps.
+- **Parallel read-only batches** — whitelisted tools (reads, greps,
+  screenshots) execute concurrently in ordered chunks; mutating calls keep
+  their confirmation gates.
+- **Background subagents** keep running after the main run ends and wake the
+  engine with their reports automatically (capped continuations).
+- **Hard Limits** abort a run on token/$ budgets; a fallback model takes over
+  mid-run on 429/5xx.
+
+### Permissions & safety
+- **Persistent rules** (deny / always-ask / allow, prefix-based like
+  `shell_run(git *)`) enforced on the Rust side in every mode; **shell
+  command analysis** so an allow rule never silently covers chained or
+  dangerous commands (PowerShell patterns included); a **sensitive-path deny
+  class** (`.env`, `.ssh`, credential files — escape only via an explicit
+  owner allow-rule); unconditional self-protection of the app's own config
+  directory.
+- **Symlink-race-proof writes**: agent file writes open the target refusing
+  symlinks, re-read the final path from the opened handle and re-run every
+  path gate before a byte is written.
+
+### MCP
+- **Server states with failure reasons** (stderr tail) instead of silent
+  breakage; lazy reconnects on transport errors; `${VAR}` expansion in
+  configs; **deferred schemas** past 40 tools with an on-demand discovery
+  call; opt-in **OAuth** (Authorization Code + PKCE, single-flight refresh,
+  tokens encrypted, zero background requests).
+
+### Knowledge
+- Local RAG on SQLite FTS5 (chunking, search and storage run entirely on the
+  machine) with a **"latest search" panel** showing exactly which snippets
+  were injected; WAL and busy timeouts so indexing never breaks live queries.
+
+### Media & integrations
+- **Spotify mini-bar** over the chat with synced lyrics — and a **lyrics
+  ribbon rendered behind the interface**; a **YouTube player** (official
+  embed, popup window + mini-bar control, queue); a **Telegram bot** — task
+  notifications with inline confirm buttons and chat control from the phone
+  (experimental); offline **voice wake** ("Hey Jarvis"), push-to-talk
+  dictation and local read-aloud.
+
+### Automation
+- Scheduled tasks, an **idle queue** for unscheduled work when the engine is
+  free, optional git auto-commit and a **git-journaled checkpoint history**,
+  workflow scenarios with step interpolation.
+
+### Chat UX
+- **Checkpoint timeline** with per-file diffs in the sidebar; one-click
+  **branch review** handed to the agent as a strict review task; **editable
+  Mermaid** diagrams (tweak the source, send the edit back to the composer);
+  quote-into-composer, message navigation, smooth streaming with adjustable
+  print speed.
+
+### Providers
+- Any OpenAI-compatible endpoint, native Anthropic — and now the **OpenAI
+  Responses API** (`wire_api=responses`) for Codex-style providers; **import
+  provider configs** straight from a Codex `config.toml`; compare up to three
+  providers side-by-side on one prompt.
+
+### Mascot
+- **Nok** — a pixel firefly on the composer edge who mirrors the run:
+  streaming, thinking, celebrating, panicking, napping, wearing headphones
+  when music plays; 16 event-triggered quip decks, a draggable perch, full
+  theme repaint.
+
+### Under the hood
+- Incremental markdown parsing and throttled stream updates (O(1) print
+  ticks), lazy-loaded modals and terminals, incremental context estimates,
+  deferred startup parsing — the ~4.4 MB installer stays light at ~100 MB
+  idle RAM.
 
 ## Features
 
@@ -197,6 +278,9 @@ Nocturn keeps its power in settings rather than in your face:
   <img src="docs/screenshots/compare.png" width="560" alt="Model comparison: up to three providers on one prompt" />
 </p>
 <p align="center">
+  <img src="docs/screenshots/automations.png" width="560" alt="Automations: scheduled tasks, idle queue, templates" />
+</p>
+<p align="center">
   <img src="docs/screenshots/prompts.png" width="460" alt="Prompt library with built-in samples" />
   <img src="docs/screenshots/jailbreak-search.png" width="460" alt="Jailbreak library: live search in curated sources" />
 </p>
@@ -269,9 +353,7 @@ analytics, no crash reporting, no phone-home. Concretely:
   unwritable by the agent, agent file writes are symlink-race-proof (the file
   is opened refusing symlinks and its true location is re-validated against
   the sensitive-path and project-roots gates before anything is written), and
-  OAuth tokens (if you opt into an OAuth MCP server) are stored encrypted —
-  see [SECURITY.md](SECURITY.md) for the full breakdown of what is stored and
-  what leaves the machine, including known trade-offs.
+  OAuth tokens (if you opt into an OAuth MCP server) are stored encrypted.
 
 ## Getting started
 
@@ -305,22 +387,22 @@ src/            React frontend (App, ChatArea, Sidebar, SettingsModal, …)
 src-tauri/      Rust side: agent tools, MCP, browser (CDP), PTY, crypto,
                 hooks, knowledge bases, dictation, memory
 src/locales/    ru / en / zh / ja dictionaries (compiler-checked)
-docs/           screenshots, internal dev notes
+docs/           screenshots
 .github/        CI: frontend build + cargo tests on Windows/Linux/macOS
 ```
 
 ## Changelog
 
-Every change — features, fixes, refactors — is logged in
-[UPDATE.md](UPDATE.md) with commit hashes, newest first.
+Every change — features, fixes, refactors — lands in the commit history with
+a `type(scope): message` summary. Releases are cut on `v*` tags; see
+[Releases](https://github.com/nocturn-lab/Nocturn-AI/releases) for
+per-version installers.
 
 ## Contributing
 
 Issues and PRs are welcome. `npm run lint`, `npm test`, `npm run build` and
 `cargo clippy --all-targets -- -D warnings` / `cargo test` (in `src-tauri/`)
-must pass — CI enforces all of them. Internal development notes live in
-[docs/internal/SESSION_NOTES.md](docs/internal/SESSION_NOTES.md), working
-conventions in [AGENTS.md](AGENTS.md).
+must pass — CI enforces all of them.
 
 ## License
 
