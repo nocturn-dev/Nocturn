@@ -1272,6 +1272,8 @@ export const ru = {
     "api.providerDesc": "Пресеты подставляют Base URL автоматически; «Своё» — любой OpenAI-совместимый endpoint.",
     "api.keyPh": "sk-…",
     "api.baseUrl": "Base URL",
+    "api.importToml": "Импорт config.toml",
+    "api.importTomlOk": "Провайдер «{name}» подставлен — если ключ в конфиге был ссылкой на переменную окружения, вставьте его вручную",
     "api.provider": "Provider",
     "api.providerCustom": "Custom URL",
     "api.model": "Модель",

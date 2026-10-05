@@ -1041,6 +1041,82 @@ pub async fn settings_import_read(path: String) -> Result<serde_json::Value, Str
     .map_err(|e| format!("import read task failed: {e}"))?
 }
 
+/// Импорт provider-конфига Codex-стиля (config.toml): таблица
+/// [model_providers.*] с name/base_url/wire_api и токеном. Возвращает модель,
+/// активного провайдера (model_provider сверху) и весь список — подстановку в
+/// профиль делает фронт, ключ $VAR-ссылкой не является и выдаётся как есть.
+/// Гардалы и чтение — по образцу settings_import_read (sensitive-path +
+/// канонизация с ревалидацией + cap, всё в blocking-пуле)
+#[tauri::command(async)]
+pub async fn config_toml_import(path: String) -> Result<serde_json::Value, String> {
+    rejects_sensitive_path(&path)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let canon = std::fs::canonicalize(&path)
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or_else(|_| path.clone());
+        rejects_sensitive_path(&canon)?;
+        let data = crate::fsutil::read_capped_string(std::path::Path::new(&path), 0)?;
+        config_toml_parse(&data)
+    })
+    .await
+    .map_err(|e| format!("toml import task failed: {e}"))?
+}
+
+/// Чистый парсер (юнит-тесты): TOML → { model, active, providers[] }.
+/// Токен-ссылка на окружение ($VAR / env:VAR) ключом не считается — юзер
+/// вставляет свой ключ в профиль руками
+fn config_toml_parse(data: &str) -> Result<serde_json::Value, String> {
+    let value: toml::Value =
+        toml::from_str(data).map_err(|e| format!("not a TOML config: {e}"))?;
+    let model = value
+        .get("model")
+        .and_then(|m| m.as_str())
+        .unwrap_or_default()
+        .to_string();
+    let active_key = value
+        .get("model_provider")
+        .and_then(|m| m.as_str())
+        .unwrap_or_default()
+        .to_string();
+    let mut providers: Vec<serde_json::Value> = Vec::new();
+    if let Some(table) = value.get("model_providers").and_then(|p| p.as_table()) {
+        for (key, entry) in table {
+            let base_url = entry
+                .get("base_url")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string();
+            if base_url.trim().is_empty() {
+                continue; // провайдер без endpoint в Nocturn не подключается
+            }
+            let raw_token = entry
+                .get("experimental_bearer_token")
+                .or_else(|| entry.get("api_key"))
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .trim()
+                .to_string();
+            let is_env_ref = raw_token.starts_with('$') || raw_token.starts_with("env:");
+            providers.push(serde_json::json!({
+                "key": key,
+                "name": entry.get("name").and_then(|v| v.as_str()).unwrap_or(key),
+                "base_url": base_url,
+                "wire": entry.get("wire_api").and_then(|v| v.as_str()).unwrap_or("chat"),
+                "token": if is_env_ref { "" } else { raw_token.as_str() },
+            }));
+        }
+    }
+    if providers.is_empty() {
+        return Err("no [model_providers.*] with base_url found in config".to_string());
+    }
+    let active = providers
+        .iter()
+        .find(|p| p["key"].as_str() == Some(active_key.as_str()))
+        .cloned()
+        .unwrap_or_else(|| providers[0].clone());
+    Ok(serde_json::json!({ "model": model, "active": active, "providers": providers }))
+}
+
 /// Тумблер шифрования: перезаписывает settings.json и profiles.json,
 /// шифруя (или расшифровывая) все API-ключи на месте.
 /// Включение требует разблокированного хранилища (пароль уже введён).
@@ -1622,5 +1698,80 @@ mod tests {
         // битый JSON — fail-closed Err, не пустышка
         let err = rekey_staged_bytes("telegram.json", "{oops", &old, &new).unwrap_err();
         assert!(err.contains("cannot parse"), "{err}");
+    }
+}
+#[cfg(test)]
+mod config_toml_tests {
+    use super::*;
+
+    /// Пример из запроса владельца (скриншот config.toml): responses-wire,
+    /// токен — ссылка на env (ключом НЕ импортируется)
+    #[test]
+    fn parses_codex_screenshot_sample() {
+        let data = r#"
+model = "gpt-5.6-sol"
+model_provider = "agentrouter"
+
+[model_providers.agentrouter]
+name = "AgentRouter"
+base_url = "https://agentrouter.org/v1"
+wire_api = "responses"
+experimental_bearer_token = "$API_KEY"
+"#;
+        let res = config_toml_parse(data).unwrap();
+        assert_eq!(res["model"], "gpt-5.6-sol");
+        assert_eq!(res["active"]["key"], "agentrouter");
+        assert_eq!(res["active"]["base_url"], "https://agentrouter.org/v1");
+        assert_eq!(res["active"]["wire"], "responses");
+        // $VAR — ссылка на окружение: ключ не утекает из конфига в профиль
+        assert_eq!(res["active"]["token"], "");
+        assert_eq!(res["active"]["name"], "AgentRouter");
+    }
+
+    #[test]
+    fn defaults_wire_to_chat_and_keeps_literal_token() {
+        let data = r#"
+model = "llama3"
+[model_providers.local]
+name = "My box"
+base_url = "http://localhost:11434/v1"
+api_key = "sk-secret-123"
+"#;
+        let res = config_toml_parse(data).unwrap();
+        // нет model_provider сверху → первый провайдер
+        assert_eq!(res["active"]["key"], "local");
+        assert_eq!(res["active"]["wire"], "chat");
+        // литеральный токен — настоящий ключ, отдаётся в профиль
+        assert_eq!(res["active"]["token"], "sk-secret-123");
+    }
+
+    #[test]
+    fn selects_active_provider_from_top_level() {
+        let data = r#"
+model = "m2"
+model_provider = "second"
+[model_providers.first]
+base_url = "https://one.example/v1"
+[model_providers.second]
+base_url = "https://two.example/v1"
+wire_api = "responses"
+"#;
+        let res = config_toml_parse(data).unwrap();
+        assert_eq!(res["active"]["key"], "second");
+        assert_eq!(res["active"]["wire"], "responses");
+        assert_eq!(res["providers"].as_array().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn rejects_toml_without_providers_and_non_toml() {
+        // провайдеров нет
+        let err = config_toml_parse("model = \"x\"\n").unwrap_err();
+        assert!(err.contains("no [model_providers"), "{err}");
+        // совсем не TOML
+        let err = config_toml_parse("{ not toml !!!").unwrap_err();
+        assert!(err.contains("not a TOML config"), "{err}");
+        // провайдер без base_url пропускается → пусто → Err
+        let err = config_toml_parse("[model_providers.x]\nname = \"y\"\n").unwrap_err();
+        assert!(err.contains("no [model_providers"), "{err}");
     }
 }

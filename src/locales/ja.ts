@@ -1286,6 +1286,8 @@ export const ja = {
     "api.providerDesc": "プリセットは Base URL を自動入力します。「カスタム」は任意の OpenAI 互換エンドポイント。",
     "api.keyPh": "sk-…",
     "api.baseUrl": "Base URL",
+    "api.importToml": "config.toml を取り込む",
+    "api.importTomlOk": "プロバイダー「{name}」を適用しました — キーが環境変数参照の場合は手動で貼り付けてください",
     "api.provider": "プロバイダー",
     "api.providerCustom": "カスタム URL",
     "api.model": "モデル",
