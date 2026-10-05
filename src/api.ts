@@ -134,7 +134,10 @@ export interface ProviderPreset {
   id: string;
   label: string;
   baseUrl: string;
-  kind: "openai" | "anthropic";
+  /** openai — chat/completions; openai-responses — проводной формат Responses
+   *  API (wire_api="responses" из Codex-конфигов, POST {base}/responses);
+   *  anthropic — нативный Messages API */
+  kind: "openai" | "openai-responses" | "anthropic";
 }
 
 export const PROVIDERS: ProviderPreset[] = [
@@ -148,6 +151,7 @@ export const PROVIDERS: ProviderPreset[] = [
   { id: "nanogpt", label: "NanoGPT", baseUrl: "https://nano-gpt.com/api/v1", kind: "openai" },
   { id: "requesty", label: "Requesty", baseUrl: "https://router.requesty.ai/v1", kind: "openai" },
   { id: "gemini", label: "Gemini", baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai", kind: "openai" },
+  { id: "openai-responses", label: "AgentRouter", baseUrl: "https://agentrouter.org/v1", kind: "openai-responses" },
   { id: "anthropic", label: "Anthropic", baseUrl: "https://api.anthropic.com/v1", kind: "anthropic" },
   { id: "lmstudio", label: "LM Studio", baseUrl: "http://localhost:1234/v1", kind: "openai" },
   { id: "colibri", label: "Colibri", baseUrl: "http://localhost:8000/v1", kind: "openai" },
