@@ -138,16 +138,21 @@ fn dictation_status_impl(app: tauri::AppHandle) -> DictationStatus {
 /// Мержим в текущий конфиг, а не перезаписываем: `json!({"cli_path"})` стирал
 /// model_path импортированного конфига при первом же сохранении из UI
 #[tauri::command(async)]
-pub fn dictation_set_config(
+pub async fn dictation_set_config(
     app: tauri::AppHandle,
     cli_path: Option<String>,
 ) -> Result<(), String> {
-    let mut cur = crate::settings::read_json_config(&app, "dictation.json")
-        .ok()
-        .and_then(|v| v.as_object().cloned())
-        .unwrap_or_default();
-    cur.insert("cli_path".into(), json!(cli_path));
-    crate::settings::save_json_config(&app, "dictation.json", &serde_json::Value::Object(cur))
+    // read/save_json_config — sync-диск, в blocking-пул (№4 аудита v5)
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut cur = crate::settings::read_json_config(&app, "dictation.json")
+            .ok()
+            .and_then(|v| v.as_object().cloned())
+            .unwrap_or_default();
+        cur.insert("cli_path".into(), json!(cli_path));
+        crate::settings::save_json_config(&app, "dictation.json", &serde_json::Value::Object(cur))
+    })
+    .await
+    .map_err(|e| format!("dictation config task failed: {e}"))?
 }
 
 /// Скачать модель (~57 МБ) с Hugging Face: стрим в temp + rename, прогресс —
@@ -177,11 +182,20 @@ async fn do_download(app: &tauri::AppHandle) -> Result<(), String> {
         .app_data_dir()
         .map_err(|e| e.to_string())?
         .join("whisper");
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let final_path = dir.join(MODEL_FILE);
-    if final_path.exists() {
+    // create_dir_all + exists — sync-диск на async-пути, в blocking-пул (№4 v5)
+    let exists = tauri::async_runtime::spawn_blocking({
+        let dir = dir.clone();
+        move || -> Result<bool, String> {
+            std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+            Ok(dir.join(MODEL_FILE).exists())
+        }
+    })
+    .await
+    .map_err(|e| format!("dictation download task failed: {e}"))??;
+    if exists {
         return Ok(()); // уже скачана — повторный клик безвреден
     }
+    let final_path = dir.join(MODEL_FILE);
     let tmp = dir.join(format!("{MODEL_FILE}.tmp"));
     let client = crate::network::shared_client(std::time::Duration::from_secs(30))?;
     let resp = client
