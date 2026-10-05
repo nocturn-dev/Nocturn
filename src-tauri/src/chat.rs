@@ -510,9 +510,8 @@ async fn chat_stream_impl(
         if let Some(tools) = tools.filter(|t| !t.is_null()) {
             body["tools"] = tools;
         }
-        // Reasoning effort (OpenAI-совместимые; "max" маппится в "high")
-        if let Some(eff) = reasoning_effort.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
-            let mapped = if eff == "max" { "high" } else { eff };
+        // Reasoning effort (OpenAI-совместимые; см. openai_reasoning_effort)
+        if let Some(mapped) = openai_reasoning_effort(reasoning_effort.as_deref()) {
             body["reasoning_effort"] = serde_json::json!(mapped);
         }
         body_json = Some(body);
@@ -1371,6 +1370,18 @@ fn user_content_responses(content: &serde_json::Value) -> serde_json::Value {
     }
 }
 
+/// Reasoning effort для OpenAI-совместимого провода: "max"→"high";
+/// "off"/пусто → None. Провайдеры валидируют enum — строгий OpenAI отвечает
+/// 400 на reasoning_effort:"off" (Anthropic-провод фильтровал всегда,
+/// дефолт приложения как раз "off" — иначе каждый запрос падал)
+fn openai_reasoning_effort(eff: Option<&str>) -> Option<String> {
+    let eff = eff?.trim();
+    if eff.is_empty() || eff == "off" {
+        return None;
+    }
+    Some(if eff == "max" { "high".to_string() } else { eff.to_string() })
+}
+
 /// Тело Responses API (проводной формат `wire_api = "responses"` из
 /// Codex-конфигов; POST {base}/responses). Отличия от chat/completions:
 /// system → instructions; история → input items, где вызовы инструментов —
@@ -1460,7 +1471,11 @@ pub fn build_responses_body(
             body["tools"] = serde_json::json!(flat);
         }
     }
-    if let Some(eff) = reasoning_effort.map(str::trim).filter(|s| !s.is_empty()) {
+    // "off" не отправляем — валидация enum у провайдера (см. OpenAI-провод)
+    if let Some(eff) = reasoning_effort
+        .map(str::trim)
+        .filter(|s| !s.is_empty() && *s != "off")
+    {
         let mapped = if eff == "max" { "high" } else { eff };
         body["reasoning"] = serde_json::json!({ "effort": mapped });
     }
@@ -2915,6 +2930,17 @@ mod responses_wire_tests {
         assert_eq!(body["stream"], true);
         assert_eq!(body["store"], false);
         assert_eq!(body["reasoning"]["effort"], "high"); // max → high
+
+        // [фикс] "off" не уходит провайдеру: валидация enum = 400
+        let body_off = build_responses_body("m1", &messages, None, Some("off"), false);
+        assert!(body_off.get("reasoning").is_none());
+        assert!(openai_reasoning_effort(Some("off")).is_none());
+        assert_eq!(
+            openai_reasoning_effort(Some("max")).as_deref(),
+            Some("high")
+        );
+        assert_eq!(openai_reasoning_effort(Some("low")).as_deref(), Some("low"));
+        assert!(openai_reasoning_effort(None).is_none());
         // инструменты — плоский формат без вложения function
         assert_eq!(body["tools"][0]["type"], "function");
         assert_eq!(body["tools"][0]["name"], "fs_read");

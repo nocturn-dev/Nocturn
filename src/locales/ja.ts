@@ -1546,6 +1546,7 @@ export const ja = {
     "onb.lookSub": "テーマとアクセント色は設定からいつでも変更できます。",
     "onb.dark": "ダーク",
     "onb.light": "ライト",
+    "onb.hardHint": "Official は厳格なモノクロ、Full Claude は Claude Desktop の再現：どちらも常時ダークで固有のアクセントとフォントを持ちます。他のスタイル（Storm など）は 設定 → カスタマイズ にあります。",
     "onb.accent": "アクセント色",
     "onb.apiTitle": "モデルへの接続",
     "onb.apiSub": "プロバイダの API キーを貼り付けてください——スキップして後で追加しても構いません。",

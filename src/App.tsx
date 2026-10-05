@@ -133,6 +133,23 @@ const LazyChainMonitor = lazy(() => import("./components/ChainMonitor"));
 const LazyResetConfirmModal = lazy(() => import("./components/ResetConfirmModal"));
 const LazyHardTerminal = lazy(() => import("./components/HardTerminal"));
 
+/** [фикс] Прогрев lazy-чанков на простое: первый клик по «Настройкам» иначе
+ *  ждёт загрузку 273 кБ чанка (в dev-сервере — секунды on-demand
+ *  трансформации), пользователь читает это как зависание. Идл-импорт старт
+ *  не трогает (после первой отрисовки + requestIdleCallback), а первый
+ *  показ модалки становится мгновенным. sticky-mount монтирование не меняет */
+const WARM_CHUNKS: (() => Promise<unknown>)[] = [
+  () => import("./components/SettingsModal"),
+  () => import("./components/AutomationsModal"),
+  () => import("./components/CompareModal"),
+  () => import("./components/KnowledgeModal"),
+  () => import("./components/NotesModal"),
+  () => import("./components/GraphModal"),
+  () => import("./components/ChainMonitor"),
+  () => import("./components/ResetConfirmModal"),
+  () => import("./components/HardTerminal"),
+];
+
 function useEverOpened(open: boolean): boolean {
   const [ever, setEver] = useState(open);
   useEffect(() => {
@@ -274,6 +291,29 @@ export default function App() {
   const [onboardingOpen, setOnboardingOpen] = useState(
     () => !localStorage.getItem("haloui-onboarded"),
   );
+  // Прогрев lazy-чанков: после сплэша на простое приложения подтягиваем
+  // тяжёлые поверхности — первый клик по «Настройкам» больше не ждёт чанк
+  useEffect(() => {
+    if (!splashDone) return;
+    const warm = () => {
+      for (const load of WARM_CHUNKS) void load().catch(() => {});
+    };
+    const w = window as Window & {
+      requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
+      cancelIdleCallback?: (id: number) => void;
+    };
+    // TS2774: requestIdleCallback в lib.dom всегда определён, но в старых
+    // WebView2-рантаймах отсутствует в рантайме — проверяем именно значение
+    const ric = w.requestIdleCallback as
+      | ((cb: () => void, opts?: { timeout: number }) => number)
+      | undefined;
+    if (ric) {
+      const id = ric(warm, { timeout: 8000 });
+      return () => w.cancelIdleCallback?.(id);
+    }
+    const t = window.setTimeout(warm, 2500);
+    return () => window.clearTimeout(t);
+  }, [splashDone]);
   // Полный сброс из трея: подтверждение спрашиваем модалкой в окне
   const [resetOpen, setResetOpen] = useState(false);
   const [resetBusy, setResetBusy] = useState(false);
@@ -2298,6 +2338,16 @@ export default function App() {
 
   // Живое превью из онбординга: сеттеры сами применяют и запоминают
   const handleOnboardingTheme = (th: Theme) => setTheme(th);
+  // [онбординг] Жёсткие темы из визарда: всегда тёмные, взаимоисключимы,
+  // выбор обычной темы гасит обе. Акцент в жёстких темах фиксируется темой
+  const handleOnboardingHardTheme = (kind: "official" | "fullClaude" | null) => {
+    setAppearance((a) => ({
+      ...a,
+      official: kind === "official",
+      fullClaude: kind === "fullClaude",
+    }));
+    if (kind) setTheme("dark");
+  };
   const handleOnboardingAccent = (hex: string) =>
     setAppearance((a) => ({ ...a, accent: hex }));
 
@@ -3123,6 +3173,14 @@ export default function App() {
         <Onboarding
           theme={theme}
           onTheme={handleOnboardingTheme}
+          onHardTheme={handleOnboardingHardTheme}
+          hardTheme={
+            appearance.official
+              ? "official"
+              : appearance.fullClaude
+                ? "fullClaude"
+                : null
+          }
           onAccent={handleOnboardingAccent}
           onFinish={(r) => void handleOnboardingFinish(r)}
         />

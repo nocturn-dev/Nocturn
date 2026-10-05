@@ -1546,6 +1546,7 @@ export const zh = {
     "onb.lookSub": "主题和强调色随时可以在设置中更改。",
     "onb.dark": "深色",
     "onb.light": "浅色",
+    "onb.hardHint": "Official 为严格的黑白单色，Full Claude 为 Claude Desktop 复刻：两者均为深色并使用各自的强调色与字体。更多样式（Storm 等）见 设置 → 外观定制。",
     "onb.accent": "强调色",
     "onb.apiTitle": "模型连接",
     "onb.apiSub": "粘贴你的 API 密钥——也可以跳过，稍后再添加。",
