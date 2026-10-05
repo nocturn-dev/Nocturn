@@ -86,6 +86,19 @@ fn git_exec(cwd: &Path, args: &[&str], timeout: std::time::Duration) -> Result<S
         }
     } else if out.timed_out {
         return Err(format!("git {} timed out", args.first().unwrap_or(&"")));
+    } else {
+        // Ни кода выхода, ни таймаута: процесс убит сигналом (Unix) или не
+        // запустился вовсе (proc пишет причину в stderr) — частичный stdout
+        // успехом не является (№17 аудита v5)
+        let err = out.stderr.trim().to_string();
+        return Err(if err.is_empty() {
+            format!(
+                "git {} was killed by a signal or failed to start",
+                args.first().unwrap_or(&"")
+            )
+        } else {
+            err
+        });
     }
     Ok(out.stdout)
 }
@@ -167,50 +180,37 @@ fn git_status_impl(path: String) -> Result<Vec<GitEntry>, String> {
     crate::settings::rejects_sensitive_path(&path)?;
     let text = git_exec(
         std::path::Path::new(&path),
-        &["status", "--porcelain"],
+        &["status", "--porcelain", "-z"],
         std::time::Duration::from_secs(15),
     )?;
+    Ok(parse_porcelain_z(&text))
+}
+
+/// Разбор `git status --porcelain -z` (№14/№15 аудита v5): записи
+/// NUL-терминированы, пути отдаются RAW — формат не порождает ни кавычек,
+/// ни C-эскейпов (включая octal \NNN), поэтому весь класс «манглился путь
+/// с кавычками/эскейпами» отсутствует в принципе; у переименований нет и
+/// неоднозначности «a -> b -> c» (текстовый формат склеивает стороны
+/// через " -> "). Формат записи: XY SP new\0[old\0] — у переименований и
+/// копий исходный путь идёт ВТОРОЙ NUL-записью (проверено живым git),
+/// нам он не нужен — берём новое имя
+fn parse_porcelain_z(text: &str) -> Vec<GitEntry> {
     let mut out: Vec<GitEntry> = Vec::new();
-    for line in text.lines() {
-        if line.len() < 4 {
+    let mut records = text.split('\0');
+    while let Some(rec) = records.next() {
+        if rec.len() < 4 {
+            // Хвостовой пустой элемент после последнего \0 и прочий мусор
             continue;
         }
-        let code = line[..2].trim().to_string();
-        let mut p = line[3..].trim().to_string();
-        // Формат переименования: "R  old -> new" — берём новое имя
-        if let Some(idx) = p.find(" -> ") {
-            p = p[idx + 4..].to_string();
+        let code = rec[..2].trim().to_string();
+        let path = rec[3..].to_string();
+        if code.starts_with('R') || code.starts_with('C') {
+            // Исходный путь переименования — следующая запись, пропускаем
+            records.next();
         }
-        // С core.quotepath=false пути приходят без кавычек; кавычки возможны
-        // только от спецсимволов — разворачиваем полный C-набор git (", \\,
-        // \n, \t, \r, \a, \b, \f, \v): неполный match манглит путь («bell\f»
-        // превращался в «bellf») и тот перестаёт совпадать с файлом
-        if p.starts_with('"') && p.ends_with('"') && p.len() >= 2 {
-            let inner = &p[1..p.len() - 1];
-            let mut unescaped = String::with_capacity(inner.len());
-            let mut chars = inner.chars();
-            while let Some(c) = chars.next() {
-                if c == '\\' {
-                    match chars.next() {
-                        Some('n') => unescaped.push('\n'),
-                        Some('t') => unescaped.push('\t'),
-                        Some('r') => unescaped.push('\r'),
-                        Some('a') => unescaped.push('\u{7}'),
-                        Some('b') => unescaped.push('\u{8}'),
-                        Some('f') => unescaped.push('\u{c}'),
-                        Some('v') => unescaped.push('\u{b}'),
-                        Some(other) => unescaped.push(other),
-                        None => unescaped.push('\\'),
-                    }
-                } else {
-                    unescaped.push(c);
-                }
-            }
-            p = unescaped;
-        }
-        out.push(GitEntry { path: p, code });
+        out.push(GitEntry { path, code });
     }
-    Ok(out)
+    out
 }
 
 // ---------- Чекпоинты проекта (снимки файлов для отката агента) ----------
@@ -1046,6 +1046,39 @@ mod git_status_tests {
         // если git есть — не-repo должен дать ошибку; если git нет — тоже Err
         assert!(git_status_impl(dir.to_string_lossy().to_string()).is_err());
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn porcelain_z_rename_takes_new_path_and_consumes_orig() {
+        // №15: в -z стороны переименования не склеиваются « -> », разбор не
+        // ломается даже на пути, СОДЕРЖАЩЕМ стрелку (возможен на Unix);
+        // формат: XY SP new\0old\0 — новый путь первым, old потребляется
+        let text = "R  a -> b.txt\0old name.txt\0M  plain.txt\0";
+        let entries = parse_porcelain_z(text);
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].path, "a -> b.txt");
+        assert_eq!(entries[0].code, "R");
+        assert_eq!(entries[1].path, "plain.txt");
+        assert_eq!(entries[1].code, "M");
+    }
+
+    #[test]
+    fn porcelain_z_paths_are_raw() {
+        // №14: не-ASCII приходит байтами UTF-8 без кавычек и octal-эскейпов;
+        // кавычки в имени файла — часть пути, а не git-цитирование
+        let text = "?? \u{444}\u{430}\u{439}\u{43b}.txt\0A  \"quoted\".txt\0";
+        let entries = parse_porcelain_z(text);
+        assert_eq!(entries[0].path, "\u{444}\u{430}\u{439}\u{43b}.txt");
+        assert_eq!(entries[0].code, "??");
+        assert_eq!(entries[1].path, "\"quoted\".txt");
+    }
+
+    #[test]
+    fn porcelain_z_trailing_nul_skipped() {
+        let entries = parse_porcelain_z("M  x.txt\0\0");
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].path, "x.txt");
+        assert!(parse_porcelain_z("").is_empty());
     }
 
     #[test]
