@@ -1,7 +1,7 @@
 # Nocturn
 
 <p align="center">
-  <img src="docs/screenshots/main.png" width="820" alt="Nocturn main window" />
+  <img src="docs/screenshots/main.png" width="820" alt="Nocturn main window: Full Claude theme, mascot Nok on the composer" />
 </p>
 
 **Nocturn** is a local-first, BYOK (**Bring Your Own Key**) AI client for
@@ -186,11 +186,19 @@ Nocturn keeps its power in settings rather than in your face:
 ## Screenshots
 
 <p align="center">
-  <img src="docs/screenshots/quick-look.png" width="420" alt="Quick appearance settings" />
-  <img src="docs/screenshots/customization.png" width="420" alt="Appearance settings: theme profiles, accent colors" />
+  <img src="docs/screenshots/customization.png" width="420" alt="Customization: theme profiles, Full Claude and Official themes" />
+  <img src="docs/screenshots/permissions.png" width="420" alt="Persistent permission rules (deny / always-ask / allow)" />
 </p>
 <p align="center">
-  <img src="docs/screenshots/automations.png" width="560" alt="Automations: scheduled agent tasks" />
+  <img src="docs/screenshots/mcp.png" width="420" alt="MCP servers: local processes and remote HTTP" />
+  <img src="docs/screenshots/knowledge.png" width="420" alt="Knowledge bases: local RAG on SQLite" />
+</p>
+<p align="center">
+  <img src="docs/screenshots/compare.png" width="560" alt="Model comparison: up to three providers on one prompt" />
+</p>
+<p align="center">
+  <img src="docs/screenshots/prompts.png" width="460" alt="Prompt library with built-in samples" />
+  <img src="docs/screenshots/jailbreak-search.png" width="460" alt="Jailbreak library: live search in curated sources" />
 </p>
 
 ## Themes
@@ -205,8 +213,8 @@ instantly and is remembered.
 
 Ambient backgrounds come in two flavours: the CSS "breathing accent" glow, or
 procedural canvas scenes — fog, snowfall, neon city, starfield, gradient — and
-your own looped video. All scenes are **theme-aware**: they are painted from
-the live palette and re-tint instantly when you switch themes or accents.
+your own looped video. Scene palettes are fixed night scenes (the gradient
+scene takes your two custom colors) — they are deliberately theme-independent.
 
 > **A note on ambient video backgrounds:** a looping video behind the chat
 > looks great, but the decoder keeps using GPU/battery while it plays.
