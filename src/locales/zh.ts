@@ -1286,6 +1286,8 @@ export const zh = {
     "api.providerDesc": "预设会自动填入 Base URL；「自定义」为任意 OpenAI 兼容端点。",
     "api.keyPh": "sk-…",
     "api.baseUrl": "Base URL",
+    "api.importToml": "导入 config.toml",
+    "api.importTomlOk": "已应用提供商「{name}」— 如果配置中的密钥是环境变量引用，请手动粘贴密钥",
     "api.provider": "提供商",
     "api.providerCustom": "自定义 URL",
     "api.model": "模型",

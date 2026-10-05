@@ -251,6 +251,7 @@ pub fn run() {
             settings::settings_export_write,
             settings::chat_export_write,
             settings::settings_import_read,
+            settings::config_toml_import,
             importer::import_fetch_url,
             chat::test_connection,
             chat::chat_once,

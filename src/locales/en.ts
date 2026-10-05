@@ -1260,6 +1260,8 @@ export const en = {
     "api.providerDesc": "Presets fill in the Base URL automatically; 'Custom' — any OpenAI-compatible endpoint.",
     "api.keyPh": "sk-…",
     "api.baseUrl": "Base URL",
+    "api.importToml": "Import config.toml",
+    "api.importTomlOk": "Provider “{name}” applied — if the config referenced an environment variable for the key, paste it manually",
     "api.provider": "Provider",
     "api.providerCustom": "Custom URL",
     "api.model": "Model",

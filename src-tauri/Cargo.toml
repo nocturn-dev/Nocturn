@@ -26,6 +26,8 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = ["tray-icon", "image-png", "protocol-asset", "macos-private-api"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# Импорт provider-конфигов Codex-стиля (config.toml, [model_providers.*])
+toml = "0.9"
 reqwest = { version = "0.13", features = ["json", "stream", "gzip", "brotli", "deflate", "query", "form"] }
 futures-util = { version = "0.3", default-features = false }
 tokio = { version = "1", features = ["time", "macros"] }

@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { useLang } from "../../locales";
 import type { ApiProfile, ApiSettings, ModelInfo, ColibriStatus, ColibriLocal } from "../../api";
 import {
+  importProviderToml,
   providerFromBaseUrl,
   PROVIDERS,
   colibriStart,
@@ -48,6 +49,34 @@ export function ApiSection({
   onDetectOllama: () => void;
   onUseLocalModel: (id: string) => void;
 }) {
+  // Импорт provider-конфига Codex-стиля (config.toml и подобные, волна
+  // «такие API»): парс в Rust, подстановка в текущие настройки
+  const [tomlMsg, setTomlMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [tomlBusy, setTomlBusy] = useState(false);
+  const importToml = async () => {
+    setTomlBusy(true);
+    setTomlMsg(null);
+    try {
+      const res = await importProviderToml();
+      if (!res) return; // диалог отменён
+      const a = res.active;
+      onChange({
+        ...settings,
+        base_url: a.base_url,
+        // responses → проводной формат Responses API, иначе chat/completions
+        provider: a.wire === "responses" ? "openai-responses" : "openai",
+        model: res.model || settings.model,
+        // $VAR/env-ссылки приходят из Rust пустыми — ключ юзер вставляет сам
+        ...(a.token ? { api_key: a.token } : {}),
+      });
+      setTomlMsg({ ok: true, text: t("api.importTomlOk", { name: a.name || a.key }) });
+    } catch (e) {
+      setTomlMsg({ ok: false, text: String(e) });
+    } finally {
+      setTomlBusy(false);
+    }
+  };
+
   const { t } = useLang();
   const [saved, setSaved] = useState(false);
   const [manual, setManual] = useState(false);
@@ -333,8 +362,17 @@ export function ApiSection({
       </div>
 
       <label className="mb-4 block">
-        <span className="mb-1 block text-xs font-medium text-halo-muted">
-          {t("api.baseUrl")}
+        <span className="mb-1 flex items-center justify-between gap-2">
+          <span className="text-xs font-medium text-halo-muted">{t("api.baseUrl")}</span>
+          <button
+            type="button"
+            onClick={() => void importToml()}
+            disabled={tomlBusy}
+            title={t("api.importToml")}
+            className="shrink-0 rounded-full border border-halo-line px-2 py-0.5 text-[0.6875rem] text-halo-muted transition-colors hover:border-halo-accent/50 hover:text-halo-text disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {tomlBusy ? "…" : t("api.importToml")}
+          </button>
         </span>
         <input
           type="text"
@@ -350,6 +388,13 @@ export function ApiSection({
           className="w-full rounded-lg border border-halo-line bg-halo-surface px-3 py-2 text-sm text-halo-text outline-none transition-colors placeholder:text-halo-muted/60 focus:border-halo-accent/60"
         />
       </label>
+      {tomlMsg && (
+        <p
+          className={`-mt-2 mb-3 text-xs ${tomlMsg.ok ? "text-emerald-400" : "text-red-400"}`}
+        >
+          {tomlMsg.text}
+        </p>
+      )}
 
       {/* Выбор модели: список после автопроверки, иначе ручной ввод */}
       {models.length > 0 && !manual ? (

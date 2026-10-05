@@ -151,12 +151,41 @@ export const PROVIDERS: ProviderPreset[] = [
   { id: "nanogpt", label: "NanoGPT", baseUrl: "https://nano-gpt.com/api/v1", kind: "openai" },
   { id: "requesty", label: "Requesty", baseUrl: "https://router.requesty.ai/v1", kind: "openai" },
   { id: "gemini", label: "Gemini", baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai", kind: "openai" },
-  { id: "openai-responses", label: "AgentRouter", baseUrl: "https://agentrouter.org/v1", kind: "openai-responses" },
   { id: "anthropic", label: "Anthropic", baseUrl: "https://api.anthropic.com/v1", kind: "anthropic" },
   { id: "lmstudio", label: "LM Studio", baseUrl: "http://localhost:1234/v1", kind: "openai" },
   { id: "colibri", label: "Colibri", baseUrl: "http://localhost:8000/v1", kind: "openai" },
   { id: "litellm", label: "LiteLLM", baseUrl: "http://localhost:4000/v1", kind: "openai" },
 ];
+
+export interface ProviderTomlEntry {
+  key: string;
+  name: string;
+  base_url: string;
+  /** "responses" | "chat" (wire_api из Codex-конфига) */
+  wire: string;
+  /** Литеральный токен из конфига; $VAR/env:VAR-ссылки приходят пустыми */
+  token: string;
+}
+
+export interface ProviderTomlImport {
+  model: string;
+  active: ProviderTomlEntry;
+  providers: ProviderTomlEntry[];
+}
+
+/** Импорт provider-конфига Codex-стиля (config.toml и подобные): путь
+ *  выбирается диалогом, парс в Rust. null — пользователь отменил */
+export async function importProviderToml(): Promise<ProviderTomlImport | null> {
+  if (!inTauri) return null;
+  const { open } = await import("@tauri-apps/plugin-dialog");
+  const picked = await open({
+    multiple: false,
+    directory: false,
+    filters: [{ name: "TOML", extensions: ["toml", "conf", "config"] }],
+  });
+  if (typeof picked !== "string") return null;
+  return invoke("config_toml_import", { path: picked });
+}
 
 /** Восстановить метку провайдера по Base URL (для старых настроек без поля) */
 export function providerFromBaseUrl(baseUrl: string): string {
