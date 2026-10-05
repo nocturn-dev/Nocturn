@@ -118,7 +118,13 @@ export function McpSection() {
       byName.set(s.name, existing ? { ...s, enabled: existing.enabled } : s);
     }
     const next = [...byName.values()];
-    await persist(next);
+    // Провал записи mcp.json — не «успех»: черновик сохраняем (можно
+    // поправить и повторить), честный отказ вместо баннера импорта
+    const saved = await persist(next);
+    if (!saved) {
+      setImportMsg({ ok: false, text: t("mcp.importFail") });
+      return;
+    }
     setImportMsg({ ok: true, text: t("mcp.importOk", { n: imported.length }) });
     setImportText("");
   };
@@ -145,8 +151,12 @@ export function McpSection() {
       .catch(() => {});
   };
 
-  /** Сохранить конфиг и синхронизировать набор схем инструментов */
-  const persist = async (next: McpServerCfg[]) => {
+  /** Сохранить конфиг и синхронизировать набор схем инструментов.
+   *  Возвращает успех записи: провал откатывает UI к прежнему списку —
+   *  иначе он врал об применённом конфиге, а импорт рапортовал «ок»
+   *  (revert-паттерн 6af9361; №7 аудита v5) */
+  const persist = async (next: McpServerCfg[]): Promise<boolean> => {
+    const prev = serversRef.current;
     serversRef.current = next;
     setServers(next);
     try {
@@ -154,9 +164,13 @@ export function McpSection() {
       invalidateToolSchemas();
       setError(null);
     } catch (e) {
+      serversRef.current = prev;
+      setServers(prev);
       setError(String(e));
+      return false;
     }
     // Волна F3: ${VAR} в конфиге — предупредить о переменных окружения
+    // (только после успешной записи: конфиг ещё мог не сохраниться)
     const vars = new Set<string>();
     for (const s of next) {
       const hay = JSON.stringify(s);
@@ -165,6 +179,7 @@ export function McpSection() {
       }
     }
     setEnvNote(vars.size ? t("mcp.envNote", { vars: [...vars].join(", ") }) : null);
+    return true;
   };
 
   const addServer = async () => {
