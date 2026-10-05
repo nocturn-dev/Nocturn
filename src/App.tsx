@@ -429,17 +429,26 @@ export default function App() {
   // в одну карточку ответа; иначе каждый шаг — отдельная карточка
   const [groupTurns, setGroupTurns] = useBoolPref("haloui-group-turns", true);
   // Журнал использования (раздел «Статистика»): одна запись на отправку
-  const [usageLog, setUsageLog] = useState<UsageEvent[]>(() => {
-    const raw = localStorage.getItem("haloui-usage");
-    if (!raw) return [];
-    const events = sanitizeUsageEvents(raw);
-    if (events.length === 0 && raw.trim() !== "[]") {
-      // Невалидное содержимое стираем: бэкфилл из sessions.json снова увидит
-      // пустой ключ и восстановит журнал (голый cast оставлял поломку навсегда)
-      localStorage.removeItem("haloui-usage");
-    }
-    return events;
-  });
+  const [usageLog, setUsageLog] = useState<UsageEvent[]>([]);
+  // Журнал usage грузим ПОСЛЕ первого рендера (волна 5): JSON.parse до 5000
+  // записей на старте держал главный поток в момент, когда он занят гидрацией.
+  // Единственный потребитель — ленивая секция статистики в настройках; на
+  // первом экране его нет, а API-события usage ещё физически не могут прийти
+  // (первая сеть — checkForUpdate через 8 с)
+  useEffect(() => {
+    const t = window.setTimeout(() => {
+      const raw = localStorage.getItem("haloui-usage");
+      if (!raw) return;
+      const events = sanitizeUsageEvents(raw);
+      if (events.length === 0 && raw.trim() !== "[]") {
+        // Невалидное содержимое стираем: бэкфилл из sessions.json снова увидит
+        // пустой ключ и восстановит журнал (голый cast оставлял поломку навсегда)
+        localStorage.removeItem("haloui-usage");
+      }
+      setUsageLog(events);
+    }, 0);
+    return () => window.clearTimeout(t);
+  }, []);
   // Зеркало для отложенного флаша (flush-эффект монтируется один раз)
   const usageLogRef = useRef(usageLog);
   useEffect(() => {
