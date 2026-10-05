@@ -1713,7 +1713,10 @@ export default function ChatArea({
       }
       if (e.key === "Tab") {
         e.preventDefault();
-        setDraft(`&${skillMatches[skillIndex]?.id ?? ""} `);
+        // Короткая форма «&id: » — как Enter и клик по палитре ниже:
+        // раскрытие требует двоеточие (regex при отправке), «&id␣» уходил
+        // модели литералом (№8 аудита v5)
+        setDraft(`&${skillMatches[skillIndex]?.id ?? ""}: `);
         return;
       }
       if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
@@ -2528,7 +2531,7 @@ export default function ChatArea({
                         i === skillIndex ? "text-halo-accent" : "text-halo-muted"
                       }`}
                     >
-                      &{s.id}
+                      &{s.id}:
                     </span>
                     <span className="min-w-0 truncate text-xs text-halo-muted">
                       {lang === "ru" ? s.desc?.ru ?? "" : s.desc?.en ?? ""}

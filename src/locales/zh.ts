@@ -455,7 +455,7 @@ export const zh = {
     "nav.help": "帮助",
     "settings.shortcuts": "快捷键",
     "settings.skills": "技能",
-    "skills.desc": "为模型准备的现成指令模板。在输入框中输入「&」即可打开面板：选择技能会插入模板 — 补充任务内容后发送。",
+    "skills.desc": "为模型准备的现成指令模板。在输入框中输入「&」即可打开面板：选择技能会插入短格式「&id: 」— 补充任务内容后发送，完整指令在发送时展开。",
     "skills.palette": "技能 — 选择以插入模板",
     "skills.fromPlugin": "来自插件",
     "skills.fromPluginHint": "标注「来自插件」的技能来自已安装的插件，可在「插件」分区中管理。",

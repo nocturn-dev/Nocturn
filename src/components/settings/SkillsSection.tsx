@@ -28,7 +28,7 @@ export function SkillsSection({
               className="flex w-full items-center gap-2 text-left"
             >
               <code className="shrink-0 rounded bg-halo-muted/10 px-1.5 py-0.5 font-mono text-[0.6875rem] font-semibold text-halo-accent">
-                &{s.id}
+                &{s.id}:
               </code>
               <span className="shrink-0 text-sm font-medium text-halo-text">
                 {s.name}
