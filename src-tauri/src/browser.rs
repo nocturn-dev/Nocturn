@@ -28,6 +28,10 @@ const READ_TEXT_LIMIT: usize = 20_000; // текст страницы в отв�
 const SNAPSHOT_TEXT_LIMIT: usize = 24_000; // снапшот интерактивных элементов
 const NAV_TIMEOUT: Duration = Duration::from_secs(20);
 const WS_READ_TIMEOUT: Duration = Duration::from_secs(120);
+/// Write-таймаут ws: оглохший CDP-пир (перестал читать TCP) иначе вешает
+/// ws.send навсегда под ws-мьютексом — встают ВСЕ browser-вызовы и view-тред.
+/// Класс закрыт WRITE_TIMEOUT в mcp.rs (10 с, единый масштаб)
+const WS_WRITE_TIMEOUT: Duration = Duration::from_secs(10);
 
 // ---------------------------------------------------------------------------
 // Конфигурация (вкладка «Browser Use» в настройках)
@@ -523,17 +527,32 @@ impl BrowserConnection {
         let msg = json!({ "id": id, "method": method, "params": params });
 
         let mut ws = self.ws.lock().unwrap_or_else(|p| p.into_inner());
-        // Таймаут чтения: WouldBlock просто завершает ожидание read(),
-        // внутренний буфер tungstenite сохраняет частичные кадры
+        // Таймауты чтения/записи сокета: WouldBlock завершает ожидание read()
+        // (внутренний буфер tungstenite сохраняет частичные кадры), по записи
+        // оглохший пир рвёт write() вместо вечного блока под мьютексом
         if let tungstenite::stream::MaybeTlsStream::Plain(stream) = ws.get_ref() {
             stream
                 .set_read_timeout(Some(Duration::from_millis(250)))
                 .ok();
+            stream.set_write_timeout(Some(WS_WRITE_TIMEOUT)).ok();
         }
         ws.send(Message::text(msg.to_string()))
             .map_err(|e| {
                 self.mark_dead();
-                format!("browser write failed: {e}")
+                let stalled = matches!(
+                    &e,
+                    tungstenite::Error::Io(io)
+                        if io.kind() == std::io::ErrorKind::WouldBlock
+                            || io.kind() == std::io::ErrorKind::TimedOut
+                );
+                if stalled {
+                    format!(
+                        "browser write timed out after {}s — CDP peer stopped reading",
+                        WS_WRITE_TIMEOUT.as_secs()
+                    )
+                } else {
+                    format!("browser write failed: {e}")
+                }
             })?;
 
         let deadline = Instant::now() + timeout;
