@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import type { AskQuestion, Attachment, ChangedFile, Message, PermissionMode, PlanTask, Project, Session, ToolCallInfo } from "../types";
 import type { MediaPrefs, MediaLyricsSnapshot } from "../mediaPrefs";
 import { MediaBar } from "./MediaBar";
@@ -19,7 +19,8 @@ import type { Appearance } from "../appearance";
 import { getToolSchemas, contextLimitFor, dictationTranscribe, gitBranchDiff, type ModelInfo } from "../api";
 import type { Theme } from "../types";
 import SystemPromptModal from "./SystemPromptModal";
-import TerminalPanel from "./TerminalPanel";
+// Ленивый (волна 2): 945 строк терминала — вне стартового чанка
+const TerminalPanel = lazy(() => import("./TerminalPanel"));
 import { uid } from "../hooks/useAgentRun";
 import WindowControls from "./WindowControls";
 import ProviderIcon, { brandName } from "./ProviderIcon";
@@ -2310,6 +2311,7 @@ export default function ChatArea({
           от клика по другой задаче. Консоль общая, скроллбэк переживает
           переключение */}
       {terminalOpen && (
+        <Suspense fallback={null}>
         <TerminalPanel
           session={session}
           streamingMsgId={streamingMsgId}
@@ -2323,6 +2325,7 @@ export default function ChatArea({
           onConfirmDecision={onConfirmDecision}
           onClose={onToggleTerminal}
         />
+        </Suspense>
       )}
 
       <SystemPromptModal

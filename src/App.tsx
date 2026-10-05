@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   ChangedFile,
   PermissionMode,
@@ -72,17 +72,13 @@ import Sidebar from "./components/Sidebar";
 import NocturnMark from "./components/NocturnMark";
 import Splash from "./components/Splash";
 import Onboarding, { type OnboardingResult } from "./components/Onboarding";
-import ResetConfirmModal from "./components/ResetConfirmModal";
 
 
 import ChatArea, { filterVisibleMessages } from "./components/ChatArea";
 import { LyricsRibbon } from "./components/LyricsRibbon";
 import { YouTubeLayer } from "./components/YouTubeLayer";
 import { ytToggleOpen } from "./yt/ytPlayer";
-import SettingsModal, { type Section } from "./components/SettingsModal";
-import AutomationsModal from "./components/AutomationsModal";
-import CompareModal from "./components/CompareModal";
-import KnowledgeModal from "./components/KnowledgeModal";
+import type { Section } from "./components/SettingsModal";
 import BrowserPanel from "./components/BrowserPanel";
 import Toasts from "./components/Toast";
 import DownloadProgress from "./components/DownloadProgress";
@@ -91,9 +87,7 @@ import { isIdle, loadOffPeak, nextWaiting, saveOffPeak } from "./offpeak";
 import { checkForUpdate } from "./api";
 import SearchModal from "./components/SearchModal";
 import ContextMenu, { type MenuItem } from "./components/ContextMenu";
-import NotesModal from "./components/NotesModal";
-import GraphModal from "./components/GraphModal";
-import ChainMonitor, { type ChainState, type ChainStepStatus } from "./components/ChainMonitor";
+import type { ChainState, ChainStepStatus } from "./components/ChainMonitor";
 import type { SlashCommand } from "./commands";
 import { PROVIDERS, shortcutsLoad, shortcutsSave } from "./api";
 import {
@@ -121,9 +115,31 @@ import { TERMINAL_PALETTES } from "./vt";
 import { useAppearanceUi } from "./hooks/useAppearanceUi";
 import { useBoolPref, useNumPref, useStringPref } from "./hooks/usePrefs";
 import { withViewTransition } from "./motion";
-import HardTerminal from "./components/HardTerminal";
 import { AmbientLayer } from "./components/AmbientLayer";
 import { ErrorBoundary } from "./components/ErrorBoundary";
+
+// Волна 2 (жёсткая оптимизация): тяжёлые поверхности — ленивые чанки.
+// Модалки грузятся при первом открытии и после него живут смонтированными
+// (useEverOpened): внутреннее состояние (вкладки настроек, черновики) и
+// exit-анимации useDelayedUnmount ведут себя ровно как при
+// всегда-смонтированной модалке, но старт приложения их не парсит
+const LazySettingsModal = lazy(() => import("./components/SettingsModal"));
+const LazyAutomationsModal = lazy(() => import("./components/AutomationsModal"));
+const LazyCompareModal = lazy(() => import("./components/CompareModal"));
+const LazyKnowledgeModal = lazy(() => import("./components/KnowledgeModal"));
+const LazyNotesModal = lazy(() => import("./components/NotesModal"));
+const LazyGraphModal = lazy(() => import("./components/GraphModal"));
+const LazyChainMonitor = lazy(() => import("./components/ChainMonitor"));
+const LazyResetConfirmModal = lazy(() => import("./components/ResetConfirmModal"));
+const LazyHardTerminal = lazy(() => import("./components/HardTerminal"));
+
+function useEverOpened(open: boolean): boolean {
+  const [ever, setEver] = useState(open);
+  useEffect(() => {
+    if (open) setEver(true);
+  }, [open]);
+  return ever;
+}
 
 const clampNum = (v: number, min: number, max: number) =>
   Math.min(max, Math.max(min, v));
@@ -230,6 +246,11 @@ export default function App() {
   const [compareOpen, setCompareOpen] = useState(false);
   // Базы знаний (RAG): индексы документов + привязка к активному чату
   const [knowledgeOpen, setKnowledgeOpen] = useState(false);
+  // Sticky-mount ленивых модалок (см. блок lazy выше)
+  const settingsMounted = useEverOpened(settingsOpen);
+  const automationsMounted = useEverOpened(automationsOpen);
+  const compareMounted = useEverOpened(compareOpen);
+  const knowledgeMounted = useEverOpened(knowledgeOpen);
   // RAG-трасса (PLAN §24 ш.3): последний поиск по базе — для KnowledgeModal
   const [kbTrace, setKbTrace] = useState<KbTrace | null>(null);
   // Плавающие уведомления (чекпоинты и пр.) — без строк в чате
@@ -2810,37 +2831,46 @@ export default function App() {
         onGlassChange={setGlass}
       />
       {chainMonitorOpen && (
-        <ChainMonitor
-          chain={chain}
-          onClose={closeChainMonitor}
-        />
+        <Suspense fallback={null}>
+          <LazyChainMonitor
+            chain={chain}
+            onClose={closeChainMonitor}
+          />
+        </Suspense>
       )}
       {graphOpen && (
-        <GraphModal
-          notes={notes}
-          onOpenNote={(f) => {
-            setGraphOpen(false);
-            void handleOpenNote(f);
-          }}
-          onClose={closeGraph}
-        />
+        <Suspense fallback={null}>
+          <LazyGraphModal
+            notes={notes}
+            onOpenNote={(f) => {
+              setGraphOpen(false);
+              void handleOpenNote(f);
+            }}
+            onClose={closeGraph}
+          />
+        </Suspense>
       )}
       {openNoteFile !== null && (
-        <NotesModal
-          note={notes.find((n) => n.file === openNoteFile) ?? null}
-          allNotes={notes}
-          saving={noteSaving}
-          onSave={(f, c) => void handleSaveNote(f, c)}
-          onRunChain={(f, c) => void handleRunChain(f, c)}
-          onDelete={(f) => void handleDeleteNote(f)}
-          onOpenNote={(f) => void handleOpenNote(f)}
-          onClose={closeNote}
-        />
+        <Suspense fallback={null}>
+          <LazyNotesModal
+            note={notes.find((n) => n.file === openNoteFile) ?? null}
+            allNotes={notes}
+            saving={noteSaving}
+            onSave={(f, c) => void handleSaveNote(f, c)}
+            onRunChain={(f, c) => void handleRunChain(f, c)}
+            onDelete={(f) => void handleDeleteNote(f)}
+            onOpenNote={(f) => void handleOpenNote(f)}
+            onClose={closeNote}
+          />
+        </Suspense>
       )}
       <ErrorBoundary title={t("err.boundary")} action={t("err.boundaryRetry")}>
-      {/* Без условного монтажа: компоненты сами гасятся через
-          useDelayedUnmount — иначе exit-анимация недостижима */}
-      <SettingsModal
+      {/* Sticky-mount (useEverOpened): до первого открытия чанка нет вообще,
+          после — компонент живёт смонтированным, поэтому внутреннее состояние
+          (вкладка/поиск) и exit-анимация useDelayedUnmount — как раньше */}
+      {settingsMounted && (
+      <Suspense fallback={null}>
+      <LazySettingsModal
         open={settingsOpen}
         onWarnCancel={() => {
           setSettingsSection("main");
@@ -2987,19 +3017,30 @@ export default function App() {
         onUseLocalModel={handleUseLocalModel}
         onClose={() => closeSettings()}
       />
+      </Suspense>
+      )}
       </ErrorBoundary>
-      {/* Без условного монтажа — см. комментарий у SettingsModal */}
-      <AutomationsModal
+      {automationsMounted && (
+      <Suspense fallback={null}>
+      <LazyAutomationsModal
         open={automationsOpen}
         onClose={closeAutomations}
       />
-      <CompareModal
+      </Suspense>
+      )}
+      {compareMounted && (
+      <Suspense fallback={null}>
+      <LazyCompareModal
         open={compareOpen}
         onClose={closeCompare}
         profiles={profiles}
         current={apiSettings}
       />
-      <KnowledgeModal
+      </Suspense>
+      )}
+      {knowledgeMounted && (
+      <Suspense fallback={null}>
+      <LazyKnowledgeModal
         open={knowledgeOpen}
         onClose={closeKnowledge}
         trace={kbTrace}
@@ -3013,6 +3054,8 @@ export default function App() {
         }
         hasActiveChat={activeId !== null}
       />
+      </Suspense>
+      )}
       <BrowserPanel
         open={browserPanelOpen}
         onClose={closeBrowserPanel}
@@ -3039,10 +3082,12 @@ export default function App() {
           Значения из state, а не ref.current в JSX: реф обновляется в
           эффекте ПОСЛЕ коммита, и смена корня/бинда доезжала бы устаревшей */}
       {hardMode && hardSkin && (
-        <HardTerminal
-          cwd={projectRoot ?? undefined}
-          combo={binds.hard_mode ?? "Ctrl+Shift+H"}
-        />
+        <Suspense fallback={null}>
+          <LazyHardTerminal
+            cwd={projectRoot ?? undefined}
+            combo={binds.hard_mode ?? "Ctrl+Shift+H"}
+          />
+        </Suspense>
       )}
       {/* YouTube-плеер: модальный оверлей с постоянным iframe. Монтируется
           только при включённой интеграции — размонтирование = сброс */}
@@ -3069,11 +3114,13 @@ export default function App() {
         />
       )}
       {resetOpen && (
-        <ResetConfirmModal
+        <Suspense fallback={null}>
+        <LazyResetConfirmModal
           busy={resetBusy}
           onConfirm={() => void handleFactoryReset()}
           onCancel={closeResetConfirm}
         />
+        </Suspense>
       )}
       {accentEdit && (
         <div
