@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  annotateFactFreshness,
   buildHistory,
   buildMemoryBlock,
   COMPACT_SUMMARY_HEADER,
@@ -292,5 +293,21 @@ describe("buildHistory + compact", () => {
     expect(history[0]?.role).toBe("system");
     expect(String(history[0]?.content)).toContain("S");
     expect(history.some((m) => m.role === "user" && m.content === "задача")).toBe(true);
+  });
+});
+
+describe("annotateFactFreshness ([P5])", () => {
+  const NOW = Date.parse("2026-10-05T12:00:00Z");
+  it("свежий факт (меньше суток) — без оговорки", () => {
+    const t = annotateFactFreshness("fact", NOW - 3 * 3600_000, NOW);
+    expect(t).toBe("- fact");
+  });
+  it("факт старше суток получает возраст", () => {
+    const t = annotateFactFreshness("fact", NOW - 2 * 86_400_000, NOW);
+    expect(t).toBe("- fact (remembered 2d ago — may be stale, verify against the current state)");
+  });
+  it("граница: ровно сутки считаются устареванием", () => {
+    const t = annotateFactFreshness("f", NOW - 86_400_000, NOW);
+    expect(t).toContain("(remembered 1d ago");
   });
 });
