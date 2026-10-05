@@ -744,6 +744,7 @@ async fn chat_stream_impl(
                 completion: completion_est as u64,
                 total: (prompt_est + completion_est) as u64,
                 stop_reason: None,
+                cache_read: None,
             })?;
         }
     }
@@ -878,14 +879,14 @@ mod batcher_tests {
     fn standalone_events_flush_pending_in_order() {
         let out = merged(vec![
             FeedEvent::Content { delta: "a".into() },
-            FeedEvent::Usage { prompt: 1, completion: 2, total: 3, stop_reason: None },
+            FeedEvent::Usage { prompt: 1, completion: 2, total: 3, stop_reason: None, cache_read: None },
             FeedEvent::Content { delta: "b".into() },
             FeedEvent::ToolCallsFinished { calls: vec![] },
         ]);
         // Usage/ToolCalls между дельтами не переместились — порядок как на входе
         assert_eq!(out.len(), 4);
         assert!(matches!(out[0], FeedEvent::Content { ref delta } if delta == "a"));
-        assert!(matches!(out[1], FeedEvent::Usage { prompt: 1, completion: 2, total: 3, stop_reason: None }));
+        assert!(matches!(out[1], FeedEvent::Usage { prompt: 1, completion: 2, total: 3, stop_reason: None, cache_read: None }));
         assert!(matches!(out[2], FeedEvent::Content { ref delta } if delta == "b"));
         assert!(matches!(out[3], FeedEvent::ToolCallsFinished { .. }));
     }
@@ -926,7 +927,7 @@ fn emit_feed_event(
                 serde_json::json!({ "requestId": request_id, "thought": delta, "seq": next_feed_seq() }),
             )
             .map_err(|e| e.to_string()),
-        FeedEvent::Usage { prompt, completion, total, stop_reason } => app
+        FeedEvent::Usage { prompt, completion, total, stop_reason, cache_read } => app
             .emit_to(
                 "main",
                 "chat-usage",
@@ -936,6 +937,7 @@ fn emit_feed_event(
                     "completionTokens": completion,
                     "totalTokens": total,
                     "stopReason": stop_reason,
+                    "cacheRead": cache_read,
                     // Барьер: финальный факт сообщения — фронт обязан
                     // дренировать буфер дельт ДО обработки
                     "seq": next_feed_seq(),
@@ -1018,6 +1020,13 @@ pub enum FeedEvent {
         /// "length"/"max_tokens" — ответ оборван лимитом вывода, фронт
         /// делает авто-продолжение (волна G). None — оценка/старые пути
         stop_reason: Option<String>,
+        /// Токены, прочитанные провайдером из промпт-кэша (OpenAI:
+        /// prompt_tokens_details.cached_tokens; Anthropic:
+        /// cache_read_input_tokens; Responses: input_tokens_details).
+        /// None — провайдер кэш-статистику не отдал; фронтовый кэш-детектор
+        /// ([P2]) по обнулению этого поля между раундами ловит разрыв
+        /// общего префикса (system/тулы) — BYOK платит полный прайс
+        cache_read: Option<u64>,
     },
     ToolCallsFinished { calls: Vec<StreamToolCall> },
     /// Закрытый thinking-блок Anthropic: текст + подпись (нужна для возврата
@@ -1042,7 +1051,7 @@ pub struct SseAccumulator {
     /// кладущие usage в КАЖДЫЙ чанк (Gemini на OpenAI-слое, прокси),
     /// раньше накручивали prompt-токены кратно числу чанков — фронт
     /// суммирует каждое событие (контракт как у Anthropic: финал стрима)
-    pending_usage: Option<(u64, u64, u64)>,
+    pending_usage: Option<(u64, u64, u64, Option<u64>)>,
     /// Часть контента внутри `<think>…</think>` — рассуждения, приходящие
     /// инлайном в content (OpenAI-совместимые прокси, DeepSeek-R1 и др.).
     /// Маршрутизируются в Thought, иначе react-markdown без rehype-raw
@@ -1140,7 +1149,13 @@ impl SseAccumulator {
                 .get("completion_tokens")
                 .and_then(|v| v.as_u64())
                 .unwrap_or(0);
-            self.pending_usage = Some((prompt, completion, prompt + completion));
+            // Кэш-попадания (префикс запроса совпал) — для фронтового
+            // кэш-детектора [P2]: обнуление между раундами = разрыв префикса
+            let cache_read = usage
+                .get("prompt_tokens_details")
+                .and_then(|d| d.get("cached_tokens"))
+                .and_then(|v| v.as_u64());
+            self.pending_usage = Some((prompt, completion, prompt + completion, cache_read));
         }
 
         let choice = &value["choices"][0];
@@ -1274,7 +1289,7 @@ impl StreamFeed for SseAccumulator {
     fn flush(&mut self) -> Vec<FeedEvent> {
         let mut events = Vec::new();
         // Usage — один раз на стрим (последнее увиденное значение)
-        if let Some((prompt, completion, total)) = self.pending_usage.take() {
+        if let Some((prompt, completion, total, cache_read)) = self.pending_usage.take() {
             events.push(FeedEvent::Usage {
                 prompt,
                 completion,
@@ -1282,6 +1297,7 @@ impl StreamFeed for SseAccumulator {
                 // finish_reason финального чанка уже накоплен (1016): "length"
                 // — оборванный вывод, фронт делает авто-продолжение (волна G)
                 stop_reason: self.finish_reason.clone(),
+                cache_read,
             });
         }
         // Страховка OpenAI-пути (у Anthropic она в его flush): соединение
@@ -1458,7 +1474,7 @@ pub fn build_responses_body(
 struct ResponsesAccumulator {
     tool_calls: Vec<StreamToolCall>,
     tool_calls_emitted: bool,
-    pending_usage: Option<(u64, u64, u64)>,
+    pending_usage: Option<(u64, u64, u64, Option<u64>)>,
     finish_reason: Option<String>,
     complete: bool,
 }
@@ -1521,7 +1537,13 @@ impl ResponsesAccumulator {
                         .get("output_tokens")
                         .and_then(|v| v.as_u64())
                         .unwrap_or(0);
-                    self.pending_usage = Some((prompt, completion, prompt + completion));
+                    // Кэш-попадания Responses API — для кэш-детектора [P2]
+                    let cache_read = usage
+                        .get("input_tokens_details")
+                        .and_then(|d| d.get("cached_tokens"))
+                        .and_then(|v| v.as_u64());
+                    self.pending_usage =
+                        Some((prompt, completion, prompt + completion, cache_read));
                 }
                 if value.get("type").and_then(|t| t.as_str()) == Some("response.incomplete") {
                     // max_output_tokens → "length": фронт делает авто-продолжение
@@ -1576,12 +1598,13 @@ impl StreamFeed for ResponsesAccumulator {
             }
             events.push(FeedEvent::ToolCallsFinished { calls });
         }
-        if let Some((p, c, t)) = self.pending_usage.take() {
+        if let Some((p, c, t, cache_read)) = self.pending_usage.take() {
             events.push(FeedEvent::Usage {
                 prompt: p,
                 completion: c,
                 total: t,
                 stop_reason: self.finish_reason.clone(),
+                cache_read,
             });
         }
         events
@@ -1764,6 +1787,9 @@ pub struct AnthropicAccumulator {
     tool_json: String,
     in_tool: bool,
     input_tokens: u64,
+    /// Промпт-кэш-попадания из message_start (cache_read_input_tokens) —
+    /// для кэш-детектора [P2]; доезжают в Usage на message_delta
+    cache_read: Option<u64>,
     /// Все tool_use текущего ответа. Параллельные вызовы приходят отдельными
     /// блоками со своим content_block_stop, а фронт перезаписывает holder
     /// на каждое событие — поэтому эмитим ОДНО ToolCallsFinished со всеми
@@ -1805,6 +1831,11 @@ impl StreamFeed for AnthropicAccumulator {
                 self.input_tokens = value["message"]["usage"]["input_tokens"]
                     .as_u64()
                     .unwrap_or(0);
+                // Кэш-попадания пишем только когда провайдер их назвал:
+                // message_start без поля не затирает предыдущее значение
+                if let Some(cr) = value["message"]["usage"]["cache_read_input_tokens"].as_u64() {
+                    self.cache_read = Some(cr);
+                }
             }
             "content_block_start" => {
                 let block = &value["content_block"];
@@ -1883,6 +1914,7 @@ impl StreamFeed for AnthropicAccumulator {
                     completion: output,
                     total: self.input_tokens + output,
                     stop_reason: self.stop_reason.clone(),
+                    cache_read: self.cache_read,
                 });
                 self.emit_thinking_block(&mut events);
                 if !self.pending_calls.is_empty() {
@@ -1956,7 +1988,7 @@ mod anthropic_tests {
             .any(|e| matches!(e, FeedEvent::Content { delta } if delta == "Привет")));
         // Финальный usage: prompt=120, completion=42, stop_reason доезжает
         assert!(events.iter().any(
-            |e| matches!(e, FeedEvent::Usage { prompt: 120, completion: 42, total: 162, stop_reason: Some(r) } if r == "end_turn")
+            |e| matches!(e, FeedEvent::Usage { prompt: 120, completion: 42, total: 162, stop_reason: Some(r), .. } if r == "end_turn")
         ));
     }
 
@@ -2585,6 +2617,44 @@ mod tests {
     }
 
     #[test]
+    fn openai_cache_read_reaches_usage() {
+        // [P2] Кэш-детектор фронта: cached_tokens из prompt_tokens_details
+        // доезжает в Usage как cache_read (None, если провайдер молчит)
+        let mut acc = SseAccumulator::default();
+        let events = feed_lines(
+            &mut acc,
+            &[r#"{"choices":[{"delta":{}}],"usage":{"prompt_tokens":100,"completion_tokens":5,"prompt_tokens_details":{"cached_tokens":64}}}"#],
+        );
+        assert!(matches!(
+            events.last(),
+            Some(FeedEvent::Usage { cache_read: Some(64), .. })
+        ));
+    }
+
+    #[test]
+    fn anthropic_cache_read_reaches_usage() {
+        // [P2] cache_read_input_tokens из message_start доезжает в Usage
+        // на message_delta (usage в message_start НЕ эмитится — был дубль)
+        let mut acc = AnthropicAccumulator::default();
+        // feed_lines заточен под SseAccumulator — кормим Anthropic напрямую
+        let mut events = Vec::new();
+        for line in [
+            r#"{"type":"message_start","message":{"usage":{"input_tokens":120,"cache_read_input_tokens":96}}}"#,
+            r#"{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":7}}"#,
+        ] {
+            events.extend(acc.feed(line));
+        }
+        let cached: Vec<_> = events
+            .iter()
+            .filter_map(|e| match e {
+                FeedEvent::Usage { cache_read, .. } => Some(*cache_read),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(cached, vec![Some(96)]);
+    }
+
+    #[test]
     fn disconnect_keeps_accumulated_tool_calls() {
         // Регресс [A7]: соединение оборвалось после вызовов, но до
         // finish_reason — накопленные tool_calls не теряются молча
@@ -2894,7 +2964,7 @@ mod responses_wire_tests {
         assert!(matches!(&flushed[0], FeedEvent::ToolCallsFinished { calls } if calls.len() == 1 && calls[0].id == "c1" && calls[0].name == "fs_read"));
         assert!(matches!(
             &flushed[1],
-            FeedEvent::Usage { prompt: 10, completion: 5, total: 15, stop_reason: None }
+            FeedEvent::Usage { prompt: 10, completion: 5, total: 15, stop_reason: None, cache_read: None }
         ));
         // повторный flush — пусто (usage не накручивается)
         assert!(acc.flush().is_empty());
@@ -2913,7 +2983,7 @@ mod responses_wire_tests {
         let flushed = acc.flush();
         assert!(matches!(
             &flushed[0],
-            FeedEvent::Usage { prompt: 3, completion: 9, total: 12, stop_reason: Some(r) } if r == "length"
+            FeedEvent::Usage { prompt: 3, completion: 9, total: 12, stop_reason: Some(r), .. } if r == "length"
         ));
     }
 

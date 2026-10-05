@@ -336,6 +336,9 @@ export interface ChatUsage {
   /** Причина остановки раунда: "length"/"max_tokens" — ответ оборван лимитом
    *  вывода (волна G: авто-продолжение). Нет у оценочных путей */
   stopReason?: string;
+  /** Токены, прочитанные провайдером из промпт-кэша ([P2]). undefined —
+   *  провайдер кэш-статистику не отдал */
+  cacheRead?: number;
 }
 
 /**
@@ -408,6 +411,7 @@ export async function chatStream(opts: {
           completionTokens: number;
           totalTokens: number;
           stopReason?: string;
+          cacheRead?: number;
           barrier?: boolean;
           seq?: number;
         }>("chat-usage", (e) => {
@@ -419,6 +423,7 @@ export async function chatStream(opts: {
                 completion: e.payload.completionTokens,
                 total: e.payload.totalTokens,
                 stopReason: e.payload.stopReason,
+                cacheRead: e.payload.cacheRead,
               },
               e.payload.barrier,
               e.payload.seq,
