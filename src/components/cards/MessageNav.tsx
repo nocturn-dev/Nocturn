@@ -119,13 +119,15 @@ export const MessageNav = memo(function MessageNav({
             style={{ animationDelay: `${i * 40}ms` }}
           >
             {/* Засечка */}
-            {/* width — не в дефолтном transition-property Tailwind: без
-                явного перехода w-3↔w-4 щёлкает мгновенно */}
+            {/* Ширина через transform (№47 аудита v5): w-3↔w-4 был вторым
+                layout-переходом приложения; scaleX с origin-right даёт тот же
+                визуал (засечка якорится правым краем, 16×0.75=12px) без
+                reflow колонки при ховере и смене активного тика */}
             <span
-              className={`h-[3px] rounded-full transition-[width,background-color] duration-200 ${
+              className={`h-[3px] w-4 origin-right rounded-full transition-[transform,background-color] duration-200 ${
                 isActive
-                  ? "w-4 bg-halo-accent"
-                  : "w-3 bg-halo-muted/50 group-hover:w-4 group-hover:bg-halo-muted"
+                  ? "scale-x-100 bg-halo-accent"
+                  : "scale-x-75 bg-halo-muted/50 group-hover:scale-x-100 group-hover:bg-halo-muted"
               }`}
             />
             {/* Поповер с текстом сообщения — только при наведении */}

@@ -2086,10 +2086,12 @@ export default function ChatArea({
           </div>
         </div>
       )}
-      {/* Шапка: название задачи и очистка; вся полоса — drag-регион окна.
+      {/* Шапка: название задачи и очистки; вся полоса — drag-регион окна.
           transition-[padding] на header — единственный осознанный
-          layout-переход: шапка плавно уезжает/возвращается при смене
-          headerInset (сайдбар скрывается); 200 мс reflow только шапки */}
+          layout-переход приложения (засечка MessageNav переведена на
+          transform): шапка плавно уезжает/возвращается при смене
+          headerInset (сайдбар скрывается); 200 мс reflow только шапки,
+          событие редкое (тоггл сайдбара) */}
       <header
         data-tauri-drag-region
         className={`flex h-11 shrink-0 items-center border-b border-halo-line transition-[padding] duration-200 ${
