@@ -1,0 +1,81 @@
+# GitLab CI — перевод .github/workflows/ci.yml (GitHub заморожен).
+# Переменные подписи релиза — в Settings → CI/CD → Variables:
+#   TAURI_SIGNING_PRIVATE_KEY (type File), TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+# Без ключа release-джоба падает намеренно — неподписанные
+# апдейтер-артефакты не выпускаем (RELEASE.md).
+
+stages: [test, release]
+
+frontend:
+  stage: test
+  image: node:22
+  tags: [saas-linux-small-amd64]
+  cache:
+    key:
+      files: [package-lock.json]
+    paths: [.npm/]
+  script:
+    - npm ci --cache .npm --prefer-offline
+    - npm run lint
+    - npm test
+    - npm run build
+    # Не блокирующий сигнал по уязвимостям зависимостей
+    - npm audit --audit-level=high || true
+
+rust-linux:
+  stage: test
+  image: rust:1-bookworm
+  tags: [saas-linux-small-amd64]
+  cache:
+    key: rust-linux
+    paths: [src-tauri/target/]
+  script:
+    # Вебкит-зависимости Tauri v2 (Debian 12 несёт webkit2gtk-4.1)
+    - apt-get update -qq
+    - apt-get install -y -qq libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev pkg-config > /dev/null
+    # --all-targets: интеграционные тесты (tests/mcp_e2e.rs) и bin-цели
+    # иначе не компилируются нигде; незагейченный #[link] ловится линковкой
+    - cd src-tauri
+    - cargo clippy --all-targets -- -D warnings
+    - cargo test
+
+rust-windows:
+  stage: test
+  tags: [saas-windows-medium-amd64]
+  cache:
+    key: rust-windows
+    paths: [src-tauri/target/]
+  script:
+    # Rust на hosted Windows-раннерах не предустановлен
+    - if (!(Test-Path "$env:USERPROFILE\.cargo\bin\cargo.exe")) { Invoke-WebRequest https://win.rustup.rs/x86_64 -OutFile rustup-init.exe; .\rustup-init.exe -y --quiet }
+    - $env:Path += ";$env:USERPROFILE\.cargo\bin"
+    - cd src-tauri
+    - cargo clippy --all-targets -- -D warnings
+    - cargo test
+
+# macOS SaaS-раннеры — дорогие минуты; деградация в warning, как
+# continue-on-error у macOS в GitHub-релизе
+rust-macos:
+  stage: test
+  tags: [saas-macos-medium-m1]
+  allow_failure: true
+  script:
+    - which cargo || (curl https://sh.rustup.rs -sSf | sh -s -- -y)
+    - export PATH="$HOME/.cargo/bin:$PATH"
+    - cd src-tauri
+    - cargo clippy --all-targets -- -D warnings
+    - cargo test
+
+# Схема релиза: tauri-action — GitHub-only, latest.json собирается вручную
+# (урок удалённого make-latest-json.ps1: sig → signature, url → ассет) и
+# заливается release-cli / generic package registry. Полная обвязка — при
+# первом релизе v0.2.3 (docs/internal/GITLAB_MIGRATION.md, шаг 5)
+release-windows:
+  stage: release
+  rules: [{ if: '$CI_COMMIT_TAG =~ /^v/' }]
+  tags: [saas-windows-medium-amd64]
+  script:
+    - npm ci
+    - npm run tauri build
+    # TODO: собрать latest.json (version/url/signature) из nsis/*.exe + *.sig
+    # TODO: release-cli create + asset links (generic package registry)
