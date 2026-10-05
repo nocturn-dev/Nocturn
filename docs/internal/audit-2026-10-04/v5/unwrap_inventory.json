@@ -1,0 +1,17 @@
+[
+ {
+  "loc": "computer.rs:349",
+  "kind": ".unwrap()",
+  "line": "let n: u8 = f[1..].parse().unwrap();"
+ },
+ {
+  "loc": "computer.rs:358",
+  "kind": ".unwrap()",
+  "line": "let ch = c.chars().next().unwrap().to_ascii_uppercase();"
+ },
+ {
+  "loc": "lib.rs:375",
+  "kind": ".expect(",
+  "line": ".expect(\"error while building tauri application\")"
+ }
+]
