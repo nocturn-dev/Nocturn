@@ -9,6 +9,7 @@ stages: [test, release]
 frontend:
   stage: test
   image: node:22
+  tags: [saas-linux-small-amd64]
   cache:
     key:
       files: [package-lock.json]
@@ -24,6 +25,7 @@ frontend:
 rust-linux:
   stage: test
   image: rust:1-bookworm
+  tags: [saas-linux-small-amd64]
   cache:
     key: rust-linux
     paths: [src-tauri/target/]
@@ -39,6 +41,7 @@ rust-linux:
 
 rust-windows:
   stage: test
+  tags: [saas-windows-medium-amd64]
   cache:
     key: rust-windows
     paths: [src-tauri/target/]
@@ -54,6 +57,7 @@ rust-windows:
 # continue-on-error у macOS в GitHub-релизе
 rust-macos:
   stage: test
+  tags: [saas-macos-medium-m1]
   allow_failure: true
   script:
     - which cargo || (curl https://sh.rustup.rs -sSf | sh -s -- -y)
