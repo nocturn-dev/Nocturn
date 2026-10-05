@@ -1616,9 +1616,8 @@ export function ThemeSection({
         </div>
       </div>
 
-      {!hardTheme && (
-        <>
-      {/* Своё приветствие: текст на пустом экране чата вместо стандартного */}
+      {/* Своё приветствие: текст на пустом экране чата вместо стандартного.
+          Вне каскада темы — работает и в Official, и в Full Claude */}
       <div className="mt-2.5 rounded-xl border border-halo-line px-3.5 py-3">
         <p className="text-sm text-halo-text">{t("settings.customGreeting")}</p>
         <p className="mt-0.5 text-xs text-halo-muted">
@@ -1655,13 +1654,10 @@ export function ThemeSection({
           />
         </button>
       </div>
-      </>
-      )}
 
-      {!hardTheme && (
-      <>
-      {/* Обои чата: картинка за лентой, opt-in. В жёстких темах скрыты —
-          темы держат монолитные заливки */}
+      {/* Обои чата: картинка за лентой, opt-in. Работают и под жёсткими
+          темами: правила has-wallpaper красят через color-mix палитровых
+          переменных, тема меняет только их значения */}
       <div className="mt-4 rounded-xl border border-halo-line px-3.5 py-3">
         <p className="text-sm text-halo-text">{t("themes.wallpaper")}</p>
         <p className="mt-0.5 text-xs leading-relaxed text-halo-muted">
@@ -1684,8 +1680,6 @@ export function ThemeSection({
           )}
         </div>
       </div>
-      </>
-      )}
 
       {/* Ambient-фон: сцены или своё видео. Независим от темы — виден
           и в Halo, и в Official; на стриме ставится на паузу. В Full Claude

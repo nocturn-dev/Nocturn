@@ -1518,6 +1518,7 @@ export const en = {
     "onb.lookSub": "Theme and accent can be changed anytime in Settings.",
     "onb.dark": "Dark",
     "onb.light": "Light",
+    "onb.hardHint": "Official — strict monochrome, Full Claude — Claude Desktop replica: both are always dark with their own accents and fonts. More styles (Storm etc.) live in Settings → Customization.",
     "onb.accent": "Accent color",
     "onb.apiTitle": "Model connection",
     "onb.apiSub": "Paste your provider API key — or skip and add it later.",

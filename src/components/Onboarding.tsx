@@ -35,13 +35,19 @@ const inputCls =
 
 export default function Onboarding({
   theme,
+  hardTheme,
   onTheme,
+  onHardTheme,
   onAccent,
   onFinish,
 }: {
   theme: Theme;
+  /** [онбординг] Активная жёсткая тема: Official / Full Claude */
+  hardTheme: "official" | "fullClaude" | null;
   /** клик по плитке — тема меняется сразу во всём приложении */
   onTheme: (t: Theme) => void;
+  /** [онбординг] Жёсткая тема: всегда тёмная, вне каскада кастомизации */
+  onHardTheme: (kind: "official" | "fullClaude" | null) => void;
   /** клик по свотчу — акцент применяется сразу */
   onAccent: (hex: string) => void;
   onFinish: (r: OnboardingResult) => void;
@@ -138,13 +144,40 @@ export default function Onboarding({
               {t("onb.lookSub")}
             </p>
             <div className="mt-5 grid grid-cols-2 gap-2">
-              <button onClick={() => onTheme("dark")} className={tile(theme === "dark")}>
+              <button
+                onClick={() => {
+                  onHardTheme(null);
+                  onTheme("dark");
+                }}
+                className={tile(theme === "dark" && !hardTheme)}
+              >
                 {t("onb.dark")}
               </button>
-              <button onClick={() => onTheme("light")} className={tile(theme === "light")}>
+              <button
+                onClick={() => {
+                  onHardTheme(null);
+                  onTheme("light");
+                }}
+                className={tile(theme === "light" && !hardTheme)}
+              >
                 {t("onb.light")}
               </button>
+              <button
+                onClick={() => onHardTheme("official")}
+                className={tile(hardTheme === "official")}
+              >
+                Official
+              </button>
+              <button
+                onClick={() => onHardTheme("fullClaude")}
+                className={tile(hardTheme === "fullClaude")}
+              >
+                Full Claude
+              </button>
             </div>
+            <p className="mt-2 text-[0.6875rem] leading-relaxed text-halo-muted/70">
+              {t("onb.hardHint")}
+            </p>
             <p className="mt-4 text-xs text-halo-muted">{t("onb.accent")}</p>
             <div className="mt-2 flex gap-2">
               {ACCENT_PRESETS.map((p) => (
