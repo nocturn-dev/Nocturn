@@ -63,9 +63,13 @@ session store.
   local process could point a read at another file; the content goes to the
   user's own configured provider and is visible in the tool card. Accepted
   (single-user machine; reads are a much weaker target than writes).
-- **Broad import reads.** Settings import, plugin import and knowledge-base
-  indexing can read arbitrary user-chosen files (system locations are
-  rejected). This is the feature; the webview process is the trust boundary.
+- **Broad import reads.** Settings import, plugin import, provider-config
+  import (Codex-style `config.toml`) and knowledge-base indexing can read
+  arbitrary user-chosen files (system locations are rejected). This is the
+  feature; the webview process is the trust boundary. The provider-config
+  parser copies only endpoints/wire/model into a profile — token
+  environment references (`$VAR`, `env:VAR`) are imported empty, so no
+  third-party secret material lands on disk; the API key is pasted by you.
 - **Executable configs.** `hooks.json` / `mcp.json` define commands that the
   app will execute. They are only written through an explicit confirmation
   flow (`allowExecutableConfigs`) — treat any file claiming to be a Nocturn
