@@ -172,7 +172,7 @@ interface ChatAreaProps {
   onSetSystemPrompt: (prompt: string | null) => void;
   onApplyPreset: (prompt: string) => void;
   onToggleAgent: () => void;
-  onConfirmDecision: (d: "once" | "always" | "deny") => void;
+  onConfirmDecision: (d: "once" | "always" | "prefix" | "deny") => void;
   /** Живой вопрос ask_user (панель над композером); null — вопросa нет */
   pendingAsk: { msgId: string; ask: AskQuestion } | null;
   /** Ответ пользователя на вопрос агента (ask_user) */

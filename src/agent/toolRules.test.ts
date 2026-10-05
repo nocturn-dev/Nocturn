@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { evaluateToolRules } from "./toolRules";
+import { evaluateToolRules, mergePermRules } from "./toolRules";
 import type { PermRules } from "./permRules";
 
 const rules = (over: Partial<PermRules>): PermRules => ({
@@ -82,5 +82,30 @@ describe("evaluateToolRules", () => {
     expect(
       evaluateToolRules("shell_run", rules({ allow: ["shell_run(git *)"] }), null, false),
     ).toEqual({ denyHit: false, alwaysAsk: false, allowRule: false });
+  });
+});
+
+describe("mergePermRules ([P9])", () => {
+  it("null-стороны возвращают другую без копий", () => {
+    const base = { allow: ["shell_run(git *)"], deny: [], always_ask: [] };
+    expect(mergePermRules(base, null)).toBe(base);
+    expect(mergePermRules(null, base)).toBe(base);
+    expect(mergePermRules(null, null)).toBeNull();
+  });
+
+  it("сессионные правила дописываются после перманентных, дедуп по строке", () => {
+    const base = { allow: ["shell_run(git *)"], deny: ["shell_run(rm *)"], always_ask: [] };
+    const extra = { allow: ["shell_run(npm *)", "shell_run(git *)"], deny: [], always_ask: [] };
+    const merged = mergePermRules(base, extra);
+    expect(merged?.allow).toEqual(["shell_run(git *)", "shell_run(npm *)"]);
+    expect(merged?.deny).toEqual(["shell_run(rm *)"]);
+    // deny перманентного важнее: он первым в списке deny
+    const v = evaluateToolRules(
+      "shell_run",
+      merged,
+      "rm -rf x",
+      false,
+    );
+    expect(v.denyHit).toBe(true);
   });
 });

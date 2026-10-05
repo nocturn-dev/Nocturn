@@ -1374,6 +1374,7 @@ export const ru = {
     "agent.confirmDesc": "Агент хочет выполнить инструмент:",
     "agent.allow": "Разрешить",
     "agent.allowAlways": "Всегда для задачи",
+    "agent.allowPrefix": "Разрешить «{p} *» до конца задачи",
     "agent.deny": "Отклонить",
     "agent.result": "Результат",
     "agent.denied": "Отклонено пользователем",

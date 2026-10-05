@@ -1,14 +1,29 @@
+import { useMemo } from "react";
 import { useLang } from "../../locales";
 import { type ToolCallInfo } from "../../types";
+import { dangerousShellPattern, extractCommandPrefix } from "../../agent/shellRules";
 
 export function ConfirmCard({
   call,
   onDecision,
 }: {
   call: ToolCallInfo;
-  onDecision: (d: "once" | "always" | "deny") => void;
+  onDecision: (d: "once" | "always" | "prefix" | "deny") => void;
 }) {
   const { t } = useLang();
+  // [P9] Префиксное разрешение предлагается ТОЛЬКО для простых безопасных
+  // shell-команд: complex (пайпы/сцепки) не извлекает префикс, dangerous —
+  // отсекается явно («rm *» на задачу — не подарок)
+  const shellPrefix = useMemo(() => {
+    if (call.name !== "shell_run") return null;
+    try {
+      const cmd = (JSON.parse(call.arguments) as { command?: string }).command ?? "";
+      if (!cmd || dangerousShellPattern(cmd)) return null;
+      return extractCommandPrefix(cmd);
+    } catch {
+      return null;
+    }
+  }, [call]);
   return (
     <div className="anim-fade-up mr-auto w-fit max-w-[85%] rounded-xl border border-amber-400/40 bg-amber-400/10 px-4 py-3 shadow-sm">
       <p className="text-[0.6875rem] font-semibold uppercase tracking-wider text-amber-400">
@@ -32,6 +47,14 @@ export function ConfirmCard({
         >
           {t("agent.allowAlways")}
         </button>
+        {shellPrefix && (
+          <button
+            onClick={() => onDecision("prefix")}
+            className="rounded-lg border border-halo-line px-3 py-1.5 text-xs text-halo-text transition-colors hover:bg-halo-hover"
+          >
+            {t("agent.allowPrefix", { p: shellPrefix })}
+          </button>
+        )}
         <button
           onClick={() => onDecision("deny")}
           className="rounded-lg border border-halo-line px-3 py-1.5 text-xs text-red-400 transition-colors hover:border-red-400/50 hover:bg-red-400/10"
