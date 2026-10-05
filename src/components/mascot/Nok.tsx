@@ -168,6 +168,14 @@ export function Nok({
     },
     [t, displayName],
   );
+  // Latest-ref: эффект самодеятельности зовёт всегда СВЕЖИЙ spawnQuip, но
+  // сам не перезапускается при смене языка/имени — иначе (регрессия 0e6d0dd,
+  // №6 аудита v5) ре-ран эффекта гасил cleanup'ом таймеры завершения
+  // кувырка/исуга/кодинга, а состояния те не сбрасывает: поза залипала
+  const spawnQuipRef = useRef(spawnQuip);
+  useEffect(() => {
+    spawnQuipRef.current = spawnQuip;
+  }, [spawnQuip]);
   useEffect(
     () => () => {
       if (quipTimerRef.current) window.clearTimeout(quipTimerRef.current);
@@ -346,6 +354,10 @@ export function Nok({
   const pick = (pool: MsgKey[]): MsgKey =>
     pool[Math.floor(Math.random() * pool.length)] ?? "mascot.quip.think";
   useEffect(() => {
+    // spawnQuip — через latest-ref (см. выше): ре-ран на смену t/displayName
+    // здесь запрещён — cleanup гасит таймеры завершения выступлений, а
+    // состояния не сбрасывает (№6 аудита v5, регрессия 0e6d0dd)
+    const quip = (key: MsgKey, n?: number) => spawnQuipRef.current(key, n);
     if (streaming || !selfActivity) {
       setCoding(false);
       setTumble(false);
@@ -361,17 +373,17 @@ export function Nok({
     const startCoding = () => {
       setCoding(true);
       // Серединная реплика во время кодинга — не всегда (шанс 40%)
-      if (Math.random() < 0.4) later(() => spawnQuip(pick(CODE_QUIPS)), 3_200);
+      if (Math.random() < 0.4) later(() => quip(pick(CODE_QUIPS)), 3_200);
       later(() => {
         setCoding(false);
-        spawnQuip("mascot.quip.after");
+        quip("mascot.quip.after");
         schedule(18_000 + Math.random() * 25_000);
       }, 7_000);
     };
     const startTumble = () => {
       setTumble(true);
       // Шлёп о сайдбар ~2с: «Ооопс…» с отскоком
-      later(() => spawnQuip("mascot.quip.oops"), 2_000);
+      later(() => quip("mascot.quip.oops"), 2_000);
       later(() => {
         setTumble(false);
         schedule(18_000 + Math.random() * 25_000);
@@ -381,7 +393,7 @@ export function Nok({
       // «Бууу»: прыжок на середину сайдбара, краснеет, глаза по пять
       // копеек — потом колобком катится обратно на край композера
       setScaring(true);
-      later(() => spawnQuip("mascot.quip.boo"), 1_400);
+      later(() => quip("mascot.quip.boo"), 1_400);
       later(() => {
         setScaring(false);
         schedule(18_000 + Math.random() * 25_000);
@@ -393,12 +405,12 @@ export function Nok({
         const roll = Math.random();
         if (roll < 0.4) {
           // Мысль сама по себе — ноутбука не будет
-          spawnQuip(pick(THOUGHT_QUIPS));
+          quip(pick(THOUGHT_QUIPS));
           schedule(9_000 + Math.random() * 22_000);
         } else if (roll < 0.65) {
           // Ноутбук: в половине случаев мысль прилетает за секунду до
           if (Math.random() < 0.5) {
-            spawnQuip(pick(THOUGHT_QUIPS));
+            quip(pick(THOUGHT_QUIPS));
             later(startCoding, 1_500);
           } else {
             startCoding();
@@ -420,8 +432,8 @@ export function Nok({
       timers.forEach((id) => window.clearTimeout(id));
       window.clearTimeout(t1);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- t и пулы стабильны по смыслу
-  }, [streaming, selfActivity, spawnQuip]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- spawnQuip через ref, пулы стабильны по смыслу
+  }, [streaming, selfActivity]);
 
   // Настройки закрылись: «Фух» — перестали тыкать (глаза прикрыты сами
   // морганием: relief держит их закрытыми 1.4с)
