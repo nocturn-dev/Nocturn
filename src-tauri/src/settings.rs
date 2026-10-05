@@ -749,7 +749,18 @@ pub(crate) fn rejects_sensitive_path(path: &str) -> Result<(), String> {
     #[cfg(windows)]
     {
         let norm = trimmed.to_lowercase().replace('/', "\\");
-        let is_unc = norm.starts_with("\\\\");
+        // UNC определяется ПОСЛЕ учёта вербатим-префикса: fs::canonicalize
+        // возвращает `\\?\C:\...` — starts_with("\\\\") на сырье давал ложный
+        // UNC, и диск «c:» в comps[0] отвергался как NTFS-поток — любой
+        // импорт существующего файла был мёртв (импорт config.toml — репорт
+        // владельца). `\\?\UNC\` — настоящая шара, прочее `\\?\` — диск
+        let is_unc = if let Some(rest) = norm.strip_prefix(r"\\?\unc\") {
+            !rest.is_empty()
+        } else if norm.starts_with(r"\\?\") {
+            false
+        } else {
+            norm.starts_with("\\\\")
+        };
         // Вербатим-префиксы (`\\?\`, `\\?\UNC\`) Win32 пишет БЕЗ нормализации,
         // а после split «c:» уезжал в comps[1] мимо блок-листа — срезаем
         let stripped = strip_verbatim(&norm);
@@ -1773,5 +1784,27 @@ wire_api = "responses"
         // провайдер без base_url пропускается → пусто → Err
         let err = config_toml_parse("[model_providers.x]\nname = \"y\"\n").unwrap_err();
         assert!(err.contains("no [model_providers"), "{err}");
+    }
+}
+
+#[cfg(test)]
+mod verbatim_guard_regression {
+    use super::*;
+
+    /// Регресс репорта владельца: канонизированный путь (fs::canonicalize
+    /// всегда возвращает `\?\`-префикс) отвергался как «NTFS stream
+    /// specifier» — is_unc считался ДО срезания префикса
+    #[cfg(windows)]
+    #[test]
+    fn verbatim_drive_paths_pass_after_canonicalize() {
+        // путь диалога → canonicalize → вербатим: легитимный файл юзера — ok
+        assert!(rejects_sensitive_path(r"\\?\C:\Users\me\Desktop\config.toml").is_ok());
+        assert!(rejects_sensitive_path(r"C:\Users\me\Desktop\config.toml").is_ok());
+        // чувствительные локации под вербатимом по-прежнему отвергаются
+        assert!(rejects_sensitive_path(r"\\?\C:\Windows\evil.json").is_err());
+        // настоящая verbatim-шара проходит, NT-экзотика и IPv6-хост — нет
+        assert!(rejects_sensitive_path(r"\\?\UNC\host\share\config.toml").is_ok());
+        assert!(rejects_sensitive_path(r"\\.\C:\evil\config.toml").is_err());
+        assert!(rejects_sensitive_path(r"\\?\UNC\[::1]\share\x.toml").is_err());
     }
 }
