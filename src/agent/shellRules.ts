@@ -112,7 +112,11 @@ const DANGEROUS_PATTERNS: RegExp[] = [
   /\beval\b/, // eval $() и «echo eval» — жертвуем точностью ради ask
   /\b(python3?|node|perl|php|ruby|lua)\b[^;&|]*\s-[ce]\b/, // интерпретаторы -c/-e
   /\b(curl|wget)\b[^;&|]*\|\s*(ba|z|fi|da)?sh\b/, // curl … | sh
-  /\brm\s+[^;&|]*-[a-z]*r[a-z]*f/, // rm -rf (цели проверяет юзер вопросом)
+  /\brm\s+[^;&|]*-[a-z]*(rf|fr)\b/, // rm -rf/-fr (цели проверяет юзер вопросом)
+  // rm: рекурсия+force в РАЗНЫХ кластерах/порядке — «-r -f», «-f -r»,
+  // «--recursive --force» старый кластерный паттерн пропускал (№24 v5)
+  /\brm\s+[^;&|]*(-r\b|--recursive)\b[^;&|]*(-+[a-z]*f\b|--force)/,
+  /\brm\s+[^;&|]*(-f\b|--force)\b[^;&|]*(-r\b|--recursive)/,
   /\bdd\b[^;&|]*of=\/dev\//,
   /\bmkfs/,
   /\bchmod\b[^;&|]*-r\b[^;&|]*777/,
@@ -121,6 +125,11 @@ const DANGEROUS_PATTERNS: RegExp[] = [
   // и дисковые операции уходили в allow без вопроса (аудит 2026-10-04).
   // False positive уводит в ask — безопасное направление
   /\bremove-item\b[^;&|]*-[a-z]*r/, // Remove-Item -Recurse [-Force]
+  /\b(ri|erase)\b[^;&|]*-[a-z]*r/, // алиасы Remove-Item с рекурсией (№24 v5)
+  /\bremove-itemproperty\b/, // чистка свойств — всегда вопрос (№24 v5)
+  /\breg\s+(add|delete)\b/, // запись/удаление в реестре (№24 v5)
+  /\b(format-volume|clear-disk)\b/, // дисковые операции PS (format c: — выше)
+  /\bwsl\b[^;&|]*--unregister\b/, // снос дистрибутива WSL (№24 v5)
   /\b(rd|rmdir)\b[^;&|]*\/s\b/, // rd /s /q — деревo каталогов
   /\bdel\b[^;&|]*\/s\b/, // del /s — деревo файлов
   /\bformat\b[^;&|]*[a-z]:/, // format c:
