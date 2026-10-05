@@ -139,10 +139,7 @@ struct OAuthMetaRaw {
 /// RFC 8414 discovery: root → path-вставка → openid-configuration. Запросы
 /// идут ТОЛЬКО из authorize (кнопка юзера) — оговорка владельца
 async fn discover(server_url: &str) -> Result<OAuthMetaRaw, String> {
-    let client = reqwest::Client::builder()
-        .timeout(HTTP_TIMEOUT)
-        .build()
-        .map_err(|e| e.to_string())?;
+    let client = crate::network::shared_client(HTTP_TIMEOUT)?;
     let trimmed = server_url.trim().trim_end_matches('/');
     let (origin, path) = match trimmed.find("://").and_then(|i| trimmed[i + 3..].find('/')) {
         Some(off) => trimmed.split_at(i_of_from(trimmed, "://") + 3 + off),
@@ -155,7 +152,7 @@ async fn discover(server_url: &str) -> Result<OAuthMetaRaw, String> {
     ];
     let mut last = String::new();
     for url in &candidates {
-        match client.get(url).send().await {
+        match client.get(url).timeout(HTTP_TIMEOUT).send().await {
             Ok(resp) if resp.status().is_success() => {
                 if let Ok(meta) = resp.json::<OAuthMetaRaw>().await {
                     if meta.authorization_endpoint.is_some() && meta.token_endpoint.is_some() {
@@ -279,12 +276,10 @@ pub async fn authorize(
                 .registration_endpoint
                 .clone()
                 .ok_or("server has no registration_endpoint — add client_id to the server config")?;
-            let client = reqwest::Client::builder()
-                .timeout(HTTP_TIMEOUT)
-                .build()
-                .map_err(|e| e.to_string())?;
+            let client = crate::network::shared_client(HTTP_TIMEOUT)?;
             let resp = client
                 .post(&reg)
+                .timeout(HTTP_TIMEOUT)
                 .json(&json!({
                     "client_name": "Nocturn",
                     "redirect_uris": ["http://127.0.0.1/callback"],
@@ -343,12 +338,10 @@ pub async fn authorize(
     .await
     .map_err(|e| format!("oauth wait task failed: {e}"))??;
 
-    let client = reqwest::Client::builder()
-        .timeout(HTTP_TIMEOUT)
-        .build()
-        .map_err(|e| e.to_string())?;
+    let client = crate::network::shared_client(HTTP_TIMEOUT)?;
     let resp = client
         .post(&token_ep)
+        .timeout(HTTP_TIMEOUT)
         .form(&[
             ("grant_type", "authorization_code"),
             ("code", code.as_str()),
@@ -503,12 +496,10 @@ pub async fn refresh_single_flight(server: &str) -> Result<(), String> {
     let Some(token_endpoint) = meta.and_then(|m| m.token_endpoint) else {
         return Err("no token_endpoint (server was never authorized here?)".to_string());
     };
-    let client = reqwest::Client::builder()
-        .timeout(HTTP_TIMEOUT)
-        .build()
-        .map_err(|e| e.to_string())?;
+    let client = crate::network::shared_client(HTTP_TIMEOUT)?;
     let resp = client
         .post(&token_endpoint)
+        .timeout(HTTP_TIMEOUT)
         .form(&[
             ("grant_type", "refresh_token"),
             ("refresh_token", refresh_token.as_str()),
@@ -565,11 +556,13 @@ pub async fn revoke(app: &tauri::AppHandle, server: &str) -> Result<(), String> 
     };
     if let (Some(tokens), Some(meta)) = (tokens, meta) {
         if let (Some(rev), Some(rt)) = (meta.revocation_endpoint, &tokens.refresh_token) {
-            let client = reqwest::Client::builder()
+            let client = crate::network::shared_client(HTTP_TIMEOUT)?;
+            let _ = client
+                .post(&rev)
                 .timeout(HTTP_TIMEOUT)
-                .build()
-                .map_err(|e| e.to_string())?;
-            let _ = client.post(&rev).form(&[("token", rt.as_str())]).send().await;
+                .form(&[("token", rt.as_str())])
+                .send()
+                .await;
         }
     }
     if let Ok(mut m) = TOKENS.lock() {
