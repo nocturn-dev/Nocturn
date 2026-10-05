@@ -25,6 +25,20 @@ fn build_tool_schemas() -> Value {
         {
             "type": "function",
             "function": {
+                "name": "sleep",
+                "description": "Wait N seconds (max 30) before your next step. Use it while polling — a background subagent still working, a long build, a rate limit — instead of burning steps and tokens on repeated checks that cannot change for a while.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "seconds": { "type": "integer", "description": "How long to wait, 1-30 seconds" }
+                    },
+                    "required": ["seconds"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
                 "name": "fs_list",
                 "description": "List files and directories at the given path. Returns names, types and sizes.",
                 "parameters": {
@@ -117,6 +131,26 @@ fn build_tool_schemas() -> Value {
 /// Исполнение инструмента по имени с JSON-аргументами.
 /// Возвращает строку-результат (текст для модели).
 /// Обёртка для тестов: без abort-флага
+
+    #[test]
+    fn sleep_caps_and_reports() {
+        // [P4] Sleep исполняется; запрос выше капа прижимается к 30 сек —
+        // проверяем на 1 сек (быстро) и на валидности отчёта
+        let res = execute_tool("sleep", r#"{"seconds":1}"#).unwrap();
+        let v: Value = serde_json::from_str(&res).unwrap();
+        assert_eq!(v["ok"], serde_json::json!(true));
+        assert_eq!(v["slept"], serde_json::json!(1));
+    }
+
+    #[test]
+    fn sleep_aborts_immediately() {
+        // Stop (abort-флаг) гасит ожидание без ожидания полного срока
+        let flag = std::sync::atomic::AtomicBool::new(true);
+        let started = std::time::Instant::now();
+        let res = execute_tool_with_abort("sleep", r#"{"seconds":30}"#, Some(&flag));
+        assert!(res.is_err());
+        assert!(started.elapsed() < std::time::Duration::from_secs(2));
+    }
 #[cfg(test)]
 pub fn execute_tool(name: &str, arguments: &str) -> Result<String, String> {
     execute_tool_with_abort(name, arguments, None)
@@ -133,6 +167,29 @@ pub fn execute_tool_with_abort(
         .map_err(|e| format!("invalid arguments JSON: {e}"))?;
 
     match name {
+        "sleep" => {
+            // [P4] Поллинг без жжения шагов: ждём короткими шагами, чтобы
+            // Stop (abort-флаг) гасил ожидание немедленно, а не через N сек
+            let seconds = args
+                .get("seconds")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(1)
+                .clamp(1, 30);
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(seconds);
+            while std::time::Instant::now() < deadline {
+                if abort
+                    .map(|a| a.load(std::sync::atomic::Ordering::SeqCst))
+                    .unwrap_or(false)
+                {
+                    return Err("sleep aborted".into());
+                }
+                std::thread::sleep(
+                    std::time::Duration::from_millis(100)
+                        .min(deadline - std::time::Instant::now()),
+                );
+            }
+            Ok(serde_json::json!({ "ok": true, "slept": seconds }).to_string())
+        }
         "fs_list" => {
             let path = arg_str(&args, "path")?;
             fs_list(Path::new(&path))
