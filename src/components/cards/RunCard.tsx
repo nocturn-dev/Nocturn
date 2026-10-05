@@ -12,6 +12,7 @@ import { type Message, type ToolCallInfo } from "../../types";
 import type { StepRow } from "../../agent/steps";
 import { useLang } from "../../locales";
 import { useSmoothText } from "../../hooks/useSmoothText";
+import { StreamMarkdown } from "./StableMarkdown";
 import { StepAccordion } from "./StepAccordion";
 import { MarkdownLink } from "./MarkdownLink";
 import { SubagentCard } from "./SubagentCard";
@@ -21,7 +22,6 @@ import { shortModelName } from "../ProviderIcon";
 import ProviderIcon from "../ProviderIcon";
 import { fmtInt } from "./util";
 import { ChevronDownIcon, StarburstIcon } from "./icons";
-import ReactMarkdown from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
 import remarkGfm from "remark-gfm";
 
@@ -142,11 +142,14 @@ function RunRound({
         <div className="markdown mt-2 rounded-lg border border-halo-line/40 bg-halo-surface/40 px-3.5 py-2.5 text-sm leading-relaxed text-halo-text">
           {/* stream-tail только на тексте: каретка ниже остаётся чёткой */}
           <div className={isStreamingRound ? "stream-tail" : undefined}>
-            <RoundMarkdown
-              text={text}
-              isStreamingRound={isStreamingRound}
-              highlightLive={highlightLive}
-              mdComponents={mdComponents}
+            <StreamMarkdown
+              md={text}
+              streaming={isStreamingRound && smooth}
+              remarkPlugins={MD_PLUGINS}
+              rehypePlugins={
+                highlightLive || !isStreamingRound ? REHYPE_PLUGINS : REHYPE_PLUGINS_NO_HL
+              }
+              components={mdComponents}
             />
           </div>
           {caret && isStreamingRound && (
@@ -183,32 +186,7 @@ function RunRound({
  *  RunCard (смена subRuns/activity) не должен перепарсивать текст
  *  исторических раундов. Пропсы стабильны: текст раунда из derived-кэша
  *  ChatArea, mdComponents — useMemo([onPreviewArtifact]) в RunCardBase */
-const RoundMarkdown = memo(function RoundMarkdown({
-  text,
-  isStreamingRound,
-  highlightLive,
-  mdComponents,
-}: {
-  text: string;
-  isStreamingRound: boolean;
-  highlightLive: boolean;
-  mdComponents: {
-    a: (p: ComponentPropsWithoutRef<"a">) => ReactNode;
-    pre: (p: { node?: unknown; children?: ReactNode }) => ReactNode;
-  };
-}) {
-  return (
-    <ReactMarkdown
-      remarkPlugins={MD_PLUGINS}
-      rehypePlugins={
-        highlightLive || !isStreamingRound ? REHYPE_PLUGINS : REHYPE_PLUGINS_NO_HL
-      }
-      components={mdComponents}
-    >
-      {text}
-    </ReactMarkdown>
-  );
-});
+
 
 function RunCardBase({
   runKey,
