@@ -426,7 +426,7 @@ export const en = {
     "nav.help": "Help",
     "settings.shortcuts": "Keyboard Shortcuts",
     "settings.skills": "Skills",
-    "skills.desc": "Built-in instruction boosters for the model. Type “&” in the composer to open the palette: picking a skill inserts its template — add your task and send.",
+    "skills.desc": "Built-in instruction boosters for the model. Type “&” in the composer to open the palette: picking a skill inserts the short form “&id: ” — add your task and send, the full instruction is expanded on send.",
     "skills.palette": "Skills — pick one to insert its template",
     "skills.fromPlugin": "from plugin",
     "skills.fromPluginHint": "Skills marked “from plugin” come from installed plugins; manage them in the Plugins section.",
