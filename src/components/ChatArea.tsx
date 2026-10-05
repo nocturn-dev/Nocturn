@@ -151,6 +151,9 @@ interface ChatAreaProps {
     attachments?: Attachment[],
     overrideTargetId?: string,
     quote?: string,
+    /** [P3] Промпт использованного скилла — в Session.activeSkills для
+     *  реинъекции после автокомпакта */
+    skillInstruction?: string,
   ) => void;
   /** Цитата из Review-панели (клик по строке диффа): nonce растёт с каждым кликом */
   pendingQuote?: { text: string; nonce: number } | null;
@@ -1679,6 +1682,7 @@ export default function ChatArea({
     // раскрывается ТОЛЬКО здесь, при отправке; в черновике видно
     // «&review: <код/путь>» — как цитату с вопросом
     const skillRef = /^&([a-z0-9_-]+):\s*/i.exec(text);
+    let usedSkill: string | undefined;
     if (skillRef) {
       const skill = allSkills.find(
         (s) => s.id.toLowerCase() === skillRef[1]?.toLowerCase(),
@@ -1686,6 +1690,7 @@ export default function ChatArea({
       if (skill) {
         const rest = text.slice(skillRef[0].length).trim();
         text = rest ? `${skill.prompt}${rest}` : skill.prompt;
+        usedSkill = skill.prompt;
       }
     }
     if (!text && pendingImages.length === 0) return;
@@ -1718,7 +1723,7 @@ export default function ChatArea({
       }
     } else {
       const quote = quoteDraft?.trim() || undefined;
-      onSend(text, attachments, undefined, quote);
+      onSend(text, attachments, undefined, quote, usedSkill);
     }
     setDraft("");
     setQuoteDraft(null);

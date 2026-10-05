@@ -118,6 +118,10 @@ export interface Session {
    *  а после ручного удаления сообщений деградирует мягко (Math.min-клэмп).
    *  Сообщения сессии при этом НЕ удаляются — карточки чата остаются полными */
   compact?: { summary: string; baseCount: number; createdAt: number };
+  /** Инструкции активных скиллов ([P3]): живут в истории задачи и после
+   *  автокомпакта суммаризуются — persistCompact пере-инжектирует их
+   *  system-сообщением, чтобы скилл «не забывался» (CC postCompact) */
+  activeSkills?: string[];
   /** Происхождение ветки (edit-and-resend): сессия и сообщение, от которых
    *  форкнулись. Оригинальная сессия при форке не меняется */
   branchedFrom?: { sessionId: string; messageId: string };
