@@ -160,6 +160,43 @@ describe("powershell/windows destructive patterns (audit 2026-10-04)", () => {
     }
   });
 
+  it("rm: рекурсия+force в любых комбинациях — №24 аудита v5 (node-прогон L13)", () => {
+    for (const cmd of [
+      "rm -rf build", // прежний кластер — не регресс
+      "rm -r -f build", // раздельные кластеры
+      "rm -fr build", // force перед рекурсией
+      "rm --recursive --force build", // long-формы
+      "rm --force --recursive build", // long-формы в обратном порядке
+      "rm -f -r build", // force первым, кластеры раздельно
+    ]) {
+      expect(dangerousShellPattern(cmd), cmd).toBe(true);
+    }
+    // рекурсия/force поодиночке — как раньше, не dangerous
+    expect(dangerousShellPattern("rm -r build")).toBe(false);
+    expect(dangerousShellPattern("rm -f build")).toBe(false);
+    expect(dangerousShellPattern("rm --recursive build")).toBe(false);
+  });
+
+  it("PowerShell-алиасы, свойства, реестр, диски, WSL — №24 аудита v5", () => {
+    for (const cmd of [
+      "ri -recurse ./x", // алиас Remove-Item
+      "ri -r ./x",
+      "erase -recurse ./x", // алиас del/Remove-Item
+      "remove-itemproperty -name foo", // Remove-ItemProperty
+      "reg add HKCU\\Software\\X /v a /d 1",
+      "reg delete HKCU\\Software\\X",
+      "format-volume -driveletter c",
+      "clear-disk -number 0",
+      "wsl --unregister Ubuntu",
+    ]) {
+      expect(dangerousShellPattern(cmd.toLowerCase()), cmd).toBe(true);
+    }
+    // чтение реестра и безобидные формы — не dangerous
+    expect(dangerousShellPattern("reg query HKCU\\Software")).toBe(false);
+    expect(dangerousShellPattern("wsl -l -v")).toBe(false);
+    expect(dangerousShellPattern("ri note.txt")).toBe(false);
+  });
+
   it("мирные команды не ловятся ложными срабатываниями", () => {
     for (const cmd of [
       "remove-item ./notes.txt",

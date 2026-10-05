@@ -7,7 +7,12 @@ import { highlightLine, langFromPath } from "./highlight";
 describe("highlight — золотые векторы", () => {
   it("langFromPath: расширения и отказы", () => {
     expect(langFromPath("src/App.tsx")).toBe("typescript");
-    expect(langFromPath("C:\proj\main.rs")).toBe("rust");
+    // Windows-разделители: \\ обязательны — одинарные \p/\m JS съедал,
+    // вектор превращался в «C:projmain.rs» и split(/[\\/]/) не покрывался
+    // (№12 аудита v5)
+    expect(langFromPath("C:\\proj\\main.rs")).toBe("rust");
+    expect(langFromPath("C:\\proj\\sub dir\\util.go")).toBe("go");
+    expect(langFromPath("src/lib/util.go")).toBe("go");
     expect(langFromPath("Makefile.mk")).toBe("makefile");
     expect(langFromPath("no-extension")).toBeNull();
     expect(langFromPath(".gitignore")).toBeNull(); // dot-file, не расширение
