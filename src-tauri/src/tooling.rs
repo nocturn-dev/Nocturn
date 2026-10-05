@@ -1157,6 +1157,29 @@ pub fn frontend_tool_schemas() -> Vec<serde_json::Value> {
                 }
             }
         }),
+        // Скиллы как форк-прогон ([P12]): исполнение на фронтенде; доступные
+        // скиллы перечислены модели в system-блоке (whenToUse/описание)
+        serde_json::json!({
+            "type": "function",
+            "function": {
+                "name": "skill_run",
+                "description": "Run a configured skill as an isolated subagent run: it executes the skill instruction with its own context and tool allowlist and returns the complete result. Available skills (id + when to use one) are listed in the system prompt — do not guess ids.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "skill": {
+                            "type": "string",
+                            "description": "Skill id from the available-skills list, e.g. \"wiki\""
+                        },
+                        "args": {
+                            "type": "string",
+                            "description": "Task material appended to the skill instruction: the code, topic or text the skill should process"
+                        }
+                    },
+                    "required": ["skill"]
+                }
+            }
+        }),
         // Статус/отчёт фоновых субагентов: исполнение на фронтенде (реестр
         // фоновых задач в useAgentRun), Rust — только схема
         serde_json::json!({
@@ -1499,6 +1522,7 @@ mod tests {
         assert!(names.contains(&"workflow_run".to_string()));
         assert!(names.contains(&"plan_update".to_string()));
         assert!(names.contains(&"ask_user".to_string()));
+        assert!(names.contains(&"skill_run".to_string()));
 
         let ask = schemas
             .iter()

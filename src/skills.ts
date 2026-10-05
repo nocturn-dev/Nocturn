@@ -12,6 +12,36 @@ export interface Skill {
   desc?: { ru: string; en: string };
   /** Шаблон, вставляемый в черновик (инструкция для модели) */
   prompt: string;
+  /** [P12] Когда модели звать скилл через skill_run (английский, для
+   *  модели): попадает в system-блок доступных скиллов */
+  whenToUse?: string;
+  /** [P12] Override модели форк-прогона (пусто — модель главного агента) */
+  model?: string;
+  /** [P12] Allowlist инструментов форк-прогона; пусто — read-only набор
+   *  по умолчанию (контракт runSubagent) */
+  allowedTools?: string[];
+}
+
+/** [P12] Сборка форк-прогона скилла (CC skills context:fork своими
+ *  словами): instruction скилла = задача, args — материал пользователя.
+ *  Чистая функция — тесты рядом */
+export function buildSkillRun(
+  skills: Skill[],
+  id: string,
+  args: string,
+): { name: string; systemPrompt: string; tools: string[] | null; model?: string; task: string } | { error: string } {
+  const needle = id.trim().toLowerCase();
+  const skill = skills.find((s) => s.id.toLowerCase() === needle);
+  if (!skill) return { error: `unknown skill "${id.trim()}"` };
+  const rest = args.trim();
+  return {
+    name: skill.name,
+    systemPrompt:
+      "You execute one specific skill task. Follow the skill instruction precisely; return the complete result as your final report.",
+    tools: skill.allowedTools ?? null,
+    model: skill.model || undefined,
+    task: rest ? `${skill.prompt}${rest}` : skill.prompt,
+  };
 }
 
 export const BUILTIN_SKILLS: Skill[] = [
@@ -22,6 +52,8 @@ export const BUILTIN_SKILLS: Skill[] = [
       ru: "Ревью кода: баги, безопасность, стиль, производительность — с приоритетами",
       en: "Code review: bugs, security, style, performance — with priorities",
     },
+    whenToUse:
+      "The user asks to review or audit code, a diff or recent changes before merge.",
     prompt:
       "[Скил: Code Review]\nПроведи ревью кода ниже. Разбери: 1) баги и логические ошибки, 2) безопасность, 3) производительность, 4) читаемость и стиль. По каждой находке — приоритет (P0..P3), файл/строка, конкретное исправление. В конце — сводка из топ-3 действий.\n\nКод:\n",
   },
@@ -82,6 +114,8 @@ export const BUILTIN_SKILLS: Skill[] = [
       ru: "Архитектурный план фичи: этапы, риски, проверки",
       en: "Feature plan: stages, risks, verification",
     },
+    whenToUse:
+      "The user asks for an implementation plan of a feature before coding starts.",
     prompt:
       "[Скил: Plan]\nСоставь план реализации задачи ниже. Формат: 1) цель и критерии готовности, 2) этапы (M0, M1, …) с объёмом каждого, 3) какие файлы/модули затрагиваются, 4) риски и как их гасить, 5) что делаем в конце (тесты, сборка, проверка). Не пиши код — только план.\n\nЗадача:\n",
   },
@@ -92,6 +126,17 @@ export const BUILTIN_SKILLS: Skill[] = [
       ru: "Веб-исследование темы с источниками (Browser Use)",
       en: "Web research on a topic with sources (Browser Use)",
     },
+    whenToUse:
+      "The task needs web research: current facts, documentation, comparisons with sources and links.",
+    allowedTools: [
+      "web_search",
+      "browser_navigate",
+      "browser_read",
+      "browser_snapshot",
+      "browser_click",
+      "browser_type",
+      "browser_scroll",
+    ],
     prompt:
       "[Скил: Research]\nИсследуй тему ниже (если доступен браузер — используй поиск и чтение страниц). Результат: 1) краткий ответ, 2) ключевые факты с источниками-ссылками, 3) спорные моменты/что расходится между источниками, 4) что осталось невыясненным.\n\nТема:\n",
   },
@@ -142,6 +187,9 @@ export const BUILTIN_SKILLS: Skill[] = [
       ru: "Автогенерация документации по проекту (файлы в docs/). Жёстко локально: код и документы никуда, кроме выбранного вами провайдера API, не уходят — ни своих серверов, ни облака у скила нет",
       en: "Auto-generate project documentation (files in docs/). Strictly local: code and docs go nowhere except the API provider you chose yourself — this skill has no servers or cloud of its own",
     },
+    whenToUse:
+      "The user asks to generate documentation/wiki for the whole project (overview, modules, index in docs/).",
+    allowedTools: ["fs_read", "fs_list", "fs_write", "fs_grep"],
     prompt:
       "[Скил: Repo Wiki]\nСгенерируйте вики-документацию по проекту в папке проекта (используйте fs_list/fs_read; если корень проекта неизвестен — спросите его). Приватность: всё выполняется локально, запросы идут только к API-провайдеру, выбранному в настройках этого приложения. План: 1) осмотрите дерево проекта и определите стек; 2) создайте docs/wiki/ с файлами: overview.md (что за проект, архитектура, схема модулей), по одному <модуль>.md на крупный модуль (назначение, ключевые файлы, потоки данных, грабли), index.md (оглавление со ссылками на остальные файлы); 3) в каждом файле — сухой конкретный тон, ссылки на реальные пути файлов, без маркетинга; 4) в конце — краткий отчёт: какие файлы созданы и что стоит дописать вручную. Не выдумывайте то, чего нет в коде.\n\nПроект:\n",
   },

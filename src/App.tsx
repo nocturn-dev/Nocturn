@@ -997,6 +997,10 @@ export default function App() {
     () => enabledPlugins.flatMap((p) => p.skills ?? []),
     [enabledPlugins],
   );
+  // [P12] Реестр плагинных скиллов для skill_run — рефом (паттерн
+  // notifyPrefsRef): рефы не пересоздают колбэки движка
+  const pluginSkillsRef = useRef(pluginSkills);
+  pluginSkillsRef.current = pluginSkills;
   const pluginRoles = useMemo(
     () => enabledPlugins.flatMap((p) => p.roles ?? []),
     [enabledPlugins],
@@ -1116,6 +1120,7 @@ export default function App() {
     apiSettings,
     effortRef,
     subConfigRef,
+    pluginSkillsRef,
     notifyPrefsRef,
     projectRootRef,
     browserAutoPanelRef,
