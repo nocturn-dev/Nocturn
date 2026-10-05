@@ -1175,7 +1175,8 @@ html.light.inline-code-claude .markdown code:not(pre code) {
 }
 /* Взмах крыльев в полёте: два кадра спрайта (низ/верх), жёсткая смена
    на середине цикла. Альтернативный кадр скрыт вне полёта; reduce-motion
-   оставляет базовый (группы в плитках отключения ниже) */
+   оставляет статичный БАЗОВЫЙ кадр: и базовый, и альт в списках отключения
+   ниже, а opacity-оверрайд гасит альт (иначе двойной спрайт) */
 @keyframes nok-wing-a {
   0%,
   49.9% {
@@ -1230,29 +1231,52 @@ html.light.inline-code-claude .markdown code:not(pre code) {
 html.motion-reduced .nok-fly,
 html.motion-reduced .nok-code,
 html.motion-reduced .nok-wings,
+html.motion-reduced .nok-fly .nok-wings,
 html.motion-reduced .nok-fly .nok-wings-alt,
 html.motion-reduced .nok-surprised .nok-body,
 html.motion-reduced .nok-tumble,
 html.motion-reduced .nok-scare,
 html.motion-reduced .nok-groove .nok-body,
 html.motion-reduced .nok-groove .nok-phones,
-/* Реплика в покое статично невидима (opacity: 0 из .nok-quip), удаляется
-   таймером Nok.tsx — animation: none безопасен */
+html.motion-reduced .nok-anger .nok-body,
+html.motion-reduced .nok-coding .nok-code,
+html.motion-reduced .nok-coding .nok-body,
+html.motion-reduced .ask-ping,
+/* Реплика: opacity:0 нужен ЯВНО — база .nok-quip непрозрачна (видимость
+   держали кейфреймы, animation: none её возвращает), таймер Nok.tsx
+   удаляет квип по расписанию */
 html.motion-reduced .nok-quip {
   animation: none;
+}
+/* №10 аудита v5: opacity:1 альт-крыла живёт при animation:none — без
+   оверрайда под reduce видны ОБА кадра (двойной спрайт поверх статичного
+   базового); reduce оставляет базовый кадр */
+html.motion-reduced .nok-fly .nok-wings-alt,
+html.motion-reduced .nok-quip {
+  opacity: 0;
 }
 @media (prefers-reduced-motion: reduce) {
   .nok-fly,
   .nok-code,
   .nok-wings,
+  .nok-fly .nok-wings,
   .nok-fly .nok-wings-alt,
   .nok-surprised .nok-body,
   .nok-tumble,
   .nok-scare,
   .nok-groove .nok-body,
   .nok-groove .nok-phones,
+  .nok-anger .nok-body,
+  .nok-coding .nok-code,
+  .nok-coding .nok-body,
+  .ask-ping,
   .nok-quip {
     animation: none;
+  }
+  /* Альт-крыло и квип — как в motion-reduced выше: opacity гасится явно */
+  .nok-fly .nok-wings-alt,
+  .nok-quip {
+    opacity: 0;
   }
 }
 html.motion-reduced .nok-body,
