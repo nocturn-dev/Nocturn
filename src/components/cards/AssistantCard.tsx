@@ -3,6 +3,7 @@ import { copyText } from "../../clipboard";
 import { isWindows } from "../../platform";
 import { useLang } from "../../locales";
 import { useSmoothText } from "../../hooks/useSmoothText";
+import { StreamMarkdown } from "./StableMarkdown";
 import { type Message } from "../../types";
 import type { StepRow } from "../../agent/steps";
 import { StepAccordion } from "./StepAccordion";
@@ -25,7 +26,6 @@ import {
 } from "react";
 import { pickSaveFile, runTool } from "../../api";
 import ProviderIcon from "../ProviderIcon";
-import ReactMarkdown from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
 import remarkGfm from "remark-gfm";
 import { PlayIcon, SaveIcon } from "./icons";
@@ -202,6 +202,8 @@ function AssistantCardBase({
     smooth,
     printSpeed,
   );
+  const rehypePlugins =
+    highlightLive || !isStreaming ? REHYPE_PLUGINS : REHYPE_PLUGINS_NO_HL;
   const { lang, t } = useLang();
   // Компоненты markdown: pre получает колбэк предпросмотра артефактов
   const mdComponents = useMemo(
@@ -424,15 +426,20 @@ function AssistantCardBase({
       )}
 
       <div className="markdown text-sm leading-relaxed text-halo-text">
-        {/* stream-tail только на тексте: каретка ниже остаётся чёткой */}
+        {/* stream-tail только на тексте: каретка ниже остаётся чёткой.
+            Волна 3а: стабильный префикс парсится один раз (StableMarkdown
+            memo по md), на каждом тике ре-парсится только хвост. react-
+            markdown рендерит фрагмент блоков — соседи в одном .markdown,
+            поэтому .markdown > :first/:last-child верны как и раньше;
+            сплит только на активном стриме */}
         <div className={isStreaming ? "stream-tail" : undefined}>
-          <ReactMarkdown
+          <StreamMarkdown
+            md={displayContent}
+            streaming={isStreaming && smooth}
             remarkPlugins={MD_PLUGINS}
-            rehypePlugins={highlightLive || !isStreaming ? REHYPE_PLUGINS : REHYPE_PLUGINS_NO_HL}
+            rehypePlugins={rehypePlugins}
             components={mdComponents}
-          >
-            {displayContent}
-          </ReactMarkdown>
+          />
         </div>
         {caret && isStreaming && (
           <span className="animate-pulse align-baseline text-halo-accent">▍</span>
