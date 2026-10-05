@@ -2,6 +2,7 @@ import { summarizeArguments } from "../../diff";
 import { copyText } from "../../clipboard";
 import { isWindows } from "../../platform";
 import { useLang } from "../../locales";
+import { useSmoothText } from "../../hooks/useSmoothText";
 import { type Message } from "../../types";
 import type { StepRow } from "../../agent/steps";
 import { StepAccordion } from "./StepAccordion";
@@ -193,61 +194,14 @@ function AssistantCardBase({
   /** Mermaid-исходник после правки — в композер (стабилен от ChatArea) */
   onQuoteSource?: (text: string) => void;
 }) {
-  // Плавная печать: показанный текст отстаёт от реального и догоняет
-  // его rAF-циклом с ускорением (чем больше отставание, тем быстрее),
-  // поэтому поток выглядит непрерывным, а не рваными пачками
-  // При ремонте карточки посреди стрима не переигрываем весь текст с нуля —
-  // догоняем только короткий хвост (иначе текст «исчезает и печатается заново»)
-  const [shownLen, setShownLen] = useState(() =>
-    isStreaming ? Math.max(0, message.content.length - 120) : message.content.length,
+  // Плавная печать — общий модуль (RunCard обязан использовать ту же
+  // формулу; раньше жило двумя копиями и копии разошлись — №13 аудита v5)
+  const displayContent = useSmoothText(
+    message.content,
+    isStreaming,
+    smooth,
+    printSpeed,
   );
-  // Зеркало shownLen между перезапусками эффекта (каждый новый контент его
-  // перезапускает): без него локальный счётчик сбрасывался на 120 символов назад
-  const shownMirror = useRef<number | null>(null);
-  useEffect(() => {
-    const target = message.content.length;
-    if (!isStreaming || !smooth) {
-      shownMirror.current = target;
-      setShownLen(target);
-      return;
-    }
-    let raf = 0;
-    let last = 0;
-    let shown = shownMirror.current ?? Math.max(0, target - 120);
-    const tick = (now: number) => {
-      // 50 мс: тик ре-парсит показанный markdown (react-markdown + hljs) —
-      // 100 мс давали рваную печать по 10 кадров; 50 — плавно и без O(n²)
-      // на разумных длинах (бюджет D6 поднят: у машин пользователя запас есть)
-      if (now - last >= 50) {
-        last = now;
-        const backlog = target - shown;
-        if (backlog <= 0) {
-          // Догнали текст — гасим rAF-цикл: пока модель думает/идёт tool-шаг,
-          // он раньше молотил вхолостую 60 раз/сек. Новый контент перезапустит
-          // эффект (deps по длине контента)
-          return;
-        }
-        // Равномерная подача (фидбек владельца 04.10: «вылетает по
-        // предложениям, дёргано»): прежняя формула прыгала пропорционально
-        // долгу (backlog/4 — пачка в 300 символов прилетала кусками по 75).
-        // Теперь базовый темп 12 симв/тик (~240 зн/с при 50 мс), при долге
-        // темп растёт так, чтобы долг дренировался примерно за секунду
-        // (20 тиков): скачков нет, отставание от быстрых моделей ≤ ~1 с
-        const speed = Math.max(12, Math.ceil(backlog / 20)) * printSpeed;
-        shown = Math.min(target, shown + Math.ceil(speed));
-        shownMirror.current = shown;
-        setShownLen(shown);
-      }
-      raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [isStreaming, smooth, printSpeed, message.content.length]);
-
-  const displayContent =
-    smooth && isStreaming
-      ? message.content.slice(0, shownLen)
-      : message.content;
   const { lang, t } = useLang();
   // Компоненты markdown: pre получает колбэк предпросмотра артефактов
   const mdComponents = useMemo(
