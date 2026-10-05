@@ -11,6 +11,7 @@ import {
 import { type Message, type ToolCallInfo } from "../../types";
 import type { StepRow } from "../../agent/steps";
 import { useLang } from "../../locales";
+import { useSmoothText } from "../../hooks/useSmoothText";
 import { StepAccordion } from "./StepAccordion";
 import { MarkdownLink } from "./MarkdownLink";
 import { SubagentCard } from "./SubagentCard";
@@ -48,48 +49,6 @@ function fmtDur(ms: number, lang: string): string {
   if (lang === "zh") return m > 0 ? `${m} 分 ${s} 秒` : `${s} 秒`;
   if (lang === "ja") return m > 0 ? `${m}分${s}秒` : `${s}秒`;
   return m > 0 ? `${m}m ${s}s` : `${s}s`;
-}
-
-/** Плавная печать текста стримящегося раунда — логика AssistantCard:
- *  показанный текст отстаёт от реального и догоняет rAF-циклом с ускорением */
-function useSmoothText(
-  content: string,
-  active: boolean,
-  smooth: boolean,
-  printSpeed: number,
-): string {
-  const [shownLen, setShownLen] = useState(() =>
-    active ? Math.max(0, content.length - 120) : content.length,
-  );
-  const shownMirror = useRef<number | null>(null);
-  useEffect(() => {
-    const target = content.length;
-    if (!active || !smooth) {
-      shownMirror.current = target;
-      setShownLen(target);
-      return;
-    }
-    let raf = 0;
-    let last = 0;
-    let shown = shownMirror.current ?? Math.max(0, target - 120);
-    const tick = (now: number) => {
-      if (now - last >= 50) {
-        last = now;
-        const backlog = target - shown;
-        if (backlog <= 0) return;
-        shown = Math.min(
-          target,
-          shown + Math.max(4, Math.ceil((backlog / 4) * printSpeed)),
-        );
-        shownMirror.current = shown;
-        setShownLen(shown);
-      }
-      raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [active, smooth, printSpeed, content.length]);
-  return smooth && active ? content.slice(0, shownLen) : content;
 }
 
 /** Иконка мысли: искра-мозг (как ряд Thought в ZCode) */
