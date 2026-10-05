@@ -41,6 +41,7 @@ import { buildProfileBlock } from "../userProfile";
 import { evalHardLimit } from "../limits";
 import { filterToolSchemas, isConcurrencySafe, isMutatingTool } from "../agent/toolFilter";
 import { noteCacheRequest, noteCacheUsage } from "../agent/cacheGuard";
+import { BUILTIN_SKILLS, buildSkillRun, type Skill } from "../skills";
 import { runPython, CODE_RUN_SCHEMA } from "../codeRun";
 import { StreamDeltaBuffer, applyMainDeltas } from "./streamBuffer";
 import { interpolate, parseWorkflow, type WorkflowDef } from "../workflow";
@@ -97,6 +98,8 @@ export interface AgentRunDeps {
   apiSettings: ApiSettings;
   effortRef: { current: "off" | "low" | "high" | "max" };
   subConfigRef: { current: SubagentsConfig };
+  /** [P12] Плагинные скиллы: реестр для skill_run (builtin приходят сами) */
+  pluginSkillsRef: { current: Skill[] };
   notifyPrefsRef: { current: NotifyPrefs };
   projectRootRef: { current: string | null };
   browserAutoPanelRef: { current: boolean };
@@ -130,6 +133,7 @@ export function useAgentRun(deps: AgentRunDeps) {
     apiSettings,
     effortRef,
     subConfigRef,
+    pluginSkillsRef,
     notifyPrefsRef,
     projectRootRef,
     browserAutoPanelRef,
@@ -1034,6 +1038,12 @@ export function useAgentRun(deps: AgentRunDeps) {
     }
     // Новый прогон — чекпоинт ещё не снят
     runCheckpointRef.current = false;
+    // [P12] Реестр скиллов прогона: builtin + плагинные; когда есть хоть
+    // один с whenToUse — модели уходит system-блок доступных скиллов
+    const runSkills: Skill[] = [
+      ...BUILTIN_SKILLS,
+      ...(pluginSkillsRef.current ?? []),
+    ];
     const tools = isAgent
       ? await getToolSchemas()
           .then((t) =>
@@ -1170,6 +1180,17 @@ export function useAgentRun(deps: AgentRunDeps) {
           "Инструмент ask_user задаёт пользователю блокирующий вопрос с вариантами ответа. Используй его ТОЛЬКО когда решение действительно за пользователем (объём работы, выбор подхода, компромиссы) и ответ меняет твои дальнейшие действия; не спрашивай о том, что можно узнать самому, о тривиальных вещах с очевидным дефолтом и о разрешении продолжать. Максимум один-два вопроса за задачу.",
         ].join(" "),
       });
+      // [P12] Доступные скиллы: id + когда звать (whenToUse, фолбэк —
+      // английское описание). Исполнение — skill_run, изолированный форк
+      if (runSkills.length > 0) {
+        const list = runSkills
+          .map((sk) => `- ${sk.id}: ${sk.whenToUse ?? sk.desc?.en ?? sk.name}`)
+          .join("\n");
+        history.push({
+          role: "system",
+          content: `[Available skills — run with the skill_run tool when the user's task matches]\n${list}`,
+        });
+      }
     }
 
     // Stop/Hard Limit могли сработать, пока собирался контекст (хуки, память,
@@ -2016,6 +2037,115 @@ export function useAgentRun(deps: AgentRunDeps) {
         });
       }
 
+      // [P12] skill_run: скилл как изолированный форк-прогон (CC skills
+      // context:fork своими словами). План блокирует целиком; в ask/edit
+      // запуск подтверждается (инструменты форка идут без поинструментных
+      // подтверждений); full — молча. Отчёт — tool result
+      const skillCalls = toolCalls.filter((c) => c.name === "skill_run");
+      for (const call of skillCalls) {
+        if (abortedRef.current.has(requestId)) return finalize();
+        setActivity(t("activity.toolRun", { name: call.name }));
+        const finishSkill = (content: string, status?: Message["status"]) => {
+          pushMessage({
+            id: uid(),
+            role: "tool",
+            content,
+            toolCallId: call.id,
+            toolName: call.name,
+            ...(status ? { status } : {}),
+          });
+          history.push({
+            role: "tool",
+            tool_call_id: call.id,
+            name: call.name,
+            content,
+          });
+        };
+        let skillId = "";
+        let skillArgs = "";
+        try {
+          const parsed = JSON.parse(call.arguments) as {
+            skill?: string;
+            args?: string;
+          };
+          skillId = (parsed.skill ?? "").trim();
+          skillArgs = (parsed.args ?? "").trim();
+        } catch {
+          // Мусор вместо JSON — разбор не удался, ошибка уйдёт ниже
+        }
+        const plan = buildSkillRun(runSkills, skillId, skillArgs);
+        if ("error" in plan) {
+          finishSkill(`error: ${plan.error}`);
+          continue;
+        }
+        if (permMode === "plan") {
+          finishSkill(t("agent.planBlocked"), "denied");
+          continue;
+        }
+        if (permMode !== "full" && (await askConfirm(call)) === "deny") {
+          finishSkill("user denied skill run", "denied");
+          continue;
+        }
+        const role: SubagentRole = {
+          id: `skill-${skillId}`,
+          name: plan.name,
+          systemPrompt: plan.systemPrompt,
+          tools: plan.tools,
+          maxSteps: 12,
+          model: plan.model,
+        };
+        // Карточка в мониторе субагентов: та же поверхность, что subagent_run
+        setSubRuns((prev) => ({
+          ...prev,
+          [call.id]: {
+            roleId: role.id,
+            roleName: role.name,
+            task: (skillArgs || plan.name).slice(0, 80),
+            thought: "",
+            tools: [],
+            report: "",
+          },
+        }));
+        const onStep = (st: SubagentStep) => {
+          if (st.type === "thought") {
+            flushDeltas();
+            patchSubRun(call.id, (r) => ({ ...r, thought: st.text }));
+            return;
+          }
+          flushDeltas();
+          patchSubRun(call.id, (r) =>
+            st.type === "tool"
+              ? { ...r, tools: [...r.tools, st.text], thought: "" }
+              : { ...r, report: st.text },
+          );
+        };
+        try {
+          const report = await runSubagent({
+            role,
+            task: plan.task,
+            baseUrl: apiSettings.base_url,
+            apiKey: apiSettings.api_key,
+            model: plan.model || apiSettings.model,
+            onStep,
+            // Расход форка — в общую копилку Hard Limit задачи
+            onUsage: (u) => {
+              usageAcc.prompt += u.prompt;
+              usageAcc.completion += u.completion;
+              checkHardLimit();
+            },
+            effort: effortRef.current,
+            aborted: () => abortedRef.current.has(requestId),
+            runRequestId: requestId,
+            disabledTools: sessionsRef.current
+              .find((s) => s.id === targetId)
+              ?.disabledTools,
+          });
+          finishSkill(report);
+        } catch (e) {
+          finishSkill(`skill run error: ${e}`);
+        }
+      }
+
       const runOneSubagent = async (call: ToolCallInfo): Promise<void> => {
         let subContent: string;
         // FIX: машиный статус tool-результата (см. Message.status) — рендер
@@ -2542,6 +2672,7 @@ ${report}`;
         if (abortedRef.current.has(requestId)) return finalize();
         if (call.name === "subagent_run") continue; // уже исполнены выше
         if (call.name === "subagent_status") continue; // уже исполнены выше
+        if (call.name === "skill_run") continue; // [P12] исполнен выше (фронтенд)
         if (call.name === "workflow_run") continue; // уже исполнены выше (фронтенд)
         if (call.name === "plan_update") continue; // уже исполнены выше (фронтенд)
         if (call.name === "ask_user") continue; // уже исполнены выше (фронтенд)
