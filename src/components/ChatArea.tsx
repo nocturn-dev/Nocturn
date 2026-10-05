@@ -514,11 +514,13 @@ export default function ChatArea({
   const [quickOpen, setQuickOpen] = useState(false);
   // Монитор субагентов: поповер у кнопки-робота в нижней панели
   const [subOpen, setSubOpen] = useState(false);
-  // Память: старые ходы рендерим заглушкой, пока не попросили показать всё
-  const [showOldTurns, setShowOldTurns] = useState(false);
+  // Память: старые ходы рендерим заглушкой, пока не попросили показать ещё.
+  // Пагинация (волна 3): кнопка досыпает по окну, а не «показать всё» —
+  // гигантская история снова не вываливается в DOM разом
+  const [oldTurnsShown, setOldTurnsShown] = useState(0);
   const sessionKey = session?.id ?? null;
   useEffect(() => {
-    setShowOldTurns(false); // смена задачи — снова сворачиваем историю
+    setOldTurnsShown(0); // смена задачи — снова сворачиваем историю
   }, [sessionKey]);
   // Селектор проекта над центрированным композером (ZCode-стиль)
   const [projectOpen, setProjectOpen] = useState(false);
@@ -1313,18 +1315,43 @@ export default function ChatArea({
     [model, models],
   );
   // Если реальное использование ещё неизвестно — оцениваем сами (chars/4).
-  // Тяжёлый проход по всем сообщениям выполняется только пока contextUsed
-  // равен 0: после первого ответа оценка msgs никем не читается, а prompt
-  // (одна длина строки) остаётся для разбивки rows — раньше проход гонялся
-  // на каждый флеш стрима всегда (аудит 2026-10-04)
+  // Проход инкрементальный (волна 3): стоимость сообщения кэшируется по id
+  // с сигнатурой размеров — на флеш стрима пересчитываются только изменившиеся
+  // сообщения (обычно одно стримящееся), остальные берутся из кэша; итог
+  // суммируется заново (O(n) чтений кэша без арифметики). После первого
+  // ответа (contextUsed > 0) проход не выполняется вовсе. Выполняется только
+  // пока оценка читается — раньше гонялся на каждый флеш всегда (аудит)
+  const ctxCostRef = useRef(
+    new Map<string, { clen: number; tlen: number; atts: number; cost: number }>(),
+  );
   const contextEstimate = useMemo(() => {
     let msgs = 0;
     if (!contextUsed) {
+      const cache = ctxCostRef.current;
+      let total = 0;
+      const seen = new Set<string>();
       for (const m of messages) {
-        msgs +=
-          Math.ceil(((m.content?.length ?? 0) + (m.thought?.length ?? 0)) / 4) + 8;
-        for (const _a of m.attachments ?? []) msgs += 1500; // скриншот ≈ патч изображения
+        seen.add(m.id);
+        const clen = m.content?.length ?? 0;
+        const tlen = m.thought?.length ?? 0;
+        const atts = m.attachments?.length ?? 0;
+        const cached = cache.get(m.id);
+        if (cached && cached.clen === clen && cached.tlen === tlen && cached.atts === atts) {
+          total += cached.cost;
+          continue;
+        }
+        let cost = Math.ceil((clen + tlen) / 4) + 8;
+        for (const _a of m.attachments ?? []) cost += 1500; // скриншот ≈ патч изображения
+        cache.set(m.id, { clen, tlen, atts, cost });
+        total += cost;
       }
+      // удалившиеся сообщения (архив/очистка) — из кэша выкинуть
+      if (cache.size > seen.size) {
+        for (const id of cache.keys()) {
+          if (!seen.has(id)) cache.delete(id);
+        }
+      }
+      msgs = total;
     }
     const prompt = session?.systemPrompt
       ? Math.ceil(session.systemPrompt.length / 4)
@@ -1809,17 +1836,19 @@ export default function ChatArea({
               let lastTurnMerged = false;
 
               // Оптимизация памяти: полностью рендерим только последние
-              // RENDER_TURN_WINDOW ходов; более старые — заглушка с кнопкой
+              // RENDER_TURN_WINDOW ходов (+ досыпанные кнопкой пачки);
+              // более старые — заглушка с кнопкой
               const RENDER_TURN_WINDOW = 25;
-              const visibleFrom = showOldTurns
-                ? 0
-                : Math.max(0, turns.length - RENDER_TURN_WINDOW);
+              const visibleFrom = Math.max(
+                0,
+                turns.length - RENDER_TURN_WINDOW - oldTurnsShown,
+              );
 
               if (visibleFrom > 0) {
                 nodes.push(
                   <button
                     key="show-old-turns"
-                    onClick={() => setShowOldTurns(true)}
+                    onClick={() => setOldTurnsShown((v) => v + RENDER_TURN_WINDOW)}
                     className="mx-auto my-1 rounded-full border border-halo-line px-3 py-1 text-[0.6875rem] text-halo-muted transition-colors hover:border-halo-accent/50 hover:text-halo-text"
                   >
                     {t("chat.showOldTurns", { n: visibleFrom })}
@@ -2062,7 +2091,7 @@ export default function ChatArea({
       ribbon,
       sessionWrites,
       showMsgTime,
-      showOldTurns,
+      oldTurnsShown,
       showReasoning,
       showUserMsgs,
       streamCaret,
