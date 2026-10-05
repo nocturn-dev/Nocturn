@@ -696,6 +696,14 @@ export function useAgentRun(deps: AgentRunDeps) {
     // Дельты копятся и сбрасываются одним обновлением раз на кадр.
     const deltaBuf = new StreamDeltaBuffer();
     let deltaRaf = 0;
+    // Троттлинг стора: rAF-лок давал setSessions на КАЖДЫЙ кадр (до 120/с на
+    // 120 Гц-мониторах), а за каждым флашом идёт ре-рендер App→ChatArea с
+    // пересборкой derived-кэшей. 40 мс (25 обн/с) сшито с тиком печати
+    // useSmoothText (50 мс): визуально неотличимо, обновлений стора в 2-4
+    // раза меньше. После простоя задержки нет: lastFlushAt старый → флаш на
+    // первом же кадре
+    const FLUSH_THROTTLE_MS = 40;
+    let lastFlushAt = 0;
     const flushDeltas = () => {
       if (deltaRaf) {
         cancelAnimationFrame(deltaRaf);
@@ -706,6 +714,7 @@ export function useAgentRun(deps: AgentRunDeps) {
       }
       if (deltaBuf.isEmpty) return;
       const { main, subThoughts } = deltaBuf.drain();
+      lastFlushAt = performance.now();
       if (main.length > 0) {
         setSessions((prev) =>
           prev.map((s) =>
@@ -730,7 +739,17 @@ export function useAgentRun(deps: AgentRunDeps) {
     const scheduleFlush = () => {
       if (deltaRaf) return;
       if (typeof requestAnimationFrame === "function" && !document.hidden) {
-        deltaRaf = requestAnimationFrame(flushDeltas);
+        // Фрейм-тик: ждём и кадр, и троттлинг-окно; между флашами дельты
+        // копятся в буфере и уезжают одним setSessions
+        const tick = () => {
+          if (performance.now() - lastFlushAt >= FLUSH_THROTTLE_MS) {
+            deltaRaf = 0;
+            flushDeltas();
+          } else {
+            deltaRaf = requestAnimationFrame(tick);
+          }
+        };
+        deltaRaf = requestAnimationFrame(tick);
       } else if (typeof setTimeout === "function") {
         // C17: WebView2 не тикает rAF в свёрнутом/перекрытом окне — дельты
         // копились без сброса, чат «замерзал» на часы фоновых прогонов
