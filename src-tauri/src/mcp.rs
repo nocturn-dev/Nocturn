@@ -1188,8 +1188,12 @@ fn save_servers(
 
 /// Список настроенных серверов (конфиг, не соединения)
 #[tauri::command(async)]
-pub fn mcp_list_servers(app: tauri::AppHandle) -> Result<Vec<McpServerConfig>, String> {
-    load_servers(&app)
+pub async fn mcp_list_servers(app: tauri::AppHandle) -> Result<Vec<McpServerConfig>, String> {
+    // Чтение mcp.json — в blocking-пул (класс mcp_save_servers): sync-диск
+    // на tokio-воркере морозил его под SSE-стримами (№4 аудита v5)
+    tauri::async_runtime::spawn_blocking(move || load_servers(&app))
+        .await
+        .map_err(|e| format!("mcp list task failed: {e}"))?
 }
 
 /// Сохранить конфиг серверов (кнопка в настройках)
@@ -1476,10 +1480,15 @@ async fn mcp_autoconnect_impl(
     app: tauri::AppHandle,
     registry: Arc<Mutex<HashMap<String, Arc<McpHandle>>>>,
 ) -> Result<usize, String> {
-    // Волна F5: персистнутые oauth-токены — только чтение локального файла,
-    // никаких запросов (оговорка владельца)
-    crate::mcp_oauth::load_persisted(&app);
-    let configs = load_servers(&app)?;
+    // Персистнутые oauth-токены (только чтение локального файла, никаких
+    // запросов — оговорка владельца) и чтение mcp.json — sync-диск, оба в
+    // blocking-пул: на сетевом AppData морозили tokio-воркер под SSE (№4 v5)
+    let configs = tauri::async_runtime::spawn_blocking(move || {
+        crate::mcp_oauth::load_persisted(&app);
+        load_servers(&app)
+    })
+    .await
+    .map_err(|e| format!("mcp autoconnect task failed: {e}"))??;
     let mut connected = 0;
     let mut stdio_cfgs: Vec<McpServerConfig> = Vec::new();
     let mut remote_cfgs: Vec<McpServerConfig> = Vec::new();

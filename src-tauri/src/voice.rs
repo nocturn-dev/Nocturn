@@ -61,10 +61,18 @@ pub struct VoiceStatus {
 /// Статус моделей: какие файлы уже на диске. wake_model — выбранный на
 /// фронте ключ («hey_jarvis»), его файл проверяется вместе с фичевыми
 #[tauri::command(async)]
-pub fn voice_status(app: tauri::AppHandle, wake_model: String) -> Result<VoiceStatus, String> {
-    let dir = voice_dir(&app)?;
+pub async fn voice_status(app: tauri::AppHandle, wake_model: String) -> Result<VoiceStatus, String> {
+    // metadata-опрос файлов моделей — sync-диск, в blocking-пул (№4 v5):
+    // на сетевом AppData морозил tokio-воркер под SSE
+    tauri::async_runtime::spawn_blocking(move || voice_status_impl(&app, &wake_model))
+        .await
+        .map_err(|e| format!("voice status task failed: {e}"))?
+}
+
+fn voice_status_impl(app: &tauri::AppHandle, wake_model: &str) -> Result<VoiceStatus, String> {
+    let dir = voice_dir(app)?;
     let mut names: Vec<&str> = FEATURE_FILES.to_vec();
-    if let Some(w) = wake_file(&wake_model) {
+    if let Some(w) = wake_file(wake_model) {
         names.push(w);
     }
     let files = names
@@ -107,11 +115,25 @@ pub async fn voice_download_models(
 async fn do_download(app: &tauri::AppHandle, wake_model: &str) -> Result<(), String> {
     use tokio::io::AsyncWriteExt;
     let dir = voice_dir(app)?;
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let mut names: Vec<&str> = FEATURE_FILES.to_vec();
     if let Some(w) = wake_file(wake_model) {
         names.push(w);
     }
+    // create_dir_all + exists-опрос недостающих моделей — sync-диск на
+    // async-пути, в blocking-пул (№4 аудита v5): в цикле остаются только
+    // реально недостающие имена
+    let names = tauri::async_runtime::spawn_blocking({
+        let dir = dir.clone();
+        move || -> Result<Vec<&'static str>, String> {
+            std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+            Ok(names
+                .into_iter()
+                .filter(|name| !dir.join(name).exists())
+                .collect())
+        }
+    })
+    .await
+    .map_err(|e| format!("voice download task failed: {e}"))??;
     let client = crate::network::shared_client(std::time::Duration::from_secs(30))?;
     for name in names {
         let final_path = dir.join(name);

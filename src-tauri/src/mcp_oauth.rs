@@ -587,7 +587,13 @@ pub async fn mcp_oauth_authorize(
     app: tauri::AppHandle,
     name: String,
 ) -> Result<String, String> {
-    let servers = crate::mcp::load_servers(&app)?;
+    // Чтение mcp.json — sync-диск, в blocking-пул (№4 аудита v5)
+    let app_for_load = app.clone();
+    let servers = tauri::async_runtime::spawn_blocking(move || {
+        crate::mcp::load_servers(&app_for_load)
+    })
+    .await
+    .map_err(|e| format!("oauth authorize task failed: {e}"))??;
     let cfg = servers
         .into_iter()
         .find(|s| s.name == name)

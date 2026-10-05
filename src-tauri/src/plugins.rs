@@ -15,18 +15,24 @@ pub fn hooks_dir(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
 }
 
 #[tauri::command(async)]
-pub fn hooks_load(app: tauri::AppHandle) -> Result<hooks::HookFile, String> {
-    Ok(hooks::load(&hooks_dir(&app)?))
+pub async fn hooks_load(app: tauri::AppHandle) -> Result<hooks::HookFile, String> {
+    // Чтение hooks.json — sync-диск, в blocking-пул (№4 аудита v5)
+    tauri::async_runtime::spawn_blocking(move || Ok(hooks::load(&hooks_dir(&app)?)))
+        .await
+        .map_err(|e| format!("hooks load task failed: {e}"))?
 }
 
 #[tauri::command(async)]
-pub fn hooks_save(app: tauri::AppHandle, file: hooks::HookFile) -> Result<(), String> {
+pub async fn hooks_save(app: tauri::AppHandle, file: hooks::HookFile) -> Result<(), String> {
     for h in &file.hooks {
         if !hooks::EVENTS.contains(&h.event.as_str()) {
             return Err(format!("unknown hook event: {}", h.event));
         }
     }
-    hooks::save(&hooks_dir(&app)?, &file)
+    // Запись hooks.json — sync-диск, в blocking-пул (№4 аудита v5)
+    tauri::async_runtime::spawn_blocking(move || hooks::save(&hooks_dir(&app)?, &file))
+        .await
+        .map_err(|e| format!("hooks save task failed: {e}"))?
 }
 
 /// Прогнать один хук на пробном payload (кнопка «Тест» в настройках)
@@ -63,23 +69,33 @@ pub async fn hooks_run_event(
 // ---------- Пользовательские горячие клавиши (shortcuts.json) ----------
 
 #[tauri::command(async)]
-pub fn shortcuts_load(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
-    let path = config_file(&app, "shortcuts.json")?;
-    if !path.exists() {
-        return Ok(serde_json::json!({}));
-    }
-    let data = crate::fsutil::read_capped_string(&path, 0)?;
-    serde_json::from_str(&data).map_err(|e| format!("shortcuts file corrupted: {e}"))
+pub async fn shortcuts_load(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
+    // sync-диск, в blocking-пул (№4 аудита v5)
+    tauri::async_runtime::spawn_blocking(move || {
+        let path = config_file(&app, "shortcuts.json")?;
+        if !path.exists() {
+            return Ok(serde_json::json!({}));
+        }
+        let data = crate::fsutil::read_capped_string(&path, 0)?;
+        serde_json::from_str(&data).map_err(|e| format!("shortcuts file corrupted: {e}"))
+    })
+    .await
+    .map_err(|e| format!("shortcuts load task failed: {e}"))?
 }
 
 #[tauri::command(async)]
-pub fn shortcuts_save(app: tauri::AppHandle, binds: serde_json::Value) -> Result<(), String> {
-    let path = config_file(&app, "shortcuts.json")?;
-    if let Some(dir) = path.parent() {
-        fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-    }
-    let json = serde_json::to_string_pretty(&binds).map_err(|e| e.to_string())?;
-    crate::fsutil::atomic_write(&path, json.as_bytes())
+pub async fn shortcuts_save(app: tauri::AppHandle, binds: serde_json::Value) -> Result<(), String> {
+    // sync-диск, в blocking-пул (№4 аудита v5)
+    tauri::async_runtime::spawn_blocking(move || {
+        let path = config_file(&app, "shortcuts.json")?;
+        if let Some(dir) = path.parent() {
+            fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+        }
+        let json = serde_json::to_string_pretty(&binds).map_err(|e| e.to_string())?;
+        crate::fsutil::atomic_write(&path, json.as_bytes())
+    })
+    .await
+    .map_err(|e| format!("shortcuts save task failed: {e}"))?
 }
 
 /// Прочитать манифест плагина (plugin.json) из папки или файла.
@@ -101,86 +117,129 @@ pub async fn plugin_read(path: String) -> Result<serde_json::Value, String> {
 
 /// Реестр установленных плагинов (plugins.json)
 #[tauri::command(async)]
-pub fn plugins_load(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
-    let path = config_file(&app, "plugins.json")?;
-    if !path.exists() {
-        return Ok(serde_json::json!({}));
-    }
-    let data = crate::fsutil::read_capped_string(&path, 0)?;
-    serde_json::from_str(&data).map_err(|e| format!("plugins file corrupted: {e}"))
+pub async fn plugins_load(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
+    // sync-диск, в blocking-пул (№4 аудита v5)
+    tauri::async_runtime::spawn_blocking(move || {
+        let path = config_file(&app, "plugins.json")?;
+        if !path.exists() {
+            return Ok(serde_json::json!({}));
+        }
+        let data = crate::fsutil::read_capped_string(&path, 0)?;
+        serde_json::from_str(&data).map_err(|e| format!("plugins file corrupted: {e}"))
+    })
+    .await
+    .map_err(|e| format!("plugins load task failed: {e}"))?
 }
 
 #[tauri::command(async)]
-pub fn plugins_save(app: tauri::AppHandle, file: serde_json::Value) -> Result<(), String> {
-    let path = config_file(&app, "plugins.json")?;
-    if let Some(dir) = path.parent() {
-        fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-    }
-    let json = serde_json::to_string_pretty(&file).map_err(|e| e.to_string())?;
-    crate::fsutil::atomic_write(&path, json.as_bytes())
+pub async fn plugins_save(app: tauri::AppHandle, file: serde_json::Value) -> Result<(), String> {
+    // sync-диск, в blocking-пул (№4 аудита v5)
+    tauri::async_runtime::spawn_blocking(move || {
+        let path = config_file(&app, "plugins.json")?;
+        if let Some(dir) = path.parent() {
+            fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+        }
+        let json = serde_json::to_string_pretty(&file).map_err(|e| e.to_string())?;
+        crate::fsutil::atomic_write(&path, json.as_bytes())
+    })
+    .await
+    .map_err(|e| format!("plugins save task failed: {e}"))?
 }
 
 /// Пользовательские slash-команды (commands.json): { commands: [{name, description, template}] }
 #[tauri::command(async)]
-pub fn commands_load(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
-    let path = config_file(&app, "commands.json")?;
-    if !path.exists() {
-        return Ok(serde_json::json!({}));
-    }
-    let data = crate::fsutil::read_capped_string(&path, 0)?;
-    serde_json::from_str(&data).map_err(|e| format!("commands file corrupted: {e}"))
+pub async fn commands_load(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
+    // sync-диск, в blocking-пул (№4 аудита v5)
+    tauri::async_runtime::spawn_blocking(move || {
+        let path = config_file(&app, "commands.json")?;
+        if !path.exists() {
+            return Ok(serde_json::json!({}));
+        }
+        let data = crate::fsutil::read_capped_string(&path, 0)?;
+        serde_json::from_str(&data).map_err(|e| format!("commands file corrupted: {e}"))
+    })
+    .await
+    .map_err(|e| format!("commands load task failed: {e}"))?
 }
 
 #[tauri::command(async)]
-pub fn commands_save(app: tauri::AppHandle, file: serde_json::Value) -> Result<(), String> {
-    let path = config_file(&app, "commands.json")?;
-    if let Some(dir) = path.parent() {
-        fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-    }
-    let json = serde_json::to_string_pretty(&file).map_err(|e| e.to_string())?;
-    crate::fsutil::atomic_write(&path, json.as_bytes())
+pub async fn commands_save(app: tauri::AppHandle, file: serde_json::Value) -> Result<(), String> {
+    // sync-диск, в blocking-пул (№4 аудита v5)
+    tauri::async_runtime::spawn_blocking(move || {
+        let path = config_file(&app, "commands.json")?;
+        if let Some(dir) = path.parent() {
+            fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+        }
+        let json = serde_json::to_string_pretty(&file).map_err(|e| e.to_string())?;
+        crate::fsutil::atomic_write(&path, json.as_bytes())
+    })
+    .await
+    .map_err(|e| format!("commands save task failed: {e}"))?
 }
 
 /// Конфиг субагентов (subagents.json): { enabled, maxParallel, roles: [...] }
 #[tauri::command(async)]
-pub fn subagents_load(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
-    let path = config_file(&app, "subagents.json")?;
-    if !path.exists() {
-        return Ok(serde_json::json!({}));
-    }
-    let data = crate::fsutil::read_capped_string(&path, 0)?;
-    serde_json::from_str(&data).map_err(|e| format!("subagents file corrupted: {e}"))
+pub async fn subagents_load(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
+    // sync-диск, в blocking-пул (№4 аудита v5)
+    tauri::async_runtime::spawn_blocking(move || {
+        let path = config_file(&app, "subagents.json")?;
+        if !path.exists() {
+            return Ok(serde_json::json!({}));
+        }
+        let data = crate::fsutil::read_capped_string(&path, 0)?;
+        serde_json::from_str(&data).map_err(|e| format!("subagents file corrupted: {e}"))
+    })
+    .await
+    .map_err(|e| format!("subagents load task failed: {e}"))?
 }
 
 #[tauri::command(async)]
-pub fn subagents_save(app: tauri::AppHandle, config: serde_json::Value) -> Result<(), String> {
-    let path = config_file(&app, "subagents.json")?;
-    if let Some(dir) = path.parent() {
-        fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-    }
-    let json = serde_json::to_string_pretty(&config).map_err(|e| e.to_string())?;
-    crate::fsutil::atomic_write(&path, json.as_bytes())
+pub async fn subagents_save(app: tauri::AppHandle, config: serde_json::Value) -> Result<(), String> {
+    // sync-диск, в blocking-пул (№4 аудита v5)
+    tauri::async_runtime::spawn_blocking(move || {
+        let path = config_file(&app, "subagents.json")?;
+        if let Some(dir) = path.parent() {
+            fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+        }
+        let json = serde_json::to_string_pretty(&config).map_err(|e| e.to_string())?;
+        crate::fsutil::atomic_write(&path, json.as_bytes())
+    })
+    .await
+    .map_err(|e| format!("subagents save task failed: {e}"))?
 }
 
 /// Цвета моделей в статистике (colors.json): { "<model>": "#rrggbb" }
 #[tauri::command(async)]
-pub fn usage_colors_load(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
-    let path = config_file(&app, "colors.json")?;
-    if !path.exists() {
-        return Ok(serde_json::json!({}));
-    }
-    let data = crate::fsutil::read_capped_string(&path, 0)?;
-    serde_json::from_str(&data).map_err(|e| format!("colors file corrupted: {e}"))
+pub async fn usage_colors_load(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
+    // sync-диск, в blocking-пул (№4 аудита v5)
+    tauri::async_runtime::spawn_blocking(move || {
+        let path = config_file(&app, "colors.json")?;
+        if !path.exists() {
+            return Ok(serde_json::json!({}));
+        }
+        let data = crate::fsutil::read_capped_string(&path, 0)?;
+        serde_json::from_str(&data).map_err(|e| format!("colors file corrupted: {e}"))
+    })
+    .await
+    .map_err(|e| format!("colors load task failed: {e}"))?
 }
 
 #[tauri::command(async)]
-pub fn usage_colors_save(app: tauri::AppHandle, colors: serde_json::Value) -> Result<(), String> {
-    let path = config_file(&app, "colors.json")?;
-    if let Some(dir) = path.parent() {
-        fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-    }
-    let json = serde_json::to_string_pretty(&colors).map_err(|e| e.to_string())?;
-    crate::fsutil::atomic_write(&path, json.as_bytes())
+pub async fn usage_colors_save(
+    app: tauri::AppHandle,
+    colors: serde_json::Value,
+) -> Result<(), String> {
+    // sync-диск, в blocking-пул (№4 аудита v5)
+    tauri::async_runtime::spawn_blocking(move || {
+        let path = config_file(&app, "colors.json")?;
+        if let Some(dir) = path.parent() {
+            fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+        }
+        let json = serde_json::to_string_pretty(&colors).map_err(|e| e.to_string())?;
+        crate::fsutil::atomic_write(&path, json.as_bytes())
+    })
+    .await
+    .map_err(|e| format!("colors save task failed: {e}"))?
 }
 #[cfg(test)]
 mod tests {
