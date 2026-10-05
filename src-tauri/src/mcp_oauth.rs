@@ -14,7 +14,7 @@
 //! первый рефреш инвалидирует старый токен, второй падает.
 
 use crate::crypto;
-use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine as _;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
@@ -184,23 +184,55 @@ fn pkce() -> (String, String) {
     (verifier, URL_SAFE_NO_PAD.encode(digest))
 }
 
-fn rand_hex(bytes: usize) -> String {
+/// State для OAuth: base64url без паддинга — URL-safe по определению
+/// (Auth0 прямо рекомендует). STANDARD-энкод давал хвост `==`, провайдеры
+/// переэнкодят его на редиректе («==» → «%3D%3D») и сравнение рвалось
+fn rand_state(bytes: usize) -> String {
     let mut b = vec![0u8; bytes];
     rand::thread_rng().fill_bytes(&mut b);
-    STANDARD.encode(b)
+    URL_SAFE_NO_PAD.encode(b)
 }
 
-/// Вытащить query-параметр из первой строки GET-запроса loopback-редиректа
+/// Вытащить query-параметр из первой строки GET-запроса loopback-редиректа.
+/// Значение разворачивается из percent-encoding: провайдеры переэнкодят state
+/// на редиректе («потерян один уровень энкода» — кейсы Atlassian/Google), и
+/// сравнение сырого значения с ожидаемым даёт ложный CSRF-mismatch. `+`
+/// остаётся литералом (строгий RFC 3986, не form-decode): base64url-значения
+/// code/state литеральный `+` не содержат, а голый `+` в них кодируется
+/// как %2B. Голый параметр без `=` (напр. `&flag`) пропускается, а не
+/// обрывает разбор всей строки.
 fn extract_query_param(request_line: &str, key: &str) -> Option<String> {
     let path = request_line.split_whitespace().nth(1)?;
     let query = path.split_once('?')?.1;
-    for pair in query.split('&') {
+    query.split('&').find_map(|pair| {
         let (k, v) = pair.split_once('=')?;
-        if k == key {
-            return Some(v.to_string());
+        (k == key).then(|| url_decode(v))
+    })
+}
+
+/// Строгий percent-decode: %XX → байт; неполная/битая последовательность и
+/// не-ASCII за % остаются как есть. Работает по байтам: вход — lossy-строка,
+/// срезы внутри многобайтового символа не паникуют
+fn url_decode(s: &str) -> String {
+    let bytes = s.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' {
+            if let Some(hex) = bytes.get(i + 1..i + 3) {
+                if let Ok(b) =
+                    u8::from_str_radix(std::str::from_utf8(hex).unwrap_or(""), 16)
+                {
+                    out.push(b);
+                    i += 3;
+                    continue;
+                }
+            }
         }
+        out.push(bytes[i]);
+        i += 1;
     }
-    None
+    String::from_utf8_lossy(&out).into_owned()
 }
 
 fn url_encode(s: &str) -> String {
@@ -275,7 +307,7 @@ pub async fn authorize(
     };
 
     let (verifier, challenge) = pkce();
-    let state = rand_hex(16);
+    let state = rand_state(16);
     let listener = std::net::TcpListener::bind("127.0.0.1:0")
         .map_err(|e| format!("loopback bind failed: {e}"))?;
     let port = listener.local_addr().map_err(|e| e.to_string())?.port();
@@ -286,7 +318,9 @@ pub async fn authorize(
         auth_ep,
         url_encode(&client_id),
         url_encode(&redirect_uri),
-        state,
+        // state теперь URL-safe (rand_state), encode — identity, но оставляем
+        // для единообразия: любой параметр URL проходит через url_encode
+        url_encode(&state),
         url_encode(&challenge),
         cfg.oauth_scope
             .as_deref()
@@ -385,12 +419,17 @@ pub async fn authorize(
 }
 
 /// Ждём редирект с кодом: жёсткий дедлайн (заметка владельца), ответ юзеру —
-/// «закройте вкладку», проверка state (CSRF)
+/// «закройте вкладку», проверка state (CSRF). Соединения без параметров
+/// редиректа (префетч браузера, favicon, скан портов) НЕ завершают ожидание —
+/// раньше первый же «пустой» запрос гасил весь авторизационный цикл; финал —
+/// только код+state, явный error от провайдера или дедлайн
 fn wait_for_code_on(
     listener: std::net::TcpListener,
     expected_state: &str,
     timeout_secs: u64,
 ) -> Result<String, String> {
+    const OK_RESPONSE: &[u8] = b"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nConnection: close\r\n\r\n<!doctype html><meta charset=\"utf-8\"><body style=\"font-family:sans-serif;background:#111;color:#eee;text-align:center;padding-top:3em\"><p>Authorization received - you can close this tab.</p></body>";
+    const DENY_RESPONSE: &[u8] = b"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nConnection: close\r\n\r\n<!doctype html><meta charset=\"utf-8\"><body style=\"font-family:sans-serif;background:#111;color:#eee;text-align:center;padding-top:3em\"><p>Authorization failed - you can close this tab and retry.</p></body>";
     let deadline = Instant::now() + Duration::from_secs(timeout_secs);
     while Instant::now() < deadline {
         if let Ok((mut stream, _)) = listener.accept() {
@@ -411,17 +450,33 @@ fn wait_for_code_on(
             }
             let first = String::from_utf8_lossy(&buf);
             let request_line = first.lines().next().unwrap_or("").to_string();
-            let _ = stream.write_all(
-                b"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nConnection: close\r\n\r\n<!doctype html><meta charset=\"utf-8\"><body style=\"font-family:sans-serif;background:#111;color:#eee;text-align:center;padding-top:3em\"><p>Authorization received - you can close this tab.</p></body>",
-            );
-            drop(stream);
+            // Провайдер сам ответил отказом (юзер отклонил) — финал
             if let Some(err) = extract_query_param(&request_line, "error") {
+                let _ = stream.write_all(DENY_RESPONSE);
+                drop(stream);
                 return Err(format!("authorization error: {err}"));
             }
-            let code = extract_query_param(&request_line, "code").ok_or("no code in redirect")?;
-            if extract_query_param(&request_line, "state").unwrap_or_default() != expected_state {
+            let code = extract_query_param(&request_line, "code");
+            let state = extract_query_param(&request_line, "state");
+            let (code, state) = match (code, state) {
+                (Some(c), Some(s)) => (c, s),
+                // Не редирект: закрываем и продолжаем слушать до дедлайна
+                _ => {
+                    let _ = stream.write_all(
+                        b"HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n",
+                    );
+                    drop(stream);
+                    continue;
+                }
+            };
+            // Несовпадение при наличии обоих параметров — сигнал CSRF, финал
+            if state != expected_state {
+                let _ = stream.write_all(DENY_RESPONSE);
+                drop(stream);
                 return Err("state mismatch (CSRF check)".to_string());
             }
+            let _ = stream.write_all(OK_RESPONSE);
+            drop(stream);
             return Ok(code);
         }
         std::thread::sleep(Duration::from_millis(100));
@@ -604,6 +659,44 @@ mod tests {
         assert_eq!(extract_query_param(line, "state").as_deref(), Some("st-1"));
         assert_eq!(extract_query_param(line, "error"), None);
         assert_eq!(extract_query_param("GET /callback HTTP/1.1", "code"), None);
+    }
+
+    #[test]
+    fn extract_query_param_skips_bare_params_and_decodes() {
+        // №22: голый параметр без `=` раньше обрывал разбор (split_once('?')?)
+        let line = "GET /callback?flag&state=st%3D1&code=x+y HTTP/1.1";
+        assert_eq!(extract_query_param(line, "state").as_deref(), Some("st=1"));
+        assert_eq!(extract_query_param(line, "flag"), None);
+        // Строгий decode: `+` литералом (base64url-значения его не содержат)
+        assert_eq!(extract_query_param(line, "code").as_deref(), Some("x+y"));
+        // Битая последовательность % и не-ASCII за % остаются как есть
+        let raw = "GET /callback?state=st%zz1%2 HTTP/1.1";
+        assert_eq!(extract_query_param(raw, "state").as_deref(), Some("st%zz1%2"));
+    }
+
+    #[test]
+    fn state_is_url_safe_and_padding_free() {
+        // №1: STANDARD-энкод давал хвост `==` и `+/` — провайдеры переэнкодили
+        for _ in 0..32 {
+            let s = rand_state(16);
+            assert_eq!(s.len(), 22); // 16 байт → 128 бит / 6 бит на символ
+            assert!(!s.contains('+') && !s.contains('/') && !s.contains('='));
+        }
+        // Полный круг: state, переэнкодленный провайдером на редиректе
+        // (url_encode), после декода совпадает с оригиналом
+        let s = rand_state(16);
+        let line = format!("GET /callback?code=c&state={} HTTP/1.1", url_encode(&s));
+        assert_eq!(extract_query_param(&line, "state").as_deref(), Some(s.as_str()));
+    }
+
+    #[test]
+    fn url_decode_rejects_garbage_without_panicking() {
+        assert_eq!(url_decode("a%20b"), "a b");
+        assert_eq!(url_decode("plain"), "plain");
+        assert_eq!(url_decode("%"), "%");
+        assert_eq!(url_decode("%2"), "%2");
+        assert_eq!(url_decode("%zz"), "%zz");
+        assert_eq!(url_decode("м%3Dд"), "м=д");
     }
 
     #[test]
