@@ -36,3 +36,22 @@ export function evaluateToolRules(
   }
   return { denyHit, alwaysAsk, allowRule };
 }
+
+/** [P9] Слияние перманентных и сессионных правил: сессионные идут ПОСЛЕ
+ *  (ruleMatches ищет первое совпадение — перманентный deny важнее, а
+ *  allow-префиксы аддитивны). Чистая функция */
+export function mergePermRules(
+  base: PermRules | null | undefined,
+  extra: PermRules | null | undefined,
+): PermRules | null {
+  if (!base) return extra ?? null;
+  if (!extra) return base;
+  return {
+    allow: [...base.allow, ...extra.allow.filter((r) => !base.allow.includes(r))],
+    deny: [...base.deny, ...extra.deny.filter((r) => !base.deny.includes(r))],
+    always_ask: [
+      ...base.always_ask,
+      ...extra.always_ask.filter((r) => !base.always_ask.includes(r)),
+    ],
+  };
+}

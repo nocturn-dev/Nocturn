@@ -1387,6 +1387,7 @@ export const zh = {
     "agent.confirmDesc": "代理想要执行工具：",
     "agent.allow": "允许",
     "agent.allowAlways": "本任务总是允许",
+    "agent.allowPrefix": "本次任务内允许“{p} *”",
     "agent.deny": "拒绝",
     "agent.result": "结果",
     "agent.denied": "已被用户拒绝",

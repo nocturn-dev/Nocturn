@@ -122,6 +122,13 @@ export interface Session {
    *  автокомпакта суммаризуются — persistCompact пере-инжектирует их
    *  system-сообщением, чтобы скилл «не забывался» (CC postCompact) */
   activeSkills?: string[];
+  /** Сессионные префикс-правила ([P9]): allow-правила формата PermRules
+   *  («shell_run(git *)»), выданные кнопкой «по префиксу до конца задачи».
+   *  Живут до следующей НОВОЙ отправки пользователя в эту сессию (очистка
+   *  на входе handleSend, цепочки-продолжения не чистят); формат —
+   *  agent/permRules, evaluateToolRules покрывает их классификатором
+   *  shell (complex/dangerous префикс не пробивает) */
+  sessionRules?: import("./agent/permRules").PermRules;
   /** Происхождение ветки (edit-and-resend): сессия и сообщение, от которых
    *  форкнулись. Оригинальная сессия при форке не меняется */
   branchedFrom?: { sessionId: string; messageId: string };

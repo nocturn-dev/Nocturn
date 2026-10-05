@@ -1387,6 +1387,7 @@ export const ja = {
     "agent.confirmDesc": "エージェントがツールを実行しようとしています：",
     "agent.allow": "許可",
     "agent.allowAlways": "このタスクでは常に",
+    "agent.allowPrefix": "このタスクの間「{p} *」を許可",
     "agent.deny": "拒否",
     "agent.result": "結果",
     "agent.denied": "ユーザーが拒否しました",

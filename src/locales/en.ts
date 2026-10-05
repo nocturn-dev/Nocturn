@@ -1359,6 +1359,7 @@ export const en = {
     "agent.confirmDesc": "The agent wants to run a tool:",
     "agent.allow": "Allow",
     "agent.allowAlways": "Always for this task",
+    "agent.allowPrefix": "Allow '{p} *' for this task",
     "agent.deny": "Deny",
     "agent.result": "Result",
     "agent.denied": "Denied by user",

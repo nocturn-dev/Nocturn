@@ -29,7 +29,10 @@ export type Interaction =
     };
 
 /** Решение по подтверждению инструмента */
-export type ConfirmDecision = "once" | "always" | "deny";
+export type ConfirmDecision = "once" | "always" | "prefix" | "deny";
+/** "prefix" ([P9]) — разрешить префикс команды до конца задачи
+ *  (только shell_run; кнопка видна, когда из команды извлекается
+ *  безопасный префикс: simple, не dangerous) */
 
 /** Ответ на вопрос: выбранные label'ы + свободный текст «Other» */
 export interface AskAnswer {
