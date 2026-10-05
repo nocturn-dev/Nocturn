@@ -307,10 +307,80 @@ pub async fn crypto_unlock(app: tauri::AppHandle, password: String) -> Result<()
     meta
 }
 
-/// Перешифровать все зашифрованные поля (settings.json, profiles.json)
-/// со старого ключа на новый.
+/// Файлы с enc-полями, которые переносит rekey_all. imagegen/websearch/
+/// telegram — та же волна, что чистит crypto_reset (см. ниже): без переноса
+/// миграция PBKDF2→Argon2id делала эти ключи невосстановимыми (расшифровка-
+/// на-использовании честно отвечала «vault is locked» при разблокированном
+/// vault — старый шифротекст новым ключом не берётся)
+const REKEY_SECRET_FIELDS: &[(&str, &str)] = &[
+    ("imagegen.json", "api_key"),
+    ("websearch.json", "brave_key"),
+    ("telegram.json", "bot_token"),
+];
+
+/// Полный список файлов rekey_all: имя → в каком виде лежат enc-поля
+fn rekey_targets() -> Vec<&'static str> {
+    let mut names = vec!["settings.json", "profiles.json"];
+    names.extend(REKEY_SECRET_FIELDS.iter().map(|(f, _)| *f));
+    names
+}
+
+/// Чистое ядро rekey: содержимое одного конфига → байты с перешифрованными
+/// enc-полями. Выделено без AppHandle — покрыто юнит-тестами. Fail-closed:
+/// битый JSON и непереводимое поле — Err, а не «превратить в {}» (иначе rekey
+/// молча перезаписал бы частично восстановимый файл пустышкой)
+fn rekey_staged_bytes(
+    name: &str,
+    data: &str,
+    old_key: &[u8],
+    new_key: &[u8],
+) -> Result<Vec<u8>, String> {
+    let mut v: serde_json::Value = serde_json::from_str(data)
+        .map_err(|e| format!("cannot parse {name} — rekey aborted, nothing written: {e}"))?;
+    let mut fields: Vec<&mut serde_json::Value> = Vec::new();
+    if name == "settings.json" {
+        if let Some(f) = v.get_mut("api_key") {
+            fields.push(f);
+        }
+    } else if name == "profiles.json" {
+        if let Some(arr) = v.get_mut("profiles").and_then(|x| x.as_array_mut()) {
+            for p in arr {
+                if let Some(f) = p.get_mut("api_key") {
+                    fields.push(f);
+                }
+            }
+        }
+    } else if let Some((_, field)) = REKEY_SECRET_FIELDS.iter().find(|(f, _)| *f == name) {
+        if let Some(f) = v.get_mut(*field) {
+            fields.push(f);
+        }
+    }
+    let mut lost = 0usize;
+    for f in fields {
+        if let Some(stored) = f.as_str() {
+            if !crypto::is_encrypted(stored) {
+                continue;
+            }
+            match crypto::decrypt_with(old_key, stored) {
+                Some(plain) => {
+                    *f = serde_json::Value::String(crypto::encrypt_with(new_key, &plain)?)
+                }
+                None => lost += 1,
+            }
+        }
+    }
+    if lost > 0 {
+        return Err(format!(
+            "migration aborted: {lost} stored field(s) cannot be decrypted with the current password — vault is already inconsistent, nothing was written"
+        ));
+    }
+    serde_json::to_vec_pretty(&v).map_err(|e| e.to_string())
+}
+
+/// Перешифровать все зашифрованные поля (settings.json, profiles.json и
+/// секретные конфиги imagegen/websearch/telegram) со старого ключа на новый.
 ///
-/// Транзакция: оба файла готовятся в памяти; поле, не расшифровавшееся
+/// Транзакция: все файлы готовятся в памяти; поле, не расшифровавшееся
 /// старым ключом, АБОРТИТ миграцию целиком — раньше такие поля оставлялись
 /// под старым шифрованием при meta=argon2id и безвозвратно терялись, а
 /// сбой между перезаписью settings.json и profiles.json оставлял
@@ -324,55 +394,17 @@ pub(crate) fn rekey_all(
     new_key: &[u8],
 ) -> Result<(), String> {
     let mut staged: Vec<(std::path::PathBuf, Vec<u8>)> = Vec::new();
-    for name in ["settings.json", "profiles.json"] {
+    for name in rekey_targets() {
         let path = config_file(app, name)?;
         if !path.exists() {
             continue;
         }
         let data = fs::read_to_string(&path).map_err(|e| e.to_string())?;
-        // Fail-closed: битый JSON не «превращается в {}» — иначе rekey молча
-        // перезаписал бы частично восстановимый файл пустышкой и убил бы
-        // хранимые ключи (аборт миграции честнее тихой потери).
-        let mut v: serde_json::Value = serde_json::from_str(&data).map_err(|e| {
+        let bytes = rekey_staged_bytes(name, &data, old_key, new_key).map_err(|e| {
             format!(
-                "cannot parse {} — rekey aborted, nothing written: {e}",
-                path.display()
+                "rekey aborted, nothing written: {e}"
             )
         })?;
-        let mut fields: Vec<&mut serde_json::Value> = Vec::new();
-        if name == "settings.json" {
-            if let Some(f) = v.get_mut("api_key") {
-                fields.push(f);
-            }
-        } else if let Some(arr) = v.get_mut("profiles").and_then(|x| x.as_array_mut()) {
-            for p in arr {
-                if let Some(f) = p.get_mut("api_key") {
-                    fields.push(f);
-                }
-            }
-        }
-        let mut lost = 0usize;
-        for f in fields {
-            if let Some(stored) = f.as_str() {
-                if !crypto::is_encrypted(stored) {
-                    continue;
-                }
-                match crypto::decrypt_with(old_key, stored) {
-                    Some(plain) => {
-                        *f = serde_json::Value::String(crypto::encrypt_with(new_key, &plain)?)
-                    }
-                    None => lost += 1,
-                }
-            }
-        }
-        if lost > 0 {
-            return Err(format!(
-                "migration aborted: {lost} stored field(s) cannot be decrypted with the current password — vault is already inconsistent, nothing was written"
-            ));
-        }
-        let bytes = serde_json::to_string_pretty(&v)
-            .map_err(|e| e.to_string())?
-            .into_bytes();
         staged.push((path, bytes));
     }
     // Фаза записи: .bak → swap; сбой откатывает уже перезаписанные файлы
@@ -1503,5 +1535,92 @@ mod tests {
         assert!(starts_dir(&format!("{dir}{sep}sub{sep}f.json"), &dir));
         // сиблинг с общим префиксом — НЕ внутри (раньше ложно отклонялся)
         assert!(!starts_dir(&format!("c:{sep}cfg-backup{sep}f.json"), &dir));
+    }
+
+    // --- rekey_staged_bytes: ядро миграции PBKDF2→Argon2id (№2 аудита v5) ---
+
+    fn enc_with(key: &[u8], plain: &str) -> String {
+        crypto::encrypt_with(key, plain).expect("encrypt in test")
+    }
+
+    #[test]
+    fn rekey_migrates_all_five_config_shapes() {
+        let old = [1u8; 32];
+        let new = [2u8; 32];
+
+        // settings.json: api_key верхнего уровня
+        let data = serde_json::json!({ "api_key": enc_with(&old, "sk-top"), "encrypt_keys": true });
+        let out = rekey_staged_bytes("settings.json", &data.to_string(), &old, &new).unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&out).unwrap();
+        assert_eq!(
+            crypto::decrypt_with(&new, v["api_key"].as_str().unwrap()).map(|p| p.to_string()),
+            Some("sk-top".into())
+        );
+
+        // profiles.json: api_key каждого профиля
+        let data = serde_json::json!({
+            "profiles": [
+                { "name": "a", "api_key": enc_with(&old, "sk-p1") },
+                { "name": "b", "api_key": enc_with(&old, "sk-p2") }
+            ]
+        });
+        let out = rekey_staged_bytes("profiles.json", &data.to_string(), &old, &new).unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&out).unwrap();
+        for (i, want) in ["sk-p1", "sk-p2"].iter().enumerate() {
+            let stored = v["profiles"][i]["api_key"].as_str().unwrap();
+            assert_eq!(
+                crypto::decrypt_with(&new, stored).map(|p| p.to_string()),
+                Some((*want).into())
+            );
+        }
+
+        // Секретные конфиги: одно enc-поле с индивидуальным именем
+        for (file, field, plain) in [
+            ("imagegen.json", "api_key", "sk-img"),
+            ("websearch.json", "brave_key", "brave-1"),
+            ("telegram.json", "bot_token", "123:ABC"),
+        ] {
+            let data = serde_json::json!({ field: enc_with(&old, plain) });
+            let out = rekey_staged_bytes(file, &data.to_string(), &old, &new).unwrap();
+            let v: serde_json::Value = serde_json::from_slice(&out).unwrap();
+            assert_eq!(
+                crypto::decrypt_with(&new, v[field].as_str().unwrap()).map(|p| p.to_string()),
+                Some(plain.into()),
+                "{file}"
+            );
+        }
+    }
+
+    #[test]
+    fn rekey_keeps_plaintext_and_non_target_fields() {
+        let old = [1u8; 32];
+        let new = [2u8; 32];
+        // Для websearch.json таргет — brave_key: plaintext в нём не трогается,
+        // а enc в api_key (не таргет ЭТОГО файла) остаётся байт-в-байт
+        let enc_foreign = enc_with(&old, "brave-1");
+        let data = serde_json::json!({
+            "brave_key": "plaintext-key",
+            "api_key": enc_foreign,
+            "model": "gpt"
+        });
+        let out = rekey_staged_bytes("websearch.json", &data.to_string(), &old, &new).unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&out).unwrap();
+        assert_eq!(v["brave_key"].as_str().unwrap(), "plaintext-key");
+        assert_eq!(v["api_key"].as_str().unwrap(), enc_foreign);
+        assert_eq!(v["model"], "gpt");
+    }
+
+    #[test]
+    fn rekey_aborts_on_undecryptable_field() {
+        let old = [1u8; 32];
+        let new = [2u8; 32];
+        // enc под ЧУЖИМ ключом (рассинхрон vault) — аборт, ничего не пишется
+        let stranger = [7u8; 32];
+        let data = serde_json::json!({ "api_key": enc_with(&stranger, "x") });
+        let err = rekey_staged_bytes("imagegen.json", &data.to_string(), &old, &new).unwrap_err();
+        assert!(err.contains("cannot be decrypted"), "{err}");
+        // битый JSON — fail-closed Err, не пустышка
+        let err = rekey_staged_bytes("telegram.json", "{oops", &old, &new).unwrap_err();
+        assert!(err.contains("cannot parse"), "{err}");
     }
 }
