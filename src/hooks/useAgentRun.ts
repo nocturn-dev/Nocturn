@@ -39,6 +39,7 @@ import {
 import { buildProfileBlock } from "../userProfile";
 import { evalHardLimit } from "../limits";
 import { filterToolSchemas, isConcurrencySafe, isMutatingTool } from "../agent/toolFilter";
+import { noteCacheRequest, noteCacheUsage } from "../agent/cacheGuard";
 import { runPython, CODE_RUN_SCHEMA } from "../codeRun";
 import { StreamDeltaBuffer, applyMainDeltas } from "./streamBuffer";
 import { interpolate, parseWorkflow, type WorkflowDef } from "../workflow";
@@ -1424,6 +1425,8 @@ export function useAgentRun(deps: AgentRunDeps) {
         block: { thinking: string; signature: string; redacted: string[] } | null;
       } = { block: null };
       let failed = false;
+      // [P2] Фингерпринт исходящего запроса для кэш-детектора (system+тулы)
+      noteCacheRequest(targetId, { messages: history, tools });
       try {
         await chatWithRetry({
           requestId,
@@ -1494,6 +1497,8 @@ export function useAgentRun(deps: AgentRunDeps) {
             usageAcc.prompt += usage.prompt;
             usageAcc.completion += usage.completion;
             usageAcc.lastPrompt = usage.prompt;
+            // [P2] обнуление кэш-попаданий между раундами = разрыв префикса
+            noteCacheUsage(targetId, usage);
             roundStopReason = usage.stopReason ?? roundStopReason;
             checkHardLimit();
             // FIX: клонируем только целевую сессию, а не все сессии стора
