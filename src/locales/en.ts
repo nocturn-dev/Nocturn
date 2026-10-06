@@ -744,7 +744,7 @@ export const en = {
     "main.autoUpdateDesc": "Once per launch the app quietly asks GitHub whether a new version exists. Off — no network requests at all, except your API endpoints and enabled integrations.",
     "main.autostartDesc": "Open Nocturn automatically when your computer starts. Pairs well with automations.",
     "main.quickEntry": "Quick entry",
-    "main.quickEntryDesc": "Global shortcut — new-task window on top of any app (default Ctrl+Alt+Space)",
+    "main.quickEntryDesc": "Global shortcut — new-task window on top of any app (default Ctrl+Shift+Space)",
     "main.quickEntryRecording": "Press a shortcut…",
     "main.quickentryBindFail": "Could not register the shortcut — it may already be taken by another app",
     "main.quickentryUnavailable": "Quick Entry shortcut was not registered — the global hotkey is unavailable on this system",

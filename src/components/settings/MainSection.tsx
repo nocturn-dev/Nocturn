@@ -316,9 +316,12 @@ export function MainSection({
   };
 
   // Quick Entry: глобальное комбо. Храним в localStorage — бекенд применяет
-  // его при старте (App читает prefs до монтирования настроек)
+  // его при старте (App читает prefs до монтирования настроек).
+  // Дефолт дублируется бекендом (lib.rs setup/restore) — держать синхронно;
+  // ctrl+shift, не ctrl+alt: AltGr+Space на AZERTY — типографский пробел
+  // (аудит A3-6)
   const [qeBind, setQeBind] = useState<string>(
-    () => localStorage.getItem("haloui-quickentry-bind") ?? "ctrl+alt+space",
+    () => localStorage.getItem("haloui-quickentry-bind") ?? "ctrl+shift+space",
   );
   const [qeRecording, setQeRecording] = useState(false);
   // Диктовка (Whisper): статус CLI/модели; во время скачивания — опрос

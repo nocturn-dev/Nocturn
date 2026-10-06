@@ -378,7 +378,9 @@ platform:
   manually); the UI requires **WebKitGTK 2.40+** (Debian 12+, Ubuntu 23.04+,
   Fedora 38+ — older versions silently degrade glass/ambient effects);
   Computer Use (screen capture / input) requires an **X11** session;
-  Quick Entry global hotkey works on Wayland via the GlobalShortcuts portal.
+  Quick Entry global hotkey works on Wayland via the GlobalShortcuts portal
+  (on Wayland the overlay's position and always-on-top are compositor-owned —
+  it may appear where the compositor places it rather than top-center).
 
 ## Project layout
 

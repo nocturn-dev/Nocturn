@@ -1947,6 +1947,11 @@ export default function App() {
   });
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // AltGr (европейские раскладки) приходит в Chromium как ctrl+alt:
+      // AltGr+Z = «ż», и матч Ctrl+Alt+Z глотал символ preventDefault'ом
+      // и дёргал Zen/YouTube посреди набора текста (аудит A3-1). Клавиши
+      // с AltGraph — всегда ввод текста, хоткеям приложения они не принадлежат
+      if (e.getModifierState("AltGraph")) return;
       // В Hard-Mode (полноэкранный терминал) глобальные бинды глушим —
       // клавиши принадлежат шеллу; исключение — выход (hard_mode)
       if (hardSkinRef.current) {

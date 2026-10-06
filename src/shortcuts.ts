@@ -48,7 +48,7 @@ export const SHORTCUT_DEFAULTS: ShortcutBinds = {
   hard_mode: "Ctrl+Shift+H",
   toggle_zen: "Ctrl+Alt+Z",
   // YouTube-плеер: Ctrl+Alt+Y свободен (Zen на Ctrl+Alt+Z, QuickEntry на
-  // Ctrl+Alt+Space) — тот же ряд, та же рука
+  // Ctrl+Shift+Space) — тот же ряд, та же рука
   youtube_toggle: "Ctrl+Alt+Y",
 };
 
@@ -155,7 +155,7 @@ export function comboFromEvent(e: KeyboardEvent): string | null {
 }
 
 /**
- * Комбо Quick Entry в формате плагина ("ctrl+alt+space"). Набор клавиш
+ * Комбо Quick Entry в формате плагина ("ctrl+shift+space"). Набор клавиш
  * ограничен буквами/цифрами/F-клавишами/Space — ровно то, что гарантированно
  * понимает парсер Shortcut на бекенде. Голая клавиша без модификаторов
  * запрещена: глобальный хоткей перехватывал бы её в каждом приложении.
@@ -186,7 +186,7 @@ export function quickentryComboFromEvent(e: KeyboardEvent): string | null {
   return parts.join("+");
 }
 
-/** "ctrl+alt+space" → "Ctrl+Alt+Space" (первая буква каждого токена) */
+/** "ctrl+shift+space" → "Ctrl+Shift+Space" (первая буква каждого токена) */
 export function prettyQuickentryCombo(combo: string): string {
   const isMac = getPlatform() === "macos";
   return combo

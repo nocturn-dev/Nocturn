@@ -739,7 +739,7 @@ export async function storageCleanup(kind: string): Promise<number> {
 
 // ---------- Quick Entry (глобальное комбо + окно быстрого ввода) ----------
 
-/** Ремап глобального комбо; формат плагина — "ctrl+alt+space" */
+/** Ремап глобального комбо; формат плагина — "ctrl+shift+space" */
 export async function quickentrySetBind(combo: string): Promise<void> {
   if (!inTauri) return;
   await invoke("quickentry_set_bind", { combo });

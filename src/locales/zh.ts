@@ -773,7 +773,7 @@ export const zh = {
     "main.autoUpdateDesc": "每次启动时静默询问 GitHub 是否有新版本。关闭时 — 除你的 API 端点和已启用的集成外，不发起任何网络请求。",
     "main.autostartDesc": "电脑启动时自动打开 Nocturn。与自动化任务配合使用效果最佳。",
     "main.quickEntry": "快速输入",
-    "main.quickEntryDesc": "全局快捷键 — 在任何应用上方打开新任务窗口（默认 Ctrl+Alt+Space）",
+    "main.quickEntryDesc": "全局快捷键 — 在任何应用上方打开新任务窗口（默认 Ctrl+Shift+Space）",
     "main.quickEntryRecording": "请按下快捷键…",
     "main.quickentryBindFail": "无法注册快捷键——可能已被其他应用占用",
     "main.quickentryUnavailable": "Quick Entry 快捷键未能注册——此系统不支持全局快捷键",

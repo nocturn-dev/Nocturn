@@ -185,14 +185,18 @@ pub fn run() {
             // а не молчанием
             {
                 use tauri_plugin_global_shortcut::GlobalShortcutExt;
-                match app.global_shortcut().register("ctrl+alt+space") {
+                // ctrl+shift+space, не ctrl+alt+space: Ctrl+Alt = AltGr на
+                // уровне Win32-хоткеев, и на AZERTY дефолт перехватывал
+                // AltGr+Space — типографский пробел во ВСЕХ приложениях
+                // (аудит A3-6)
+                match app.global_shortcut().register("ctrl+shift+space") {
                     Ok(()) => QUICKENTRY_REGISTERED.store(true, Ordering::Relaxed),
                     Err(e) => {
                         QUICKENTRY_REGISTERED.store(false, Ordering::Relaxed);
                         eprintln!("quickentry shortcut unavailable: {e}");
                         // Wayland: XGrabKey недоступен в принципе — пробуем
                         // портал (композитор покажет диалог подтверждения)
-                        quickentry_portal_fallback(app.handle(), "ctrl+alt+space");
+                        quickentry_portal_fallback(app.handle(), "ctrl+shift+space");
                     }
                 }
             }
@@ -933,7 +937,7 @@ fn toggle_quickentry(app: &tauri::AppHandle) {
 }
 
 /// Ремап комбо Quick Entry (MainSection → запись в «Основном»).
-/// Строку парсит плагин: парсер case-insensitive, формат "ctrl+alt+space"
+/// Строку парсит плагин: парсер case-insensitive, формат "ctrl+shift+space"
 #[tauri::command]
 fn quickentry_set_bind(app: tauri::AppHandle, combo: String) -> Result<(), String> {
     use tauri_plugin_global_shortcut::GlobalShortcutExt;
@@ -946,8 +950,9 @@ fn quickentry_set_bind(app: tauri::AppHandle, combo: String) -> Result<(), Strin
         }
         Err(e) => {
             // unregister_all сорвал и прежнее комбо: возвращаем дефолт,
-            // иначе хоткей умирал до рестарта (а фронт был уверен в обратном)
-            let restored = gs.register("ctrl+alt+space").is_ok();
+            // иначе хоткей умирал до рестарта (а фронт был уверен в обратном).
+            // Дефолт дублируется строкой — держать синхронно с setup выше
+            let restored = gs.register("ctrl+shift+space").is_ok();
             QUICKENTRY_REGISTERED.store(restored, Ordering::Relaxed);
             // Wayland: плагин не смог — пробуем портал для нового комбо
             // (одобренный раньше триггер композитор переспрашивать не будет)
