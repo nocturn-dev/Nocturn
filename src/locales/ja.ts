@@ -773,7 +773,7 @@ export const ja = {
     "main.autoUpdateDesc": "起動のたびに GitHub へ新バージョンを静かに確認します。オフの場合は API エンドポイントと有効な統合以外、通信を行いません。",
     "main.autostartDesc": "PC の起動時に Nocturn を自動で開きます。自動化タスクと併用すると便利です。",
     "main.quickEntry": "クイック入力",
-    "main.quickEntryDesc": "グローバルショートカット — どのアプリの上でも新規タスクウィンドウを開きます（既定は Ctrl+Alt+Space）",
+    "main.quickEntryDesc": "グローバルショートカット — どのアプリの上でも新規タスクウィンドウを開きます（既定は Ctrl+Shift+Space）",
     "main.quickEntryRecording": "ショートカットを入力…",
     "main.quickentryBindFail": "ショートカットを登録できませんでした——他のアプリが使用中の可能性があります",
     "main.quickentryUnavailable": "クイック入力のショートカットを登録できませんでした——このシステムではグローバルホットキーが利用できません",
