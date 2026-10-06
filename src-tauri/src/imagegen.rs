@@ -259,7 +259,6 @@ pub async fn generate(
     }
 
     let dir = data_dir.join("images");
-    fs::create_dir_all(&dir).map_err(|e| format!("cannot create images dir: {e}"))?;
     // rand_hex8 вместо миллисекундного штампа: два вызова в одну миллисекунду
     // раньше тихо перезаписывали результат друг друга
     // Формат по сигнатуре: провайдер может отдать webp/gif — раньше всё
@@ -275,17 +274,28 @@ pub async fn generate(
     } else {
         "png"
     };
-    let path: PathBuf = dir.join(format!(
-        "img-{}.{}",
-        crate::fsutil::rand_hex8(),
-        ext
-    ));
-    fs::write(&path, &bytes).map_err(|e| format!("cannot save image: {e}"))?;
+    // Запись до 32 МБ (каталог может быть на сетевом профиле) — в
+    // blocking-пул: sync fs::create_dir_all/fs::write на воркере tokio
+    // морозили стримы (класс b451fd4, аудит A1-3)
+    let (path, bytes_len) = tauri::async_runtime::spawn_blocking(
+        move || -> Result<(PathBuf, usize), String> {
+            fs::create_dir_all(&dir).map_err(|e| format!("cannot create images dir: {e}"))?;
+            let path: PathBuf = dir.join(format!(
+                "img-{}.{}",
+                crate::fsutil::rand_hex8(),
+                ext
+            ));
+            fs::write(&path, &bytes).map_err(|e| format!("cannot save image: {e}"))?;
+            Ok((path, bytes.len()))
+        },
+    )
+    .await
+    .map_err(|e| format!("image save task failed: {e}"))??;
 
     Ok(json!({
         "ok": true,
         "path": path.to_string_lossy(),
-        "bytes": bytes.len(),
+        "bytes": bytes_len,
         "note": "The image is saved and rendered in the chat for the user — do not re-describe it, just confirm it is ready.",
     })
     .to_string())

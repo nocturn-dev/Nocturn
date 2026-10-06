@@ -292,6 +292,18 @@ pub(crate) fn collect_files(dir: &Path, root: &Path, files: &mut Vec<CheckpointF
 
 const CP_MAX_DEPTH: usize = 32;
 
+/// Чувствительное имя на ЛЮБОМ компоненте rel (аудит A1-4). Тот же класс,
+/// что у perm для fs_* — один источник правды, второй список не заводится.
+/// Разделители нормализуются к нативному: root с «/» на Windows даёт
+/// смешанный rel, который is_sensitive_path иначе не разобрал бы
+fn rel_sensitive(rel: &str) -> bool {
+    #[cfg(windows)]
+    let norm = rel.replace('/', "\\");
+    #[cfg(not(windows))]
+    let norm = rel.replace('\\', "/");
+    crate::perm::is_sensitive_path(&norm)
+}
+
 pub(crate) fn collect_files_at(
     dir: &Path,
     root: &Path,
@@ -331,7 +343,11 @@ pub(crate) fn collect_files_at(
                 Ok(r) => r.to_string_lossy().to_string(),
                 Err(_) => continue,
             };
-            if rel.starts_with('.') {
+            // Секрет-гард снимка (аудит A1-4): вложенные .env/.ssh/id_rsa/*.pem
+            // раньше уезжали в снапшот base64-ом и читались через
+            // checkpoint_files мимо perm-гардов (старый фильтр отсекал
+            // только top-level точку)
+            if rel_sensitive(&rel) {
                 continue;
             }
             let Ok(bytes) = fs::read(&path) else { continue };
@@ -451,7 +467,10 @@ fn hide_console_window(cmd: &mut std::process::Command) {
 }
 
 /// Один git-вызов с нашим GIT_DIR/GIT_WORK_TREE; возвращает trimmed stdout.
-/// Синхронный — вызывается только из spawn_blocking
+/// Синхронный — вызывается только из spawn_blocking. Таймаут через
+/// proc::run_command_opts: зависший git (сетевой HOME, fsmonitor-хелпер,
+/// антивирус) раньше вечно держал blocking-поток и checkpoint_save
+/// (аудит A1-2 — git_exec был починен, git_run остался)
 fn git_run(
     idx_dir: &Path,
     root: &Path,
@@ -459,7 +478,6 @@ fn git_run(
     envs: &[(&str, &str)],
     stdin: Option<&[u8]>,
 ) -> Result<String, String> {
-    use std::io::Write;
     let mut cmd = std::process::Command::new("git");
     cmd.arg(format!("--git-dir={}", idx_dir.display()))
         .arg(format!("--work-tree={}", root.display()))
@@ -467,32 +485,37 @@ fn git_run(
     for (k, v) in envs {
         cmd.env(k, v);
     }
-    hide_console_window(&mut cmd);
-    if stdin.is_some() {
-        cmd.stdin(std::process::Stdio::piped());
-    }
-    // spawn() наследует stdio — wait_with_output тогда читает None-хэндлы
-    // и возвращает ПУСТОЙ stdout (write-tree «успешно» возвращал пустоту).
-    // Явные пайпы обязательны
-    cmd.stdout(std::process::Stdio::piped());
-    cmd.stderr(std::process::Stdio::piped());
-    let mut child = cmd.spawn().map_err(|e| format!("git spawn: {e}"))?;
-    if let Some(data) = stdin {
-        if let Some(mut si) = child.stdin.take() {
-            let _ = si.write_all(data);
+    // run_command_opts сам ставит stdout/stderr-пайпы (голый spawn наследовал
+    // stdio, wait_with_output читал None-хендлы и возвращал ПУСТОЙ stdout —
+    // write-tree «успешно» отдавал пустоту), отсоединённо пишет stdin
+    // и гасит дерево по таймауту
+    let out = crate::proc::run_command_opts(
+        &mut cmd,
+        std::time::Duration::from_secs(30),
+        stdin.map(|d| d.to_vec()),
+        None,
+    )?;
+    if let Some(code) = out.status {
+        if code != 0 {
+            return Err(format!(
+                "git {} failed (code {code}): stderr={} stdout={}",
+                args.first().unwrap_or(&"?"),
+                out.stderr,
+                out.stdout
+            ));
         }
-    }
-    let out = child.wait_with_output().map_err(|e| format!("git wait: {e}"))?;
-    if !out.status.success() {
+    } else if out.timed_out {
+        return Err(format!("git {} timed out", args.first().unwrap_or(&"?")));
+    } else {
+        // Ни кода, ни таймаута — убит сигналом/не запустился: частичный
+        // stdout успехом не является (№17 аудита v5)
         return Err(format!(
-            "git {} failed (code {:?}): stderr={} stdout={}",
+            "git {} was killed by a signal or failed to start: {}",
             args.first().unwrap_or(&"?"),
-            out.status.code(),
-            String::from_utf8_lossy(&out.stderr),
-            String::from_utf8_lossy(&out.stdout)
+            out.stderr
         ));
     }
-    Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+    Ok(out.stdout.trim().to_string())
 }
 
 /// Ботовый автор журнала (ZCode-паттерн, блок 12 шаг 4): личные git-конфиги
@@ -758,6 +781,11 @@ fn checkpoint_restore_impl(
     }
     let mut restored = 0usize;
     for f in &store.files {
+        // Легаси-снимок мог содержать секреты до секрет-гарда collect:
+        // restore их не переписывает в дерево (аудит A1-4)
+        if rel_sensitive(&f.rel) {
+            continue;
+        }
         // Формат rel — нативные разделители ФС; старые Windows-чекпоинты с
         // «\» восстанавливаются как есть. Разбор по ОБОИМ разделителям:
         // иначе на Unix из «src\main.rs» вырастал плоский файл-мусор
@@ -838,6 +866,11 @@ pub async fn checkpoint_files(
         }
         let mut out = Vec::new();
         for f in &store.files {
+            // Легаси-снимок мог содержать секреты до секрет-гарда collect:
+            // expose их не отдаёт (аудит A1-4)
+            if rel_sensitive(&f.rel) {
+                continue;
+            }
             // Тот же гард пути, что у restore: только относительные без подъёма
             let parts: Vec<&str> = f
                 .rel
@@ -1006,6 +1039,55 @@ mod list_dir_tests {
         let _ = fs::remove_dir_all(&dir);
     }
 }
+#[cfg(test)]
+mod checkpoint_secret_tests {
+    use super::*;
+
+    /// Аудит A1-4: вложенные секреты не попадают в снимок; .gitignore и
+    /// прочие несекретные dot-файлы — остаются (класс один с perm)
+    #[test]
+    fn collect_skips_nested_sensitive_files() {
+        let dir = std::env::temp_dir().join(format!("haloui-cp-secret-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(dir.join("backend")).unwrap();
+        fs::create_dir_all(dir.join(".ssh")).unwrap();
+        fs::create_dir_all(dir.join("src")).unwrap();
+        fs::write(dir.join("backend").join(".env"), "SECRET=1").unwrap();
+        fs::write(dir.join(".ssh").join("id_rsa"), "key").unwrap();
+        fs::write(dir.join("server.pem"), "cert").unwrap();
+        fs::write(dir.join("src").join("main.rs"), "fn main() {}").unwrap();
+        fs::write(dir.join(".gitignore"), "target").unwrap();
+        let mut files = Vec::new();
+        let mut total = 0u64;
+        collect_files(&dir, &dir, &mut files, &mut total);
+        let rels: Vec<&str> = files.iter().map(|f| f.rel.as_str()).collect();
+        assert!(
+            rels.iter().any(|r| r.ends_with("main.rs")),
+            "legit file must be captured: {rels:?}"
+        );
+        assert!(!rels.iter().any(|r| r.contains(".env")), "rels: {rels:?}");
+        assert!(!rels.iter().any(|r| r.contains("id_rsa")), "rels: {rels:?}");
+        assert!(!rels.iter().any(|r| r.ends_with(".pem")), "rels: {rels:?}");
+        assert!(
+            rels.iter().any(|r| r.ends_with(".gitignore")),
+            "non-secret dotfile stays: {rels:?}"
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn rel_sensitive_matches_perm_class() {
+        // Смешанные разделители и оба направления нормализации
+        assert!(rel_sensitive("backend\\.env"));
+        assert!(rel_sensitive("backend/.env.local"));
+        assert!(rel_sensitive("sub/.ssh/id_rsa"));
+        assert!(rel_sensitive("cert.pem"));
+        assert!(rel_sensitive("keys/key.ppk"));
+        assert!(!rel_sensitive("src/main.rs"));
+        assert!(!rel_sensitive(".gitignore"));
+    }
+}
+
 #[cfg(test)]
 mod git_status_tests {
     use super::*;

@@ -383,8 +383,10 @@ pub fn recheck_location(name: &str, verified: &std::path::Path) -> Result<(), St
 
 /// Чувствительный класс путей (по канонизованной нормализованной форме):
 /// чтение = утечка секретов, запись = подмена — класс один для fs_*.
-/// Вердикт владельца: DENY по умолчанию, escape — явное allow-правило
-fn is_sensitive_path(canon: &str) -> bool {
+/// Вердикт владельца: DENY по умолчанию, escape — явное allow-правило.
+/// pub(crate): тот же класс переиспользует files.rs для чекпоинт-снапшотов
+/// (секреты не уезжают в снимок и не возвращаются из него — аудит A1-4)
+pub(crate) fn is_sensitive_path(canon: &str) -> bool {
     let sep = if cfg!(windows) { '\\' } else { '/' };
     let comps: Vec<&str> = canon.split(sep).filter(|c| !c.is_empty()).collect();
     let Some(name) = comps.last().copied() else {
