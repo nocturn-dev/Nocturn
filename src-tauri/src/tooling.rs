@@ -7,7 +7,7 @@ use crate::notes::notes_dir;
 use crate::perm;
 use crate::settings::{config_file, rejects_sensitive_path, save_json_config};
 use crate::mcp_oauth;
-use crate::{browser, computer, hooks, imagegen, mcp, tools, websearch};
+use crate::{browser, computer, hooks, imagegen, lsp, mcp, tools, websearch};
 use base64::engine::general_purpose::STANDARD as B64;
 use std::fs;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -93,7 +93,7 @@ pub async fn run_tool(
     // shell_run — без path-контроля (cwd опционален), но его КОМАНДА едет в
     // perm как аргумент матчинга deny-правил (волна E1)
     {
-        let perm_arg = if name.starts_with("fs_") {
+        let perm_arg = if name.starts_with("fs_") || name == "diagnostics" {
             args.get("path").and_then(|v| v.as_str()).map(str::to_string)
         } else if name == "shell_run" {
             args.get("command")
@@ -550,6 +550,28 @@ pub async fn execute_tool_inner(
         return websearch::execute(&query, count).await;
     }
 
+    // LSP-диагностики: блокирующий клиент (спавн сервера, ожидание
+    // publishDiagnostics) — в blocking-пул, Stop гасит ожидание через select!
+    if name == "diagnostics" {
+        if !lsp::config().enabled {
+            return Err("LSP diagnostics is disabled in Settings".to_string());
+        }
+        let path = args
+            .get("path")
+            .and_then(|v| v.as_str())
+            .ok_or("missing required argument: path")?
+            .to_string();
+        let work = tauri::async_runtime::spawn_blocking(move || {
+            lsp::diagnostics_for_file(&path, lsp::DIAG_WAIT_TOOL, lsp::SETTLE_MIN_TOOL)
+        });
+        return tokio::select! {
+            res = work => res.map_err(|e| format!("tool task failed: {e}"))?,
+            _ = wait_for_abort(abort_flag.as_ref()) => {
+                Err("aborted by user".to_string())
+            }
+        };
+    }
+
     // Генерация изображений: асинхронный HTTP, дубль-проверка тумблера.
     // chat_api — текущее подключение из «Подключения к ИИ»: фолбэк, когда
     // вкладка «Генерация изображений» не заполнена
@@ -581,16 +603,28 @@ pub async fn execute_tool_inner(
     // computer/browser-веток выше (аудит: зависший fs-вызов держал шаг
     // агента без ответа даже после Stop)
     let work = tauri::async_runtime::spawn_blocking({
-        // Клон Arc для closure: сам флаг нужен живым в select! ниже
+        // Клон Arc для closure: сам флаг нужен живым в select! ниже.
+        // Имя инструмента клонируется: после ветки исполнения LSP-фидбек
+        // сверяет name == "fs_write" на исходном значении
+        let name_for_work = name.clone();
         let abort_for_work = abort_flag.clone();
-        move || tools::execute_tool_with_abort(&name, &arguments, abort_for_work.as_deref())
+        move || tools::execute_tool_with_abort(&name_for_work, &arguments, abort_for_work.as_deref())
     });
-    let result: String = tokio::select! {
+    let mut result: String = tokio::select! {
         res = work => res.map_err(|e| format!("tool task failed: {e}"))??,
         _ = wait_for_abort(abort_flag.as_ref()) => {
             return Err("aborted by user".to_string());
         }
     };
+    // LSP-фидбек после правки: диагностики правленного файла дописываются к
+    // результату fs_write в том же turn'е (модель видит ошибки сразу). Лучшее
+    // усилие в blocking-пуле: любая ошибка LSP молча возвращает результат как есть
+    if name == "fs_write" && lsp::feedback_enabled() {
+        let for_feedback = result.clone();
+        result = tauri::async_runtime::spawn_blocking(move || lsp::edit_feedback(&for_feedback))
+            .await
+            .unwrap_or(result);
+    }
     Ok(result)
 }
 
@@ -714,6 +748,30 @@ pub async fn websearch_set_config(
     })
     .await
     .map_err(|e| format!("websearch config task failed: {e}"))?
+}
+
+// ---------- LSP-диагностики (инструмент diagnostics, настройки) ----------
+
+#[tauri::command(async)]
+pub fn lsp_get_config() -> lsp::LspConfig {
+    lsp::config()
+}
+
+#[tauri::command(async)]
+pub async fn lsp_set_config(
+    app: tauri::AppHandle,
+    config: lsp::LspConfig,
+) -> Result<(), String> {
+    // Запись lsp.json — ФС на возможном сетевом профиле: blocking-пул
+    // (класс crypto_status); снапшот обновляется только после записи,
+    // упавший сет-колл не оставляет UI врать об активном тумблере
+    tauri::async_runtime::spawn_blocking(move || {
+        save_json_config(&app, "lsp.json", &config)?;
+        lsp::set_config(config);
+        Ok(())
+    })
+    .await
+    .map_err(|e| format!("lsp config task failed: {e}"))?
 }
 
 // ---------- Свои звуки уведомлений ----------
@@ -1051,6 +1109,7 @@ fn known_tool_names() -> std::collections::HashSet<String> {
     push(&computer::computer_tool_schemas());
     push(&websearch::websearch_tool_schema());
     push(&imagegen::imagegen_tool_schema());
+    push(&lsp::lsp_tool_schema());
     for s in frontend_tool_schemas() {
         if let Some(n) = s["function"]["name"].as_str() {
             set.insert(n.to_string());
@@ -1118,6 +1177,10 @@ pub fn get_tool_schemas(
         // Веб-поиск: только при включённом тумблере
         if websearch::config().enabled {
             arr.push(websearch::websearch_tool_schema());
+        }
+        // LSP-диагностики: только при включённом тумблере
+        if lsp::config().enabled {
+            arr.push(lsp::lsp_tool_schema());
         }
         // Фронтовые инструменты: исполнение целиком на вебвью (App.tsx),
         // Rust отдаёт только схемы

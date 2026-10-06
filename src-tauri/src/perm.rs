@@ -153,7 +153,7 @@ pub fn validate_rule(
     }
     let fs_tool = matches!(
         parsed.tool.as_str(),
-        "fs_read" | "fs_write" | "fs_delete" | "fs_list" | "fs_grep"
+        "fs_read" | "fs_write" | "fs_delete" | "fs_list" | "fs_grep" | "diagnostics"
     );
     if for_allow && parsed.prefix.is_none() && (parsed.tool == "shell_run" || fs_tool) {
         return Err(format!(
@@ -244,7 +244,13 @@ pub(crate) fn decide(state: &PermState, name: &str, path: Option<&str>) -> Resul
         n if n.starts_with("computer_") => n != "computer_screenshot",
         _ => false,
     };
-    let fs_tool = matches!(name, "fs_read" | "fs_list" | "fs_write" | "fs_delete" | "fs_grep");
+    // diagnostics — read-only, но читает файл по пути: path-контроль как у
+    // fs_read (корни + sensitive-deny), иначе Plan-прогон через LSP читал бы
+    // всё подряд (диагностика вскрывает содержимое в сообщениях сервера)
+    let fs_tool = matches!(
+        name,
+        "fs_read" | "fs_list" | "fs_write" | "fs_delete" | "fs_grep" | "diagnostics"
+    );
     // Волна E1: deny-правило — серверный блок во всех режимах, на любой
     // инструмент (включая чтения), до остальных гейтов. fs-аргумент матчится
     // ТОЛЬКО по канонизованной форме (заметка владельца №1)
@@ -744,6 +750,17 @@ mod tests {
     fn plan_fs_read_uses_path_control() {
         assert!(decide(&state(PermMode::Plan, &["C:\\proj"]), "fs_read", Some("C:\\other\\x")).is_err());
         assert!(decide(&state(PermMode::Plan, &["C:\\proj"]), "fs_read", Some("C:\\proj\\x")).is_ok());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn diagnostics_is_read_only_with_fs_path_control() {
+        // diagnostics не мутирует (Plan доступен), но путь контролируется
+        // как у fs_read: вне корней и в sensitive-локациях — отказ
+        assert!(decide(&state(PermMode::Plan, &[]), "diagnostics", None).is_ok());
+        assert!(decide(&state(PermMode::Plan, &["C:\\proj"]), "diagnostics", Some("C:\\proj\\a.rs")).is_ok());
+        assert!(decide(&state(PermMode::Plan, &["C:\\proj"]), "diagnostics", Some("C:\\other\\a.rs")).is_err());
+        assert!(decide(&state(PermMode::Full, &["C:\\proj"]), "diagnostics", Some("C:\\proj\\.env")).is_err());
     }
 
     #[test]

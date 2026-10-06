@@ -1158,6 +1158,35 @@ export async function webSearchSetConfig(config: WebSearchConfig): Promise<void>
   return invoke("websearch_set_config", { config });
 }
 
+// ---------- LSP-диагностики (инструмент diagnostics) ----------
+
+export interface LspServerEntry {
+  /** Расширения файлов с точкой, например [".ts", ".tsx"] */
+  extensions: string[];
+  command: string;
+  args: string[];
+}
+
+export interface LspConfig {
+  enabled: boolean;
+  /** Диагностики автоматически дописываются к результату fs_write */
+  autoFeedback: boolean;
+  /** Пусто — встроенные дефолты; непусто — заменяет дефолты целиком */
+  servers: LspServerEntry[];
+}
+
+export async function lspGetConfig(): Promise<LspConfig> {
+  if (!inTauri) return { enabled: false, autoFeedback: true, servers: [] };
+  return invoke<LspConfig>("lsp_get_config");
+}
+
+export async function lspSetConfig(config: LspConfig): Promise<void> {
+  if (!inTauri) {
+    throw new Error("Настройка LSP работает в нативном приложении (npm run tauri dev)");
+  }
+  return invoke("lsp_set_config", { config });
+}
+
 // ---------- Telegram (уведомления через своего бота, opt-in) ----------
 
 export interface TelegramConfig {

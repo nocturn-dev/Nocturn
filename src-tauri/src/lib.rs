@@ -38,6 +38,7 @@ mod tooling;
 mod tts;
 mod voice;
 mod kb;
+pub mod lsp;
 pub mod mcp;
 pub mod mcp_oauth;
 mod perm;
@@ -106,6 +107,9 @@ pub fn run() {
                 // Раньше websearch.json писался, но никогда не читался на
                 // старте: тумблер и ключи молча сбрасывались каждым рестартом
                 websearch::set_config(serde_json::from_value(v).unwrap_or_default());
+            }
+            if let Some(v) = read("lsp.json") {
+                lsp::set_config(serde_json::from_value(v).unwrap_or_default());
             }
             if let Some(v) = read("telegram.json") {
                 // Telegram-бот уведомлений: polling стартует только если
@@ -278,6 +282,8 @@ pub fn run() {
             tooling::imagegen_set_config,
             tooling::websearch_get_config,
             tooling::websearch_set_config,
+            tooling::lsp_get_config,
+            tooling::lsp_set_config,
             telegram::telegram_get_config,
             telegram::telegram_set_config,
             telegram::telegram_status,
@@ -464,6 +470,7 @@ pub fn run() {
                     colibri::kill_on_exit(&registry);
                 }
                 tts::kill_on_exit();
+                lsp::kill_all();
                 cleanup_browser_profiles();
             }
         });

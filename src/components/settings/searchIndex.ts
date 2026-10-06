@@ -120,6 +120,15 @@ export const SETTINGS_SEARCH_INDEX: { section: Section; keys: MsgKey[] }[] = [
     keys: ["cu.desc", "cu.enabled", "cu.note"],
   },
   {
+    section: "lsp",
+    keys: [
+      "lsp.desc",
+      "lsp.enabled",
+      "lsp.autoFeedback",
+      "lsp.servers",
+    ],
+  },
+  {
     section: "shortcuts",
     keys: [
       "sc.desc",
