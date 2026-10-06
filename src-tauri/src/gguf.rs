@@ -17,7 +17,7 @@
 use std::collections::HashSet;
 use std::fs;
 use std::fs::File;
-use std::io::{BufReader, Read, Seek, SeekFrom, Write};
+use std::io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -290,6 +290,18 @@ pub struct LayerReport {
     pub global: Vec<TensorInfo>,
 }
 
+/// Адрес значения `{arch}.block_count` в файле — для in-place патча при
+/// хирургии (шаг 3a): значение фиксированной ширины переписывается байтами,
+/// весь остальной KV-регион (токенайзер, шаблоны) копируется вербатим —
+/// перекодировка словаря не выполняется никогда (§2.4-7: in-place правомерен
+/// только для фиксширинных скаляров).
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BlockCountPatch {
+    pub value_offset: u64,
+    pub width: u32,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GgufFile {
@@ -301,6 +313,13 @@ pub struct GgufFile {
     pub file_len: u64,
     /// Некритичные проблемы (спека требует, код прощает): идут в отчёт
     pub warnings: Vec<String>,
+    /// Абсолютный конец KV-региона = начало таблицы тензоров (шаг 3a:
+    /// вербатим-копия KV с патчем block_count)
+    pub kv_end: u64,
+    pub block_count_patch: Option<BlockCountPatch>,
+    /// Больше одного ключа "*.block_count" — патчить нельзя (неясно, какой из
+    /// них настоящий); surgery откажется
+    pub block_count_ambiguous: bool,
 }
 
 impl GgufFile {
@@ -515,6 +534,8 @@ impl Parser {
         let mut kv_keys: Vec<String> = Vec::new();
         let mut seen_keys: HashSet<String> = HashSet::new();
         let mut alignment: Option<u32> = None;
+        let mut bc_patch: Option<BlockCountPatch> = None;
+        let mut bc_seen = 0usize;
         let kv_region_start = self.pos;
         for i in 0..kv_count {
             // Кап бюджета СТРОГО по объявленным длинам — враждебный файл
@@ -536,6 +557,28 @@ impl Parser {
             let vt = ValueType::from_code(type_code).ok_or_else(|| {
                 format!("gguf: kv '{key}' has unknown value type {type_code}")
             })?;
+            // {arch}.block_count — единственный in-place патч хирургии 3a.
+            // Запоминаем адрес значения ДО его чтения. Несколько ключей с
+            // суффиксом .block_count → неоднозначность, патч отменяется
+            // (архитектурный ключ в файле ровно один; больше — враждебный файл)
+            if key.ends_with(".block_count") {
+                bc_seen += 1;
+                if bc_seen > 1 {
+                    bc_patch = None;
+                } else {
+                    let width = match vt {
+                        ValueType::UInt32 | ValueType::Int32 => 4u32,
+                        ValueType::UInt64 | ValueType::Int64 => 8,
+                        _ => 0,
+                    };
+                    if width > 0 {
+                        bc_patch = Some(BlockCountPatch {
+                            value_offset: self.pos,
+                            width,
+                        });
+                    }
+                }
+            }
             let value = self.read_kv_value(&key, vt)?;
             if vt == ValueType::UInt32 && key == "general.alignment" {
                 if let Some(Retained::Int(a)) = value {
@@ -558,6 +601,8 @@ impl Parser {
         }
 
         let meta = resolve_meta(version, &retained, kv_keys, alignment);
+        // Конец KV = начало таблицы тензоров — граница вербатим-копии (шаг 3a)
+        let kv_end = self.pos;
 
         // === TENSOR INFOS (§1.1): имя, n_dims, dims, type, offset ===
         let align = meta.alignment;
@@ -673,6 +718,9 @@ impl Parser {
             data_start,
             file_len: self.file_len,
             warnings,
+            kv_end,
+            block_count_patch: bc_patch,
+            block_count_ambiguous: bc_seen > 1,
         })
     }
 
@@ -1403,6 +1451,385 @@ pub fn gguf_cancel() {
     GGUF_CANCEL.store(true, Ordering::Relaxed);
 }
 
+// ---------------------------------------------------------------------------
+// Хирургия: план + streaming-writer (шаг 3a волны §28.2).
+// Алгоритм — GGUF_LAB_RESEARCH.md §1.4 (канонический порядок записи),
+// §1.9 (чеклист инвариантов), §2.2 (канонический алгоритм резки), §6.2.
+// ---------------------------------------------------------------------------
+
+/// Выживший тензор плана: info — с НОВЫМ именем и НОВЫМ offset (так пишется
+/// таблица), src_offset — старый offset (откуда копировать данные).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlanTensor {
+    pub info: TensorInfo,
+    pub src_offset: u64,
+}
+
+/// План резки — самодостаточен для исполнения: источник мог измениться между
+/// inspect и резкой, поэтому в плане зафиксирована идентичность исходника
+/// (длина файла), и execute_surgery метаданные повторно не читает.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SurgeryPlan {
+    /// Исходные индексы слоёв (отсортированы, уникальны)
+    pub remove: Vec<u64>,
+    /// old → new индексы выживших слоёв (для UI/отчёта)
+    pub renumber: Vec<(u64, u64)>,
+    pub new_block_count: u64,
+    pub new_tensors: Vec<PlanTensor>,
+    /// Сумма nbytes выживших (данные без паддинга) — для UI-оценки
+    pub total_out_bytes: u64,
+    /// Оценка размера выходного файла (мета + выровненные данные)
+    pub out_size_estimate: u64,
+    pub warnings: Vec<String>,
+    // === Идентичность исходника ===
+    pub src_file_len: u64,
+    pub src_data_start: u64,
+    pub alignment: u32,
+    pub kv_end: u64,
+    pub block_count_patch: Option<BlockCountPatch>,
+}
+
+/// Новый индекс слоя: old минус число удалённых ПЕРЕД ним. Сортированный
+/// remove + partition_point — O(log n) на тензор.
+fn renumber_of(sorted_remove: &[u64], old: u64) -> u64 {
+    old - sorted_remove.partition_point(|&r| r < old) as u64
+}
+
+/// `blk.{N}.{остаток}` → `blk.{new}.{остаток}`. Вызывается только для имён,
+/// прошедших layer_index — None здесь внутренняя ошибка, не формат файла.
+fn with_layer_index(name: &str, new_idx: u64) -> Option<String> {
+    let rest = name.strip_prefix("blk.")?;
+    let dot = rest.find('.')?;
+    if !rest[..dot].bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    Some(format!("blk.{new_idx}{}", &rest[dot..]))
+}
+
+/// Построить план резки (3a: dense-архитектуры без per-layer семантики).
+/// Всё, что требует консистентности per-layer массивов/паттернов, — отказ
+/// с внятной ошибкой до 3b (§28.1: гибриды — deny-list v1).
+pub fn build_surgery_plan(src: &GgufFile, remove: &[u64]) -> Result<SurgeryPlan, String> {
+    let arch = src
+        .meta
+        .architecture
+        .clone()
+        .ok_or_else(|| "gguf surgery: general.architecture is missing".to_string())?;
+    // Различаем «ключа нет» и «ключ не целое число» — диагностике помогает
+    // и владелец, и агент-инструмент (шаг 6)
+    let block_count = match src.meta.block_count {
+        Some(v) => u64::try_from(v)
+            .map_err(|_| "gguf surgery: negative block_count".to_string())?,
+        None => {
+            return Err(if src
+                .meta
+                .kv_keys
+                .iter()
+                .any(|k| k.ends_with(".block_count"))
+            {
+                "gguf surgery: block_count is not a fixed-width int (u32/i32/u64/i64) — cannot patch in place".to_string()
+            } else {
+                format!("gguf surgery: {arch}.block_count is missing")
+            });
+        }
+    };
+
+        // Гард-лист 3a (§6.3): отказ ДО любых вычислений ===
+        if src.block_count_ambiguous {
+            return Err("gguf surgery: multiple *.block_count keys — cannot pick the real one".into());
+        }
+        // После резолва block_count патч гарантирован (int-значение было
+        // прочитано фиксширинным чтением) — остаётся защитная проверка
+        let patch = src
+            .block_count_patch
+            .ok_or_else(|| "gguf surgery: internal: block_count patch missing".to_string())?;
+    // SWA-фаза сдвигается при удалении слоя → KV-cache/маска неверны (§1.6)
+    if src.flags.swa {
+        return Err(format!(
+            "gguf surgery: {arch} uses a sliding-window pattern — removal shifts the SWA phase (research §1.6); supported in step 3b"
+        ));
+    }
+    // Stale nextn_predict_layers делает файл unloadable (§2.4-2)
+    if src.flags.nextn {
+        return Err(
+            "gguf surgery: MTP/nextn blocks present — stale nextn_predict_layers makes the file unloadable; supported in step 3b".into(),
+        );
+    }
+    // Гибриды в практике сообщества не грузятся после хирургии (§2.4-6)
+    if src.flags.hybrid_ssm || src.flags.hybrid_conv {
+        return Err(
+            "gguf surgery: hybrid SSM/conv architecture — deny-list in v1 (research §6.3)".into(),
+        );
+    }
+    // Удаление до/внутри dense-диапазона MoE сдвигает границу (§1.6)
+    if src.meta.leading_dense_block_count.is_some() {
+        return Err(
+            "gguf surgery: leading_dense_block_count present (MoE with dense head) — shifts on removal; supported in step 3b".into(),
+        );
+    }
+    // Главная ошибка llama-quantize --prune-layers (research §2.4-1):
+    // block_count правится, массивы — нет. 3a честно отказывается.
+    for (key, spec) in [
+        ("attention.head_count", &src.meta.head_count),
+        ("attention.head_count_kv", &src.meta.head_count_kv),
+        ("feed_forward_length", &src.meta.feed_forward_length),
+        ("expert_used_count", &src.meta.expert_used_count),
+    ] {
+        if matches!(spec, Some(LayerSpec::Array(_))) {
+            return Err(format!(
+                "gguf surgery: {arch}.{key} is a per-layer array — index-mapped trimming lands in step 3b (llama.cpp --prune-layers breaks exactly here, research §2.4-1)"
+            ));
+        }
+    }
+
+    // === Валидация набора удаления ===
+    let mut sorted_remove = remove.to_vec();
+    sorted_remove.sort_unstable();
+    sorted_remove.dedup();
+    if sorted_remove.is_empty() {
+        return Err("gguf surgery: nothing to remove".into());
+    }
+    if let Some(&r) = sorted_remove.last() {
+        if r >= block_count {
+            return Err(format!(
+                "gguf surgery: layer {r} is out of range (block_count={block_count})"
+            ));
+        }
+    }
+    let new_block_count = block_count - sorted_remove.len() as u64;
+    if new_block_count == 0 {
+        return Err("gguf surgery: cannot remove every layer".into());
+    }
+
+    // === Ренумерация + новые offsets (§1.1: кумулятивная сумма pad(nbytes)
+    // по выжившим В ПОРЯДКЕ ФАЙЛА) ===
+    let align = src.meta.alignment;
+    let mut new_tensors = Vec::new();
+    let mut renumber: Vec<(u64, u64)> = Vec::new();
+    let mut running: u64 = 0;
+    for t in &src.tensors {
+        let Some(old_idx) = layer_index(&t.name) else {
+            // Глобальные (token_embd/output/…) — вербатим, порядок сохранён
+            new_tensors.push(PlanTensor {
+                info: TensorInfo {
+                    offset: running,
+                    ..t.clone()
+                },
+                src_offset: t.offset,
+            });
+            running += pad_to(t.nbytes, align);
+            continue;
+        };
+        if sorted_remove.binary_search(&old_idx).is_ok() {
+            continue;
+        }
+        let new_idx = renumber_of(&sorted_remove, old_idx);
+        let new_name = with_layer_index(&t.name, new_idx)
+            .ok_or_else(|| format!("gguf surgery: internal: unrenumberable name '{}'", t.name))?;
+        if !renumber.contains(&(old_idx, new_idx)) {
+            renumber.push((old_idx, new_idx));
+        }
+        new_tensors.push(PlanTensor {
+            info: TensorInfo {
+                name: new_name,
+                offset: running,
+                ..t.clone()
+            },
+            src_offset: t.offset,
+        });
+        running += pad_to(t.nbytes, align);
+    }
+    renumber.sort_unstable();
+
+    // Оценка выхода: header+KV (вербатим) + регенерированная TI + данные
+    let ti_size: u64 = new_tensors
+        .iter()
+        .map(|pt| 8 + pt.info.name.len() as u64 + 4 + 8 * pt.info.dims.len() as u64 + 4 + 8)
+        .sum();
+    let data_start = pad_to(src.kv_end + ti_size, align);
+    let out_size_estimate = data_start + running;
+
+    // === Предупреждения плана (качество — на совести исследователя,
+    // механику не ломаем; §2.3/§2.4) ===
+    let mut warnings = Vec::new();
+    if sorted_remove.contains(&(block_count - 1)) {
+        warnings.push(
+            "the LAST layer is being removed — deepest-block removal degrades quality the most (arXiv:2403.17887)".into(),
+        );
+    }
+    if src.meta.expert_count.is_some() {
+        warnings.push("MoE model: layer removal is mechanically safe, but expert statistics shift — validate with perplexity".into());
+    }
+    warnings.push(
+        "general.file_type is copied verbatim and no longer reflects the pruned topology (cosmetic)".into(),
+    );
+
+    Ok(SurgeryPlan {
+        remove: sorted_remove,
+        renumber,
+        new_block_count,
+        total_out_bytes: new_tensors.iter().map(|pt| pt.info.nbytes).sum(),
+        out_size_estimate,
+        warnings,
+        new_tensors,
+        src_file_len: src.file_len,
+        src_data_start: src.data_start,
+        alignment: align,
+        kv_end: src.kv_end,
+        block_count_patch: Some(patch),
+    })
+}
+
+/// Исполнить план: записать новый GGUF в dst_tmp. Ход (§1.4, §1.9):
+/// (1) header вербатим с in-place патчем tensor_count; (2) KV-регион
+/// вербатим с in-place патчем block_count (фиксширинный — §2.4-7; словарь
+/// НЕ перекодируется); (3) регенерация таблицы тензоров; (4) pad до
+/// data_start; (5) потоковое копирование данных выживших чанками mmap →
+/// BufWriter с pad после каждого тензора; (6) sync_all. Прогресс — по
+/// тензорам (§3.3-7), отмена — между чанками. Ошибка/отмена удаляют tmp.
+pub fn execute_surgery(
+    src_path: &Path,
+    plan: &SurgeryPlan,
+    dst_tmp: &Path,
+    cancel: &AtomicBool,
+    mut on_progress: impl FnMut(usize, usize, u64, u64),
+) -> Result<u64, String> {
+    let mut run = || -> Result<u64, String> {
+        let file = File::open(src_path).map_err(|e| format!("gguf surgery: open src: {e}"))?;
+        let file_len = file
+            .metadata()
+            .map_err(|e| format!("gguf surgery: stat src: {e}"))?
+            .len();
+        if file_len != plan.src_file_len {
+            return Err(format!(
+                "gguf surgery: source changed since planning ({file_len} != {} bytes) — re-inspect",
+                plan.src_file_len
+            ));
+        }
+        // SAFETY: файл открыт только на чтение нашим процессом; усечение
+        // третьей стороной во время операции — вне модели угроз (локальный
+        // файл владельца, операция под Busy-гардом GGUF Lab)
+        let mmap = unsafe { memmap2::Mmap::map(&file) }
+            .map_err(|e| format!("gguf surgery: mmap failed: {e}"))?;
+
+        let mut w =
+            BufWriter::with_capacity(COPY_CHUNK, File::create(dst_tmp).map_err(|e| {
+                format!("gguf surgery: create tmp: {e}")
+            })?);
+        let mut written: u64 = 0;
+        let track = |w: &mut BufWriter<File>, bytes: &[u8], written: &mut u64| -> Result<(), String> {
+            w.write_all(bytes).map_err(|e| format!("gguf surgery: write: {e}"))?;
+            *written += bytes.len() as u64;
+            Ok(())
+        };
+
+        // (1) header [0..24): magic/version/kv_count вербатим, tensor_count
+        // патчится на месте — поле u64 по спеке (§1.1), ширина не меняется
+        if mmap.len() < 24 {
+            return Err("gguf surgery: file shorter than a GGUF header".into());
+        }
+        let mut header = [0u8; 24];
+        header.copy_from_slice(&mmap[..24]);
+        header[8..16].copy_from_slice(&(plan.new_tensors.len() as u64).to_le_bytes());
+        track(&mut w, &header, &mut written)?;
+
+        // (2) KV-регион [24..kv_end) вербатим; ровно один чанк накрывает
+        // адрес block_count — в нём переписываются width байтов значения
+        let patch = plan
+            .block_count_patch
+            .ok_or_else(|| "gguf surgery: plan has no block_count patch".to_string())?;
+        let new_bc = plan.new_block_count;
+        let mut pos = 24u64;
+        while pos < plan.kv_end {
+            let end = (pos + COPY_CHUNK as u64).min(plan.kv_end);
+            let mut buf = mmap[pos as usize..end as usize].to_vec();
+            if patch.value_offset >= pos && patch.value_offset + u64::from(patch.width) <= end {
+                let off = (patch.value_offset - pos) as usize;
+                let bytes = if patch.width == 4 {
+                    (new_bc as u32).to_le_bytes().to_vec()
+                } else {
+                    new_bc.to_le_bytes().to_vec()
+                };
+                buf[off..off + bytes.len()].copy_from_slice(&bytes);
+            }
+            track(&mut w, &buf, &mut written)?;
+            pos = end;
+        }
+
+        // (3) таблица тензоров регенерируется (число/имена/offsets изменились)
+        for pt in &plan.new_tensors {
+            let name = pt.info.name.as_bytes();
+            track(&mut w, &(name.len() as u64).to_le_bytes(), &mut written)?;
+            track(&mut w, name, &mut written)?;
+            track(&mut w, &pt.info.n_dims.to_le_bytes(), &mut written)?;
+            for d in &pt.info.dims {
+                track(&mut w, &d.to_le_bytes(), &mut written)?;
+            }
+            track(&mut w, &pt.info.type_code.to_le_bytes(), &mut written)?;
+            track(&mut w, &pt.info.offset.to_le_bytes(), &mut written)?;
+        }
+
+        // (4) pad до data_start — нулями (§1.9-7)
+        let ti_end = plan.kv_end
+            + plan
+                .new_tensors
+                .iter()
+                .map(|pt| 8 + pt.info.name.len() as u64 + 4 + 8 * pt.info.dims.len() as u64 + 4 + 8)
+                .sum::<u64>();
+        let data_start = pad_to(ti_end, plan.alignment);
+        if data_start > ti_end {
+            track(&mut w, &vec![0u8; (data_start - ti_end) as usize], &mut written)?;
+        }
+
+        // (5) данные выживших: копия диапазонов из mmap + pad после каждого
+        // тензора (§1.4: offsetᵢ₊₁ = offsetᵢ + pad(nbytesᵢ))
+        let zeros = vec![0u8; plan.alignment as usize];
+        let total = plan.total_out_bytes;
+        let mut bytes_done: u64 = 0;
+        for (i, pt) in plan.new_tensors.iter().enumerate() {
+            let start = (plan.src_data_start + pt.src_offset) as usize;
+            let end = start + pt.info.nbytes as usize;
+            if end > mmap.len() {
+                return Err(format!(
+                    "gguf surgery: tensor '{}' data range is out of the source file",
+                    pt.info.name
+                ));
+            }
+            let mut off = start;
+            while off < end {
+                if cancel.load(Ordering::Relaxed) {
+                    return Err("gguf surgery: cancelled".into());
+                }
+                let chunk_end = (off + COPY_CHUNK).min(end);
+                track(&mut w, &mmap[off..chunk_end], &mut written)?;
+                off = chunk_end;
+            }
+            let padded_end = pad_to(pt.info.offset + pt.info.nbytes, plan.alignment);
+            let pad_len = (padded_end - (pt.info.offset + pt.info.nbytes)) as usize;
+            if pad_len > 0 {
+                track(&mut w, &zeros[..pad_len], &mut written)?;
+            }
+            bytes_done += pt.info.nbytes;
+            on_progress(i + 1, plan.new_tensors.len(), bytes_done, total);
+        }
+
+        // (6) долговечность до rename (§3.3-6)
+        let f = w
+            .into_inner()
+            .map_err(|e| format!("gguf surgery: flush: {e}"))?;
+        f.sync_all()
+            .map_err(|e| format!("gguf surgery: sync: {e}"))?;
+        Ok(written)
+    };
+    let result = run();
+    if result.is_err() || cancel.load(Ordering::Relaxed) {
+        let _ = fs::remove_file(dst_tmp);
+    }
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1429,6 +1856,9 @@ mod tests {
         name: String,
         dims: Vec<u64>,
         ttype: i32,
+        /// 0 = нули; >0 = детерминированный паттерн — данные после хирургии
+        /// сверяются байт-в-байт с исходником (нули не ловят подмену диапазона)
+        pattern: u8,
     }
 
     fn st(name: &str, dims: &[u64], ttype: i32) -> SynthTensor {
@@ -1436,6 +1866,16 @@ mod tests {
             name: name.to_string(),
             dims: dims.to_vec(),
             ttype,
+            pattern: 0,
+        }
+    }
+
+    fn stp(name: &str, dims: &[u64], ttype: i32, pattern: u8) -> SynthTensor {
+        SynthTensor {
+            name: name.to_string(),
+            dims: dims.to_vec(),
+            ttype,
+            pattern,
         }
     }
 
@@ -1617,13 +2057,19 @@ mod tests {
                 };
                 w.extend_from_slice(&offset.to_le_bytes());
             }
-            // Паддинг до data_start (§1.4) и данные нулями («веса»)
+            // Паддинг до data_start (§1.4) и данные тензорами по порядку
             let data_start = pad_raw(w.len() as u64, align);
             w.resize(data_start as usize, 0);
             for (i, t) in self.tensors.iter().enumerate() {
-                let end = data_start + offsets[i] + t.nbytes();
-                if w.len() < end as usize {
-                    w.resize(end as usize, 0);
+                let start = (data_start + offsets[i]) as usize;
+                let end = start + t.nbytes() as usize;
+                if w.len() < end {
+                    w.resize(end, 0);
+                }
+                if t.pattern != 0 {
+                    for (j, b) in w[start..end].iter_mut().enumerate() {
+                        *b = (j as u8).wrapping_mul(t.pattern).wrapping_add(t.pattern);
+                    }
                 }
             }
             if self.truncate_tail > 0 {
@@ -2199,5 +2645,251 @@ mod tests {
         assert!(!dst.exists());
 
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    // === Шаг 3a: хирургия (план + streaming-writer) ===
+
+    /// Полный прогон: синтез → parse → plan → execute → байты результата
+    fn run_cut(
+        s: &Synth,
+        remove: &[u64],
+        name: &str,
+    ) -> (GgufFile, SurgeryPlan, GgufFile, Vec<u8>, std::path::PathBuf) {
+        let src_path = write_tmp(&format!("{name}.src.gguf"), &s.build());
+        let src = GgufFile::open(&src_path).unwrap();
+        let plan = build_surgery_plan(&src, remove).unwrap();
+        let dst = write_tmp(&format!("{name}.out.gguf"), &[]);
+        let cancel = AtomicBool::new(false);
+        execute_surgery(&src_path, &plan, &dst, &cancel, |_, _, _, _| {}).unwrap();
+        let bytes = fs::read(&dst).unwrap();
+        let out = GgufFile::open(&dst).unwrap();
+        (src, plan, out, bytes, src_path)
+    }
+
+    /// Данные выжившего тензора в результате == данные исходника (байт-в-байт)
+    fn assert_data_equal(
+        src: &GgufFile,
+        src_bytes: &[u8],
+        out: &GgufFile,
+        out_bytes: &[u8],
+        plan: &SurgeryPlan,
+    ) {
+        for pt in &plan.new_tensors {
+            let s = (src.data_start + pt.src_offset) as usize;
+            let o = (out.data_start + pt.info.offset) as usize;
+            assert_eq!(
+                &src_bytes[s..s + pt.info.nbytes as usize],
+                &out_bytes[o..o + pt.info.nbytes as usize],
+                "tensor '{}' data must survive byte-exact",
+                pt.info.name
+            );
+        }
+    }
+
+    #[test]
+    fn surgery_dense_middle_cut_byte_exact() {
+        let mut s = Synth::llama_dense(4);
+        // Паттерн-данные + квант Q4_K (геометрия 256/144 — не байтово-кратная)
+        s.tensors = vec![
+            stp("token_embd.weight", &[128, 8], 0, 7),
+            stp("output_norm.weight", &[128], 0, 11),
+            stp("output.weight", &[128, 8], 0, 13),
+        ];
+        for i in 0..4u64 {
+            s.tensors
+                .push(stp(&format!("blk.{i}.attn_norm.weight"), &[128], 0, 17 + i as u8));
+            s.tensors
+                .push(stp(&format!("blk.{i}.attn_q.weight"), &[256, 16], 12, 23 + i as u8));
+        }
+        let (src, plan, out, out_bytes, src_path) = run_cut(&s, &[1, 2], "cutmid");
+
+        // План: ренумерация и счётчики
+        assert_eq!(plan.new_block_count, 2);
+        assert_eq!(plan.renumber, vec![(0, 0), (3, 1)]);
+        assert_eq!(plan.remove, vec![1, 2]);
+
+        // Post-flight №1: результат парсится собственным ридером
+        // (инвариант непрерывности offsets проверен при parse)
+        assert_eq!(out.meta.block_count, Some(2));
+        assert_eq!(out.meta.version, src.meta.version);
+        assert_eq!(out.meta.architecture.as_deref(), Some("llama"));
+        // Токенайзер-ключи не потеряны (KV-регион вербатим)
+        assert_eq!(out.meta.kv_keys, src.meta.kv_keys);
+
+        // Точный размер: оценка плана == факту записи
+        assert_eq!(out.file_len, plan.out_size_estimate);
+
+        // Данные выживших байт-в-байт
+        let src_bytes = fs::read(&src_path).unwrap();
+        assert_data_equal(&src, &src_bytes, &out, &out_bytes, &plan);
+
+        // Имена: blk.0 на месте, blk.3 → blk.1, вырезанных нет
+        let names: HashSet<String> = out.tensors.iter().map(|t| t.name.clone()).collect();
+        assert!(names.contains("blk.0.attn_norm.weight"));
+        assert!(names.contains("blk.1.attn_q.weight"));
+        assert!(!names
+            .iter()
+            .any(|n| n.starts_with("blk.2.") || n.starts_with("blk.3.")));
+
+        // Глобальные не тронуты
+        assert!(names.contains("token_embd.weight") && names.contains("output.weight"));
+        assert!(!out.flags.moe && !out.flags.nextn);
+    }
+
+    #[test]
+    fn surgery_cut_first_and_last_with_warning() {
+        let s = Synth::llama_dense(3);
+        let (src, plan, out, out_bytes, src_path) = run_cut(&s, &[0, 2], "cutfl");
+        assert_eq!(plan.renumber, vec![(1, 0)], "выживает только средний слой");
+        assert!(
+            plan.warnings.iter().any(|w| w.contains("LAST layer")),
+            "удаление последнего слоя обязано предупреждать (arXiv:2403.17887)"
+        );
+        assert_eq!(out.meta.block_count, Some(1));
+        let src_bytes = fs::read(&src_path).unwrap();
+        assert_data_equal(&src, &src_bytes, &out, &out_bytes, &plan);
+    }
+
+    #[test]
+    fn surgery_preserves_v2_and_alignment() {
+        let mut s = Synth::llama_dense(3);
+        s.version = 2;
+        s.alignment = Some(64);
+        s.tensors.push(stp("blk.2.attn_q.weight", &[256, 16], 12, 5));
+        let (src, _plan, out, out_bytes, src_path) = run_cut(&s, &[1], "cutv2");
+        assert_eq!(out.meta.version, 2, "v2 остаётся v2 (вербатим-заголовок)");
+        assert_eq!(out.meta.alignment, 64);
+        assert_eq!(out.data_start % 64, 0);
+        let src_bytes = fs::read(&src_path).unwrap();
+        assert_data_equal(&src, &src_bytes, &out, &out_bytes, &_plan);
+    }
+
+    #[test]
+    fn surgery_progress_reports_completion() {
+        let s = Synth::llama_dense(3);
+        let src_path = write_tmp("cutprog.src.gguf", &s.build());
+        let src = GgufFile::open(&src_path).unwrap();
+        let plan = build_surgery_plan(&src, &[1]).unwrap();
+        let dst = write_tmp("cutprog.out.gguf", &[]);
+        let mut steps = Vec::new();
+        execute_surgery(&src_path, &plan, &dst, &AtomicBool::new(false), |d, t, b, bt| {
+            steps.push((d, t, b, bt));
+        })
+        .unwrap();
+        let (d, t, b, bt) = *steps.last().unwrap();
+        assert_eq!((d, t), (plan.new_tensors.len(), plan.new_tensors.len()));
+        assert_eq!((b, bt), (plan.total_out_bytes, plan.total_out_bytes));
+    }
+
+    #[test]
+    fn surgery_cancel_removes_tmp() {
+        let s = Synth::llama_dense(2);
+        let src_path = write_tmp("cutcancel.src.gguf", &s.build());
+        let src = GgufFile::open(&src_path).unwrap();
+        let plan = build_surgery_plan(&src, &[0]).unwrap();
+        let dst = write_tmp("cutcancel.out.gguf.tmp", &[]);
+        let err = execute_surgery(
+            &src_path,
+            &plan,
+            &dst,
+            &AtomicBool::new(true),
+            |_, _, _, _| {},
+        )
+        .unwrap_err();
+        assert!(err.contains("cancelled"), "got: {err}");
+        assert!(!dst.exists(), "tmp не остаётся после отмены (§28.3)");
+    }
+
+    #[test]
+    fn surgery_refuses_changed_source() {
+        let s = Synth::llama_dense(2);
+        let src_path = write_tmp("cutchg.src.gguf", &s.build());
+        let src = GgufFile::open(&src_path).unwrap();
+        let plan = build_surgery_plan(&src, &[0]).unwrap();
+        // «Источник изменился между inspect и резкой»: дописали байт
+        let mut bytes = s.build();
+        bytes.push(0xFF);
+        fs::write(&src_path, &bytes).unwrap();
+        let err = execute_surgery(
+            &src_path,
+            &plan,
+            &write_tmp("cutchg.out.tmp", &[]),
+            &AtomicBool::new(false),
+            |_, _, _, _| {},
+        )
+        .unwrap_err();
+        assert!(err.contains("changed since planning"), "got: {err}");
+    }
+
+    /// Каждый гард 3a — свой отказ (deny-list §6.3, §28.1)
+    #[test]
+    fn surgery_guards_denies_step_3b_cases() {
+        let expect_denied = |s: &Synth, remove: &[u64], name: &str, needle: &str| {
+            let src = GgufFile::open(&write_tmp(&format!("{name}.src.gguf"), &s.build())).unwrap();
+            let err = build_surgery_plan(&src, remove).unwrap_err();
+            assert!(err.contains(needle), "expected '{needle}', got: {err}");
+        };
+
+        // per-layer массив (глава ошибка llama-quantize, §2.4-1)
+        let mut s = Synth::llama_dense(2);
+        s.kv.push((
+            "llama.attention.head_count_kv".into(),
+            Kv::ArrU32(vec![8, 8]),
+        ));
+        expect_denied(&s, &[0], "guard-arr", "per-layer array");
+
+        // SWA-паттерн (фаза сдвигается, §1.6)
+        let mut s = Synth::llama_dense(2);
+        s.kv.push(("llama.attention.sliding_window".into(), Kv::U32(512)));
+        expect_denied(&s, &[0], "guard-swa", "sliding-window");
+
+        // MTP/nextn (stale nextn_predict_layers, §2.4-2)
+        let mut s = Synth::llama_dense(2);
+        s.kv
+            .push(("llama.nextn_predict_layers".into(), Kv::U32(1)));
+        expect_denied(&s, &[0], "guard-nextn", "MTP/nextn");
+
+        // Гибрид (deny-list v1, §2.4-6)
+        let mut s = Synth::llama_dense(2);
+        s.tensors.push(st("blk.1.shortconv.conv.weight", &[64], 0));
+        expect_denied(&s, &[0], "guard-hybrid", "hybrid");
+
+        // MoE с dense-головой (leading_dense_block_count сдвигается, §1.6)
+        let mut s = Synth::llama_dense(2);
+        s.kv
+            .push(("llama.leading_dense_block_count".into(), Kv::U32(1)));
+        expect_denied(&s, &[0], "guard-dense", "leading_dense_block_count");
+
+        // Неоднозначный block_count
+        let mut s = Synth::llama_dense(2);
+        s.kv.push(("evil.block_count".into(), Kv::U32(1)));
+        expect_denied(&s, &[0], "guard-ambig", "multiple *.block_count");
+
+        // block_count не фиксированной ширины (строка) — in-place невозможен
+        let mut s = Synth::llama_dense(2);
+        s.kv[2] = ("llama.block_count".into(), Kv::S("2".into()));
+        expect_denied(&s, &[0], "guard-strbc", "fixed-width int");
+
+        // Пустой набор / вне диапазона / все слои
+        let s = Synth::llama_dense(2);
+        expect_denied(&s, &[], "guard-empty", "nothing to remove");
+        expect_denied(&s, &[2], "guard-range", "out of range");
+        expect_denied(&s, &[0, 1], "guard-all", "cannot remove every");
+    }
+
+    #[test]
+    fn surgery_plan_estimate_matches_written_file() {
+        // Оценка out_size_estimate уже сверена в surgery_dense_middle_cut_byte_exact
+        // через file_len; здесь — прямой инвариант суммы
+        let s = Synth::llama_dense(3);
+        let src = GgufFile::open(&write_tmp("est.src.gguf", &s.build())).unwrap();
+        let plan = build_surgery_plan(&src, &[1]).unwrap();
+        assert_eq!(plan.total_out_bytes, plan.new_tensors.iter().map(|pt| pt.info.nbytes).sum::<u64>());
+        // New offsets — строго кумулятивная сумма pad (§1.1)
+        let mut running = 0u64;
+        for pt in &plan.new_tensors {
+            assert_eq!(pt.info.offset, running);
+            running += pad_to(pt.info.nbytes, plan.alignment);
+        }
     }
 }

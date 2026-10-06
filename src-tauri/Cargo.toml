@@ -55,6 +55,9 @@ tauri-plugin-global-shortcut = "2"
 # фишинг в доверенном окне. Потребитель — MarkdownLink (фронт)
 tauri-plugin-opener = "2"
 url = "2"
+# Хирургия GGUF (gguf.rs, шаг 3a): источник читается mmap-ом — последовательные
+# диапазоны тензоров из 40-ГБ файла без лишней копии в page cache (ресёрч §3.3)
+memmap2 = "0.9"
 # Запись в системный буфер из Rust (см. clipboard.rs): navigator.clipboard
 # из JS — перехватываемая поверхность (клиппер-малварь)
 arboard = "3"

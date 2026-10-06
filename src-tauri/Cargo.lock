@@ -3100,6 +3100,7 @@ dependencies = [
  "futures-util",
  "image 0.25.10",
  "libc",
+ "memmap2",
  "pbkdf2",
  "portable-pty",
  "rand 0.8.8",
