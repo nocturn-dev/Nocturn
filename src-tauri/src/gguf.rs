@@ -3353,6 +3353,158 @@ async fn do_ollama_import(
     Err("gguf import: stream ended without success".into())
 }
 
+// ---------------------------------------------------------------------------
+// Агентные инструменты (шаг 6 волны §28.2): inspect / cut / test.
+// Регистрация по чек-листу AGENTS.md: схемы здесь, диспетчер в run_tool
+// (tooling.rs), зеркала perm.rs + toolFilter.ts (cut/test — mutating,
+// inspect — чтение). Ошибки бекенда агент видит как текст отказа.
+// ---------------------------------------------------------------------------
+
+/// Схемы GGUF-тулов (источник схем — как imagegen/lsp; чек-лист AGENTS.md)
+pub fn gguf_tool_schemas() -> serde_json::Value {
+    serde_json::json!([
+        {
+            "type": "function",
+            "function": {
+                "name": "gguf_inspect",
+                "description": "Inspect a GGUF model file stored in the GGUF Lab storage (appdata/gguf). Returns architecture, block count, per-layer tensor counts and sizes, arch flags (SWA / MoE / MTP / hybrid) and format warnings. Read-only.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "src_name": { "type": "string", "description": "File name in GGUF Lab storage, e.g. \"model.gguf\"" }
+                    },
+                    "required": ["src_name"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "gguf_cut",
+                "description": "Remove transformer layers from a GGUF model in the GGUF Lab storage. Writes a verified '<base>_cut.gguf' next to the source (original is never modified) and returns a surgery report. Layer-cutting guidance: cut in 2-3 layer blocks from the middle/late region, never the last layer (arXiv:2403.17887); SWA models with a scalar period require cuts in multiples of the period; hybrid SSM/conv architectures are rejected.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "src_name": { "type": "string", "description": "File name in GGUF Lab storage" },
+                        "remove_layers": { "type": "array", "items": { "type": "integer" }, "description": "Layer indices to remove, e.g. [8, 9, 10]" }
+                    },
+                    "required": ["src_name", "remove_layers"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "gguf_test",
+                "description": "Smoke-test a GGUF model from the GGUF Lab storage: starts llama-server (must be installed or downloaded via GGUF Lab settings), waits for model readiness, runs a tiny completion and reports the result. By default the server is stopped afterwards; pass keep_running=true to leave it running for the user.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "src_name": { "type": "string", "description": "File name in GGUF Lab storage" },
+                        "ctx_size": { "type": "integer", "description": "Context size for the test server (default 4096)" },
+                        "keep_running": { "type": "boolean", "description": "Keep the server running for the user after the smoke test (default false)" }
+                    },
+                    "required": ["src_name"]
+                }
+            }
+        }
+    ])
+}
+
+/// Диспетчер агентных тулов GGUF Lab — из run_tool (tooling.rs). Реиспользует
+/// команды напрямую: те же Busy/Cancel-гарды, что и у UI
+pub async fn run_agent_tool(
+    app: &tauri::AppHandle,
+    name: &str,
+    args: &serde_json::Value,
+) -> Result<String, String> {
+    let get_str = |k: &str| {
+        args.get(k)
+            .and_then(|v| v.as_str())
+            .map(String::from)
+            .ok_or_else(|| format!("missing required argument: {k}"))
+    };
+    match name {
+        "gguf_inspect" => {
+            let src = get_str("src_name")?;
+            let info = gguf_inspect(app.clone(), src).await?;
+            serde_json::to_string(&info).map_err(|e| format!("gguf: serialize: {e}"))
+        }
+        "gguf_cut" => {
+            let src = get_str("src_name")?;
+            let remove: Vec<u64> = args
+                .get("remove_layers")
+                .and_then(|v| v.as_array())
+                .ok_or_else(|| "missing required argument: remove_layers".to_string())?
+                .iter()
+                .filter_map(|v| v.as_u64())
+                .collect();
+            if remove.is_empty() {
+                return Err("remove_layers must not be empty".into());
+            }
+            let report = gguf_cut(app.clone(), src, remove).await?;
+            serde_json::to_string(&report).map_err(|e| format!("gguf: serialize: {e}"))
+        }
+        "gguf_test" => {
+            let src = get_str("src_name")?;
+            let ctx = args
+                .get("ctx_size")
+                .and_then(|v| v.as_u64())
+                .map(|v| v as u32);
+            let keep = args
+                .get("keep_running")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            let info = gguf_serve_start(app.clone(), src, ctx).await?;
+            let started = std::time::Instant::now();
+            let smoke = smoke_completion(&info).await;
+            // Сервер гасим и при ошибке смока — не оставляем за агентом процесс
+            if !keep {
+                let _ = gguf_serve_stop();
+            }
+            let text = smoke?;
+            let payload = json!({
+                "model": info.model,
+                "base_url": info.base_url,
+                "server_running": keep,
+                "duration_ms": started.elapsed().as_millis() as u64,
+                "smoke_response": text,
+            });
+            serde_json::to_string(&payload).map_err(|e| format!("gguf: serialize: {e}"))
+        }
+        _ => Err(format!("gguf: unknown agent tool '{name}'")),
+    }
+}
+
+/// Короткий completion для smoke-теста (§4.4: OpenAI-совместимый endpoint
+/// llama-server, temp 0 и кап токенов — детерминированный мини-проб)
+async fn smoke_completion(info: &ServeInfo) -> Result<String, String> {
+    let client = crate::network::shared_client(std::time::Duration::from_secs(120))?;
+    let resp = client
+        .post(format!("{}/chat/completions", info.base_url))
+        .json(&json!({
+            "model": info.model,
+            "messages": [{ "role": "user", "content": "Reply with exactly: OK" }],
+            "max_tokens": 16,
+            "temperature": 0,
+        }))
+        .send()
+        .await
+        .map_err(|e| format!("request failed: {e}"))?;
+    if !resp.status().is_success() {
+        return Err(format!("HTTP {}", resp.status().as_u16()));
+    }
+    let v: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("bad completion JSON: {e}"))?;
+    Ok(v["choices"][0]["message"]["content"]
+        .as_str()
+        .unwrap_or("(empty)")
+        .trim()
+        .to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

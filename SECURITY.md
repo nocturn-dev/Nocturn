@@ -42,6 +42,41 @@ browser. Guards:
 Review what you approve — "Always for this task" persists the decision in the
 session store.
 
+## GGUF Lab (local model surgery)
+
+The GGUF Lab panel and the `gguf_inspect` / `gguf_cut` / `gguf_test` agent
+tools operate on GGUF files inside a dedicated lab storage
+(`appdata/gguf/`). Boundaries:
+
+- **GGUF is a data container.** Model files are parsed as a strict
+  little-endian binary format (header, metadata key-values, tensor table,
+  tensor bytes) and are never executed, dequantized, or interpreted as code.
+  Parsing enforces the same validations as llama.cpp's loader (magic, offset
+  contiguity, alignment, name/size limits) and caps declared lengths before
+  allocating, so hostile files cannot cause runaway allocations.
+- **No arbitrary paths from the frontend.** Lab commands accept only plain
+  file *names* inside `appdata/gguf` (a validator rejects path separators,
+  `..` and non-`.gguf` names). Surgery always writes a new file
+  (`temp + fsync + rename`); the source is never modified in place.
+- **Network sources, all explicit.** Pulling models talks to *your* local
+  Ollama server (`127.0.0.1:11434`) — the same traffic as running
+  `ollama pull` yourself. Downloading the optional `llama-server` binary
+  hits `api.github.com` / GitHub release assets once per button press
+  (CPU build, ~18.5 MB); there is no background fetching.
+- **llama-server is a local process** resolved from your PATH, a path you
+  set, or the downloaded release; it binds `127.0.0.1` by default and is
+  killed with its whole process tree when you stop the test or on failure.
+  Its stdout/stderr go to a log file inside `appdata/gguf/logs/`.
+- **Blob integrity.** Exported Ollama blobs and their sha256 are verified
+  by content hash after copying; surgery outputs are re-parsed and their
+  surviving tensor bytes are compared byte-for-byte against the source
+  before the result is renamed into place.
+- **Agent tools.** `gguf_cut` and `gguf_test` are classified mutating in
+  `perm.rs` and its frontend mirror (`toolFilter.ts`) — they ask for
+  confirmation in Ask mode and are blocked in Plan mode, like `shell_run`.
+  `gguf_inspect` is read-only. Importing a model into Ollama (`/api/create`)
+  is UI-gated behind the same operation guard as the panel actions.
+
 ## Known residual risks (design trade-offs)
 
 - **Symlink TOCTOU on path writes — closed (2026-10-04).** File writes used

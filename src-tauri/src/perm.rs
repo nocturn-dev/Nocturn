@@ -237,7 +237,7 @@ fn rule_matches(rules: &[String], tool: &str, arg: Option<&str>, arg_is_path: bo
 pub(crate) fn decide(state: &PermState, name: &str, path: Option<&str>) -> Result<(), String> {
     let mutating = match name {
         "shell_run" | "fs_write" | "fs_delete" | "vault_write" | "image_generate"
-        | "memory_save" => true,
+        | "memory_save" | "gguf_cut" | "gguf_test" => true,
         n if n.starts_with("mcp__") => true,
         // Чтение и скриншот безопасны — mutating только действия
         n if n.starts_with("browser_") => !matches!(n, "browser_read" | "browser_screenshot"),

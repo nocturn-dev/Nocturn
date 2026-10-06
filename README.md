@@ -242,6 +242,13 @@ of TypeScript + Rust today). The highlights, by theme:
   preview** (iframe without same-origin: scripts run, your data stays sealed).
 - **Hard Mode** (experimental) — Nocturn hides away and the window becomes a
   full-screen live PTY terminal (xterm.js) wired to your shell; exit by hotkey.
+- **GGUF Lab** — local model surgery for R&D: pull GGUF models via your
+  Ollama, inspect layers, cut selected layers (per-layer metadata is
+  remapped by index, SWA phases and MTP tails are handled), and smoke-test
+  the result with a local `llama-server` or by importing it back into
+  Ollama — without leaving Nocturn. Every operation is post-flight verified
+  byte-for-byte; the agent can drive the lab through
+  `gguf_inspect` / `gguf_cut` / `gguf_test` tools.
 
 ## Settings: deeper than it looks
 
