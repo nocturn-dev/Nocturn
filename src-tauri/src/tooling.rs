@@ -597,6 +597,12 @@ pub async fn execute_tool_inner(
         )
         .await;
     }
+    // GGUF Lab (§28 шаг 6): inspect/cut/test — команда сама знает, как
+    // стримить прогресс; cut/test мутирующие (гарды perm.rs отработали
+    // ДО этого вызова — гардалы ставятся до PreToolUse-хуков)
+    if name == "gguf_inspect" || name == "gguf_cut" || name == "gguf_test" {
+        return crate::gguf::run_agent_tool(&app, &name, &args).await;
+    }
     // Инструменты блокирующие (shell_run — до 300 сек, fs-вызовы — ФС):
     // исполняем в отдельном потоке, иначе главный поток окна замирает на
     // весь таймаут. Stop обязан отвечать сразу: select! с abort — как у
@@ -1110,6 +1116,7 @@ fn known_tool_names() -> std::collections::HashSet<String> {
     push(&websearch::websearch_tool_schema());
     push(&imagegen::imagegen_tool_schema());
     push(&lsp::lsp_tool_schema());
+    push(&crate::gguf::gguf_tool_schemas());
     for s in frontend_tool_schemas() {
         if let Some(n) = s["function"]["name"].as_str() {
             set.insert(n.to_string());
@@ -1181,6 +1188,10 @@ pub fn get_tool_schemas(
         // LSP-диагностики: только при включённом тумблере
         if lsp::config().enabled {
             arr.push(lsp::lsp_tool_schema());
+        }
+        // GGUF Lab: inspect/cut/test (cut/test — mutating в perm.rs+toolFilter)
+        if let Some(extra) = crate::gguf::gguf_tool_schemas().as_array() {
+            arr.extend(extra.iter().cloned());
         }
         // Фронтовые инструменты: исполнение целиком на вебвью (App.tsx),
         // Rust отдаёт только схемы

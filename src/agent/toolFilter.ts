@@ -38,6 +38,8 @@ export function isMutatingTool(name: string): boolean {
     name === "vault_write" ||
     name === "memory_save" ||
     name === "image_generate" ||
+    name === "gguf_cut" ||
+    name === "gguf_test" ||
     name.startsWith("mcp__") ||
     (name.startsWith("browser_") &&
       name !== "browser_read" &&
