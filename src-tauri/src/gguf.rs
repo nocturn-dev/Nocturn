@@ -2484,6 +2484,771 @@ pub(crate) fn run_surgery_pipeline(
     })
 }
 
+// ---------------------------------------------------------------------------
+// Тестовый рантайм (шаг 4 волны §28.2): llama-server + Ollama create.
+// Детали — GGUF_LAB_RESEARCH.md §4.3/§4.4/§4.6 (api.md/server README 10.2026).
+// ---------------------------------------------------------------------------
+
+/// /health llama-server: 200 — модель готова; 503 — грузится (порт слушается
+/// ДО загрузки модели — единственный надёжный сигнал готовности, §4.4)
+const LLAMA_HEALTH_TIMEOUT_SECS: u64 = 300;
+const HEALTH_POLL_MS: u64 = 500;
+
+/// Состояние тест-сервера GGUF Lab: pid для kill_tree, порт и имя модели.
+/// Child-хэндл не хранится сознательно: после успешного старта управляем
+/// процессом через kill_tree (§proc), смерть процесса в чате проявится
+/// ошибкой соединения — UI шага 5 покажет «сервер упал» по статусу.
+struct ServerSession {
+    pid: u32,
+    port: u16,
+    model: String,
+}
+
+static TEST_SERVER: std::sync::Mutex<Option<ServerSession>> = std::sync::Mutex::new(None);
+
+fn lock_server() -> Result<std::sync::MutexGuard<'static, Option<ServerSession>>, String> {
+    TEST_SERVER
+        .lock()
+        .map_err(|_| "gguf serve: server state poisoned".to_string())
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LlamaServerStatus {
+    pub configured_path: Option<String>,
+    pub resolved_path: Option<String>,
+    pub server_running: bool,
+    pub server_port: Option<u16>,
+    pub server_model: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServeInfo {
+    pub port: u16,
+    pub base_url: String,
+    pub model: String,
+}
+
+/// Резолв llama-server: путь из конфига (gguf.json) → PATH-скан.
+/// Паттерн dictation.rs (whisper-cli): конфиг с путь-фолбэком в PATH.
+fn resolve_llama_server(config_path: Option<&str>, path_env: &str) -> Option<PathBuf> {
+    if let Some(p) = config_path.map(str::trim).filter(|s| !s.is_empty()) {
+        let pb = PathBuf::from(p);
+        if pb.is_file() {
+            return Some(pb);
+        }
+    }
+    let exe = if cfg!(windows) { "llama-server.exe" } else { "llama-server" };
+    let sep = if cfg!(windows) { ';' } else { ':' };
+    for dir in path_env.split(sep) {
+        if dir.trim().is_empty() {
+            continue;
+        }
+        let cand = PathBuf::from(dir.trim()).join(exe);
+        if cand.is_file() {
+            return Some(cand);
+        }
+    }
+    None
+}
+
+/// Свободный порт: ephemeral-bind → отпустить. Гонка между drop и спавном
+/// сервера теоретически возможна, /health-поллинг это выявит (refused).
+fn pick_free_port() -> Result<u16, String> {
+    std::net::TcpListener::bind(("127.0.0.1", 0))
+        .map(|l| l.local_addr().expect("bound listener has addr").port())
+        .map_err(|e| format!("gguf serve: no free port: {e}"))
+}
+
+enum HealthState {
+    Ready,
+    Loading,
+    Other(String),
+}
+
+/// Чистая интерпретация ответа /health (§4.4) — под golden-тесты
+fn interpret_health(status: u16, body: &str) -> HealthState {
+    match status {
+        200 => HealthState::Ready,
+        503 => HealthState::Loading,
+        other => HealthState::Other(format!("HTTP {other}: {}", body.trim())),
+    }
+}
+
+/// Хвост лога для диагностики упавшего сервера (последние ~1.5 КиБ)
+fn log_tail(path: &Path) -> String {
+    let Ok(s) = fs::read_to_string(path) else {
+        return "(log unreadable)".into();
+    };
+    if s.chars().count() <= 1500 {
+        return s;
+    }
+    let tail: String = s.chars().skip(s.chars().count() - 1500).collect();
+    format!("…{tail}")
+}
+
+/// Статус llama-server: конфиг + резолв + живая сессия
+#[tauri::command(async)]
+pub async fn gguf_llama_status(app: tauri::AppHandle) -> Result<LlamaServerStatus, String> {
+    let configured = read_llama_config(&app);
+    let resolved = resolve_llama_server(
+        configured.as_deref(),
+        &std::env::var("PATH").unwrap_or_default(),
+    )
+    .map(|p| p.to_string_lossy().into_owned());
+    let g = lock_server()?;
+    Ok(LlamaServerStatus {
+        configured_path: configured,
+        resolved_path: resolved,
+        server_running: g.is_some(),
+        server_port: g.as_ref().map(|s| s.port),
+        server_model: g.as_ref().map(|s| s.model.clone()),
+    })
+}
+
+/// Путь к llama-server: Some — задать (перезаписать), None — оставить как есть.
+/// Хранится в gguf.json (паттерн dictation.json)
+#[tauri::command(async)]
+pub async fn gguf_llama_set_path(app: tauri::AppHandle, path: Option<String>) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
+        let mut cur = crate::settings::read_json_config(&app, "gguf.json")
+            .ok()
+            .and_then(|v| v.as_object().cloned())
+            .unwrap_or_default();
+        cur.insert("llama_server_path".into(), json!(path));
+        crate::settings::save_json_config(&app, "gguf.json", &serde_json::Value::Object(cur))
+    })
+    .await
+    .map_err(|e| format!("gguf config task failed: {e}"))?
+}
+
+fn read_llama_config(app: &tauri::AppHandle) -> Option<String> {
+    crate::settings::read_json_config(app, "gguf.json")
+        .ok()
+        .and_then(|v| {
+            v.get("llama_server_path")
+                .and_then(|p| p.as_str())
+                .map(String::from)
+        })
+}
+
+/// Поднять llama-server над моделью из хранилища GGUF Lab: эфемерный порт,
+/// лог в appdata/gguf/logs, /health-поллинг до готовности (§4.4: 503 = грузится,
+/// refused = ещё не слушает — ждём, но смерть процесса фейлим сразу с хвостом
+/// лога). Килла по закрытию — gguf_serve_stop (kill_tree).
+#[tauri::command(async)]
+pub async fn gguf_serve_start(
+    app: tauri::AppHandle,
+    src_name: String,
+    ctx_size: Option<u32>,
+) -> Result<ServeInfo, String> {
+    let src_name = validate_lab_file_name(&src_name)?;
+    if lock_server()?.is_some() {
+        return Err("gguf serve: a test server is already running — stop it first".into());
+    }
+    let dir = gguf_dir(&app)?;
+    let model_path = dir.join(&src_name);
+    if !model_path.is_file() {
+        return Err(format!(
+            "gguf serve: source file not found in GGUF Lab storage: {src_name}"
+        ));
+    }
+    let bin = {
+        let configured = read_llama_config(&app);
+        resolve_llama_server(
+            configured.as_deref(),
+            &std::env::var("PATH").unwrap_or_default(),
+        )
+        .ok_or_else(|| {
+            "llama-server not found — install llama.cpp, add it to PATH or set the path in settings (or use the download button)".to_string()
+        })?
+    };
+    let port = pick_free_port()?;
+    let ctx = ctx_size.unwrap_or(4096);
+    let alias = src_name.trim_end_matches(".gguf").to_string();
+
+    let logs_dir = dir.join("logs");
+    let log_path = logs_dir.join(format!("llama-server-{port}.log"));
+    tauri::async_runtime::spawn_blocking(move || fs::create_dir_all(&logs_dir))
+        .await
+        .map_err(|e| format!("gguf serve: task failed: {e}"))?
+        .map_err(|e| format!("gguf serve: create logs dir: {e}"))?;
+
+    let mut cmd = std::process::Command::new(&bin);
+    cmd.args([
+        "-m",
+        &model_path.to_string_lossy(),
+        "--host",
+        "127.0.0.1",
+        "--port",
+        &port.to_string(),
+        "-c",
+        &ctx.to_string(),
+        "-a",
+        &alias,
+    ]);
+    let mut child = tauri::async_runtime::spawn_blocking({
+        let log_path = log_path.clone();
+        move || crate::proc::spawn_detached(&mut cmd, &log_path)
+    })
+    .await
+    .map_err(|e| format!("gguf serve: task failed: {e}"))??;
+
+    // /health-поллинг (§4.4): 503 = Loading → ждать; refused → ждать, но
+    // смерть процесса фейлит сразу; 200 = Ready
+    let client = crate::network::shared_client(std::time::Duration::from_secs(2))?;
+    let health_url = format!("http://127.0.0.1:{port}/health");
+    let deadline =
+        std::time::Instant::now() + std::time::Duration::from_secs(LLAMA_HEALTH_TIMEOUT_SECS);
+    loop {
+        if let Ok(Some(status)) = child.try_wait() {
+            crate::proc::kill_tree(child.id());
+            return Err(format!(
+                "llama-server exited during startup (code {status:?}) — log tail: {}",
+                log_tail(&log_path)
+            ));
+        }
+        if let Ok(resp) = client.get(&health_url).send().await {
+            let code = resp.status().as_u16();
+            let body = resp.text().await.unwrap_or_default();
+            match interpret_health(code, &body) {
+                HealthState::Ready => break,
+                HealthState::Loading => {}
+                HealthState::Other(m) => {
+                    crate::proc::kill_tree(child.id());
+                    return Err(format!(
+                        "llama-server /health: {m} — log tail: {}",
+                        log_tail(&log_path)
+                    ));
+                }
+            }
+        } // Err: ещё не слушает — ждём до дедлайна
+        if std::time::Instant::now() > deadline {
+            crate::proc::kill_tree(child.id());
+            return Err(format!(
+                "llama-server not ready after {LLAMA_HEALTH_TIMEOUT_SECS}s — log tail: {}",
+                log_tail(&log_path)
+            ));
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(HEALTH_POLL_MS)).await;
+    }
+    let info = ServeInfo {
+        port,
+        base_url: format!("http://127.0.0.1:{port}/v1"),
+        model: alias.clone(),
+    };
+    *lock_server()? = Some(ServerSession {
+        pid: child.id(),
+        port,
+        model: src_name,
+    });
+    drop(child);
+    Ok(info)
+}
+
+/// Остановить тест-сервер: kill_tree по pid сессии
+#[tauri::command]
+pub fn gguf_serve_stop() -> Result<(), String> {
+    let mut g = lock_server()?;
+    if let Some(s) = g.take() {
+        crate::proc::kill_tree(s.pid);
+    }
+    Ok(())
+}
+
+// === Скачивание llama-server (§4.4) ===
+
+#[derive(Debug, Clone)]
+struct ReleaseAsset {
+    name: String,
+    url: String,
+}
+
+/// Чистый парсер ответа /releases (массив объектов {tag_name, assets:
+/// [{name, browser_download_url}]}) — под golden-тесты формата GitHub API
+fn parse_releases(body: &str) -> Result<Vec<(String, Vec<ReleaseAsset>)>, String> {
+    let v: serde_json::Value =
+        serde_json::from_str(body).map_err(|e| format!("gguf download: bad releases JSON: {e}"))?;
+    let arr = v
+        .as_array()
+        .ok_or_else(|| "gguf download: releases JSON is not an array".to_string())?;
+    Ok(arr
+        .iter()
+        .filter_map(|r| {
+            let tag = r.get("tag_name")?.as_str()?.to_string();
+            let assets = r
+                .get("assets")?
+                .as_array()?
+                .iter()
+                .filter_map(|a| {
+                    Some(ReleaseAsset {
+                        name: a.get("name")?.as_str()?.to_string(),
+                        url: a.get("browser_download_url")?.as_str()?.to_string(),
+                    })
+                })
+                .collect();
+            Some((tag, assets))
+        })
+        .collect())
+}
+
+/// Бинари llama.cpp живут на per-commit тегах bNNNNN; semver-«latest» несёт
+/// только nightly-tag.txt (проверено по API 10.2026, §4.4) — берём ПЕРВЫЙ
+/// b-тег в списке релизов
+fn pick_binary_release(
+    releases: &[(String, Vec<ReleaseAsset>)],
+) -> Option<&(String, Vec<ReleaseAsset>)> {
+    releases.iter().find(|(tag, _)| {
+        tag.strip_prefix('b')
+            .is_some_and(|rest| !rest.is_empty() && rest.bytes().all(|b| b.is_ascii_digit()))
+    })
+}
+
+/// Выбор ассета под платформу: CPU-варианты (CUDA/Vulkan/RoCM/SYCL/OpenVINO —
+/// без них: ~18.5 МиБ против сотен, а ускорение — руками через путь в
+/// настройках). Имена сверены с релизом b11451 (4-0)
+fn pick_release_asset<'a>(
+    assets: &'a [ReleaseAsset],
+    os: &str,
+    arch: &str,
+) -> Option<&'a ReleaseAsset> {
+    let needle = match (os, arch) {
+        ("windows", "x86_64") => "bin-win-cpu-x64.zip",
+        ("linux", "x86_64") => "bin-ubuntu-x64.tar.gz",
+        ("macos", "x86_64") => "bin-macos-x64.tar.gz",
+        ("macos", "aarch64") => "bin-macos-arm64.tar.gz",
+        ("linux", "aarch64") => "bin-ubuntu-arm64.tar.gz",
+        _ => return None,
+    };
+    assets.iter().find(|a| a.name.contains(needle))
+}
+
+fn current_os_arch() -> (&'static str, &'static str) {
+    let arch = if cfg!(target_arch = "x86_64") {
+        "x86_64"
+    } else if cfg!(target_arch = "aarch64") {
+        "aarch64"
+    } else {
+        "unknown"
+    };
+    let os = if cfg!(target_os = "windows") {
+        "windows"
+    } else if cfg!(target_os = "macos") {
+        "macos"
+    } else if cfg!(target_os = "linux") {
+        "linux"
+    } else {
+        "unknown"
+    };
+    (os, arch)
+}
+
+/// Скачать llama-server последнего бинарого релиза в appdata/gguf/bin и
+/// распаковать: tar/bsdtar (Windows tar.exe умеет zip) — без zip-зависимости.
+/// Найденный бинарь сохраняется в gguf.json как llama_server_path.
+#[tauri::command(async)]
+pub async fn gguf_llama_download(app: tauri::AppHandle) -> Result<String, String> {
+    if GGUF_BUSY.swap(true, Ordering::Relaxed) {
+        return Err("gguf lab: another operation is already running".into());
+    }
+    GGUF_CANCEL.store(false, Ordering::Relaxed);
+    let result = do_llama_download(app).await;
+    GGUF_BUSY.store(false, Ordering::Relaxed);
+    result
+}
+
+async fn do_llama_download(app: tauri::AppHandle) -> Result<String, String> {
+    let client = crate::network::shared_client(std::time::Duration::from_secs(30))?;
+    // (1) список релизов → первый b-тег
+    let releases = client
+        .get("https://api.github.com/repos/ggml-org/llama.cpp/releases?per_page=15")
+        .header("User-Agent", "Nocturn-GGUF-Lab")
+        .send()
+        .await
+        .map_err(|e| format!("gguf download: cannot reach GitHub: {e}"))?;
+    if !releases.status().is_success() {
+        return Err(format!(
+            "gguf download: GitHub returned HTTP {}",
+            releases.status().as_u16()
+        ));
+    }
+    let body = releases
+        .text()
+        .await
+        .map_err(|e| format!("gguf download: read releases: {e}"))?;
+    let releases = parse_releases(&body)?;
+    let (tag, assets) = pick_binary_release(&releases)
+        .ok_or_else(|| "gguf download: no binary release (bNNNNN) found in the last 15 releases".to_string())?;
+    let (os, arch) = current_os_arch();
+    let asset = pick_release_asset(assets, os, arch)
+        .ok_or_else(|| format!("gguf download: no CPU asset for {os}/{arch} in {tag}"))?;
+    let asset_url = asset.url.clone();
+    let asset_name = asset.name.clone();
+    let _ = app.emit(
+        "gguf-progress",
+        json!({ "phase": "download", "model": asset_name, "status": format!("downloading {tag}") }),
+    );
+
+    // (2) стрим в tmp → rename (паттерн voice.rs), прогресс ~1 МиБ
+    let dir = gguf_dir(&app)?;
+    let bin_dir = dir.join("bin");
+    tauri::async_runtime::spawn_blocking({
+        let bin_dir = bin_dir.clone();
+        move || fs::create_dir_all(&bin_dir)
+    })
+    .await
+    .map_err(|e| format!("gguf download: task failed: {e}"))?
+    .map_err(|e| format!("gguf download: create dir: {e}"))?;
+    let archive_path = bin_dir.join(&asset_name);
+    let tmp_path = bin_dir.join(format!("{asset_name}.tmp"));
+    let tmp_in_task = tmp_path.clone();
+
+    let resp = client
+        .get(&asset_url)
+        .header("User-Agent", "Nocturn-GGUF-Lab")
+        .send()
+        .await
+        .map_err(|e| format!("gguf download: fetch asset: {e}"))?;
+    if !resp.status().is_success() {
+        return Err(format!(
+            "gguf download: asset fetch returned HTTP {}",
+            resp.status().as_u16()
+        ));
+    }
+    let total = resp.content_length().unwrap_or(0);
+    let mut resp = resp;
+    {
+        let app2 = app.clone();
+        let emit_name = asset_name.clone();
+        tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
+            let rt = tokio::runtime::Handle::current();
+            rt.block_on(async move {
+                let mut file = tokio::fs::File::create(&tmp_in_task)
+                    .await
+                    .map_err(|e| format!("gguf download: create tmp: {e}"))?;
+                use tokio::io::AsyncWriteExt as _;
+                let mut received: u64 = 0;
+                let mut last_emit: u64 = 0;
+                while let Some(chunk) = resp
+                    .chunk()
+                    .await
+                    .map_err(|e| format!("gguf download: interrupted: {e}"))?
+                {
+                    if GGUF_CANCEL.load(Ordering::Relaxed) {
+                        return Err("gguf download: cancelled".into());
+                    }
+                    file.write_all(&chunk)
+                        .await
+                        .map_err(|e| format!("gguf download: write: {e}"))?;
+                    received += chunk.len() as u64;
+                    if received - last_emit >= 1 << 20 {
+                        last_emit = received;
+                        let _ = app2.emit(
+                            "gguf-progress",
+                            json!({ "phase": "download", "model": emit_name, "received": received, "total": total }),
+                        );
+                    }
+                }
+                file.flush()
+                    .await
+                    .map_err(|e| format!("gguf download: flush: {e}"))?;
+                if received == 0 {
+                    return Err("gguf download: empty response".into());
+                }
+                Ok(())
+            })
+        })
+        .await
+        .map_err(|e| format!("gguf download: task failed: {e}"))??;
+    }
+    if GGUF_CANCEL.load(Ordering::Relaxed) {
+        let _ = fs::remove_file(&tmp_path);
+        return Err("gguf download: cancelled".into());
+    }
+    fs::rename(&tmp_path, &archive_path)
+        .map_err(|e| format!("gguf download: rename: {e}"))?;
+
+    // (3) распаковка: bsdtar (Windows tar.exe) умеет zip; GNU tar — tar.gz.
+    // CPU-ассет ~18.5 МиБ — распаковка секундная
+    let flag = if archive_path.to_string_lossy().ends_with(".zip") {
+        "-xf"
+    } else {
+        "-xzf"
+    };
+    let bin_dir2 = bin_dir.clone();
+    let archive = archive_path.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut cmd = std::process::Command::new("tar");
+        cmd.args([flag, &archive.to_string_lossy(), "-C", &bin_dir2.to_string_lossy()]);
+        crate::proc::run_command_opts(&mut cmd, std::time::Duration::from_secs(600), None, None)
+            .map_err(|e| format!("gguf download: extract: {e}"))
+            .and_then(|out| {
+                if out.timed_out || out.status != Some(0) {
+                    Err(format!(
+                        "gguf download: extract failed (status {:?}) — stderr: {}",
+                        out.status,
+                        out.stderr.chars().rev().take(400).collect::<String>().chars().rev().collect::<String>()
+                    ))
+                } else {
+                    Ok(())
+                }
+            })
+    })
+    .await
+    .map_err(|e| format!("gguf download: task failed: {e}"))??;
+    let _ = fs::remove_file(&archive_path);
+
+    // (4) найти llama-server рекурсивно (релиз пакует build/bin/Release/*)
+    let found = find_llama_server(&bin_dir)
+        .ok_or_else(|| "gguf download: llama-server not found after extraction".to_string())?;
+    let found_str = found.to_string_lossy().into_owned();
+    // Сохранить в конфиг — следующий serve_start подхватит
+    let app2 = app.clone();
+    let found2 = found_str.clone();
+    tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
+        let mut cur = crate::settings::read_json_config(&app2, "gguf.json")
+            .ok()
+            .and_then(|v| v.as_object().cloned())
+            .unwrap_or_default();
+        cur.insert("llama_server_path".into(), json!(found2));
+        crate::settings::save_json_config(&app2, "gguf.json", &serde_json::Value::Object(cur))
+    })
+    .await
+    .map_err(|e| format!("gguf download: task failed: {e}"))??;
+    Ok(found_str)
+}
+
+/// Рекурсивный поиск llama-server(.exe) в каталоге (стек, не рекурсия —
+/// как dir_size в fsutil)
+fn find_llama_server(dir: &Path) -> Option<PathBuf> {
+    let exe = if cfg!(windows) { "llama-server.exe" } else { "llama-server" };
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        let Ok(entries) = fs::read_dir(&d) else { continue };
+        for e in entries.flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                stack.push(p);
+            } else if p.file_name().is_some_and(|n| n == exe) {
+                return Some(p);
+            }
+        }
+    }
+    None
+}
+
+// === Импорт в Ollama: blob push + create (§4.3) ===
+
+enum CreateEvent {
+    Status(String),
+    Done,
+    Error(String),
+}
+
+/// Чистая интерпретация NDJSON-строки /api/create (§4.3) — под golden-тесты
+fn parse_create_line(line: &str) -> Result<CreateEvent, String> {
+    let v: serde_json::Value =
+        serde_json::from_str(line).map_err(|e| format!("gguf import: bad NDJSON ({e}): {line}"))?;
+    if let Some(err) = v.get("error").and_then(|e| e.as_str()) {
+        return Ok(CreateEvent::Error(err.to_string()));
+    }
+    match v.get("status").and_then(|s| s.as_str()) {
+        Some("success") => Ok(CreateEvent::Done),
+        Some(s) => Ok(CreateEvent::Status(s.to_string())),
+        None => Ok(CreateEvent::Status(String::new())),
+    }
+}
+
+fn validate_ollama_model_name(name: &str) -> Result<(), String> {
+    // Локальное имя модели: буквы/цифры/._-/ (+тег через ':'); пути и пробелы — нет
+    if name.is_empty()
+        || name.contains("..")
+        || name.chars().any(|c| {
+            c.is_whitespace() || c == '\\' || c.is_control()
+        })
+        || !name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | ':' | '/'))
+    {
+        return Err(format!(
+            "gguf import: '{name}' is not a valid Ollama model name (letters, digits, . _ - : /)"
+        ));
+    }
+    Ok(())
+}
+
+/// SHA-256 файла стримом (sync — под spawn_blocking): блоб Ollama
+/// контент-адресный, дайджест нужен ДО пуша (§4.3)
+fn sha256_file(path: &Path) -> Result<String, String> {
+    let mut f = File::open(path).map_err(|e| format!("gguf import: open: {e}"))?;
+    let mut hasher = Sha256::new();
+    let mut buf = vec![0u8; 1 << 20];
+    loop {
+        let n = f.read(&mut buf).map_err(|e| format!("gguf import: read: {e}"))?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
+    Ok(hex_lower(&hasher.finalize()))
+}
+
+/// Импортировать GGUF из хранилища GGUF Lab в Ollama: HEAD/POST /api/blobs
+/// + POST /api/create (НОВЫЙ трёхшаговый формат, §4.3 — поле modelfile
+/// удалено из API). Прогресс — событием gguf-progress (phase "import").
+#[tauri::command(async)]
+pub async fn gguf_ollama_import(
+    app: tauri::AppHandle,
+    src_name: String,
+    model_name: String,
+) -> Result<(), String> {
+    if GGUF_BUSY.swap(true, Ordering::Relaxed) {
+        return Err("gguf lab: another operation is already running".into());
+    }
+    GGUF_CANCEL.store(false, Ordering::Relaxed);
+    let result = do_ollama_import(app, src_name, model_name).await;
+    GGUF_BUSY.store(false, Ordering::Relaxed);
+    result
+}
+
+async fn wait_cancelled() {
+    loop {
+        if GGUF_CANCEL.load(Ordering::Relaxed) {
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    }
+}
+
+async fn do_ollama_import(
+    app: tauri::AppHandle,
+    src_name: String,
+    model_name: String,
+) -> Result<(), String> {
+    let src_name = validate_lab_file_name(&src_name)?;
+    validate_ollama_model_name(&model_name)?;
+    let dir = gguf_dir(&app)?;
+    let src_path = dir.join(&src_name);
+    if !src_path.is_file() {
+        return Err(format!(
+            "gguf import: source file not found in GGUF Lab storage: {src_name}"
+        ));
+    }
+    let client = crate::network::shared_client(std::time::Duration::from_secs(30))?;
+
+    // (1) дайджест (spawn_blocking — мульти-ГБ чтение)
+    let digest_path = src_path.clone();
+    let digest = tauri::async_runtime::spawn_blocking(move || sha256_file(&digest_path))
+        .await
+        .map_err(|e| format!("gguf import: task failed: {e}"))??;
+    let digest_url = format!("{OLLAMA_URL}/api/blobs/sha256:{digest}");
+
+    // (2) push блоба, если его ещё нет (HEAD → 404 → POST стримом)
+    let head = client.head(&digest_url).send().await.map_err(|e| {
+        format!("gguf import: cannot reach Ollama at {OLLAMA_URL} (is it running?): {e}")
+    })?;
+    if head.status().as_u16() == 404 {
+        let size = fs::metadata(&src_path)
+            .map_err(|e| format!("gguf import: stat: {e}"))?
+            .len();
+        let file = tokio::fs::File::open(&src_path)
+            .await
+            .map_err(|e| format!("gguf import: open: {e}"))?;
+        // Стрим чанками — файл не материализуется в памяти (§3.3)
+        use tokio::io::AsyncReadExt as _;
+        let stream = futures_util::stream::unfold(
+            (file, 0u64),
+            |(mut f, done)| async move {
+                let mut buf = vec![0u8; COPY_CHUNK];
+                match f.read(&mut buf).await {
+                    Ok(0) => None,
+                    Ok(n) => Some((Ok::<_, std::io::Error>(buf[..n].to_vec()), (f, done + n as u64))),
+                    Err(e) => Some((Err(e), (f, done))),
+                }
+            },
+        );
+        let push = client
+            .post(&digest_url)
+            .header("Content-Length", size)
+            .body(reqwest::Body::wrap_stream(stream))
+            .send();
+        // Отмена пуша: дроп future = дроп соединения = сервер отменяет приём
+        let pushed = tokio::select! {
+            r = push => r,
+            _ = wait_cancelled() => return Err("gguf import: cancelled".into()),
+        };
+        let status = pushed
+            .map_err(|e| format!("gguf import: blob push failed: {e}"))?
+            .status();
+        if status.as_u16() == 400 {
+            return Err("gguf import: Ollama rejected the blob (digest mismatch)".into());
+        }
+        if !status.is_success() {
+            return Err(format!("gguf import: blob push returned HTTP {}", status.as_u16()));
+        }
+    } else if !head.status().is_success() {
+        return Err(format!(
+            "gguf import: blob check returned HTTP {}",
+            head.status().as_u16()
+        ));
+    }
+
+    // (3) create: NDJSON-поток статусов; ошибка/отмена — сразу
+    let create = client
+        .post(format!("{OLLAMA_URL}/api/create"))
+        .json(&json!({
+            "model": model_name,
+            "files": { "model.gguf": format!("sha256:{digest}") }
+        }))
+        .send();
+    let resp = tokio::select! {
+        r = create => r,
+        _ = wait_cancelled() => return Err("gguf import: cancelled".into()),
+    };
+    let mut resp = resp
+        .map_err(|e| format!("gguf import: create failed: {e}"))?;
+    if !resp.status().is_success() {
+        return Err(format!(
+            "gguf import: create returned HTTP {}",
+            resp.status().as_u16()
+        ));
+    }
+    let mut buf: Vec<u8> = Vec::new();
+    loop {
+        let chunk = tokio::select! {
+            c = resp.chunk() => c.map_err(|e| format!("gguf import: stream interrupted: {e}"))?,
+            _ = wait_cancelled() => return Err("gguf import: cancelled".into()),
+        };
+        let Some(chunk) = chunk else { break };
+        buf.extend_from_slice(&chunk);
+        while let Some(pos) = buf.iter().position(|&b| b == b'\n') {
+            let line: Vec<u8> = buf.drain(..=pos).collect();
+            let line = std::str::from_utf8(&line[..line.len() - 1]).unwrap_or_default();
+            if line.trim().is_empty() {
+                continue;
+            }
+            match parse_create_line(line)? {
+                CreateEvent::Done => {
+                    let _ = app.emit(
+                        "gguf-progress",
+                        json!({ "phase": "import", "model": model_name, "status": "success" }),
+                    );
+                    return Ok(());
+                }
+                CreateEvent::Error(e) => return Err(format!("gguf import: {e}")),
+                CreateEvent::Status(s) => {
+                    let _ = app.emit(
+                        "gguf-progress",
+                        json!({ "phase": "import", "model": model_name, "status": s }),
+                    );
+                }
+            }
+        }
+    }
+    Err("gguf import: stream ended without success".into())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3954,5 +4719,97 @@ mod tests {
         .unwrap_err();
         assert!(err.contains("open failed") || err.contains("missing"), "got: {err}");
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    // === Шаг 4: тестовый рантайм ===
+
+    #[test]
+    fn health_states_are_interpreted() {
+        // §4.4: 200 = Ready; 503 = Loading (порт слушается ДО загрузки);
+        // остальное — ошибка с телом для диагностики
+        assert!(matches!(interpret_health(200, r#"{"status":"ok"}"#), HealthState::Ready));
+        assert!(matches!(interpret_health(503, r#"{"error":{"code":503}}"#), HealthState::Loading));
+        match interpret_health(500, "boom") {
+            HealthState::Other(m) => assert!(m.contains("500") && m.contains("boom")),
+            _ => panic!("expected Other"),
+        }
+    }
+
+    #[test]
+    fn release_parsing_and_asset_pick() {
+        // Реальная структура ответа /releases: semver-«latest» без бинарей
+        // (v0.6.0 + nightly-tag.txt) и бинарный b-тег (имена — с b11451, 4-0)
+        let body = r#"[
+            {"tag_name": "v0.6.0", "assets": [{"name": "nightly-tag.txt", "browser_download_url": "https://x/nightly-tag.txt"}]},
+            {"tag_name": "b11451", "assets": [
+                {"name": "llama-b11451-bin-win-cpu-x64.zip", "browser_download_url": "https://x/win.zip"},
+                {"name": "llama-b11451-bin-win-cuda-12.4-x64.zip", "browser_download_url": "https://x/cuda.zip"},
+                {"name": "llama-b11451-bin-ubuntu-x64.tar.gz", "browser_download_url": "https://x/lin.tar.gz"},
+                {"name": "llama-b11451-bin-macos-x64.tar.gz", "browser_download_url": "https://x/mac.tar.gz"},
+                {"name": "llama-b11451-bin-macos-arm64.tar.gz", "browser_download_url": "https://x/mac-arm.tar.gz"}
+            ]}
+        ]"#;
+        let releases = parse_releases(body).unwrap();
+        let bin = pick_binary_release(&releases).unwrap();
+        assert_eq!(bin.0, "b11451", "semver-релиз с одним nightly-tag.txt пропускается");
+        // Windows CPU (не CUDA!)
+        let a = pick_release_asset(&bin.1, "windows", "x86_64").unwrap();
+        assert_eq!(a.name, "llama-b11451-bin-win-cpu-x64.zip");
+        assert_eq!(a.url, "https://x/win.zip");
+        assert_eq!(
+            pick_release_asset(&bin.1, "linux", "x86_64").unwrap().name,
+            "llama-b11451-bin-ubuntu-x64.tar.gz"
+        );
+        assert_eq!(
+            pick_release_asset(&bin.1, "macos", "aarch64").unwrap().name,
+            "llama-b11451-bin-macos-arm64.tar.gz"
+        );
+        // Нет ассета для экзотики → None (отказ с сообщением наверху)
+        assert!(pick_release_asset(&bin.1, "linux", "riscv64").is_none());
+        // Совсем без бинарей → None
+        let empty = parse_releases(r#"[{"tag_name": "v1.0", "assets": []}]"#).unwrap();
+        assert!(pick_binary_release(&empty).is_none());
+        // Битый JSON
+        assert!(parse_releases("not json").is_err());
+    }
+
+    #[test]
+    fn llama_server_resolution_config_first_then_path() {
+        // Конфиг-путь существует → он; конфиг-путь мёртв → PATH-скан
+        let dir = std::env::temp_dir().join(format!("haloui-gguf-resolve-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let real = dir.join(if cfg!(windows) { "llama-server.exe" } else { "llama-server" });
+        fs::write(&real, b"stub").unwrap();
+        let sep = if cfg!(windows) { ';' } else { ':' };
+        let path_env = format!(
+            "C:\\nowhere{sep}{}{sep}D:\\nowhere2",
+            dir.to_string_lossy()
+        );
+        let found = resolve_llama_server(None, &path_env).expect("PATH probe must find stub");
+        assert_eq!(found, real);
+        // Конфиг перекрывает PATH
+        let cfg = resolve_llama_server(Some(real.to_string_lossy().as_ref()), "").unwrap();
+        assert_eq!(cfg, real);
+        // Мёртвый конфиг-путь → фолбэк в PATH
+        let dead = resolve_llama_server(Some("Z:/definitely/missing/llama-server.exe"), &path_env);
+        assert_eq!(dead, Some(real));
+        // Нигде нет → None
+        assert!(resolve_llama_server(None, "C:\\nowhere").is_none());
+        // Пустые сегменты PATH не ломают
+        assert!(resolve_llama_server(None, ";;").is_none());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn ollama_model_names_validated() {
+        assert!(validate_ollama_model_name("my-cut").is_ok());
+        assert!(validate_ollama_model_name("qwen3-8b_pruned:latest").is_ok());
+        assert!(validate_ollama_model_name("hf.co/user/repo:Q4_K_M").is_ok());
+        for bad in ["", "my model", "a\\b", "..", "модель", "x\ny"] {
+            assert!(
+                validate_ollama_model_name(bad).is_err(),
+                "'{bad}' must be rejected"
+            );
+        }
     }
 }

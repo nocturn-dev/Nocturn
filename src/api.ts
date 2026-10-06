@@ -597,6 +597,74 @@ export async function ggufCancel(): Promise<void> {
   await invoke("gguf_cancel");
 }
 
+/* === GGUF Lab, шаг 4: тестовый рантайм === */
+
+/** Состояние llama-server: конфиг, резолв бинаря, живая сессия */
+export interface GgufLlamaStatus {
+  configuredPath: string | null;
+  resolvedPath: string | null;
+  serverRunning: boolean;
+  serverPort: number | null;
+  serverModel: string | null;
+}
+
+/** Поднятый тест-сервер: порт и OpenAI-compatible base_url */
+export interface GgufServeInfo {
+  port: number;
+  baseUrl: string;
+  model: string;
+}
+
+/** Статус llama-server (конфиг → PATH → скачанный бинарь) */
+export async function ggufLlamaStatus(): Promise<GgufLlamaStatus> {
+  if (!inTauri) {
+    return {
+      configuredPath: null,
+      resolvedPath: null,
+      serverRunning: false,
+      serverPort: null,
+      serverModel: null,
+    };
+  }
+  return invoke<GgufLlamaStatus>("gguf_llama_status");
+}
+
+/** Задать путь к llama-server (null — оставить как есть) */
+export async function ggufLlamaSetPath(path: string | null): Promise<void> {
+  if (!inTauri) return;
+  await invoke("gguf_llama_set_path", { path });
+}
+
+/** Поднять llama-server над файлом из хранилища (ждёт /health 200) */
+export async function ggufServeStart(
+  srcName: string,
+  ctxSize?: number,
+): Promise<GgufServeInfo> {
+  if (!inTauri) throw new Error("GGUF Lab is only available in the native app");
+  return invoke<GgufServeInfo>("gguf_serve_start", { srcName, ctxSize });
+}
+
+/** Остановить тест-сервер (kill_tree) */
+export async function ggufServeStop(): Promise<void> {
+  if (!inTauri) return;
+  await invoke("gguf_serve_stop");
+}
+
+/** Скачать последний CPU-релиз llama.cpp и прописать бинарь в конфиг */
+export async function ggufLlamaDownload(): Promise<string> {
+  if (!inTauri) throw new Error("GGUF Lab is only available in the native app");
+  return invoke<string>("gguf_llama_download");
+}
+
+/** Импортировать GGUF в Ollama (blob push + create) под именем model */
+export async function ggufOllamaImport(
+  srcName: string,
+  model: string,
+): Promise<void> {
+  if (!inTauri) throw new Error("GGUF Lab is only available in the native app");
+  await invoke("gguf_ollama_import", { srcName, model });
+}
+
 export async function loadSessions(): Promise<string | null> {
   if (!inTauri) {
     return localStorage.getItem(LS_SESSIONS);

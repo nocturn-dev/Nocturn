@@ -96,6 +96,38 @@ pub(crate) fn kill_tree(pid: u32) {
     }
 }
 
+/// Спавн долгоживущего процесса (сервер GGUF Lab): те же платформенные
+/// флаги, что у run_command_opts (CREATE_NO_WINDOW / своя процесс-группа
+/// для kill_tree), но БЕЗ таймаута. stdout+stderr идут в лог-файл —
+/// диагностика читается по требованию, без потоков-читателей пайпов.
+pub(crate) fn spawn_detached(cmd: &mut Command, log: &std::path::Path) -> Result<Child, String> {
+    let log_file = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(true)
+        .write(true)
+        .open(log)
+        .map_err(|e| format!("failed to open log file {}: {e}", log.display()))?;
+    let log2 = log_file
+        .try_clone()
+        .map_err(|e| format!("failed to clone log handle: {e}"))?;
+    // std::fs::File небуферизован — flush не нужен, хвост лога виден сразу
+    cmd.stdout(Stdio::from(log_file))
+        .stderr(Stdio::from(log2))
+        .stdin(Stdio::null());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    #[cfg(not(windows))]
+    {
+        use std::os::unix::process::CommandExt;
+        cmd.process_group(0);
+    }
+    cmd.spawn()
+        .map_err(|e| format!("failed to spawn command: {e}"))
+}
+
 /// Ожидание с таймаутом + сбор вывода из пайпов.
 fn finish(mut child: Child, timeout: Duration, abort: Option<&std::sync::atomic::AtomicBool>) -> ProcOutput {
     // stdout/stderr читаем двумя фоновыми потоками ПАРАЛЛЕЛЬНО с ожиданием
