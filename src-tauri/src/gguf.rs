@@ -1462,6 +1462,84 @@ pub fn gguf_cancel() {
     GGUF_CANCEL.store(true, Ordering::Relaxed);
 }
 
+/// Резка модели из хранилища GGUF Lab (шаг 3c): план → исполнение →
+/// post-flight гейт → отчёт. Принимает ТОЛЬКО имя файла в appdata/gguf
+/// (не путь) — результат рядом: <база>_cut.gguf.
+#[tauri::command(async)]
+pub async fn gguf_cut(
+    app: tauri::AppHandle,
+    src_name: String,
+    remove: Vec<u64>,
+) -> Result<SurgeryReport, String> {
+    if GGUF_BUSY.swap(true, Ordering::Relaxed) {
+        return Err("gguf lab: another operation is already running".into());
+    }
+    GGUF_CANCEL.store(false, Ordering::Relaxed);
+    let result = do_cut(app, src_name, remove).await;
+    GGUF_BUSY.store(false, Ordering::Relaxed);
+    result
+}
+
+async fn do_cut(
+    app: tauri::AppHandle,
+    src_name: String,
+    remove: Vec<u64>,
+) -> Result<SurgeryReport, String> {
+    let dir = gguf_dir(&app)?;
+    let src_name = validate_lab_file_name(&src_name)?;
+    let src_path = dir.join(&src_name);
+    if !src_path.is_file() {
+        return Err(format!(
+            "gguf cut: source file not found in GGUF Lab storage: {src_name}"
+        ));
+    }
+    let stem = src_name
+        .strip_suffix(".gguf")
+        .unwrap_or(src_name.as_str())
+        .to_string();
+    let out_name = format!("{stem}_cut.gguf");
+    let dst_path = dir.join(&out_name);
+
+    let emit_app = app.clone();
+    let emit_name = out_name.clone();
+    let report = tauri::async_runtime::spawn_blocking(move || {
+        run_surgery_pipeline(
+            &src_path,
+            &dst_path,
+            &remove,
+            &GGUF_CANCEL,
+            |phase, i, n, b, t| {
+                let _ = emit_app.emit(
+                    "gguf-progress",
+                    json!({
+                        "phase": phase,
+                        "model": emit_name,
+                        "step": i,
+                        "steps": n,
+                        "received": b,
+                        "total": t,
+                    }),
+                );
+            },
+        )
+    })
+    .await
+    .map_err(|e| format!("gguf cut: task failed: {e}"))?;
+    if let Ok(r) = &report {
+        let _ = app.emit(
+            "gguf-progress",
+            json!({
+                "phase": "done",
+                "model": r.output,
+                "status": "success",
+                "received": r.output_size_bytes,
+                "total": r.output_size_bytes,
+            }),
+        );
+    }
+    report
+}
+
 // ---------------------------------------------------------------------------
 // Хирургия: план + streaming-writer (шаг 3a волны §28.2).
 // Алгоритм — GGUF_LAB_RESEARCH.md §1.4 (канонический порядок записи),
@@ -1480,12 +1558,23 @@ pub struct PlanTensor {
 /// Правка KV-региона (шаг 3b). InPlace — фиксширинный скаляр (§2.4-7:
 /// in-place правомерен только для фиксширинных скаляров); ReplacePair —
 /// сплайс целой пары (массив другой длины/типа). ВСТАВОК НЕТ: kv_count
-/// в заголовке не меняется — число пар постоянно.
+/// в заголовке не меняется — число пар постоянно. key — для post-flight
+/// сверки по спанам выходного файла и человекочитаемого отчёта.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum KvEdit {
-    InPlace { value_offset: u64, width: u32, value: u64 },
-    ReplacePair { pair_start: u64, pair_end: u64, bytes: Vec<u8> },
+    InPlace {
+        key: String,
+        value_offset: u64,
+        width: u32,
+        value: u64,
+    },
+    ReplacePair {
+        key: String,
+        pair_start: u64,
+        pair_end: u64,
+        bytes: Vec<u8>,
+    },
 }
 
 /// Элементы перекодируемого массива: int-массивы (head_count_kv и др.)
@@ -1561,6 +1650,8 @@ pub struct SurgeryPlan {
     /// Правки KV-региона (block_count + per-layer массивы + nextn +
     /// leading_dense); отсортированы по позиции при исполнении
     pub kv_edits: Vec<KvEdit>,
+    /// Человекочитаемые сводки правок — в отчёт операции и UI
+    pub kv_edits_summary: Vec<String>,
     /// Длина KV-региона ПОСЛЕ правок (для оценки размера выхода)
     pub kv_out_len: u64,
 }
@@ -1697,10 +1788,14 @@ pub fn build_surgery_plan(src: &GgufFile, remove: &[u64]) -> Result<SurgeryPlan,
         .scalar
         .ok_or_else(|| "gguf surgery: internal: block_count is not a scalar".to_string())?;
     kv_edits.push(KvEdit::InPlace {
+        key: format!("{arch}.block_count"),
         value_offset: bc_off,
         width: bc_width,
         value: new_block_count,
     });
+    let mut kv_edits_summary = vec![format!(
+        "{arch}.block_count = {new_block_count} (in-place)"
+    )];
 
     // Генерик-гард: ЛЮБОЙ другой {arch}.*-массив длиной block_count несёт
     // per-layer семантику, которую мы не знаем → отказ. Ловит будущие архи
@@ -1754,7 +1849,13 @@ pub fn build_surgery_plan(src: &GgufFile, remove: &[u64]) -> Result<SurgeryPlan,
             .filter(|old| !is_removed(*old))
             .map(|old| values[old as usize])
             .collect();
+        kv_edits_summary.push(format!(
+            "{key}: {} → {} элементов (remap по маппингу)",
+            values.len(),
+            new_values.len()
+        ));
         kv_edits.push(KvEdit::ReplacePair {
+            key: key.clone(),
             pair_start: span.key_start,
             pair_end: span.end,
             bytes: encode_array_pair(&key, et, PairElems::Ints(&new_values)),
@@ -1786,7 +1887,13 @@ pub fn build_surgery_plan(src: &GgufFile, remove: &[u64]) -> Result<SurgeryPlan,
                 .filter(|old| !is_removed(*old))
                 .map(|old| flags[old as usize])
                 .collect();
+            kv_edits_summary.push(format!(
+                "{pattern_key}: {} → {} слоёв (ремап SWA-членства)",
+                flags.len(),
+                new_flags.len()
+            ));
             kv_edits.push(KvEdit::ReplacePair {
+                key: pattern_key.clone(),
                 pair_start: span.key_start,
                 pair_end: span.end,
                 bytes: encode_array_pair(&pattern_key, ValueType::Bool, PairElems::Bools(&new_flags)),
@@ -1836,7 +1943,10 @@ pub fn build_surgery_plan(src: &GgufFile, remove: &[u64]) -> Result<SurgeryPlan,
             let (off, width) = span.scalar.ok_or_else(|| {
                 format!("gguf surgery: {key} is not a fixed-width int — cannot patch")
             })?;
+            kv_edits_summary
+                .push(format!("{key}: {nn} → {new_nextn} (MTP-хвост изменён)"));
             kv_edits.push(KvEdit::InPlace {
+                key,
                 value_offset: off,
                 width,
                 value: new_nextn,
@@ -1862,7 +1972,10 @@ pub fn build_surgery_plan(src: &GgufFile, remove: &[u64]) -> Result<SurgeryPlan,
             let (off, width) = span.scalar.ok_or_else(|| {
                 format!("gguf surgery: {key} is not a fixed-width int — cannot patch")
             })?;
+            kv_edits_summary
+                .push(format!("{key}: {ld} → {new_dense} (dense-голова сдвинута)"));
             kv_edits.push(KvEdit::InPlace {
+                key,
                 value_offset: off,
                 width,
                 value: new_dense,
@@ -1884,6 +1997,7 @@ pub fn build_surgery_plan(src: &GgufFile, remove: &[u64]) -> Result<SurgeryPlan,
                     pair_start,
                     pair_end,
                     bytes,
+                    ..
                 } => bytes.len() as i64 - (*pair_end - *pair_start) as i64,
             })
             .sum::<i64>();
@@ -1922,6 +2036,7 @@ pub fn build_surgery_plan(src: &GgufFile, remove: &[u64]) -> Result<SurgeryPlan,
         alignment: align,
         kv_end: src.kv_end,
         kv_edits,
+        kv_edits_summary,
         kv_out_len,
     })
 }
@@ -1990,11 +2105,13 @@ pub fn execute_surgery(
                     value_offset,
                     width,
                     value,
+                    ..
                 } => in_place.push((*value_offset, *width, *value)),
                 KvEdit::ReplacePair {
                     pair_start,
                     pair_end,
                     bytes,
+                    ..
                 } => replaces.push((*pair_start, *pair_end, bytes.as_slice())),
             }
         }
@@ -2113,6 +2230,258 @@ pub fn execute_surgery(
         let _ = fs::remove_file(dst_tmp);
     }
     result
+}
+
+/// Сводка post-flight гейта — часть отчёта операции
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PostflightSummary {
+    pub tensors_checked: usize,
+    pub bytes_compared: u64,
+}
+
+/// Post-flight гейт (§6.2, §2.3 — «гейт на публикацию: реальная загрузка
+/// обязательна», здесь — собственный ридер как структурный прокси):
+/// (1) структурная валидация выхода собственным ридером — инварианты §1.7,
+/// включая непрерывность offset'ов, проверяются парсером заново;
+/// (2) семантика против плана: block_count, тензоры (имена/типы/размеры),
+/// каждая KV-правка сверяется по спану выходного файла;
+/// (3) данные выживших байт-в-байт против исходника (mmap обоих файлов,
+/// чанки, отмена). Любое расхождение → Err, вызывающий удаляет tmp.
+pub fn postflight_verify(
+    src_path: &Path,
+    out_path: &Path,
+    plan: &SurgeryPlan,
+    cancel: &AtomicBool,
+) -> Result<PostflightSummary, String> {
+    // (1) структурная валидация — GgufFile::open прогоняет весь §1.7
+    let out = GgufFile::open(out_path)?;
+
+    // (2) семантика против плана
+    if out.meta.block_count != Some(plan.new_block_count as i64) {
+        return Err(format!(
+            "gguf surgery: postflight: block_count = {:?}, expected {}",
+            out.meta.block_count, plan.new_block_count
+        ));
+    }
+    if out.tensors.len() != plan.new_tensors.len() {
+        return Err(format!(
+            "gguf surgery: postflight: tensor count {} != plan {}",
+            out.tensors.len(),
+            plan.new_tensors.len()
+        ));
+    }
+    for (pt, ot) in plan.new_tensors.iter().zip(&out.tensors) {
+        if ot.name != pt.info.name
+            || ot.type_code != pt.info.type_code
+            || ot.nbytes != pt.info.nbytes
+            || ot.dims != pt.info.dims
+        {
+            return Err(format!(
+                "gguf surgery: postflight: tensor mismatch at '{}': got '{}' {:?} {} bytes",
+                pt.info.name, ot.name, ot.dims, ot.nbytes
+            ));
+        }
+    }
+    let out_mmap = map_for_verify(out_path, "output")?;
+    for e in &plan.kv_edits {
+        match e {
+            KvEdit::InPlace {
+                key, value, width, ..
+            } => {
+                let span = out
+                    .kv_spans
+                    .iter()
+                    .find(|(k, _)| k == key)
+                    .map(|(_, s)| *s)
+                    .ok_or_else(|| {
+                        format!("gguf surgery: postflight: key '{key}' missing in output")
+                    })?;
+                let (off, w) = span
+                    .scalar
+                    .ok_or_else(|| format!("gguf surgery: postflight: '{key}' is not a scalar in output"))?;
+                if w != *width || off + u64::from(w) > out_mmap.len() as u64 {
+                    return Err(format!("gguf surgery: postflight: '{key}' span is wrong"));
+                }
+                let i = off as usize;
+                let raw = &out_mmap[i..i + w as usize];
+                let got = if w == 4 {
+                    u64::from(u32::from_le_bytes(raw.try_into().unwrap()))
+                } else {
+                    u64::from_le_bytes(raw.try_into().unwrap())
+                };
+                if got != *value {
+                    return Err(format!(
+                        "gguf surgery: postflight: '{key}' = {got}, expected {value}"
+                    ));
+                }
+            }
+            KvEdit::ReplacePair { key, bytes, .. } => {
+                let span = out
+                    .kv_spans
+                    .iter()
+                    .find(|(k, _)| k == key)
+                    .map(|(_, s)| *s)
+                    .ok_or_else(|| {
+                        format!("gguf surgery: postflight: key '{key}' missing in output")
+                    })?;
+                let got = &out_mmap[span.key_start as usize..span.end as usize];
+                if got != bytes.as_slice() {
+                    return Err(format!(
+                        "gguf surgery: postflight: pair '{key}' does not match the plan"
+                    ));
+                }
+            }
+        }
+    }
+
+    // (3) данные выживших байт-в-байт (mmap обоих, чанки, отмена)
+    let src_mmap = map_for_verify(src_path, "source")?;
+    for pt in &plan.new_tensors {
+        let s = (plan.src_data_start + pt.src_offset) as usize;
+        let o = (out.data_start + pt.info.offset) as usize;
+        let n = pt.info.nbytes as usize;
+        if s + n > src_mmap.len() || o + n > out_mmap.len() {
+            return Err(format!(
+                "gguf surgery: postflight: data range of '{}' is out of bounds",
+                pt.info.name
+            ));
+        }
+        let mut off = 0usize;
+        while off < n {
+            if cancel.load(Ordering::Relaxed) {
+                return Err("gguf surgery: postflight: cancelled".into());
+            }
+            let len = COPY_CHUNK.min(n - off);
+            if src_mmap[s + off..s + off + len] != out_mmap[o + off..o + off + len] {
+                return Err(format!(
+                    "gguf surgery: postflight: data mismatch in tensor '{}' at +{}",
+                    pt.info.name, off
+                ));
+            }
+            off += len;
+        }
+    }
+    Ok(PostflightSummary {
+        tensors_checked: plan.new_tensors.len(),
+        bytes_compared: plan.total_out_bytes,
+    })
+}
+
+fn map_for_verify(path: &Path, what: &str) -> Result<memmap2::Mmap, String> {
+    let f = File::open(path).map_err(|e| format!("gguf surgery: postflight: open {what}: {e}"))?;
+    // SAFETY: файлы созданы этой же операцией и не пишутся параллельно
+    // (Busy-гард GGUF Lab); усечение третьей стороной — вне модели угроз
+    unsafe { memmap2::Mmap::map(&f) }.map_err(|e| format!("gguf surgery: postflight: mmap {what}: {e}"))
+}
+
+/// Отчёт операции резки — в UI и агент-инструменту (шаг 6)
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SurgeryReport {
+    pub output: String,
+    pub output_size_bytes: u64,
+    pub duration_ms: u64,
+    pub removed_layers: Vec<u64>,
+    pub renumber: Vec<(u64, u64)>,
+    pub new_block_count: u64,
+    pub kv_edits: Vec<String>,
+    pub warnings: Vec<String>,
+    pub verified: PostflightSummary,
+}
+
+/// Валидатор имени файла в хранилище GGUF Lab: только имя, только .gguf.
+/// Команда gguf_cut НЕ принимает произвольных путей с фронтенда — лаборатория
+/// самодостаточна в appdata/gguf (§6.4), поэтому ensure_export_target не нужен.
+fn validate_lab_file_name(name: &str) -> Result<String, String> {
+    if name.is_empty()
+        || name.contains('/')
+        || name.contains('\\')
+        || name.contains("..")
+        || name != Path::new(name)
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default()
+    {
+        return Err(format!(
+            "gguf cut: '{name}' is not a plain file name (paths are not accepted)"
+        ));
+    }
+    if !name.to_ascii_lowercase().ends_with(".gguf") {
+        return Err(format!("gguf cut: '{name}' must be a .gguf file"));
+    }
+    Ok(name.to_string())
+}
+
+/// Полный цикл резки (шаг 3c): план → pre-flight места → исполнение →
+/// post-flight гейт → rename → отчёт. Синхронная — под spawn_blocking
+/// команды. tmp не переживает ни ошибку, ни отмену (§28.3).
+pub(crate) fn run_surgery_pipeline(
+    src_path: &Path,
+    dst_path: &Path,
+    remove: &[u64],
+    cancel: &AtomicBool,
+    mut on_progress: impl FnMut(&str, usize, usize, u64, u64),
+) -> Result<SurgeryReport, String> {
+    let started = std::time::Instant::now();
+    let src = GgufFile::open(src_path)?;
+    let plan = build_surgery_plan(&src, remove)?;
+
+    // Pre-flight места (§6.2): оценка выхода известна из плана
+    let dst_dir = dst_path
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_default();
+    match crate::fsutil::free_bytes(&dst_dir) {
+        Ok(free) if free < plan.out_size_estimate => {
+            return Err(format!(
+                "gguf surgery: insufficient disk space at {}: need {}, have {free}",
+                dst_dir.display(),
+                plan.out_size_estimate
+            ));
+        }
+        Ok(_) | Err(_) => {}
+    }
+
+    let out_name = dst_path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "out.gguf".into());
+    let tmp_path = dst_path.with_file_name(format!("{out_name}.tmp"));
+    on_progress("plan", 0, 0, 0, plan.out_size_estimate);
+    execute_surgery(src_path, &plan, &tmp_path, cancel, |i, n, b, t| {
+        on_progress("surgery", i, n, b, t)
+    })?;
+    // Post-flight: ошибка/отмена → tmp прочь, отказ без «полуготового» файла
+    let verified = match postflight_verify(src_path, &tmp_path, &plan, cancel) {
+        Ok(s) => s,
+        Err(e) => {
+            let _ = fs::remove_file(&tmp_path);
+            return Err(e);
+        }
+    };
+    // rename поверх существующего на Windows невозможен — перезапись
+    // сознательна (повторная резка той же модели)
+    if dst_path.exists() {
+        fs::remove_file(dst_path).map_err(|e| format!("gguf surgery: replace existing: {e}"))?;
+    }
+    fs::rename(&tmp_path, dst_path).map_err(|e| format!("gguf surgery: rename: {e}"))?;
+    on_progress("done", 1, 1, plan.total_out_bytes, plan.total_out_bytes);
+
+    let output_size = fs::metadata(dst_path)
+        .map_err(|e| format!("gguf surgery: stat output: {e}"))?
+        .len();
+    Ok(SurgeryReport {
+        output: out_name,
+        output_size_bytes: output_size,
+        duration_ms: started.elapsed().as_millis() as u64,
+        removed_layers: plan.remove.clone(),
+        renumber: plan.renumber.clone(),
+        new_block_count: plan.new_block_count,
+        kv_edits: plan.kv_edits_summary.clone(),
+        warnings: plan.warnings.clone(),
+        verified,
+    })
 }
 
 #[cfg(test)]
@@ -3406,5 +3775,184 @@ mod tests {
             assert_eq!(pt.info.offset, running);
             running += pad_to(pt.info.nbytes, plan.alignment);
         }
+    }
+
+    // === Шаг 3c: post-flight гейт + пайплайн ===
+
+    fn s_mixed() -> Synth {
+        let mut s = Synth::llama_dense(4);
+        s.kv.push((
+            "llama.attention.head_count_kv".into(),
+            Kv::ArrU32(vec![8, 8, 4, 4]),
+        ));
+        s.tensors
+            .push(st("blk.3.nextn.eh_proj.weight", &[128, 128], 0));
+        s
+    }
+
+    fn out_path_of(name: &str) -> std::path::PathBuf {
+        std::env::temp_dir()
+            .join(format!("haloui-gguf-{}", std::process::id()))
+            .join(format!("{name}.out.gguf"))
+    }
+
+    #[test]
+    fn postflight_passes_on_clean_cut() {
+        let (src, plan, _out, _bytes, src_path) = run_cut(&s_mixed(), &[1], "pf-ok");
+        let out_path = out_path_of("pf-ok");
+        let summary =
+            postflight_verify(&src_path, &out_path, &plan, &AtomicBool::new(false)).unwrap();
+        assert_eq!(summary.tensors_checked, plan.new_tensors.len());
+        assert_eq!(summary.bytes_compared, plan.total_out_bytes);
+        let _ = src;
+    }
+
+    #[test]
+    fn postflight_catches_corrupted_data() {
+        // Резка с паттерн-данными → порча байта данных в выходе → отказ
+        let mut s = s_mixed();
+        for i in 0..4u64 {
+            s.tensors
+                .push(stp(&format!("blk.{i}.attn_q.weight"), &[256, 16], 12, 31 + i as u8));
+        }
+        let src_path = write_tmp("pf-data.src.gguf", &s.build());
+        let src = GgufFile::open(&src_path).unwrap();
+        let plan = build_surgery_plan(&src, &[1]).unwrap();
+        let dst = write_tmp("pf-data.out.gguf", &[]);
+        execute_surgery(&src_path, &plan, &dst, &AtomicBool::new(false), |_, _, _, _| {}).unwrap();
+        // Порча: переворачиваем байт в середине данных выжившего тензора
+        let mut bytes = fs::read(&dst).unwrap();
+        let mid = src.data_start as usize + plan.new_tensors[3].src_offset as usize + 100;
+        bytes[mid] ^= 0xFF;
+        let corrupt = write_tmp("pf-data.corrupt.gguf", &bytes);
+        let err = postflight_verify(&src_path, &corrupt, &plan, &AtomicBool::new(false))
+            .unwrap_err();
+        assert!(err.contains("data mismatch"), "got: {err}");
+    }
+
+    #[test]
+    fn postflight_catches_corrupted_kv_edit() {
+        // Порча значения block_count в выходе → семантический отказ
+        let s = Synth::llama_dense(4);
+        let src_path = write_tmp("pf-kv.src.gguf", &s.build());
+        let src = GgufFile::open(&src_path).unwrap();
+        let plan = build_surgery_plan(&src, &[1]).unwrap();
+        let dst = write_tmp("pf-kv.out.gguf", &[]);
+        execute_surgery(&src_path, &plan, &dst, &AtomicBool::new(false), |_, _, _, _| {}).unwrap();
+        let mut bytes = fs::read(&dst).unwrap();
+        // block_count-правка — InPlace по адресу из плана
+        let edit = plan
+            .kv_edits
+            .iter()
+            .find_map(|e| match e {
+                KvEdit::InPlace { key, value_offset, width, .. } if key.ends_with(".block_count") => {
+                    Some((*value_offset, *width))
+                }
+                _ => None,
+            })
+            .unwrap();
+        bytes[edit.0 as usize] ^= 0x01;
+        let corrupt = write_tmp("pf-kv.corrupt.gguf", &bytes);
+        let err = postflight_verify(&src_path, &corrupt, &plan, &AtomicBool::new(false))
+            .unwrap_err();
+        assert!(err.contains("postflight"), "got: {err}");
+    }
+
+    #[test]
+    fn postflight_catches_structural_corruption() {
+        let s = Synth::llama_dense(4);
+        let src_path = write_tmp("pf-struct.src.gguf", &s.build());
+        let src = GgufFile::open(&src_path).unwrap();
+        let plan = build_surgery_plan(&src, &[1]).unwrap();
+        let dst = write_tmp("pf-struct.out.gguf", &[]);
+        execute_surgery(&src_path, &plan, &dst, &AtomicBool::new(false), |_, _, _, _| {}).unwrap();
+        // Усечение файла → структурный отказ на GgufFile::open (§1.7)
+        let mut bytes = fs::read(&dst).unwrap();
+        bytes.truncate(bytes.len() - 64);
+        let corrupt = write_tmp("pf-struct.corrupt.gguf", &bytes);
+        let err = postflight_verify(&src_path, &corrupt, &plan, &AtomicBool::new(false))
+            .unwrap_err();
+        assert!(err.contains("gguf:"), "structural rejection expected, got: {err}");
+    }
+
+    #[test]
+    fn pipeline_reports_and_verifies() {
+        let mut s = s_mixed();
+        for i in 0..4u64 {
+            s.tensors
+                .push(stp(&format!("blk.{i}.attn_q.weight"), &[256, 16], 12, 41 + i as u8));
+        }
+        let dir = std::env::temp_dir().join(format!("haloui-gguf-pipe-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let src_path = dir.join("model.gguf");
+        fs::write(&src_path, s.build()).unwrap();
+        let dst_path = dir.join("model_cut.gguf");
+
+        let mut phases = Vec::new();
+        let report = run_surgery_pipeline(
+            &src_path,
+            &dst_path,
+            &[1],
+            &AtomicBool::new(false),
+            |phase, _i, _n, _b, _t| phases.push(phase.to_string()),
+        )
+        .unwrap();
+
+        // Отчёт: имена, ренумерация, сводки правок, верификация
+        assert_eq!(report.output, "model_cut.gguf");
+        assert_eq!(report.removed_layers, vec![1]);
+        assert_eq!(report.renumber, vec![(0, 0), (2, 1), (3, 2)]);
+        assert_eq!(report.new_block_count, 3);
+        assert!(report
+            .kv_edits
+            .iter()
+            .any(|x| x.contains("block_count = 3")));
+        assert!(report.duration_ms < 60_000);
+        // Верификация: сверены все тензоры и все байты данных
+        let out = GgufFile::open(&dst_path).unwrap();
+        assert_eq!(report.verified.tensors_checked, out.tensors.len());
+        assert_eq!(report.verified.bytes_compared, report.output_size_bytes - out.data_start);
+        // Фазы дошли от плана до done
+        assert_eq!(phases.first().unwrap(), "plan");
+        assert_eq!(phases.last().unwrap(), "done");
+        // Результат на диске — валидный GGUF с ожидаемым block_count
+        assert_eq!(out.meta.block_count, Some(3));
+        // tmp не остался
+        assert!(!dir.join("model_cut.gguf.tmp").exists());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn pipeline_rejects_bad_source_and_names() {
+        let dir = std::env::temp_dir().join(format!("haloui-gguf-name-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        // Имя результата — не путь: валидатор отсекает traversal и мусор
+        assert!(validate_lab_file_name("model.gguf").is_ok());
+        assert!(validate_lab_file_name("hf.co_user_repo_Q4_K_M.gguf").is_ok());
+        for bad in [
+            "../model.gguf",
+            "a/b.gguf",
+            "a\\b.gguf",
+            "..",
+            "model.txt",
+            "",
+            "sub/../model.gguf",
+        ] {
+            assert!(
+                validate_lab_file_name(bad).is_err(),
+                "'{bad}' must be rejected"
+            );
+        }
+        // Пайплайн: источник не существует → внятный отказ
+        let err = run_surgery_pipeline(
+            &dir.join("missing.gguf"),
+            &dir.join("out.gguf"),
+            &[0],
+            &AtomicBool::new(false),
+            |_, _, _, _, _| {},
+        )
+        .unwrap_err();
+        assert!(err.contains("open failed") || err.contains("missing"), "got: {err}");
+        let _ = fs::remove_dir_all(&dir);
     }
 }

@@ -269,6 +269,7 @@ pub fn run() {
             chat::detect_local_runtimes,
             gguf::gguf_pull,
             gguf::gguf_export,
+            gguf::gguf_cut,
             gguf::gguf_cancel,
             tooling::load_sessions,
             tooling::load_project_sessions,
