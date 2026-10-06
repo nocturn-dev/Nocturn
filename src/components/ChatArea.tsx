@@ -851,7 +851,11 @@ export default function ChatArea({
   // Снимок для эффекта конца прогона: сам эффект слушает только
   // streamingMsgId, чтобы не перезапускаться на каждом сообщении
   const messagesRef = useRef(messages);
-  messagesRef.current = messages;
+  // Обновление в эффекте: запись в ref в теле рендера вне модели React
+  // Compiler (конвенция дома; аудит A4-8)
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
   const visible = useMemo(
     () => filterVisibleMessages(messages, showUserMsgs),
     [messages, showUserMsgs],
@@ -936,22 +940,32 @@ export default function ChatArea({
       }
     };
   }, [draft, streamingMsgId, pushNokEvent]);
-  changedLinesRef.current = sessionChangedLines;
+  // Обновление в эффекте: запись в ref в теле рендера вне модели React
+  // Compiler (аудит A4-8); эффект объявлен ДО потребителя (конец прогона)
+  useEffect(() => {
+    changedLinesRef.current = sessionChangedLines;
+  }, [sessionChangedLines]);
 
   // Конец/старт прогона. Старт: событие Ноку (он выберет wake/night/start).
   // Конец: ошибка → тревога; счётчик задач дня (квип «перерыв» на каждой
   // 10-й) и выбор квипа — pickPostRunQuip (чистая, протестирована)
   const prevStreamRef = useRef<string | null>(null);
+  // Сессия на старте прогона: квип/ошибка считаются только если юзер не ушёл
+  // в другую задачу к финалу (messagesRef — сообщения АКТИВНОЙ сессии;
+  // аудит A4-5: чужая сессия глотала тревогу об ошибке и врала счётчиком)
+  const runSessionRef = useRef<string | null>(null);
   useEffect(() => {
     const prev = prevStreamRef.current;
     prevStreamRef.current = streamingMsgId;
     if (!prev && streamingMsgId) {
       pushNokEvent("start");
+      runSessionRef.current = session?.id ?? null;
       runStartAtRef.current = Date.now();
       longQuippedRef.current = false;
       return;
     }
     if (!prev || streamingMsgId) return;
+    if ((session?.id ?? null) !== runSessionRef.current) return;
     const ended = messagesRef.current.find((m) => m.id === prev);
     const failed = !!ended?.error;
     if (failed) setNokErrorSeq((v) => v + 1);
@@ -981,7 +995,7 @@ export default function ChatArea({
     if (quip) {
       setNokPostQuip((p) => ({ seq: (p?.seq ?? 0) + 1, outcome: quip }));
     }
-  }, [streamingMsgId, pushNokEvent]);
+  }, [streamingMsgId, pushNokEvent, session]);
 
   // Новые tool-сообщения → события Нока (шансы/кулдауны — внутри Нока).
   // Гейт по длине: во время стрима messages меняют идентичность каждый
@@ -1096,9 +1110,27 @@ export default function ChatArea({
     nokDragRef.current = { x0: e.clientX, moved: false };
     // Трекинг на window и БЕЗ setPointerCapture: капча ретаргетит click на
     // обёртку, и onClick Нока (поглаживание/злость) перестаёт срабатывать
+    const detach = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+      window.removeEventListener("blur", cancelDrag);
+    };
+    const cancelDrag = () => {
+      detach();
+      nokDragRef.current = null;
+      if (nokWrapRef.current) nokWrapRef.current.style.transform = "";
+    };
     const onMove = (ev: PointerEvent) => {
       const d = nokDragRef.current;
       if (!d) return;
+      // Потеря pointerup (кнопку отпустили за окном, alt-tab): pointermove
+      // без прижатой кнопки больше не двигает Нока — «hover-драг» до первого
+      // клика. Зеркало страховки ресайза в App.tsx (аудит A4-3)
+      if (ev.buttons === 0) {
+        cancelDrag();
+        return;
+      }
       const dx = ev.clientX - d.x0;
       if (!d.moved && Math.abs(dx) > 6) d.moved = true;
       if (d.moved && nokWrapRef.current) {
@@ -1106,12 +1138,8 @@ export default function ChatArea({
       }
     };
     const onUp = (ev: PointerEvent) => {
-      window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", onUp);
-      window.removeEventListener("pointercancel", onUp);
       const d = nokDragRef.current;
-      nokDragRef.current = null;
-      if (nokWrapRef.current) nokWrapRef.current.style.transform = "";
+      cancelDrag();
       if (!d || !d.moved) return;
       suppressNokClickRef.current = true; // click после драга не гладит
       const shell = nokWrapRef.current?.parentElement?.getBoundingClientRect();
@@ -1123,6 +1151,9 @@ export default function ChatArea({
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
     window.addEventListener("pointercancel", onUp);
+    // Окно потеряло фокус посреди драга — драг завершается без побочного
+    // onMascotSideChange (та же страховка, что у ресайза в App)
+    window.addEventListener("blur", cancelDrag);
   };
 
   const nokMenuItems = (): MenuItem[] => [
@@ -1282,6 +1313,11 @@ export default function ChatArea({
             : { html, title };
         });
       }
+      // Таймер стрим-прохода мог ещё висеть (120мс окно троттлинга): без
+      // гашения он стрелял со СТАРЫМ замыканием после финального коммита —
+      // вуаль возвращалась, контент панели откатывался к недопечатанному
+      // HTML, закрытая панель переоткрывалась (аудит A4-1)
+      window.clearTimeout(liveFenceRef.current.timer);
       liveFenceRef.current = { start: -1, msgId: "", dismissed: false, timer: 0 };
       return;
     }

@@ -1038,9 +1038,13 @@ export default function App() {
     [enabledPlugins],
   );
   // [P12] Реестр плагинных скиллов для skill_run — рефом (паттерн
-  // notifyPrefsRef): рефы не пересоздают колбэки движка
+  // notifyPrefsRef): рефы не пересоздают колбэки движка.
+  // Обновление в эффекте: запись в ref в теле рендера вне модели
+  // React Compiler (аудит A4-8)
   const pluginSkillsRef = useRef(pluginSkills);
-  pluginSkillsRef.current = pluginSkills;
+  useEffect(() => {
+    pluginSkillsRef.current = pluginSkills;
+  }, [pluginSkills]);
   const pluginRoles = useMemo(
     () => enabledPlugins.flatMap((p) => p.roles ?? []),
     [enabledPlugins],
