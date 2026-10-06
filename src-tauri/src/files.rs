@@ -482,6 +482,22 @@ fn git_run(
     cmd.arg(format!("--git-dir={}", idx_dir.display()))
         .arg(format!("--work-tree={}", root.display()))
         .args(args);
+    // GIT_* от родительского git (pre-commit хук → cargo test → этот Command)
+    // перебивает резолв репозитория: относительный GIT_INDEX_FILE (.git/index)
+    // уводит индекс из-под --git-dir, и add падает ENOENT на несуществующем
+    // proj/.git. Явные флаги выше должны владеть резолвом — наследованное
+    // git-окружение снимаем
+    for k in [
+        "GIT_DIR",
+        "GIT_WORK_TREE",
+        "GIT_INDEX_FILE",
+        "GIT_OBJECT_DIRECTORY",
+        "GIT_COMMON_DIR",
+        "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+        "GIT_CEILING_DIRECTORIES",
+    ] {
+        cmd.env_remove(k);
+    }
     for (k, v) in envs {
         cmd.env(k, v);
     }
