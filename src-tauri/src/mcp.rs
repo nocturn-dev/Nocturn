@@ -1006,6 +1006,16 @@ impl McpHandle {
         }
     }
 
+    /// Мёртв ли сервер. Stdio — процесс мог выйти между коннектом и опросом
+    /// (аудит A2-3: статус рисовал Connected по факту записи в реестре);
+    /// у Remote процесса нет — живость проверяется лениво на каждом запросе
+    pub fn is_dead(&self) -> bool {
+        match self {
+            McpHandle::Stdio(c) => c.is_dead(),
+            McpHandle::Remote(_) => false,
+        }
+    }
+
     pub fn kill(&self) {
         // Удалённому серверу нечего гасить: нет процесса, нет сессии-сироты
         if let McpHandle::Stdio(c) = self {
@@ -1165,13 +1175,43 @@ fn mcp_config_file(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String>
     Ok(dir.join("mcp.json"))
 }
 
+/// Имя сервера — ключ реестра соединений и префикс инструмента
+/// (mcp__<name>__tool): только безопасные символы. Единая проверка save- и
+/// load-путей (аудит A2-8: hand-правка mcp.json с именем «a__b» объявляла
+/// модели инструменты несуществующего сервера — split_prefixed_name режет
+/// по ПЕРВОМУ «__»)
+fn valid_server_name(name: &str) -> bool {
+    !name.is_empty()
+        && !name.contains("__")
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.')
+}
+
 pub fn load_servers(app: &tauri::AppHandle) -> Result<Vec<McpServerConfig>, String> {
     let path = mcp_config_file(app)?;
     if !path.exists() {
         return Ok(Vec::new());
     }
     let data = fs::read_to_string(&path).map_err(|e| e.to_string())?;
-    serde_json::from_str(&data).map_err(|e| format!("mcp.json corrupted: {e}"))
+    let all: Vec<McpServerConfig> =
+        serde_json::from_str(&data).map_err(|e| format!("mcp.json corrupted: {e}"))?;
+    // Валидация имён и на load (раньше была только на save): конфиг мог
+    // прийти мимо UI (hand-правка, settings_write_all). Битая запись
+    // выпадает с диагностикой, остальной список живёт — UI не должен
+    // терять способность починить конфиг (жёсткий Err запер бы весь список)
+    let mut out = Vec::with_capacity(all.len());
+    for s in all {
+        if !valid_server_name(&s.name) {
+            eprintln!(
+                "mcp.json: server with invalid name \"{}\" skipped — use latin letters, digits, . - and single _ (no \"__\")",
+                s.name
+            );
+            continue;
+        }
+        out.push(s);
+    }
+    Ok(out)
 }
 
 fn save_servers(
@@ -1212,17 +1252,10 @@ fn mcp_save_servers_impl(
     app: &tauri::AppHandle,
     servers: Vec<McpServerConfig>,
 ) -> Result<(), String> {
-    // Имя — ключ реестра соединений и префикс инструмента: только безопасные символы
+    // Имя — ключ реестра соединений и префикс инструмента: валидатор единый
+    // с load_servers (см. valid_server_name)
     for s in &servers {
-        // "__" запрещён явно: split_prefixed_name режет по ПЕРВОМУ "__", и
-        // имя вида "a__b" раундтрипилось в несуществующий сервер "a" —
-        // инструменты объявлялись модели и всегда падали (аудит А2-6)
-        let ok = !s.name.is_empty()
-            && !s.name.contains("__")
-            && s.name.chars().all(|c| {
-                c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.'
-            });
-        if !ok {
+        if !valid_server_name(&s.name) {
             return Err(format!(
                 "invalid server name \"{}\": use latin letters, digits, . - and single _ (no \"__\")",
                 s.name
@@ -1438,13 +1471,25 @@ pub async fn mcp_status(
             }
             match conns.get(&cfg.name) {
                 // Живое соединение авторитетнее сохранённого статуса
-                Some(h) => McpServerStatus {
+                Some(h) if !h.is_dead() => McpServerStatus {
                     name: cfg.name.clone(),
                     state: McpServerState::Connected,
                     connected: true,
                     reason: None,
                     tools: h.tools_clone(),
                 },
+                Some(_) => {
+                    // Процесс в реестре, но мёртв (вышел между коннектом и
+                    // опросом): честный Failed вместо ложного зелёного до
+                    // первого тулл-колла (аудит A2-3); хендл вычистит вызов
+                    McpServerStatus {
+                        name: cfg.name.clone(),
+                        state: McpServerState::Failed,
+                        connected: false,
+                        reason: Some("server process has exited".into()),
+                        tools: vec![],
+                    }
+                }
                 None => {
                     let (state, reason) = match states.get(&cfg.name) {
                         Some((s, r)) => (s.clone(), r.clone()),
@@ -1538,8 +1583,10 @@ async fn mcp_autoconnect_impl(
             if let Ok((name, Ok(handle))) = h.join() {
                 let mut map = reg_stdio.lock().unwrap_or_else(|p| p.into_inner());
                 if map.contains_key(&name) {
+                    // Параллельный коннект успел вставить первым: наш дубль
+                    // гасим и НЕ считаем подключённым (зеркало remote-ветки
+                    // ниже; аудит A2-4 — убитый дубль завышал счётчик)
                     handle.kill();
-                    n += 1;
                     continue;
                 }
                 map.insert(name, handle);

@@ -365,9 +365,17 @@ pub async fn pty_create(
         // оставить живой PowerShell-процесс и поток чтения; семантика
         // «уже существует — ок» сохраняется.
         drop(reg);
-        // FIX: отдельный child-лок — kill больше не соревнуется с io
+        // FIX: отдельный child-лок — kill больше не соревнуется с io.
+        // Дерево, а не голый kill: TOCTOU-гашение — единственный путь вне
+        // pty_kill/kill_all, инвариант «дочерние гасим деревом» держат все
+        // пути (аудит A2-6)
         if let Ok(mut c) = session.child.lock() {
-            let _ = c.kill();
+            match c.process_id() {
+                Some(pid) => crate::proc::kill_tree(pid),
+                None => {
+                    let _ = c.kill();
+                }
+            }
             let _ = c.wait();
         }
         return Ok(());

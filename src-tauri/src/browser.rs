@@ -513,6 +513,28 @@ impl BrowserConnection {
         self.request_impl(method, params, Duration::from_secs(3), false)
     }
 
+    /// Runtime.evaluate с «мягким» индивидуальным дедлайном (просрочка не
+    /// убивает соединение). wait_ready опрашивает readyState в своём
+    /// NAV_TIMEOUT-цикле — жёсткий 120-с WS-дедлайн каждого evaluate
+    /// растягивал «20-секундную» навигацию до 120 с на stalled-пире
+    /// (аудит A2-5)
+    fn evaluate_soft(&self, expression: &str, timeout: Duration) -> Result<Value, String> {
+        let result = self.request_impl(
+            "Runtime.evaluate",
+            json!({ "expression": expression, "returnByValue": true, "awaitPromise": false }),
+            timeout,
+            false,
+        )?;
+        let r = &result["result"];
+        if result.get("exceptionDetails").is_some() {
+            return Err(format!(
+                "page JS error: {}",
+                r.get("description").and_then(|d| d.as_str()).unwrap_or("exception")
+            ));
+        }
+        Ok(r.get("value").cloned().unwrap_or(Value::Null))
+    }
+
     fn request_impl(
         &self,
         method: &str,
@@ -626,8 +648,14 @@ impl BrowserConnection {
     fn wait_ready(&self) -> Result<String, String> {
         let deadline = Instant::now() + NAV_TIMEOUT;
         loop {
-            let state = self.evaluate("document.readyState")?
-                .as_str().unwrap_or("unknown").to_string();
+            // Мягкий кап на один evaluate: 15 с хватит любому живому рендереру
+            // на «document.readyState»; stalled-пир отдаёт ошибку вызову вместо
+            // удержания ws-мьютекса до 120 с (аудит A2-5)
+            let state = self
+                .evaluate_soft("document.readyState", Duration::from_secs(15))?
+                .as_str()
+                .unwrap_or("unknown")
+                .to_string();
             if state == "complete" {
                 return Ok(String::new());
             }

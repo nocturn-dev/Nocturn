@@ -578,12 +578,20 @@ pub async fn telegram_set_config(
     app: tauri::AppHandle,
     config: TelegramConfig,
 ) -> Result<(), String> {
-    if !config.bot_token.is_empty() && !valid_token(&config.bot_token) {
+    // enc-форма токена — НАШ шифротекст, вернувшийся из get_config при
+    // запертом vault (круговое сохранение настроек из UI). valid_token его
+    // не разбирает (id «enc» — 3 символа), и ЛЮБАЯ правка настроек падала
+    // с «invalid bot token» до разблокировки хранилища (аудит A2-2):
+    // форматную проверку и getMe пропускаем — диск уже несёт этот токен,
+    // расшифровку и живую проверку сделает unlock → apply_runtime
+    let token_is_enc = crate::crypto::is_encrypted(&config.bot_token);
+    if !config.bot_token.is_empty() && !token_is_enc && !valid_token(&config.bot_token) {
         return Err("invalid bot token: expected \"123456789:AA...\" from @BotFather".into());
     }
     // Включение проверяем живым Telegram'ом (getMe): иначе опечатка ловится
-    // тишиной уведомлений, а не ошибкой на тумблере
-    if config.enabled {
+    // тишиной уведомлений, а не ошибкой на тумблере. enc-токен не проверяем:
+    // при запертом vault polling честно погасится с диагностикой (plain_token)
+    if config.enabled && !token_is_enc {
         if config.bot_token.is_empty() {
             return Err("bot token is required to enable".into());
         }
@@ -676,11 +684,19 @@ pub fn telegram_notify(kind: String, text: String, buttons: Option<Vec<TgButton>
     let chat_id = cfg.chat_id;
     // Токен в статике может быть зашифрованным (старт с диска при
     // заблокированном хранилище) — тогда расшифровать нечем и слать
-    // нечем: честно молчим, токен расшифруется при следующем set_config
+    // нечем. Раньше ветка молчала — единственная немая причина дропа,
+    // правдоподобный вклад в жалобу «работает 50/50» (аудит A2-1): теперь
+    // причина видна в консоли, как и у should_notify выше
     let token_plain = if crate::crypto::is_encrypted(&cfg.bot_token) {
         match crate::crypto::decrypt(&cfg.bot_token) {
             Some(plain) => plain.to_string(),
-            None => return,
+            None => {
+                eprintln!(
+                    "telegram notify dropped: kind={} token is encrypted and the vault is locked — unlock the vault to restore notifications",
+                    kind
+                );
+                return;
+            }
         }
     } else {
         cfg.bot_token.clone()
@@ -775,5 +791,15 @@ mod tests {
     fn plain_token_passes_plain_and_blocks_encrypted_without_key() {
         assert_eq!(plain_token("123456789:AAx"), Some("123456789:AAx".into()));
         assert_eq!(plain_token("enc:v1:AAAA"), None);
+    }
+
+    /// Контракт обхода A2-2: enc-форма — не формат бота, valid_token её
+    /// отвергает; set_config пропускает проверку для enc ЯВНО (is_encrypted
+    /// перед вызовом). Тест закрепляет, что «enc случайно пройдёт валидатор»
+    /// невозможно — обход обязан оставаться явным
+    #[test]
+    fn enc_form_is_not_a_valid_bot_token() {
+        assert!(!valid_token("enc:v1:AAAA"));
+        assert!(crate::crypto::is_encrypted("enc:v1:AAAA"));
     }
 }
