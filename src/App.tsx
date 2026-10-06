@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   ChangedFile,
   PermissionMode,
@@ -106,7 +106,9 @@ import { loadMediaPrefs, saveMediaPrefs, type MediaPrefs, type MediaLyricsSnapsh
 import { subagentsLoad, subagentsSave, commandsLoad, pluginsLoad, type Plugin, type UserCommand } from "./api";
 import {
   parseSubagentsConfig,
+  type SubagentsConfig,
 } from "./subagents";
+import type { VoiceSettings } from "./voice/prefs";
 import { loadLimits, saveLimits, type HardLimits } from "./limits";
 import { uid } from "./hooks/useAgentRun";
 import { useToasts } from "./hooks/useToasts";
@@ -122,11 +124,15 @@ import { ErrorBoundary } from "./components/ErrorBoundary";
 // Модалки грузятся при первом открытии и после него живут смонтированными
 // (useEverOpened): внутреннее состояние (вкладки настроек, черновики) и
 // exit-анимации useDelayedUnmount ведут себя ровно как при
-// всегда-смонтированной модалке, но старт приложения их не парсит
-const LazySettingsModal = lazy(() => import("./components/SettingsModal"));
-const LazyAutomationsModal = lazy(() => import("./components/AutomationsModal"));
-const LazyCompareModal = lazy(() => import("./components/CompareModal"));
-const LazyKnowledgeModal = lazy(() => import("./components/KnowledgeModal"));
+// всегда-смонтированной модалке, но старт приложения их не парсит.
+// memo (аудит A4-4): App перерисовывается на каждый 40мс-флаш стрима —
+// без мемоизации sticky-mounted модалки рендерились целиком на каждый
+// флаш (SessionRow/AssistantCard мемоизированы по той же причине);
+// работает в паре со стабильными пропсами ниже (блок «Стабильные пропсы»)
+const LazySettingsModal = memo(lazy(() => import("./components/SettingsModal")));
+const LazyAutomationsModal = memo(lazy(() => import("./components/AutomationsModal")));
+const LazyCompareModal = memo(lazy(() => import("./components/CompareModal")));
+const LazyKnowledgeModal = memo(lazy(() => import("./components/KnowledgeModal")));
 const LazyNotesModal = lazy(() => import("./components/NotesModal"));
 const LazyGraphModal = lazy(() => import("./components/GraphModal"));
 const LazyChainMonitor = lazy(() => import("./components/ChainMonitor"));
@@ -2628,6 +2634,78 @@ export default function App() {
     setMenu({ id, x, y, kind: "session" });
   };
 
+  // --- Стабильные пропсы sticky-mounted модалок (аудит A4-4): App
+  // перерисовывается на каждый 40мс-флаш стрима, инлайн-объекты и стрелки
+  // в JSX пробивали бы memo модалок на каждом флаше ---
+  const settingsAvailableCommands = useMemo(
+    () =>
+      slashCommands.map((c) => ({
+        name: c.name,
+        desc: c.desc,
+        argHint: c.argHint,
+      })),
+    [slashCommands],
+  );
+  const voiceSettings = useMemo(
+    () => ({
+      wake: voiceWakeOn,
+      model: voiceModel,
+      threshold: voiceThreshold,
+      ttsReply: voiceTtsReply,
+    }),
+    [voiceWakeOn, voiceModel, voiceThreshold, voiceTtsReply],
+  );
+  const handleImportSessions = useCallback((imported: Session[]) => {
+    // Импорт внешней истории: дописываем в список, ничего не перезаписываем
+    setSessions((prev) => [...imported, ...prev]);
+  }, [setSessions]);
+  const handleVoiceChange = useCallback((patch: Partial<VoiceSettings>) => {
+    if (patch.wake !== undefined) setVoiceWakeOn(patch.wake);
+    if (patch.model !== undefined) setVoiceModel(patch.model);
+    if (patch.threshold !== undefined) setVoiceThreshold(patch.threshold);
+    if (patch.ttsReply !== undefined) setVoiceTtsReply(patch.ttsReply);
+  }, [setVoiceWakeOn, setVoiceModel, setVoiceThreshold, setVoiceTtsReply]);
+  const handleWarnCancel = useCallback(() => {
+    setSettingsSection("main");
+  }, []);
+  const handleSubConfigChange = useCallback(
+    (c: SubagentsConfig) => {
+      // роли из плагинов не пишем в свой конфиг — они приходят из плагина
+      const pluginIds = new Set(pluginRoles.map((r) => r.id));
+      const base = { ...c, roles: c.roles.filter((r) => !pluginIds.has(r.id)) };
+      setSubConfig(base);
+      subagentsSave(base).catch(() => {});
+    },
+    [pluginRoles],
+  );
+  const handleBrowserPanelChange = useCallback((v: boolean) => {
+    // useBoolPref сам персистит значение в своём эффекте: ручной
+    // setItem здесь был вторым путём записи того же ключа
+    setBrowserAutoPanel(v);
+  }, [setBrowserAutoPanel]);
+  const handleBindsChange = useCallback(
+    (b: ShortcutBinds) => persistShortcuts(b, customShortcuts),
+    [persistShortcuts, customShortcuts],
+  );
+  const handleCustomShortcutsChange = useCallback(
+    (c: CustomShortcut[]) => persistShortcuts(binds, c),
+    [persistShortcuts, binds],
+  );
+  const handleExportChatsUi = useCallback(
+    () => void handleExportAllChats(),
+    [handleExportAllChats],
+  );
+  const handleKnowledgeAttach = useCallback(
+    (kbId: string | null) => {
+      setSessions((prev) =>
+        prev.map((s) =>
+          s.id === activeId ? { ...s, kbId: kbId ?? undefined } : s,
+        ),
+      );
+    },
+    [activeId, setSessions],
+  );
+
   return (
     <div
       className={`flex h-full overflow-hidden ${
@@ -2940,9 +3018,7 @@ export default function App() {
       <Suspense fallback={null}>
       <LazySettingsModal
         open={settingsOpen}
-        onWarnCancel={() => {
-          setSettingsSection("main");
-        }}
+        onWarnCancel={handleWarnCancel}
         usageLog={usageLog}
         theme={theme}
         glass={glass}
@@ -2953,17 +3029,9 @@ export default function App() {
         onApplyThemeProfile={applyThemeProfile}
         limits={limits}
         onLimitsChange={setLimits}
-        onImportSessions={(imported) => {
-          // Импорт внешней истории: дописываем в список, ничего не перезаписываем
-          setSessions((prev) => [...imported, ...prev]);
-        }}
-        voice={{ wake: voiceWakeOn, model: voiceModel, threshold: voiceThreshold, ttsReply: voiceTtsReply }}
-        onVoiceChange={(patch) => {
-          if (patch.wake !== undefined) setVoiceWakeOn(patch.wake);
-          if (patch.model !== undefined) setVoiceModel(patch.model);
-          if (patch.threshold !== undefined) setVoiceThreshold(patch.threshold);
-          if (patch.ttsReply !== undefined) setVoiceTtsReply(patch.ttsReply);
-        }}
+        onImportSessions={handleImportSessions}
+        voice={voiceSettings}
+        onVoiceChange={handleVoiceChange}
         sidebarSide={sidebarSide}
         onSidebarSideChange={setSidebarSide}
         scrollFollow={scrollFollow}
@@ -2995,7 +3063,7 @@ export default function App() {
         archiveRetention={archiveRetention}
         onArchiveRetentionChange={setArchiveRetention}
         onArchiveNow={archiveOldNow}
-        onExportChats={() => void handleExportAllChats()}
+        onExportChats={handleExportChatsUi}
         streamCaret={streamCaret}
         onStreamCaretChange={setStreamCaret}
         showUserMsgs={showUserMsgs}
@@ -3011,30 +3079,16 @@ export default function App() {
         plugins={plugins}
         onPluginsChange={setPlugins}
         subConfig={subConfigEffective}
-        onSubConfigChange={(c) => {
-          // роли из плагинов не пишем в свой конфиг — они приходят из плагина
-          const pluginIds = new Set(pluginRoles.map((r) => r.id));
-          const base = { ...c, roles: c.roles.filter((r) => !pluginIds.has(r.id)) };
-          setSubConfig(base);
-          subagentsSave(base).catch(() => {});
-        }}
+        onSubConfigChange={handleSubConfigChange}
         sessions={sessions}
         settingsLarge={settingsLarge}
         browserPanel={browserAutoPanel}
-        onBrowserPanelChange={(v) => {
-          // useBoolPref сам персистит значение в своём эффекте: ручной
-          // setItem здесь был вторым путём записи того же ключа
-          setBrowserAutoPanel(v);
-        }}
+        onBrowserPanelChange={handleBrowserPanelChange}
         binds={binds}
         customShortcuts={customShortcuts}
-        availableCommands={slashCommands.map((c) => ({
-          name: c.name,
-          desc: c.desc,
-          argHint: c.argHint,
-        }))}
-        onBindsChange={(b) => persistShortcuts(b, customShortcuts)}
-        onCustomShortcutsChange={(c) => persistShortcuts(binds, c)}
+        availableCommands={settingsAvailableCommands}
+        onBindsChange={handleBindsChange}
+        onCustomShortcutsChange={handleCustomShortcutsChange}
         onSettingsLargeChange={setSettingsLarge}
         onEncryptionToggle={handleEncryptionToggle}
         chatMark={chatMark}
@@ -3113,13 +3167,7 @@ export default function App() {
         onClose={closeKnowledge}
         trace={kbTrace}
         attachedKbId={activeSession?.kbId ?? null}
-        onAttach={(kbId) =>
-          setSessions((prev) =>
-            prev.map((s) =>
-              s.id === activeId ? { ...s, kbId: kbId ?? undefined } : s,
-            ),
-          )
-        }
+        onAttach={handleKnowledgeAttach}
         hasActiveChat={activeId !== null}
       />
       </Suspense>
