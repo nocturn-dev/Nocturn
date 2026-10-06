@@ -1057,11 +1057,17 @@ export async function mcpStatus(): Promise<McpServerStatus[]> {
 
 /** Волна F5: авторизация oauth-сервера (единственный триггер сети) */
 export async function mcpOauthAuthorize(name: string): Promise<string> {
+  if (!inTauri) {
+    throw new Error("OAuth работает в нативном приложении (npm run tauri dev)");
+  }
   return invoke<string>("mcp_oauth_authorize", { name });
 }
 
 /** Волна F5: отозвать доступ (revoke + очистка локальных токенов) */
 export async function mcpOauthRevoke(name: string): Promise<void> {
+  if (!inTauri) {
+    throw new Error("OAuth работает в нативном приложении (npm run tauri dev)");
+  }
   return invoke("mcp_oauth_revoke", { name });
 }
 
@@ -1737,6 +1743,11 @@ export async function importFetchUrl(url: string): Promise<string> {
  *  capability opener:default разрешает только http/https/mailto — экзотические
  *  схемы честно падают на уровне ACL. */
 export function openExternal(url: string): Promise<void> {
+  // Браузерное превью: системный аналог вместо raw-ошибки invoke (аудит A5-7)
+  if (!inTauri) {
+    window.open(url, "_blank", "noopener,noreferrer");
+    return Promise.resolve();
+  }
   return invoke("plugin:opener|open_url", { url });
 }
 
@@ -1756,12 +1767,15 @@ export interface MediaStateDto {
 }
 
 export function mediaStatus(): Promise<MediaStateDto | null> {
+  // Браузерное превью: плеера нет — «ничего играет», минибар молчит (A5-7)
+  if (!inTauri) return Promise.resolve(null);
   return invoke("media_status");
 }
 
 export function mediaControl(
   action: "play" | "pause" | "next" | "prev",
 ): Promise<void> {
+  if (!inTauri) return Promise.resolve();
   return invoke("media_control", { action });
 }
 
@@ -1784,6 +1798,8 @@ export function lyricsFetch(
   title: string,
   durationSecs: number | null,
 ): Promise<LyricsDto> {
+  // Браузерное превью: поиска нет — честное «не найдено», лента рисует фолбэк
+  if (!inTauri) return Promise.resolve({ plain: null, synced: null, found: false });
   return invoke("lyrics_fetch", { artist, title, durationSecs });
 }
 
@@ -1792,6 +1808,7 @@ export function lyricsFetch(
 export function onMediaState(
   handler: (p: { hasTrack: boolean }) => void,
 ): Promise<() => void> {
+  if (!inTauri) return Promise.resolve(() => {});
   return listen<{ hasTrack: boolean }>("media-state", (e) =>
     handler(e.payload),
   );
@@ -1808,9 +1825,13 @@ export function openFileExternal(
   /** "open" (дефолт) | "explorer" — показать в папке | "vscode" — VS Code */
   mode: "open" | "explorer" | "vscode" = "open",
 ): Promise<void> {
+  if (!inTauri) {
+    throw new Error("Открытие файлов работает в нативном приложении (npm run tauri dev)");
+  }
   return invoke("open_file_external", { root, path, mode });
 }
 
+/** Диалог «Сохранить как» для экспорта; null — отмена */
 export async function pickSaveFile(
   defaultName: string,
   ext: "json" | "md" | "txt" = "json",

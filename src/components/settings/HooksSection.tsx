@@ -110,13 +110,20 @@ export function HooksSection() {
       .catch(() => {});
   }, []);
 
+  /** Провал записи откатывает UI к прежнему списку — иначе он врал об
+   *  применённом конфиге, а после рестарта хуки исчезали (revert-паттерн
+   *  6af9361; аудит A5-3: конвенция применялась избирательно — McpSection
+   *  и секции конфигов откатывали, hooks — нет) */
   const persist = async (next: Hook[]) => {
+    const prev = hooksRef.current;
     hooksRef.current = next;
     setHooks(next);
     try {
       await hooksSave({ hooks: next });
       setError(null);
     } catch (e) {
+      hooksRef.current = prev;
+      setHooks(prev);
       setError(String(e));
     }
   };
