@@ -439,20 +439,16 @@ export function Nok({
     if (settingsClosedSeq > prevSettingsRef.current) {
       setRelief(true);
       const timer = window.setTimeout(() => setRelief(false), 1_400);
-      setQuips([
-        {
-          id: ++quipIdRef.current,
-          key: "mascot.quip.relief",
-          dx: 0,
-          text: fmtQuip(t, "mascot.quip.relief", undefined, displayName),
-        },
-      ]);
+      // spawnQuip, а не прямой setQuips: таймер удаления — часть контракта
+      // реплики (2.7s * scale), прямая запись оставляла узел в DOM навсегда
+      // (аудит A4-6)
+      spawnQuip("mascot.quip.relief");
       prevSettingsRef.current = settingsClosedSeq;
       return () => window.clearTimeout(timer);
     }
     prevSettingsRef.current = settingsClosedSeq;
     // t/displayName в deps: имя меняется редко, реплика одна — честные deps
-  }, [settingsClosedSeq, t, displayName]);
+  }, [settingsClosedSeq, t, displayName, spawnQuip]);
 
   // Удивление: смена темы — глаза по пять копеек и подпрыгивает
   const prevThemeRef = useRef<string | undefined>(undefined);

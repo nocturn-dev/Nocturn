@@ -143,8 +143,11 @@ export default function GameSnake() {
           ctx.fillRect(c * CELL + CELL / 2 - 1, r * CELL + CELL / 2 - 1, 2, 2);
         }
       }
+      // Один readAccent на кадр: раньше вызов был на еду И на каждую секцию
+      // змейки — 1+N getComputedStyle за кадр (аудит A4-7)
+      const accent = readAccent();
       // Еда
-      ctx.fillStyle = readAccent();
+      ctx.fillStyle = accent;
       ctx.beginPath();
       ctx.arc(
         foodRef.current.x * CELL + CELL / 2,
@@ -160,7 +163,7 @@ export default function GameSnake() {
         const s = snake[i];
         if (!s) continue;
         ctx.globalAlpha = i === 0 ? 1 : 0.45 + (0.5 * (snake.length - i)) / snake.length;
-        ctx.fillStyle = readAccent();
+        ctx.fillStyle = accent;
         ctx.beginPath();
         // roundRect — WebKit 16.4+/Chromium 99: TypeError на старом WebKitGTK
         // убивал rAF-цикл навсегда (игра замирала); фолбэк — обычный rect
