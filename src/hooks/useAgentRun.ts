@@ -29,7 +29,7 @@ import { skillReinjectMessage } from "../agent/autocompact";
 import { parsePlanTasks } from "../agent/planUpdate";
 import { allowKey, parseHttpCode, ruleArgument } from "../agent/toolArgs";
 import { chatWithRetry as chatWithRetryEngine } from "../agent/chatRetry";
-import { evaluateToolRules, mergePermRules } from "../agent/toolRules";
+import { evaluateToolRules, mergePermRules, withSessionAllowRule } from "../agent/toolRules";
 import { extractCommandPrefix } from "../agent/shellRules";
 import type { PermRules } from "../agent/permRules";
 import {
@@ -2753,16 +2753,7 @@ ${report}`;
                   s.id === targetId
                     ? {
                         ...s,
-                        sessionRules: {
-                          allow: [
-                            ...new Set([
-                              ...(s.sessionRules?.allow ?? []),
-                              rule,
-                            ]),
-                          ],
-                          deny: s.sessionRules?.deny ?? [],
-                          always_ask: s.sessionRules?.always_ask ?? [],
-                        },
+                        sessionRules: withSessionAllowRule(s.sessionRules, rule),
                       }
                     : s,
                 ),

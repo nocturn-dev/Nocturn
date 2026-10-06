@@ -48,6 +48,25 @@ const steps = [
   { name: "eslint", cmd: "npx", args: ["eslint", "src"], cwd: ROOT },
   { name: "vitest", cmd: "npx", args: ["vitest", "run"], cwd: ROOT },
 ];
+
+/** A7-2 (аудит 06.10): pre-commit гонял только JS-слой — красный cargo test
+ *  (протухший счётчик tool_schemas_valid) пережил два коммита. cargo test в
+ *  fast — но ТОЛЬКО когда rust-дерево реально трогается (индекс pre-commit
+ *  или рабочее дерево): на тёплом кэше это секунды, холодный первый прогон —
+ *  цена осознанная */
+function rustTouched() {
+  const g = (args) => {
+    const r = spawnSync("git", args, { cwd: ROOT, encoding: "utf8" });
+    return r.status === 0 ? r.stdout.trim().length > 0 : false;
+  };
+  return (
+    g(["diff", "--cached", "--name-only", "--", "src-tauri"]) ||
+    g(["status", "--porcelain", "--", "src-tauri"])
+  );
+}
+if (mode === "fast" && rustTouched()) {
+  steps.push({ name: "cargo test", cmd: "cargo", args: ["test"], cwd: path.join(ROOT, "src-tauri") });
+}
 if (mode === "all") {
   steps.push(
     {

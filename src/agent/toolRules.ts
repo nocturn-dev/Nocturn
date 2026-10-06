@@ -55,3 +55,18 @@ export function mergePermRules(
     ],
   };
 }
+
+/** [P9] Добавить сессионное allow-правило (кнопка «Разрешить «{p} *» до
+ *  конца задачи» в карточке подтверждения). Чистая функция: золотые векторы
+ *  в toolRules.test закрепляют дедуп по строке и сохранность deny/always_ask
+ *  (аудит A7-12: inline-сборка в useAgentRun была без юнит-теста) */
+export function withSessionAllowRule(
+  prev: PermRules | null | undefined,
+  rule: string,
+): PermRules {
+  return {
+    allow: [...new Set([...(prev?.allow ?? []), rule])],
+    deny: prev?.deny ?? [],
+    always_ask: prev?.always_ask ?? [],
+  };
+}
