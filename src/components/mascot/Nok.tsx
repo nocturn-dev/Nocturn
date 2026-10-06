@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { useLang, type MsgKey } from "../../locales";
+import { motionScale } from "../../motion";
 import { NOK_BASE, NOK_BLINK, NOK_COLS, NOK_FLY, NOK_ROWS } from "./nokSprites";
 import { pickMood, makeQuipDecks, shouldQuip, type NokMood, type NokQuipKind, type PostRunQuip } from "./nokMood";
 
@@ -53,13 +54,8 @@ const BURST: Array<{ x: number; y: number; dx: number; dy: number }> = [
  *  CSS-анимации (все они calc(Xs * var(--motion-scale))): при 1.4 полёт
  *  длится 12.6s, а фиксированный JS-таймер 9s рубил его на середине —
  *  forwards-анимация обрывалась классом, и Нок «телепортировался» на
- *  насест. Читается один раз на постановку таймера — это дёшево */
-function motionScale(): number {
-  const v = Number.parseFloat(
-    getComputedStyle(document.documentElement).getPropertyValue("--motion-scale"),
-  );
-  return Number.isFinite(v) && v > 0 ? v : 1;
-}
+ *  насест. Реализация живёт в src/motion.ts — общая с ask-ping в ChatArea
+ */
 
 export function Nok({
   streaming,

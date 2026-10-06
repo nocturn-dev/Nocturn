@@ -496,6 +496,11 @@ html.zen.voice-listening body::after {
   }
 }
 @media (prefers-reduced-motion: reduce) {
+  /* Базы этих селекторов объявлены ВЫШЕ блока — глушители работают.
+     Селекторы, чьи базы стоят ниже по файлу (.typing-dot, .splash-pulse,
+     .work-status-*, .shimmer::after, .nav-tick-in, .ask-ping), гасит
+     консолидированный блок В КОНЦЕ файла: при равной специфичности
+     побеждает позднее правило, здесь они были мертвы (аудит A6-1) */
   .anim-fade-up,
   .anim-pop,
   .anim-pop-out,
@@ -503,9 +508,6 @@ html.zen.voice-listening body::after {
   .anim-fade-out,
   .anim-slide-left,
   .anim-slide-left-out,
-  .typing-dot,
-  .nav-tick-in,
-  .splash-pulse,
   /* змейка и search-hit глушились и тумблером html.motion-reduced —
      список ниже обязан совпадать с этим */
   .snake-preview-seg,
@@ -515,16 +517,14 @@ html.zen.voice-listening body::after {
   .search-hit,
   .usage-draw,
   .usage-cell,
-  .usage-arc,
-  .work-status-star,
-  .work-status-text,
-  .shimmer::after {
+  .usage-arc {
     animation: none;
   }
 }
 
 /* Splash: пульс лого (S9: раньше <style> реинжектился из компонента
-   на каждый рендер и не глушился при prefers-reduced-motion) */
+   на каждый рендер); при системном reduce-motion глушится блоком
+   в конце файла — здесь он был мёртв (база ниже) */
 .splash-pulse {
   animation: splash-pulse 2.4s ease-in-out infinite;
 }
@@ -687,10 +687,15 @@ html.motion-reduced body::before {
 .markdown {
   font-size: calc(0.875rem * var(--halo-msg-scale, 1));
 }
-.markdown > :first-child {
+/* Обёртка stream-tail (StableMarkdown) монтируется ВСЕГДА, даже вне стрима,
+   и перехватывает прямое родство — пробиваем и её детей, иначе отступы
+   первого/последнего блока не гасились (аудит A6-3) */
+.markdown > :first-child,
+.markdown > :first-child > :first-child {
   margin-top: 0;
 }
-.markdown > :last-child {
+.markdown > :last-child,
+.markdown > :last-child > :last-child {
   margin-bottom: 0;
 }
 .markdown p {
@@ -1269,11 +1274,11 @@ html.motion-reduced .nok-quip {
   .nok-anger .nok-body,
   .nok-coding .nok-code,
   .nok-coding .nok-body,
-  .ask-ping,
   .nok-quip {
     animation: none;
   }
-  /* Альт-крыло и квип — как в motion-reduced выше: opacity гасится явно */
+  /* Альт-крыло и квип — как в motion-reduced выше: opacity гасится явно.
+     .ask-ping здесь не был: его база (1323) ниже блока — глушит конец файла */
   .nok-fly .nok-wings-alt,
   .nok-quip {
     opacity: 0;
@@ -1408,10 +1413,14 @@ html.glass .glass-pane {
   backdrop-filter: blur(var(--halo-blur, 14px)) saturate(1.25);
   -webkit-backdrop-filter: blur(var(--halo-blur, 14px)) saturate(1.25);
 }
-/* D13: заодно экономим GPU при reduce-motion */
+/* D13: заодно экономим GPU при reduce-motion — покрываются ВСЕ blur-носители,
+   а не только html.glass: sidebar-glass и msg-glass живут при выключенном
+   общем стекле и раньше продолжали блюрить (аудит A6-7) */
 @media (prefers-reduced-motion: reduce) {
   html.glass aside,
-  html.glass .glass-pane {
+  html.glass .glass-pane,
+  html.sidebar-glass aside.bg-halo-deep,
+  html:not(.glass) .msg-glass {
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
   }
@@ -1798,4 +1807,23 @@ html:not(.has-wallpaper):not([data-ambient-render="behind"]).official aside.bg-h
   background: var(--halo-deep);
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
+}
+
+/* ---------- prefers-reduced-motion: базы ниже ранних глушителей ----------
+   Системный тумблер ОС. При равной специфичности побеждает позднее правило,
+   поэтому глушители селекторов, чьи базы объявлены выше в файле, обязаны
+   стоять В САМОМ КОНЦЕ (аудит A6-1: семь глушителей в ранних блоках были
+   мертвы — typing-dot, splash-pulse, work-status-*, shimmer, nav-tick-in,
+   ask-ping продолжали крутиться при включённой системной настройке).
+   Ранние блоки (497+, 1258+) покрывают свои базы и остаются; этот — хвост */
+@media (prefers-reduced-motion: reduce) {
+  .typing-dot,
+  .nav-tick-in,
+  .splash-pulse,
+  .work-status-star,
+  .work-status-text,
+  .shimmer::after,
+  .ask-ping {
+    animation: none;
+  }
 }

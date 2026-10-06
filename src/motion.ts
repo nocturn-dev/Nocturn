@@ -24,6 +24,20 @@ export function useDelayedUnmount(open: boolean, ms: number): boolean {
   return mounted;
 }
 
+/** Темп анимаций (настройка «Скорость анимации», --motion-scale 0.7/1/1.4
+ *  на html). JS-таймеры, синхронизированные с CSS-анимациями вида
+ *  calc(Xs * var(--motion-scale)), обязаны умножаться на тот же множитель:
+ *  фиксированный таймер рубил forwards-анимацию на середине (кейс полёта
+ *  маскота). Общая точка для Nok и ask-ping — вторая копия «из головы»
+ *  разъезжалась бы при смене формулы. Читается один раз на постановку
+ *  таймера — это дёшево */
+export function motionScale(): number {
+  const v = Number.parseFloat(
+    getComputedStyle(document.documentElement).getPropertyValue("--motion-scale"),
+  );
+  return Number.isFinite(v) && v > 0 ? v : 1;
+}
+
 /** Обёртка обновления состояния в View Transition (кроссфейд на композиторе).
  *  Фолбэки: нет VT-поддержки или reduceMotion — обычный апдейт */
 export function withViewTransition(update: () => void): void {
