@@ -1290,12 +1290,12 @@ export const en = {
     "api.saved": "Saved",
     "api.checking": "Loading models…",
     "api.connected": "Connected · {n} models available",
-    "ollama.title": "Local models (Ollama)",
+    "ollama.title": "Local models",
     "ollama.again": "Search again",
     "ollama.missing":
-      "Not found at {url}. Start Ollama (e.g. ollama serve) and press “Search again” — switching between cloud and local takes one click.",
+      "No local runtimes found. Start Ollama (e.g. ollama serve) or the LM Studio server and press “Search again” — switching between cloud and local takes one click.",
     "ollama.noModels":
-      "Ollama is running but has no models. Download one: ollama pull llama3.2",
+      "The runtime is up, but no models were found. For Ollama: ollama pull llama3.2",
     "ollama.badge": "local · unlimited",
     "prompts.desc":
       "Your role library. Saved prompts appear as quick buttons in the empty chat and are available to any task in one click.",

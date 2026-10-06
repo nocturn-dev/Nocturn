@@ -487,25 +487,43 @@ export async function abortChat(requestId: string): Promise<void> {
   return invoke("chat_abort", { requestId });
 }
 
-/** Автообнаружение локальной Ollama (localhost:11434). null — не найдена */
-export async function detectOllama(): Promise<string[] | null> {
+/** Локальная модель: id + размер (Ollama отдаёт size, LM Studio — нет) */
+export interface LocalModel {
+  id: string;
+  sizeBytes: number | null;
+}
+
+/** Состояние локальных рантаймов: null — не отвечает, [] — запущен без моделей */
+export interface LocalRuntimes {
+  ollama: LocalModel[] | null;
+  lmstudio: LocalModel[] | null;
+}
+
+export type LocalRuntime = "ollama" | "lmstudio";
+
+/** Автообнаружение локальных рантаймов (Ollama 11434, LM Studio 1234) */
+export async function detectLocalRuntimes(): Promise<LocalRuntimes> {
   if (!inTauri) {
-    // В браузерном превью пробуем напрямую (Ollama разрешает CORS для localhost)
+    // В браузерном превью пробуем напрямую (Ollama разрешает CORS для
+    // localhost); LM Studio CORS не отдаёт — там только нативное приложение
     try {
       const ctl = new AbortController();
       const timer = window.setTimeout(() => ctl.abort(), 3000);
-      const r = await fetch("http://localhost:11434/v1/models", {
+      const r = await fetch("http://localhost:11434/api/tags", {
         signal: ctl.signal,
       });
       window.clearTimeout(timer);
-      if (!r.ok) return null;
-      const j = (await r.json()) as { data?: { id: string }[] };
-      return (j.data ?? []).map((m) => m.id);
+      if (!r.ok) return { ollama: null, lmstudio: null };
+      const j = (await r.json()) as { models?: { name?: string; size?: number }[] };
+      const models = (j.models ?? [])
+        .filter((m): m is { name: string; size?: number } => !!m.name)
+        .map((m) => ({ id: m.name, sizeBytes: m.size ?? null }));
+      return { ollama: models, lmstudio: null };
     } catch {
-      return null;
+      return { ollama: null, lmstudio: null };
     }
   }
-  return invoke<string[] | null>("detect_ollama");
+  return invoke<LocalRuntimes>("detect_local_runtimes");
 }
 
 export async function loadSessions(): Promise<string | null> {

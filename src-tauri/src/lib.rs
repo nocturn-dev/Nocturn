@@ -265,7 +265,7 @@ pub fn run() {
             chat::chat_once,
             chat::chat_stream,
             chat::chat_abort,
-            chat::detect_ollama,
+            chat::detect_local_runtimes,
             tooling::load_sessions,
             tooling::load_project_sessions,
             tooling::save_project_sessions,
