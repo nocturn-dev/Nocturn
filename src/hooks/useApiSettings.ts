@@ -12,7 +12,7 @@ import {
   cryptoStatus,
   cryptoUnlock,
   DEFAULT_SETTINGS,
-  detectOllama,
+  detectLocalRuntimes,
   loadProfiles,
   loadSettings,
   providerFromBaseUrl,
@@ -22,6 +22,8 @@ import {
   testConnection,
   type ApiProfile,
   type ApiSettings,
+  type LocalRuntime,
+  type LocalRuntimes,
   type ModelInfo,
 } from "../api";
 import { useLang } from "../locales";
@@ -63,7 +65,10 @@ export function useApiSettings(opts: {
   const [cryptoGate, setCryptoGate] = useState<
     "loading" | "none" | "unlock" | "create" | "disable"
   >("loading");
-  const [ollamaModels, setOllamaModels] = useState<string[] | null>(null);
+  const [localRuntimes, setLocalRuntimes] = useState<LocalRuntimes>({
+    ollama: null,
+    lmstudio: null,
+  });
   // Ожидание создания мастер-пароля при включении тумблера шифрования
   const encPendingRef = useRef(false);
 
@@ -353,11 +358,11 @@ export function useApiSettings(opts: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeId]);
 
-  // Автообнаружение Ollama: при старте и каждые 30 секунд
+  // Автообнаружение локальных рантаймов: при старте и каждые 30 секунд
   const detectLocal = useCallback(() => {
-    detectOllama()
-      .then((models) => setOllamaModels(models))
-      .catch(() => setOllamaModels(null));
+    detectLocalRuntimes()
+      .then(setLocalRuntimes)
+      .catch(() => setLocalRuntimes({ ollama: null, lmstudio: null }));
   }, []);
   useEffect(() => {
     detectLocal();
@@ -365,14 +370,18 @@ export function useApiSettings(opts: {
     return () => window.clearInterval(iv);
   }, [detectLocal]);
 
-  // Переключение на локальную модель: Ollama не требует ключа.
+  // Переключение на локальную модель: локальные рантаймы не требуют ключа
+  // (подставляем имя рантайма — поле непустое и показывает источник).
   // Merge, а не замена: полная замена выбрасывала encrypt_keys, и автосейв
   // молча снимал шифрование профилей
-  const handleUseLocalModel = (id: string) => {
+  const handleUseLocalModel = (id: string, runtime: LocalRuntime) => {
     setApiSettings((prev) => ({
       ...prev,
-      api_key: "ollama",
-      base_url: "http://localhost:11434/v1",
+      api_key: runtime,
+      base_url:
+        runtime === "lmstudio"
+          ? "http://localhost:1234/v1"
+          : "http://localhost:11434/v1",
       model: id,
       provider: "custom",
     }));
@@ -387,7 +396,7 @@ export function useApiSettings(opts: {
     activeProfileId,
     setActiveProfileId,
     cryptoGate,
-    ollamaModels,
+    localRuntimes,
     loadInitial,
     detectLocal,
     handleTestConnection,

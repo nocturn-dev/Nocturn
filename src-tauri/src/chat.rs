@@ -1,5 +1,5 @@
 //! Стриминговый чат: SSE-аккумуляторы (OpenAI-совместимый и нативный
-//! Anthropic), команды chat_stream / chat_abort / detect_ollama / test_connection,
+//! Anthropic), команды chat_stream / chat_abort / detect_local_runtimes / test_connection,
 //! реестр отмены стримов.
 
 use serde::{Deserialize, Serialize};
@@ -2361,40 +2361,132 @@ pub fn chat_abort(registry: tauri::State<'_, AbortRegistry>, request_id: String)
     }
 }
 
-/// Автообнаружение локальной Ollama: GET http://localhost:11434/v1/models.
-/// Ok(None) — Ollama не отвечает, Ok(Some(ids)) — список локальных моделей.
-#[tauri::command]
-pub async fn detect_ollama() -> Result<Option<Vec<String>>, String> {
-    let client = crate::network::shared_client(std::time::Duration::from_secs(30))?;
-    let resp = client
-        .get("http://localhost:11434/v1/models")
-        .timeout(std::time::Duration::from_secs(3))
-        .send()
-        .await;
+/// Локальная модель: id провайдера + размер (если рантайм его отдаёт).
+/// Ollama /api/tags даёт size, LM Studio /v1/models — только id
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalModel {
+    pub id: String,
+    pub size_bytes: Option<u64>,
+}
 
-    match resp {
+/// Состояние локальных рантаймов: None — не отвечает, Some — отвечает
+/// (пустой список = запущен, но моделей нет)
+#[derive(Debug, Clone, serde::Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalRuntimes {
+    pub ollama: Option<Vec<LocalModel>>,
+    pub lmstudio: Option<Vec<LocalModel>>,
+}
+
+/// Парс ответа Ollama GET /api/tags: {"models":[{"name":..,"size":..}]};
+/// отдельная чистая функция — тестируема без HTTP
+pub fn parse_ollama_tags(body: &str) -> Vec<LocalModel> {
+    let json: serde_json::Value = serde_json::from_str(body).unwrap_or_default();
+    json["models"]
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|m| {
+                    let id = m["name"]
+                        .as_str()
+                        .or_else(|| m["model"].as_str())?
+                        .to_string();
+                    Some(LocalModel {
+                        id,
+                        size_bytes: m["size"].as_u64(),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Парс ответа GET /v1/models (LM Studio и прочие OpenAI-совместимые):
+/// {"data":[{"id":..}]} — размеров в этом API нет
+pub fn parse_v1_models(body: &str) -> Vec<LocalModel> {
+    let json: serde_json::Value = serde_json::from_str(body).unwrap_or_default();
+    json["data"]
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|m| {
+                    m["id"].as_str().map(|id| LocalModel {
+                        id: id.to_string(),
+                        size_bytes: None,
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Автообнаружение локальных рантаймов: Ollama (11434, /api/tags — нативный
+/// эндпоинт с размерами) и LM Studio (1234, /v1/models). Оба зонда параллельно
+/// с коротким таймаутом; рантайм не отвечает → None, а не Err — отсутствие
+/// локалки не ошибка, это штатное состояние большинства пользователей
+#[tauri::command]
+pub async fn detect_local_runtimes() -> Result<LocalRuntimes, String> {
+    let client = crate::network::shared_client(std::time::Duration::from_secs(30))?;
+    let ollama_req = client
+        .get("http://localhost:11434/api/tags")
+        .timeout(std::time::Duration::from_secs(3))
+        .send();
+    let lmstudio_req = client
+        .get("http://localhost:1234/v1/models")
+        .timeout(std::time::Duration::from_secs(3))
+        .send();
+    let (o, l) = tokio::join!(ollama_req, lmstudio_req);
+    let ollama = match o {
         Ok(r) if r.status().is_success() => {
             let body = r.text().await.unwrap_or_default();
-            let json: serde_json::Value = serde_json::from_str(&body).unwrap_or_default();
-            let ids = json
-                .get("data")
-                .and_then(|d| d.as_array())
-                .map(|a| {
-                    a.iter()
-                        .filter_map(|m| {
-                            m.get("id").and_then(|v| v.as_str()).map(String::from)
-                        })
-                        .collect()
-                })
-                .unwrap_or_default();
-            Ok(Some(ids))
+            Some(parse_ollama_tags(&body))
         }
-        _ => Ok(None),
-    }
+        _ => None,
+    };
+    let lmstudio = match l {
+        Ok(r) if r.status().is_success() => {
+            let body = r.text().await.unwrap_or_default();
+            Some(parse_v1_models(&body))
+        }
+        _ => None,
+    };
+    Ok(LocalRuntimes { ollama, lmstudio })
 }
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parse_ollama_tags_extracts_names_and_sizes() {
+        let body = r#"{"models":[
+            {"name":"qwen3:8b","size":5228077283,"digest":"abc"},
+            {"name":"llama3.2:latest","model":"llama3.2:latest","size":2019393189}
+        ]}"#;
+        let models = parse_ollama_tags(body);
+        assert_eq!(models.len(), 2);
+        assert_eq!(models[0].id, "qwen3:8b");
+        assert_eq!(models[0].size_bytes, Some(5228077283));
+        assert_eq!(models[1].id, "llama3.2:latest");
+        assert_eq!(models[1].size_bytes, Some(2019393189));
+        // Битый JSON / чужая форма — пустой список, не паника
+        assert!(parse_ollama_tags("garbage").is_empty());
+        assert!(parse_ollama_tags(r#"{"data":[]}"#).is_empty());
+        // Модель без size — size_bytes отсутствует, модель живёт
+        let no_size = parse_ollama_tags(r#"{"models":[{"name":"m1"}]}"#);
+        assert_eq!(no_size.len(), 1);
+        assert_eq!(no_size[0].size_bytes, None);
+    }
+
+    #[test]
+    fn parse_v1_models_extracts_ids_without_sizes() {
+        let body = r#"{"object":"list","data":[{"id":"qwen3-8b"},{"id":"glm-4.9b"}]}"#;
+        let models = parse_v1_models(body);
+        assert_eq!(models.len(), 2);
+        assert_eq!(models[0].id, "qwen3-8b");
+        assert_eq!(models[0].size_bytes, None);
+        assert!(parse_v1_models("not json").is_empty());
+    }
 
     fn feed_lines(acc: &mut SseAccumulator, lines: &[&str]) -> Vec<FeedEvent> {
         let mut all = Vec::new();

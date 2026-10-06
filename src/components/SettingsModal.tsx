@@ -15,6 +15,8 @@ import {
   type Plugin,
   type ApiSettings,
   type ApiProfile,
+  type LocalRuntimes,
+  type LocalRuntime,
 } from "../api";
 import { useLang, type MsgKey } from "../locales";
 import type { VoiceSettings } from "../voice/prefs";
@@ -190,7 +192,7 @@ interface SettingsModalProps {
   jailbreaks: JailbreakEntry[];
   onChangeJailbreaks: (list: JailbreakEntry[]) => void;
   onApplyJailbreak: (entry: JailbreakEntry) => "task" | "new";
-  ollamaModels: string[] | null;
+  localRuntimes: LocalRuntimes;
   /** Allowlist активной задачи (M5.2) + её название */
   allowedCommands: string[];
   allowedCommandsTitle: string | null;
@@ -204,8 +206,8 @@ interface SettingsModalProps {
   onApiChange: (settings: ApiSettings) => void;
   onTestConnection: () => void;
   onSaveSettings: () => Promise<void>;
-  onDetectOllama: () => void;
-  onUseLocalModel: (id: string) => void;
+  onRescanLocal: () => void;
+  onUseLocalModel: (id: string, runtime: LocalRuntime) => void;
   onClose: () => void;
 }
 
@@ -371,7 +373,7 @@ export default function SettingsModal({
   jailbreaks,
   onChangeJailbreaks,
   onApplyJailbreak,
-  ollamaModels,
+  localRuntimes,
   allowedCommands,
   allowedCommandsTitle,
   agentAllowlists,
@@ -385,7 +387,7 @@ export default function SettingsModal({
   onApiChange,
   onTestConnection,
   onSaveSettings,
-  onDetectOllama,
+  onRescanLocal,
   onUseLocalModel,
   onClose,
 }: SettingsModalProps) {
@@ -820,11 +822,11 @@ export default function SettingsModal({
               onApplyProfile={onApplyProfile}
               onDeleteProfile={onDeleteProfile}
               onEncryptionToggle={onEncryptionToggle}
-              ollamaModels={ollamaModels}
+              localRuntimes={localRuntimes}
               onChange={onApiChange}
               onTest={onTestConnection}
               onSave={onSaveSettings}
-              onDetectOllama={onDetectOllama}
+              onRescanLocal={onRescanLocal}
               onUseLocalModel={onUseLocalModel}
             />
           )}

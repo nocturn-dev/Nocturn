@@ -1317,12 +1317,12 @@ export const zh = {
     "api.checking": "正在加载模型…",
     "api.connected": "已连接 · 可用模型：{n}",
     // Ollama
-    "ollama.title": "本地模型 (Ollama)",
+    "ollama.title": "本地模型",
     "ollama.again": "重新搜索",
     "ollama.missing":
-      "在 {url} 未找到。请启动 Ollama（例如 ollama serve）并点击「重新搜索」 — 云端与本地之间一键切换。",
+      "未发现本地运行时。请启动 Ollama（例如 ollama serve）或 LM Studio 服务器，然后点击「重新搜索」 — 云端与本地之间一键切换。",
     "ollama.noModels":
-      "Ollama 正在运行但没有模型。先下载一个：ollama pull llama3.2",
+      "运行时已启动，但未找到模型。Ollama 可执行：ollama pull llama3.2",
     "ollama.badge": "本地 · 无限制",
     // Промты (настройки)
     "prompts.desc":

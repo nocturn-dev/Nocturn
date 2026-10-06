@@ -1317,12 +1317,12 @@ export const ja = {
     "api.checking": "モデルを読み込み中…",
     "api.connected": "接続済み · 利用可能なモデル：{n}",
     // Ollama
-    "ollama.title": "ローカルモデル (Ollama)",
+    "ollama.title": "ローカルモデル",
     "ollama.again": "再検索",
     "ollama.missing":
-      "{url} に見つかりません。Ollama を起動し（例：ollama serve）、「再検索」を押してください — クラウドとローカルの切り替えはワンクリックです。",
+      "ローカルランタイムが見つかりません。Ollama（例：ollama serve）または LM Studio のサーバーを起動して「再検索」を押してください — クラウドとローカルの切り替えはワンクリックです。",
     "ollama.noModels":
-      "Ollama は実行中ですがモデルがありません。ダウンロードしてください：ollama pull llama3.2",
+      "ランタイムは起動していますが、モデルが見つかりません。Ollama の場合： ollama pull llama3.2",
     "ollama.badge": "ローカル · 無制限",
     // Промты (настройки)
     "prompts.desc":

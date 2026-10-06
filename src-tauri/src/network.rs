@@ -23,7 +23,7 @@ pub struct NetworkConfig {
 pub static CONFIG: Mutex<Option<NetworkConfig>> = Mutex::new(None);
 
 /// PEM, прочитанный при set_config: apply() вызывается на КАЖДЫЙ запрос
-/// (chat_stream/test_connection/detect_ollama) — синхронный fs::read там
+/// (chat_stream/test_connection/detect_local_runtimes) — синхронный fs::read там
 /// висел на UNC-пути/отвалившемся диске до SMB-таймаута и стоял целый
 /// tokio-воркер со всеми стримами. Читаем один раз при смене конфига.
 static CA_PEM: Mutex<Option<Result<Vec<u8>, String>>> = Mutex::new(None);

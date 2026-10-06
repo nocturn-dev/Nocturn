@@ -1,7 +1,7 @@
 import ProviderIcon from "../ProviderIcon";
 import { useEffect, useRef, useState } from "react";
 import { useLang } from "../../locales";
-import type { ApiProfile, ApiSettings, ModelInfo, ColibriStatus, ColibriLocal } from "../../api";
+import type { ApiProfile, ApiSettings, ModelInfo, ColibriStatus, ColibriLocal, LocalRuntimes, LocalRuntime } from "../../api";
 import {
   importProviderToml,
   providerFromBaseUrl,
@@ -27,11 +27,11 @@ export function ApiSection({
   onApplyProfile,
   onDeleteProfile,
   onEncryptionToggle,
-  ollamaModels,
+  localRuntimes,
   onChange,
   onTest,
   onSave,
-  onDetectOllama,
+  onRescanLocal,
   onUseLocalModel,
 }: {
   settings: ApiSettings;
@@ -42,12 +42,12 @@ export function ApiSection({
   onApplyProfile: (id: string) => void;
   onDeleteProfile: (id: string) => void;
   onEncryptionToggle: (enable: boolean) => Promise<boolean>;
-  ollamaModels: string[] | null;
+  localRuntimes: LocalRuntimes;
   onChange: (s: ApiSettings) => void;
   onTest: () => void;
   onSave: () => Promise<void>;
-  onDetectOllama: () => void;
-  onUseLocalModel: (id: string) => void;
+  onRescanLocal: () => void;
+  onUseLocalModel: (id: string, runtime: LocalRuntime) => void;
 }) {
   // Импорт provider-конфига Codex-стиля (config.toml и подобные, волна
   // «такие API»): парс в Rust, подстановка в текущие настройки
@@ -536,12 +536,13 @@ export function ApiSection({
         </span>
       </label>
 
-      {/* Локальные модели (Ollama) */}
+      {/* Локальные модели: Ollama (11434) + LM Studio (1234) — один скан,
+          клик подключает модель как провайдера с правильным портом */}
       <div className="mb-4 rounded-xl border border-halo-line p-3">
         <div className="mb-2 flex items-center gap-2">
           <span
             className={`size-2 rounded-full ${
-              ollamaModels !== null
+              localRuntimes.ollama !== null || localRuntimes.lmstudio !== null
                 ? "bg-emerald-400"
                 : "bg-halo-muted/40"
             }`}
@@ -551,46 +552,70 @@ export function ApiSection({
           </span>
           <span className="flex-1" />
           <button
-            onClick={onDetectOllama}
+            onClick={onRescanLocal}
             className="rounded-md border border-halo-line px-2 py-0.5 text-[0.625rem] text-halo-muted transition-colors hover:bg-halo-hover hover:text-halo-text"
           >
             {t("ollama.again")}
           </button>
         </div>
-        {ollamaModels === null ? (
+        {localRuntimes.ollama === null && localRuntimes.lmstudio === null ? (
           <p className="text-xs leading-relaxed text-halo-muted">
-            {t("ollama.missing", { url: "http://localhost:11434" })}
-          </p>
-        ) : ollamaModels.length === 0 ? (
-          <p className="text-xs leading-relaxed text-halo-muted">
-            {t("ollama.noModels")}
+            {t("ollama.missing")}
           </p>
         ) : (
-          <div className="scroll-slim max-h-40 overflow-y-auto">
-            {ollamaModels.map((id) => {
-              const selected =
-                settings.model === id &&
-                settings.base_url.includes("localhost");
-              return (
-                <button
-                  key={id}
-                  onClick={() => onUseLocalModel(id)}
-                  className={`flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs transition-colors ${
-                    selected
-                      ? "bg-halo-accent/15 text-halo-accent"
-                      : "text-halo-muted hover:bg-halo-hover hover:text-halo-text"
-                  }`}
-                >
-                  <span className="truncate font-mono">{id}</span>
-                  <span className="ml-auto flex shrink-0 items-center gap-1.5">
-                    <span className="rounded bg-emerald-400/15 px-1.5 py-0.5 text-[0.5625rem] font-medium text-emerald-400">
-                      {t("ollama.badge")}
-                    </span>
-                    {selected && <MiniCheckIcon />}
-                  </span>
-                </button>
-              );
-            })}
+          <div className="scroll-slim max-h-40 space-y-2 overflow-y-auto">
+            {(
+              [
+                ["ollama", "Ollama", localRuntimes.ollama],
+                ["lmstudio", "LM Studio", localRuntimes.lmstudio],
+              ] as const
+            ).map(
+              ([runtime, label, models]) =>
+                models !== null && (
+                  <div key={runtime}>
+                    <div className="mb-1 flex items-baseline gap-2 px-2.5">
+                      <span className="text-[0.625rem] font-semibold uppercase tracking-wide text-halo-muted">
+                        {label}
+                      </span>
+                      {models.length === 0 && (
+                        <span className="text-[0.625rem] text-halo-muted/70">
+                          {t("ollama.noModels")}
+                        </span>
+                      )}
+                    </div>
+                    {models.map((m) => {
+                      const port = runtime === "lmstudio" ? "1234" : "11434";
+                      const selected =
+                        settings.model === m.id &&
+                        settings.base_url.includes(port);
+                      return (
+                        <button
+                          key={`${runtime}:${m.id}`}
+                          onClick={() => onUseLocalModel(m.id, runtime)}
+                          className={`flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs transition-colors ${
+                            selected
+                              ? "bg-halo-accent/15 text-halo-accent"
+                              : "text-halo-muted hover:bg-halo-hover hover:text-halo-text"
+                          }`}
+                        >
+                          <span className="truncate font-mono">{m.id}</span>
+                          <span className="ml-auto flex shrink-0 items-center gap-1.5">
+                            {m.sizeBytes !== null && (
+                              <span className="text-[0.5625rem] text-halo-muted/70">
+                                {(m.sizeBytes / 1e9).toFixed(1)} GB
+                              </span>
+                            )}
+                            <span className="rounded bg-emerald-400/15 px-1.5 py-0.5 text-[0.5625rem] font-medium text-emerald-400">
+                              {t("ollama.badge")}
+                            </span>
+                            {selected && <MiniCheckIcon />}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ),
+            )}
           </div>
         )}
       </div>

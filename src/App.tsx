@@ -633,7 +633,7 @@ export default function App() {
     profiles,
     activeProfileId,
     cryptoGate,
-    ollamaModels,
+    localRuntimes,
     loadInitial,
     detectLocal,
     handleTestConnection,
@@ -3129,7 +3129,7 @@ export default function App() {
         jailbreaks={jailbreaks}
         onChangeJailbreaks={handleSaveJailbreaks}
         onApplyJailbreak={handleApplyJailbreak}
-        ollamaModels={ollamaModels}
+        localRuntimes={localRuntimes}
         allowedCommands={activeSession?.allowedCommands ?? []}
         allowedCommandsTitle={activeSession?.title ?? null}
         agentAllowlists={agentAllowlists}
@@ -3141,7 +3141,7 @@ export default function App() {
         onApiChange={setApiSettings}
         onTestConnection={handleTestConnection}
         onSaveSettings={handleSaveSettings}
-        onDetectOllama={detectLocal}
+        onRescanLocal={detectLocal}
         onUseLocalModel={handleUseLocalModel}
         onClose={() => closeSettings()}
       />
