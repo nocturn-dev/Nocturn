@@ -10,6 +10,7 @@ import ContextMenu, { type MenuItem } from "./ContextMenu";
 import type { PromptPreset } from "../presets";
 import type { JailbreakEntry } from "../jailbreaks";
 import { normalizePath, parseWriteResult, diffLines, diffStats } from "../diff";
+import { motionScale } from "../motion";
 import type { SlashCommand } from "../commands";
 import QuickSettings from "./QuickSettings";
 import NocturnMark from "./NocturnMark";
@@ -1074,7 +1075,13 @@ export default function ChatArea({
     }
     setAskPing(true);
     if (askPingTimerRef.current) window.clearTimeout(askPingTimerRef.current);
-    askPingTimerRef.current = window.setTimeout(() => setAskPing(false), 1_400);
+    // CSS-пара: ask-ping = calc(1.4s * var(--motion-scale)) — таймер обязан
+    // идти в том же темпе, иначе при 1.4 forwards-анимация обрывалась на 71%
+    // (аудит A6-4)
+    askPingTimerRef.current = window.setTimeout(
+      () => setAskPing(false),
+      Math.round(1_400 * motionScale()),
+    );
   }, []);
   useEffect(
     () => () => {
@@ -2122,11 +2129,13 @@ export default function ChatArea({
         </div>
       )}
       {/* Шапка: название задачи и очистки; вся полоса — drag-регион окна.
-          transition-[padding] на header — единственный осознанный
-          layout-переход приложения (засечка MessageNav переведена на
-          transform): шапка плавно уезжает/возвращается при смене
-          headerInset (сайдбар скрывается); 200 мс reflow только шапки,
-          событие редкое (тоггл сайдбара) */}
+          transition-[padding] на header — сознательный layout-переход
+          (засечка MessageNav переведена на transform): шапка плавно
+          уезжает/возвращается при смене headerInset (сайдбар скрывается);
+          200 мс reflow только шапки, событие редкое (тоггл сайдбара).
+          Второй сознательный — коллапс сайдбара (Sidebar
+          transition-[width,opacity]: содержимое живёт в фиксированной
+          ширине с overflow-hidden, reflow колонки локален) */}
       <header
         data-tauri-drag-region
         className={`flex h-11 shrink-0 items-center border-b border-halo-line transition-[padding] duration-200 ${

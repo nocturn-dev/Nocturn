@@ -634,6 +634,14 @@ export function fullClaudeCss(a: Appearance): string {
       "html.full-claude:not(.glass) .bg-halo-deep.shadow-2xl {",
       `  background: ${FULL_CLAUDE_PALETTE.surface};`,
       "}",
+      // Blur под непрозрачным фоном невидим, но движок продолжает снапшотить
+      // (контракт D13 в index.css): гасим там же, где Official —
+      // html.official .glass-pane/.msg-glass (аудит A6-2)
+      "html.full-claude:not(.glass) .glass-pane,",
+      "html.full-claude:not(.glass) .msg-glass {",
+      "  backdrop-filter: none;",
+      "  -webkit-backdrop-filter: none;",
+      "}",
     ],
   ].flat().join("\n");
 }

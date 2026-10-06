@@ -591,7 +591,10 @@ export default function Sidebar({
                         className="fixed inset-0 z-[var(--halo-z-panel-top)]"
                         onClick={() => setAddMenuOpen(false)}
                       />
-                      <div className="absolute right-1 top-7 z-50 w-44 rounded-lg border border-halo-line bg-halo-raised py-1 shadow-xl">
+                      {/* Лестница z вместо raw z-50: raw завязывал меню в
+                          ничью с ambient-front (50, позже в DOM) — сцена
+                          рисовала частицы поверх меню (аудит A6-6) */}
+                      <div className="absolute right-1 top-7 z-[var(--halo-z-panel-top)] w-44 rounded-lg border border-halo-line bg-halo-raised py-1 shadow-xl">
                         <button
                           onClick={() => {
                             setAddMenuOpen(false);
