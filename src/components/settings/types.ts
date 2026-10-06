@@ -19,6 +19,7 @@ export type Section =
   | "plugins"
   | "mcp"
   | "permissions"
+  | "lsp"
   | "imagegen"
   | "hooks"
   | "shortcuts"

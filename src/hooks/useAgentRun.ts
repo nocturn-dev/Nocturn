@@ -1185,6 +1185,21 @@ export function useAgentRun(deps: AgentRunDeps) {
           "Инструмент ask_user задаёт пользователю блокирующий вопрос с вариантами ответа. Используй его ТОЛЬКО когда решение действительно за пользователем (объём работы, выбор подхода, компромиссы) и ответ меняет твои дальнейшие действия; не спрашивай о том, что можно узнать самому, о тривиальных вещах с очевидным дефолтом и о разрешении продолжать. Максимум один-два вопроса за задачу.",
         ].join(" "),
       });
+      // LSP-фидбек: хинт только когда diagnostics реально в схемах прогона
+      // (тул появляется по тумблеру; без гейта модель звала бы несуществующий
+      // инструмент и получала ошибку на ровном месте)
+      if (
+        Array.isArray(tools) &&
+        (tools as { function?: { name?: string } }[]).some(
+          (s) => s?.function?.name === "diagnostics",
+        )
+      ) {
+        history.push({
+          role: "system",
+          content:
+            "After editing or creating a code file with fs_write, call the diagnostics tool on the edited file to catch compile/type errors immediately. Before finishing a coding task, check diagnostics for every file you changed. Do not run full builds via shell_run just to find type errors.",
+        });
+      }
       // [P12] Доступные скиллы: id + когда звать (whenToUse, фолбэк —
       // английское описание). Исполнение — skill_run, изолированный форк
       if (runSkills.length > 0) {

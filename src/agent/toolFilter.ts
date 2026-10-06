@@ -66,6 +66,7 @@ export function isConcurrencySafe(name: string): boolean {
     name === "fs_read" ||
     name === "fs_list" ||
     name === "fs_grep" ||
+    name === "diagnostics" ||
     name === "vault_read" ||
     name === "vault_search" ||
     name === "memory_recall" ||
