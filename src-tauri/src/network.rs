@@ -36,14 +36,37 @@ pub fn config() -> NetworkConfig {
         .unwrap_or_default()
 }
 
+/// Потолок чтения CA-файла: PEM-бандл из сотен корней — сотни КБ; больше —
+/// не сертификат, а случайный/враждебный файл, который не уйдёт в память
+const CA_MAX_BYTES: u64 = 8 * 1024 * 1024;
+
+/// Чтение корневого сертификата по пользовательскому пути. Смена якоря
+/// доверия TLS ВСЕХ исходящих вызовов приложения (аудит A1-5): путь с
+/// фронтенда проходит общий sensitive-гардал и канонизацию с ревалидацией
+/// (симлинк не уводит чтение в защищённую локацию). Err хранится в CA_PEM
+/// и всплывает при первом же apply() — запрос не уйдёт молча в обход
+/// настройки (контракт doc-комментария apply)
+fn read_ca_file(path: &str) -> Result<Vec<u8>, String> {
+    crate::settings::rejects_sensitive_path(path)?;
+    let canon = std::fs::canonicalize(path)
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_else(|_| path.to_string());
+    crate::settings::rejects_sensitive_path(&canon)?;
+    let meta = std::fs::metadata(path).map_err(|e| format!("cannot read CA file: {e}"))?;
+    if meta.len() > CA_MAX_BYTES {
+        return Err(format!(
+            "CA file too large: {} bytes (limit {CA_MAX_BYTES})",
+            meta.len()
+        ));
+    }
+    std::fs::read(path).map_err(|e| format!("cannot read CA file: {e}"))
+}
+
 pub fn set_config(cfg: NetworkConfig) {
     let ca = if cfg.ca_path.trim().is_empty() {
         None
     } else {
-        Some(
-            std::fs::read(cfg.ca_path.trim())
-                .map_err(|e| format!("cannot read CA file: {e}")),
-        )
+        Some(read_ca_file(cfg.ca_path.trim()))
     };
     let mut slot = CA_PEM.lock().unwrap_or_else(|p| p.into_inner());
     *slot = ca;

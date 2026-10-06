@@ -134,21 +134,39 @@ fn final_path_of(f: &fs::File) -> Result<PathBuf, String> {
     use std::os::windows::io::AsRawHandle;
     // flags = 0 → VOLUME_NAME_DOS + FILE_NAME_NORMALIZED, форма \\?\C:\...
     // — та же, что у fs::canonicalize на Windows
-    let mut buf = [0u16; 1024];
-    let n = unsafe {
+    let query = |buf: &mut [u16]| unsafe {
         win::GetFinalPathNameByHandleW(f.as_raw_handle(), buf.as_mut_ptr(), buf.len() as u32, 0)
     };
+    let mut buf = [0u16; 1024];
+    let n = query(&mut buf) as usize;
     if n == 0 {
         return Err(format!(
             "cannot resolve final path: {}",
             std::io::Error::last_os_error()
         ));
     }
-    // Успех: возврат НЕ включает завершающий нуль (включает только
-    // insufficient-buffer). n == 0 уже отсечён выше
-    let len = (n as usize).min(buf.len() - 1);
+    // Insufficient buffer: Win32 вернул ТРЕБУЕМЫЙ размер (с нулём) и не писал
+    // буфер — срез min() давал строку из нулей, и fs_write fail-closed
+    // отказывал легитимную запись на сверхдлинном финальном пути с
+    // бессмысленной диагностикой (аудит A1-8). Повтор с буфером точного размера
+    if n > buf.len() {
+        let mut big = vec![0u16; n];
+        let n2 = query(&mut big) as usize;
+        if n2 == 0 {
+            return Err(format!(
+                "cannot resolve final path: {}",
+                std::io::Error::last_os_error()
+            ));
+        }
+        // Успех: возврат НЕ включает завершающий нуль
+        let len = n2.min(big.len().saturating_sub(1));
+        return Ok(PathBuf::from(String::from_utf16_lossy(
+            &big[..len],
+        )));
+    }
+    // Успех с первого раза: возврат НЕ включает завершающий нуль
     Ok(PathBuf::from(String::from_utf16_lossy(
-        &buf[..len],
+        &buf[..n],
     )))
 }
 

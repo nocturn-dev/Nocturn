@@ -533,79 +533,87 @@ async fn open_file_external(
         }
     };
     crate::settings::rejects_sensitive_path(&target.to_string_lossy())?;
-    let mode = mode.as_deref().unwrap_or("open");
-    // VS Code открывает и несуществующий путь (новый файл) — проверка
-    // существования только для open/explorer
-    if mode != "vscode" && !target.is_file() {
-        return Err(format!("file does not exist: {}", target.display()));
-    }
+    let mode = mode.as_deref().unwrap_or("open").to_string();
     let target_str = target.to_string_lossy().to_string();
-    match mode {
-        "explorer" => {
-            // Показать файл в папке: Проводник с выделением (Windows),
-            // Reveal в Finder (macOS), xdg-open каталога (Linux)
-            #[cfg(windows)]
-            {
-                use std::os::windows::process::CommandExt;
-                let mut c = std::process::Command::new("explorer");
-                // /select, требует запятую и обратные слэши
-                c.raw_arg(format!("/select,\"{}\"", target_str.replace('/', "\\")));
-                crate::proc::run_command_opts(&mut c, std::time::Duration::from_secs(10), None, None)
-                    .map_err(|e| format!("explorer failed: {e}"))?;
-                Ok(())
+    let app2 = app.clone();
+    // is_file + запуск процесса/открытие — блокирующие вызовы (до 20 с на
+    // тупящем `code`-шиме): в blocking-пул, а не на воркер tokio
+    // (класс b451fd4, аудит A1-6)
+    tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
+        // VS Code открывает и несуществующий путь (новый файл) — проверка
+        // существования только для open/explorer
+        if mode != "vscode" && !std::path::Path::new(&target_str).is_file() {
+            return Err(format!("file does not exist: {target_str}"));
+        }
+        match mode.as_str() {
+            "explorer" => {
+                // Показать файл в папке: Проводник с выделением (Windows),
+                // Reveal в Finder (macOS), xdg-open каталога (Linux)
+                #[cfg(windows)]
+                {
+                    use std::os::windows::process::CommandExt;
+                    let mut c = std::process::Command::new("explorer");
+                    // /select, требует запятую и обратные слэши
+                    c.raw_arg(format!("/select,\"{}\"", target_str.replace('/', "\\")));
+                    crate::proc::run_command_opts(&mut c, std::time::Duration::from_secs(10), None, None)
+                        .map_err(|e| format!("explorer failed: {e}"))?;
+                    Ok(())
+                }
+                #[cfg(target_os = "macos")]
+                {
+                    let mut c = std::process::Command::new("open");
+                    c.arg("-R").arg(&target_str);
+                    crate::proc::run_command_opts(&mut c, std::time::Duration::from_secs(10), None, None)
+                        .map_err(|e| format!("reveal failed: {e}"))?;
+                    Ok(())
+                }
+                #[cfg(all(unix, not(target_os = "macos")))]
+                {
+                    let dir = std::path::Path::new(&target_str)
+                        .parent()
+                        .map(|p| p.to_string_lossy().to_string())
+                        .unwrap_or_else(|| target_str.clone());
+                    let mut c = std::process::Command::new("xdg-open");
+                    c.arg(&dir);
+                    crate::proc::run_command_opts(&mut c, std::time::Duration::from_secs(10), None, None)
+                        .map_err(|e| format!("xdg-open failed: {e}"))?;
+                    Ok(())
+                }
             }
-            #[cfg(target_os = "macos")]
-            {
-                let mut c = std::process::Command::new("open");
-                c.arg("-R").arg(&target_str);
-                crate::proc::run_command_opts(&mut c, std::time::Duration::from_secs(10), None, None)
-                    .map_err(|e| format!("reveal failed: {e}"))?;
-                Ok(())
+            "vscode" => {
+                // `code` — .cmd-шим на Windows: только через cmd /C с raw_arg
+                // (конвенция проекта). Не установлен — честная ошибка наружу
+                #[cfg(windows)]
+                {
+                    use std::os::windows::process::CommandExt;
+                    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+                    let mut c = std::process::Command::new("cmd");
+                    c.args(["/C"])
+                        .raw_arg(format!("code \"{}\"", target_str.replace('"', "")))
+                        .creation_flags(CREATE_NO_WINDOW);
+                    crate::proc::run_command_opts(&mut c, std::time::Duration::from_secs(20), None, None)
+                        .map_err(|e| format!("vscode failed: {e}"))?;
+                    Ok(())
+                }
+                #[cfg(not(windows))]
+                {
+                    let mut c = std::process::Command::new("code");
+                    c.arg(&target_str);
+                    crate::proc::run_command_opts(&mut c, std::time::Duration::from_secs(20), None, None)
+                        .map_err(|e| format!("vscode failed: {e}"))?;
+                    Ok(())
+                }
             }
-            #[cfg(all(unix, not(target_os = "macos")))]
-            {
-                let dir = target
-                    .parent()
-                    .map(|p| p.to_string_lossy().to_string())
-                    .unwrap_or_else(|| target_str.clone());
-                let mut c = std::process::Command::new("xdg-open");
-                c.arg(&dir);
-                crate::proc::run_command_opts(&mut c, std::time::Duration::from_secs(10), None, None)
-                    .map_err(|e| format!("xdg-open failed: {e}"))?;
-                Ok(())
+            _ => {
+                use tauri_plugin_opener::OpenerExt;
+                app2.opener()
+                    .open_path(target_str, None::<String>)
+                    .map_err(|e| e.to_string())
             }
         }
-        "vscode" => {
-            // `code` — .cmd-шим на Windows: только через cmd /C с raw_arg
-            // (конвенция проекта). Не установлен — честная ошибка наружу
-            #[cfg(windows)]
-            {
-                use std::os::windows::process::CommandExt;
-                const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-                let mut c = std::process::Command::new("cmd");
-                c.args(["/C"])
-                    .raw_arg(format!("code \"{}\"", target_str.replace('"', "")))
-                    .creation_flags(CREATE_NO_WINDOW);
-                crate::proc::run_command_opts(&mut c, std::time::Duration::from_secs(20), None, None)
-                    .map_err(|e| format!("vscode failed: {e}"))?;
-                Ok(())
-            }
-            #[cfg(not(windows))]
-            {
-                let mut c = std::process::Command::new("code");
-                c.arg(&target_str);
-                crate::proc::run_command_opts(&mut c, std::time::Duration::from_secs(20), None, None)
-                    .map_err(|e| format!("vscode failed: {e}"))?;
-                Ok(())
-            }
-        }
-        _ => {
-            use tauri_plugin_opener::OpenerExt;
-            app.opener()
-                .open_path(target_str, None::<String>)
-                .map_err(|e| e.to_string())
-        }
-    }
+    })
+    .await
+    .map_err(|e| format!("open task failed: {e}"))?
 }
 
 /// Развернуть/свернуть главное окно. Нативный maximize: DWM сам играет
@@ -1061,24 +1069,33 @@ fn build_tray(app: &tauri::AppHandle) -> Result<(), String> {
 /// единственная фронтовая модалка — недостаточный барьер для необратимого
 /// стирания всей локальной копии данных.
 #[tauri::command(async)]
-fn factory_reset(app: tauri::AppHandle, confirm: Option<String>) -> Result<(), String> {
+async fn factory_reset(app: tauri::AppHandle, confirm: Option<String>) -> Result<(), String> {
     if confirm.as_deref() != Some("RESET") {
         return Err("confirmation required: pass confirm=\"RESET\" to wipe all local data".into());
     }
     use tauri::Manager;
-    let mut roots = Vec::new();
-    if let Ok(d) = app.path().app_config_dir() {
-        roots.push(d);
-    }
-    if let Ok(d) = app.path().app_data_dir() {
-        // На Windows каталоги совпадают — второй прогон увидит несуществующий
-        roots.push(d);
-    }
-    for d in roots {
-        if d.exists() {
-            fs::remove_dir_all(&d).map_err(|e| e.to_string())?;
+    let app2 = app.clone();
+    // remove_dir_all гигабайтных данных (images не ограничен по размеру) на
+    // сетевом профиле — минуты блокировки: в blocking-пул, не на воркер
+    // tokio (класс b451fd4, аудит A1-6)
+    tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
+        let mut roots = Vec::new();
+        if let Ok(d) = app2.path().app_config_dir() {
+            roots.push(d);
         }
-    }
+        if let Ok(d) = app2.path().app_data_dir() {
+            // На Windows каталоги совпадают — второй прогон увидит несуществующий
+            roots.push(d);
+        }
+        for d in roots {
+            if d.exists() {
+                fs::remove_dir_all(&d).map_err(|e| e.to_string())?;
+            }
+        }
+        Ok(())
+    })
+    .await
+    .map_err(|e| format!("factory reset task failed: {e}"))??;
     // Не возвращает: процесс перезапускается, фронт стартует с онбординга
     app.restart();
 }
