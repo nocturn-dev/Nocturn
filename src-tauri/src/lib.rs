@@ -22,6 +22,7 @@ pub mod computer;
 mod files;
 mod fonts;
 mod fsutil;
+pub mod gguf;
 pub mod hooks;
 mod importer;
 pub mod imagegen;
