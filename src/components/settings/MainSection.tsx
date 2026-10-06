@@ -1032,6 +1032,20 @@ export function MainSection({
                     n = await settingsWriteAll(data.files);
                   }
                 }
+                // Кастомный CSS из чужого файла применяется как есть
+                // (<style id="halo-custom-css">, img-src допускает https):
+                // тот же класс честного confirm, что у исполняемых конфигов
+                // выше — асимметрии «hooks/mcp спрашиваем, CSS нет» больше нет
+                // (аудит A5-6)
+                const css = data.local?.["haloui-custom-css"];
+                if (typeof css === "string" && css.trim()) {
+                  if (
+                    !window.confirm(
+                      t("main.importCssWarn", { chars: String(css.length) }),
+                    )
+                  )
+                    return;
+                }
                 if (data.local) restoreLocal(data.local);
                 window.alert(t("main.importDone", { n }));
                 location.reload();

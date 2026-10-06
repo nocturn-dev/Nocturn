@@ -377,13 +377,22 @@ export function ApiSection({
         <input
           type="text"
           value={settings.base_url}
-          onChange={(e) =>
+          onChange={(e) => {
+            const base_url = e.target.value;
             onChange({
               ...settings,
-              base_url: e.target.value,
-              provider: providerFromBaseUrl(e.target.value),
-            })
-          }
+              base_url,
+              // openai-responses — проводной формат (импорт config.toml),
+              // providerFromBaseUrl его не выводит: без гарда один keystroke
+              // в Base URL молча возвращал чат-провод и Responses-провайдер
+              // ломался на /chat/completions (аудит A5-1). Смена провода —
+              // через чипы пресетов, не через правку URL
+              provider:
+                settings.provider === "openai-responses"
+                  ? settings.provider
+                  : providerFromBaseUrl(base_url),
+            });
+          }}
           placeholder="https://openrouter.ai/api/v1"
           className="w-full rounded-lg border border-halo-line bg-halo-surface px-3 py-2 text-sm text-halo-text outline-none transition-colors placeholder:text-halo-muted/60 focus:border-halo-accent/60"
         />
