@@ -341,6 +341,51 @@ pub(crate) fn rand_hex8() -> String {
     b.iter().map(|x| format!("{x:02x}")).collect()
 }
 
+/// Свободное место (байты, доступные текущему пользователю) на томе пути.
+/// GGUF-конвейер (gguf.rs) проверяет место ДО много-гигабайтных операций:
+/// «insufficient disk space» после часа скачивания — худший UX из возможных.
+/// std не умеет — WinAPI/statvfs под гейтами. ОШИБКА тут не фатальна для
+/// вызывающих: проверка места — оптимизация сообщения, а не гарант.
+#[cfg(windows)]
+pub fn free_bytes(path: &Path) -> Result<u64, String> {
+    use windows::core::PCWSTR;
+    use windows::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
+    // Null-терминированная UTF-16 — прямая передача, без HSTRING-конверсий:
+    // API принимает произвольный каталог тома, root не обязателен
+    let mut wide: Vec<u16> = path
+        .as_os_str()
+        .to_string_lossy()
+        .encode_utf16()
+        .collect();
+    wide.push(0);
+    let mut free: u64 = 0;
+    let mut total: u64 = 0;
+    let mut caller: u64 = 0;
+    unsafe {
+        GetDiskFreeSpaceExW(
+            PCWSTR(wide.as_ptr()),
+            Some(&mut caller),
+            Some(&mut total),
+            Some(&mut free),
+        )
+        .map_err(|e| format!("free_bytes({}): {e}", path.display()))?;
+    }
+    Ok(free)
+}
+
+#[cfg(unix)]
+pub fn free_bytes(path: &Path) -> Result<u64, String> {
+    let c = std::ffi::CString::new(path.as_os_str().as_encoded_bytes())
+        .map_err(|_| format!("free_bytes({}): path contains NUL", path.display()))?;
+    let mut st: libc::statvfs = unsafe { std::mem::zeroed() };
+    let rc = unsafe { libc::statvfs(c.as_ptr(), &mut st) };
+    if rc != 0 {
+        return Err(format!("free_bytes({}): statvfs failed", path.display()));
+    }
+    // f_bavail — доступно НЕ-root пользователю (f_bfree — включая резерв root'а)
+    Ok(u64::from(st.f_bavail) * u64::from(st.f_frsize))
+}
+
 /// Размеры каталогов хранилища — менеджер в «Основном» (секция «Хранилище»).
 #[derive(Debug, Serialize)]
 pub struct StorageStats {
@@ -453,6 +498,12 @@ mod tests {
             .collect();
         assert!(leftovers.is_empty());
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn free_bytes_reports_positive_on_real_volume() {
+        let free = free_bytes(&std::env::temp_dir()).unwrap();
+        assert!(free > 0, "temp volume reports zero free bytes");
     }
 
     #[test]

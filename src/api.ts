@@ -526,6 +526,43 @@ export async function detectLocalRuntimes(): Promise<LocalRuntimes> {
   return invoke<LocalRuntimes>("detect_local_runtimes");
 }
 
+/* === GGUF Lab (PLAN §28, шаг 2: скачивание/экспорт) === */
+
+/** Прогресс конвейера GGUF Lab — событие gguf-progress */
+export interface GgufProgress {
+  phase: "pull" | "export";
+  model: string;
+  status?: string;
+  digest?: string;
+  received?: number;
+  total?: number;
+}
+
+/** Результат экспорта блоба Ollama в appdata/gguf/<slug>.gguf */
+export interface GgufExported {
+  name: string;
+  path: string;
+  sizeBytes: number;
+}
+
+/** Скачать модель через Ollama (resume — повторным вызовом; Ollama запущен?) */
+export async function ggufPull(model: string): Promise<void> {
+  if (!inTauri) return;
+  await invoke("gguf_pull", { model });
+}
+
+/** Экспорт модели из хранилища Ollama в GGUF (MLX/split — отказ бекенда) */
+export async function ggufExport(model: string): Promise<GgufExported> {
+  if (!inTauri) throw new Error("GGUF Lab is only available in the native app");
+  return invoke<GgufExported>("gguf_export", { model });
+}
+
+/** Отмена активной операции GGUF Lab (pull/export; surgery — шаг 3) */
+export async function ggufCancel(): Promise<void> {
+  if (!inTauri) return;
+  await invoke("gguf_cancel");
+}
+
 export async function loadSessions(): Promise<string | null> {
   if (!inTauri) {
     return localStorage.getItem(LS_SESSIONS);

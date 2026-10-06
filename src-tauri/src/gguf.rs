@@ -15,11 +15,16 @@
 //! повторяет проверки gguf.cpp (§1.7), а не «спеку мягко».
 
 use std::collections::HashSet;
+use std::fs;
 use std::fs::File;
-use std::io::{BufReader, Read, Seek, SeekFrom};
-use std::path::Path;
+use std::io::{BufReader, Read, Seek, SeekFrom, Write};
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use serde::Serialize;
+use serde_json::json;
+use sha2::{Digest, Sha256};
+use tauri::Emitter;
 
 const MAGIC: [u8; 4] = *b"GGUF";
 /// Пишем только v3 (шаг 3); читаем v2/v3. v1 llama.cpp не читает (§1.2).
@@ -215,6 +220,7 @@ pub enum SwaPattern {
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TensorInfo {
     pub name: String,
     pub n_dims: u32,
@@ -230,6 +236,7 @@ pub struct TensorInfo {
 /// Флаги арха — вход политики хирургии §6.3 (deny-list гибридов,
 /// предупреждения SWA-фаз, MTP-хвост).
 #[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ArchFlags {
     pub swa: bool,
     pub moe: bool,
@@ -239,6 +246,7 @@ pub struct ArchFlags {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct GgufMeta {
     pub version: u32,
     pub architecture: Option<String>,
@@ -262,6 +270,7 @@ pub struct GgufMeta {
 
 /// Слой, сгруппированный по префиксу `blk.N.` (§2.2: так его видят все скрипты).
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct LayerInfo {
     pub index: u64,
     pub total_bytes: u64,
@@ -274,6 +283,7 @@ pub struct LayerInfo {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct LayerReport {
     pub layers: Vec<LayerInfo>,
     /// Не-блочные тензоры: token_embd, output, output_norm, rope-факторы…
@@ -281,6 +291,7 @@ pub struct LayerReport {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct GgufFile {
     pub meta: GgufMeta,
     pub tensors: Vec<TensorInfo>,
@@ -889,6 +900,507 @@ fn detect_flags(meta: &GgufMeta, tensors: &[TensorInfo]) -> ArchFlags {
         f.nextn |= name_is_nextn(&t.name);
     }
     f
+}
+
+// ---------------------------------------------------------------------------
+// Конвейер Ollama: скачивание (pull) и экспорт блоба (шаг 2 волны §28.2).
+// Детали API — GGUF_LAB_RESEARCH.md §4 (api.md/openapi.yaml на 10.2026).
+// ---------------------------------------------------------------------------
+
+/// Ollama-сервер живёт на фиксированном порту; как detect_local_runtimes
+/// (chat.rs) и пресет lmstudio — без конфига. HTTP-клиент — общий
+/// network::shared_client (прокси/CA применяются автоматически).
+const OLLAMA_URL: &str = "http://127.0.0.1:11434";
+/// Stall-детект вместо total-таймаута: pull многогигабайтной модели
+/// легитимно идёт десятки минут, а «замерло навсегда» — это 60 с без единого
+/// байта (§4.6: соединение с Ollama — долгоживущий NDJSON-поток).
+const PULL_STALL_SECS: u64 = 60;
+/// Буфер копирования блоба: 8 МиБ — в 2–4 раза больше alignment-паддинга
+/// любых тензоров, при этом буфер не раздувает RSS (§3.3 ресёрча).
+const COPY_CHUNK: usize = 8 << 20;
+/// Прогресс копии не чаще 32 МиБ — IPC-канал не спамим (dictation: 1 МиБ на
+/// 57 МБ; тут файлы на порядки больше).
+const EMIT_CHUNK: u64 = 32 << 20;
+
+/// Одна операция GGUF Lab за раз (§28.3): pull/export/surgery —
+/// мульти-гигабайтный диск-IO, параллелить — гарантированный трэшинг.
+static GGUF_BUSY: AtomicBool = AtomicBool::new(false);
+/// Кооперативная отмена: циклы pull/copy проверяют между чанками.
+static GGUF_CANCEL: AtomicBool = AtomicBool::new(false);
+
+/// Прогресс-строка NDJSON из /api/pull (§4.1): completed может отсутствовать
+/// до старта скачивания слоя — поле опционально.
+#[derive(Debug, Clone, Serialize)]
+pub struct PullProgress {
+    pub status: String,
+    pub digest: Option<String>,
+    pub total: Option<u64>,
+    pub completed: Option<u64>,
+}
+
+#[derive(Debug)]
+pub enum PullEvent {
+    Progress(PullProgress),
+    /// {"status":"success"} — поток после этого закрывается
+    Done,
+    /// {"error": "..."} — отказ на стороне Ollama
+    Error(String),
+}
+
+/// Чистая функция — под golden-тесты формата строк (как parse_ollama_tags
+/// в chat.rs). Неизвестные поля игнорируются: Ollama добавляет поля между
+/// версиями, парсер не должен ломаться (§4.1).
+pub fn parse_pull_line(line: &str) -> Result<PullEvent, String> {
+    let v: serde_json::Value = serde_json::from_str(line)
+        .map_err(|e| format!("gguf pull: bad NDJSON line ({e}): {line}"))?;
+    if let Some(err) = v.get("error").and_then(|e| e.as_str()) {
+        return Ok(PullEvent::Error(err.to_string()));
+    }
+    let status = v
+        .get("status")
+        .and_then(|s| s.as_str())
+        .unwrap_or_default()
+        .to_string();
+    if status == "success" {
+        return Ok(PullEvent::Done);
+    }
+    Ok(PullEvent::Progress(PullProgress {
+        status,
+        digest: v.get("digest").and_then(|d| d.as_str()).map(String::from),
+        total: v.get("total").and_then(|t| t.as_u64()),
+        completed: v.get("completed").and_then(|c| c.as_u64()),
+    }))
+}
+
+/// Разбор ответа /api/show: details.format («gguf» | «safetensors»-MLX, §4.2)
+/// и все FROM-пути из modelfile. Несколько FROM = split-GGUF — экспорт v1
+/// откажется с внятной ошибкой (склейка — llama-gguf-split --merge, §4.2).
+pub struct ShowInfo {
+    pub format: Option<String>,
+    pub from_paths: Vec<PathBuf>,
+}
+
+pub fn parse_show_body(body: &str) -> Result<ShowInfo, String> {
+    let v: serde_json::Value = serde_json::from_str(body)
+        .map_err(|e| format!("gguf export: bad /api/show response: {e}"))?;
+    let format = v
+        .get("details")
+        .and_then(|d| d.get("format"))
+        .and_then(|f| f.as_str())
+        .map(String::from);
+    let mut from_paths = Vec::new();
+    if let Some(mf) = v.get("modelfile").and_then(|m| m.as_str()) {
+        for line in mf.lines() {
+            let line = line.trim();
+            if let Some(rest) = line.strip_prefix("FROM ") {
+                let p = rest.trim();
+                // §4.2: адрес блога ищем в modelfile, не по sha исходника —
+                // Ollama с ~0.30 пересериализует GGUF при импорте (#17554)
+                if !p.is_empty() {
+                    from_paths.push(PathBuf::from(p));
+                }
+            }
+        }
+    }
+    Ok(ShowInfo { format, from_paths })
+}
+
+/// Корень хранилища Ollama: OLLAMA_MODELS → дефолт по ОС (§4.2: envconfig).
+/// env_value/home — параметры (не чтение env) — под тесты.
+pub fn models_root_from(env_value: Option<&str>, home: Option<&Path>) -> PathBuf {
+    if let Some(v) = env_value.map(str::trim).filter(|s| !s.is_empty()) {
+        return PathBuf::from(v);
+    }
+    let mut p = home.map(Path::to_path_buf).unwrap_or_default();
+    p.push(".ollama");
+    p.push("models");
+    p
+}
+
+pub fn resolve_models_root() -> PathBuf {
+    let env = std::env::var("OLLAMA_MODELS").ok();
+    let home = std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" })
+        .map(PathBuf::from);
+    models_root_from(env.as_deref(), home.as_deref())
+}
+
+/// Паттерн имени блоба: sha256-<64 hex> [код, manifest/layer.go, §4.2].
+/// Гард перед копированием: путь из modelfile обязан им быть — опечатка
+/// или неожиданный формат отсекаются до открытия файла.
+pub fn is_blob_name(name: &str) -> bool {
+    match name.strip_prefix("sha256-") {
+        Some(hex) => hex.len() == 64 && hex.bytes().all(|b| b.is_ascii_hexdigit()),
+        None => false,
+    }
+}
+
+/// Имя файла экспорта: небезопасные для ФС символы имени модели
+/// (hf.co/user/repo:Q4_K_M) → '_'.
+fn slug_for(model: &str) -> String {
+    let s: String = model
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-') {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    if s.is_empty() {
+        "model".into()
+    } else {
+        s
+    }
+}
+
+fn hex_lower(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// Копия блоба с контролем целостности: блоб Ollama контент-адресный
+/// (sha256 в ИМЕНИ файла), поэтому sha скопированного обязан совпасть с
+/// ожидаемым — это бесплатная (sha2 уже в deps) гарантия «скопировалось
+/// целиком», не доверяющая ни ФС, ни прерванным чтениям (§4.2).
+/// Синхронная — вызывается из spawn_blocking. tmp не оставляет: любая
+/// ошибка/отмена удаляют недописанный файл (§28.3).
+pub(crate) fn copy_blob_verified(
+    src: &Path,
+    dst_tmp: &Path,
+    expected_hex: &str,
+    cancel: &AtomicBool,
+    mut on_progress: impl FnMut(u64, u64),
+) -> Result<u64, String> {
+    let mut run = || -> Result<u64, String> {
+        let total = fs::metadata(src)
+            .map_err(|e| format!("gguf export: stat blob: {e}"))?
+            .len();
+        let mut src_f = File::open(src).map_err(|e| format!("gguf export: open blob: {e}"))?;
+        let mut dst_f =
+            File::create(dst_tmp).map_err(|e| format!("gguf export: create tmp: {e}"))?;
+        let mut hasher = Sha256::new();
+        let mut buf = vec![0u8; COPY_CHUNK];
+        let mut received: u64 = 0;
+        let mut last_emit: u64 = 0;
+        loop {
+            if cancel.load(Ordering::Relaxed) {
+                return Err("gguf export: cancelled".into());
+            }
+            let n = src_f
+                .read(&mut buf)
+                .map_err(|e| format!("gguf export: read blob: {e}"))?;
+            if n == 0 {
+                break;
+            }
+            hasher.update(&buf[..n]);
+            dst_f
+                .write_all(&buf[..n])
+                .map_err(|e| format!("gguf export: write tmp: {e}"))?;
+            received += n as u64;
+            if received - last_emit >= EMIT_CHUNK {
+                last_emit = received;
+                on_progress(received, total);
+            }
+        }
+        // Долговечность до rename (§3.3-6): без sync rename может дать
+        // «готовый» файл, потерявший хвост при отключении питания
+        dst_f
+            .flush()
+            .and_then(|_| dst_f.sync_all())
+            .map_err(|e| format!("gguf export: flush tmp: {e}"))?;
+        let hex = hex_lower(&hasher.finalize());
+        if !hex.eq_ignore_ascii_case(expected_hex) {
+            return Err(format!(
+                "gguf export: blob digest mismatch (got {hex}, expected {expected_hex}) — corrupted copy"
+            ));
+        }
+        on_progress(received, total);
+        Ok(received)
+    };
+    let result = run();
+    if result.is_err() {
+        let _ = fs::remove_file(dst_tmp);
+    }
+    result
+}
+
+fn gguf_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    use tauri::Manager;
+    Ok(app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("gguf: app_data_dir failed: {e}"))?
+        .join("gguf"))
+}
+
+/// Результат экспорта блоба Ollama в appdata/gguf/<slug>.gguf.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportedModel {
+    pub name: String,
+    pub path: String,
+    pub size_bytes: u64,
+}
+
+/// Скачать модель через Ollama: POST /api/pull, NDJSON-строками прогресс
+/// событием gguf-progress. Resume из коробки: повторный вызов с тем же
+/// именем продолжает недокачанное (§4.1). Ollama должен быть запущен —
+/// это процесс-сервер, без него ни pull, ни create (§4.6).
+#[tauri::command(async)]
+pub async fn gguf_pull(app: tauri::AppHandle, model: String) -> Result<(), String> {
+    if GGUF_BUSY.swap(true, Ordering::Relaxed) {
+        return Err("gguf lab: another operation is already running".into());
+    }
+    GGUF_CANCEL.store(false, Ordering::Relaxed);
+    let result = do_pull(&app, &model).await;
+    GGUF_BUSY.store(false, Ordering::Relaxed);
+    result
+}
+
+async fn do_pull(app: &tauri::AppHandle, model: &str) -> Result<(), String> {
+    let client = crate::network::shared_client(std::time::Duration::from_secs(30))?;
+    let resp = client
+        .post(format!("{OLLAMA_URL}/api/pull"))
+        .json(&json!({ "model": model, "stream": true }))
+        .send()
+        .await
+        .map_err(|e| {
+            format!("gguf pull: cannot reach Ollama at {OLLAMA_URL} (is it running?): {e}")
+        })?;
+    if !resp.status().is_success() {
+        return Err(format!("gguf pull: Ollama returned HTTP {}", resp.status().as_u16()));
+    }
+
+    let mut resp = resp;
+    let mut buf: Vec<u8> = Vec::new();
+    let mut space_checked = false;
+    let mut last_emit_received: Option<u64> = None;
+    let mut last_emit_status = String::new();
+    loop {
+        // Stall-детект (§4.6): 60 с без байтов — соединение замерло
+        let chunk = match tokio::time::timeout(
+            std::time::Duration::from_secs(PULL_STALL_SECS),
+            resp.chunk(),
+        )
+        .await
+        {
+            Ok(Ok(Some(c))) => c,
+            Ok(Ok(None)) => break,
+            Ok(Err(e)) => return Err(format!("gguf pull: stream interrupted: {e}")),
+            Err(_) => {
+                return Err(format!(
+                    "gguf pull: stalled — no data for {PULL_STALL_SECS}s"
+                ))
+            }
+        };
+        buf.extend_from_slice(&chunk);
+        while let Some(pos) = buf.iter().position(|&b| b == b'\n') {
+            let line: Vec<u8> = buf.drain(..=pos).collect();
+            let line = std::str::from_utf8(&line[..line.len() - 1]).unwrap_or_default();
+            if line.trim().is_empty() {
+                continue;
+            }
+            match parse_pull_line(line)? {
+                PullEvent::Done => {
+                    let _ = app.emit(
+                        "gguf-progress",
+                        json!({ "phase": "pull", "model": model, "status": "success" }),
+                    );
+                    return Ok(());
+                }
+                PullEvent::Error(e) => return Err(format!("gguf pull: {e}")),
+                PullEvent::Progress(p) => {
+                    // Pre-flight места (§4.6): размер приходит только с первым
+                    // прогресс-слоем — проверяем один раз, при нехватке рвём
+                    // соединение (сервер отменяет pull по дисконнекту)
+                    if !space_checked {
+                        // digest borrowing (не move): p живёт дальше в emit
+                        if let (Some(total), Some(_)) = (p.total, p.digest.as_deref()) {
+                            space_checked = true;
+                            let root = resolve_models_root();
+                            match crate::fsutil::free_bytes(&root) {
+                                Ok(free) if free < total => {
+                                    return Err(format!(
+                                        "gguf pull: insufficient disk space at {}: need {total}, have {free}",
+                                        root.display()
+                                    ));
+                                }
+                                // free_bytes — оптимизация сообщения, не гарант:
+                                // ошибка statvfs не останавливает скачивание
+                                Ok(_) | Err(_) => {}
+                            }
+                        }
+                    }
+                    // Тротлинг emit: статус сменился ИЛИ докачалось ≥ 8 МиБ
+                    let moved = p
+                        .completed
+                        .map(|c| last_emit_received.is_none_or(|last| c - last >= 8 << 20))
+                        .unwrap_or(true);
+                    if p.status != last_emit_status || moved || p.completed.is_none() {
+                        last_emit_status = p.status.clone();
+                        last_emit_received = p.completed;
+                        let _ = app.emit(
+                            "gguf-progress",
+                            json!({
+                                "phase": "pull",
+                                "model": model,
+                                "status": p.status,
+                                "digest": p.digest.clone(),
+                                "received": p.completed,
+                                "total": p.total,
+                            }),
+                        );
+                    }
+                }
+            }
+        }
+        if GGUF_CANCEL.load(Ordering::Relaxed) {
+            // Недокачанное остаётся в Ollama как *-partial — повторный pull
+            // продолжит (resume, §4.1); чистить на нашей стороне нечего
+            return Err("gguf pull: cancelled".into());
+        }
+    }
+    Err("gguf pull: stream ended without success".into())
+}
+
+/// Экспорт модели из хранилища Ollama в appdata/gguf/<slug>.gguf:
+/// /api/show → FROM <blob> → копия с sha256-верификацией (§4.2).
+/// MLX-модели и split-GGUF — внятный отказ (v1, §28.1).
+#[tauri::command(async)]
+pub async fn gguf_export(app: tauri::AppHandle, model: String) -> Result<ExportedModel, String> {
+    if GGUF_BUSY.swap(true, Ordering::Relaxed) {
+        return Err("gguf lab: another operation is already running".into());
+    }
+    GGUF_CANCEL.store(false, Ordering::Relaxed);
+    let result = do_export(&app, &model).await;
+    GGUF_BUSY.store(false, Ordering::Relaxed);
+    result
+}
+
+async fn do_export(app: &tauri::AppHandle, model: &str) -> Result<ExportedModel, String> {
+    let client = crate::network::shared_client(std::time::Duration::from_secs(30))?;
+    let resp = client
+        .post(format!("{OLLAMA_URL}/api/show"))
+        .json(&json!({ "model": model }))
+        .send()
+        .await
+        .map_err(|e| {
+            format!("gguf export: cannot reach Ollama at {OLLAMA_URL} (is it running?): {e}")
+        })?;
+    if !resp.status().is_success() {
+        return Err(format!(
+            "gguf export: Ollama returned HTTP {} for '{model}'",
+            resp.status().as_u16()
+        ));
+    }
+    let body = resp
+        .text()
+        .await
+        .map_err(|e| format!("gguf export: read response: {e}"))?;
+    let show = parse_show_body(&body)?;
+    if show.format.as_deref() != Some("gguf") {
+        return Err(format!(
+            "gguf export: model format is {:?} — only gguf is exportable (MLX models are not GGUF)",
+            show.format.as_deref().unwrap_or("unknown")
+        ));
+    }
+    match show.from_paths.len() {
+        0 => return Err("gguf export: no FROM path in modelfile — unexpected manifest".into()),
+        1 => {}
+        n => {
+            return Err(format!(
+                "gguf export: split GGUF ({n} parts) — merge first; v1 exports single-file only"
+            ))
+        }
+    }
+    let blob = &show.from_paths[0];
+    let file_name = blob
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    if !is_blob_name(&file_name) {
+        return Err(format!(
+            "gguf export: unexpected blob name '{file_name}' (expected sha256-<hex>)"
+        ));
+    }
+    let expected_hex = file_name["sha256-".len()..].to_lowercase();
+    let size = fs::metadata(blob)
+        .map_err(|e| format!("gguf export: stat blob {}: {e}", blob.display()))?
+        .len();
+
+    let dir = gguf_dir(app)?;
+    // Диск-IO в blocking-пул (№4 аудита v5), место — по ЦЕЛЕВОМУ тому:
+    // хранилище Ollama и appdata могут быть на разных дисках
+    let dst_dir = dir.clone();
+    tauri::async_runtime::spawn_blocking(move || fs::create_dir_all(&dst_dir))
+        .await
+        .map_err(|e| format!("gguf export: task failed: {e}"))?
+        .map_err(|e| format!("gguf export: create dir: {e}"))?;
+    match crate::fsutil::free_bytes(&dir) {
+        Ok(free) if free < size => {
+            return Err(format!(
+                "gguf export: insufficient disk space at {}: need {size}, have {free}",
+                dir.display()
+            ));
+        }
+        Ok(_) | Err(_) => {}
+    }
+
+    let slug = slug_for(model);
+    let final_path = dir.join(format!("{slug}.gguf"));
+    let tmp_path = dir.join(format!("{slug}.gguf.tmp"));
+
+    let blob = blob.clone();
+    let tmp = tmp_path.clone();
+    let emit_app = app.clone();
+    let model_owned = model.to_string();
+    let copied = tauri::async_runtime::spawn_blocking(move || {
+        copy_blob_verified(
+            &blob,
+            &tmp,
+            &expected_hex,
+            &GGUF_CANCEL,
+            |received, total| {
+                let _ = emit_app.emit(
+                    "gguf-progress",
+                    json!({
+                        "phase": "export",
+                        "model": model_owned,
+                        "received": received,
+                        "total": total,
+                    }),
+                );
+            },
+        )
+    })
+    .await
+    .map_err(|e| format!("gguf export: task failed: {e}"))?;
+
+    match copied {
+        Ok(bytes) => {
+            // rename поверх существующего на Windows невозможен — экспорт
+            // перезаписывает сознательно (повторный экспорт той же модели)
+            if final_path.exists() {
+                fs::remove_file(&final_path)
+                    .map_err(|e| format!("gguf export: replace existing: {e}"))?;
+            }
+            fs::rename(&tmp_path, &final_path)
+                .map_err(|e| format!("gguf export: rename: {e}"))?;
+            Ok(ExportedModel {
+                name: model.to_string(),
+                path: final_path.to_string_lossy().into_owned(),
+                size_bytes: bytes,
+            })
+        }
+        Err(e) => Err(e), // tmp уже удалён внутри copy_blob_verified
+    }
+}
+
+/// Кооперативная отмена активной операции GGUF Lab (pull/export/surgery):
+/// циклы проверяют флаг между чанками, недописанные tmp удаляются.
+#[tauri::command]
+pub fn gguf_cancel() {
+    GGUF_CANCEL.store(true, Ordering::Relaxed);
 }
 
 #[cfg(test)]
@@ -1530,5 +2042,162 @@ mod tests {
         assert!(f.tensors.is_empty());
         assert_eq!(f.total_tensor_bytes(), 0);
         assert!(f.layers().layers.is_empty());
+    }
+
+    // === Шаг 2: конвейер Ollama ===
+
+    #[test]
+    fn pull_line_all_event_shapes() {
+        // §4.1: манифест без digest; прогресс с digest/total/completed;
+        // completed отсутствует до старта слоя; верификация; success; error
+        match parse_pull_line(r#"{"status":"pulling manifest"}"#).unwrap() {
+            PullEvent::Progress(p) => {
+                assert_eq!(p.status, "pulling manifest");
+                assert!(p.digest.is_none() && p.total.is_none() && p.completed.is_none());
+            }
+            _ => panic!("expected progress"),
+        }
+        match parse_pull_line(
+            r#"{"status":"pulling abc123","digest":"sha256:abc123","total":1000,"completed":500}"#,
+        )
+        .unwrap()
+        {
+            PullEvent::Progress(p) => {
+                assert_eq!(p.digest.as_deref(), Some("sha256:abc123"));
+                assert_eq!(p.total, Some(1000));
+                assert_eq!(p.completed, Some(500));
+            }
+            _ => panic!("expected progress"),
+        }
+        match parse_pull_line(r#"{"status":"pulling abc123","digest":"sha256:abc123","total":1000}"#)
+            .unwrap()
+        {
+            PullEvent::Progress(p) => {
+                assert_eq!(p.total, Some(1000));
+                assert!(p.completed.is_none(), "completed опционален (§4.1)");
+            }
+            _ => panic!("expected progress"),
+        }
+        assert!(matches!(
+            parse_pull_line(r#"{"status":"verifying sha256 digest"}"#).unwrap(),
+            PullEvent::Progress(_)
+        ));
+        assert!(matches!(
+            parse_pull_line(r#"{"status":"success"}"#).unwrap(),
+            PullEvent::Done
+        ));
+        match parse_pull_line(r#"{"error":"pull model manifest: file does not exist"}"#).unwrap() {
+            PullEvent::Error(e) => assert!(e.contains("does not exist")),
+            _ => panic!("expected error event"),
+        }
+        // Unknown поля не ломают парсер (Ollama добавляет поля между версиями)
+        assert!(matches!(
+            parse_pull_line(r#"{"status":"x","new_future_field":1}"#).unwrap(),
+            PullEvent::Progress(_)
+        ));
+        assert!(parse_pull_line("not json").is_err());
+    }
+
+    #[test]
+    fn show_body_from_paths_and_format() {
+        // ВАЖНО: это r#"…"#-строка — последовательность "# внутри разорвала бы
+        // литерал, поэтому в комментарии Modelfile нет решётки
+        let body = r#"{
+            "modelfile": "comment\nFROM C:\\Users\\u\\.ollama\\models\\blobs\\sha256-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\nPARAMETER stop \"<|eot|>\"\n",
+            "details": { "format": "gguf", "family": "llama" }
+        }"#;
+        let info = parse_show_body(body).unwrap();
+        assert_eq!(info.format.as_deref(), Some("gguf"));
+        assert_eq!(info.from_paths.len(), 1);
+        assert!(is_blob_name(
+            info.from_paths[0]
+                .file_name()
+                .unwrap()
+                .to_str()
+                .unwrap()
+        ));
+
+        // MLX: формат не gguf
+        let body = r#"{"modelfile":"FROM x","details":{"format":"safetensors"}}"#;
+        assert_eq!(parse_show_body(body).unwrap().format.as_deref(), Some("safetensors"));
+
+        // Split: два FROM — экспорт v1 обязан отказаться
+        let body = r#"{"modelfile":"FROM /a\nFROM /b","details":{"format":"gguf"}}"#;
+        assert_eq!(parse_show_body(body).unwrap().from_paths.len(), 2);
+
+        // Нет modelfile — пусто, без паники
+        let body = r#"{"details":{"format":"gguf"}}"#;
+        let info = parse_show_body(body).unwrap();
+        assert!(info.from_paths.is_empty());
+    }
+
+    #[test]
+    fn models_root_resolution() {
+        let home = Path::new("/home/u");
+        // OLLAMA_MODELS перекрывает дефолт (§4.2), в т.ч. пустая строка — нет
+        assert_eq!(
+            models_root_from(Some("D:\\models"), Some(home)),
+            PathBuf::from("D:\\models")
+        );
+        assert_eq!(
+            models_root_from(Some("  "), Some(home)),
+            home.join(".ollama").join("models")
+        );
+        assert_eq!(
+            models_root_from(None, Some(home)),
+            home.join(".ollama").join("models")
+        );
+        // home неизвестен — не паникуем (относительный фолбэк)
+        assert_eq!(
+            models_root_from(None, None),
+            PathBuf::from(".ollama").join("models")
+        );
+    }
+
+    #[test]
+    fn blob_name_pattern() {
+        let hex = "a".repeat(64);
+        assert!(is_blob_name(&format!("sha256-{hex}")));
+        assert!(is_blob_name(&format!("sha256-{}", hex.to_uppercase())));
+        assert!(!is_blob_name("sha256-short"));
+        assert!(!is_blob_name("model.gguf"));
+        assert!(!is_blob_name("sha256-"));
+    }
+
+    #[test]
+    fn slug_is_filesystem_safe() {
+        assert_eq!(slug_for("llama3:latest"), "llama3_latest");
+        assert_eq!(slug_for("hf.co/user/repo:Q4_K_M"), "hf.co_user_repo_Q4_K_M");
+        assert_eq!(slug_for(""), "model");
+    }
+
+    #[test]
+    fn copy_blob_verifies_hash_and_cleans_up() {
+        let dir = std::env::temp_dir().join(format!("haloui-gguf-copy-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let src = dir.join("sha256-src");
+        let payload: Vec<u8> = (0..513 * 1024u32).map(|i| (i % 251) as u8).collect();
+        fs::write(&src, &payload).unwrap();
+        let expected = hex_lower(&Sha256::digest(&payload));
+
+        let dst = dir.join("out.gguf.tmp");
+        let cancel = AtomicBool::new(false);
+        let n = copy_blob_verified(&src, &dst, &expected, &cancel, |_, _| {}).unwrap();
+        assert_eq!(n as usize, payload.len());
+        assert_eq!(fs::read(&dst).unwrap(), payload, "копия байт-в-байт");
+
+        // Неверный ожидаемый хэш → отказ и tmp удалён
+        let wrong = "0".repeat(64);
+        let err = copy_blob_verified(&src, &dst, &wrong, &cancel, |_, _| {}).unwrap_err();
+        assert!(err.contains("mismatch"), "got: {err}");
+        assert!(!dst.exists(), "tmp не остаётся после ошибки (§28.3)");
+
+        // Отмена до старта → отказ, tmp удалён
+        let cancel = AtomicBool::new(true);
+        let err = copy_blob_verified(&src, &dst, &expected, &cancel, |_, _| {}).unwrap_err();
+        assert!(err.contains("cancelled"));
+        assert!(!dst.exists());
+
+        let _ = fs::remove_dir_all(&dir);
     }
 }
