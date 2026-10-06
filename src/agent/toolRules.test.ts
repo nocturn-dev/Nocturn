@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { evaluateToolRules, mergePermRules } from "./toolRules";
+import { evaluateToolRules, mergePermRules, withSessionAllowRule } from "./toolRules";
 import type { PermRules } from "./permRules";
 
 const rules = (over: Partial<PermRules>): PermRules => ({
@@ -107,5 +107,29 @@ describe("mergePermRules ([P9])", () => {
       false,
     );
     expect(v.denyHit).toBe(true);
+  });
+
+  // Аудит A7-12: строитель сессионного allow-правила — золотые векторы
+  it("withSessionAllowRule дописывает с дедупом и сохраняет deny/always_ask", () => {
+    // С нуля (sessionRules не было)
+    expect(withSessionAllowRule(undefined, "shell_run(git *)")).toEqual({
+      allow: ["shell_run(git *)"],
+      deny: [],
+      always_ask: [],
+    });
+    // Дедуп по строке: повторная кнопка не плодит дубль
+    const prev = {
+      allow: ["shell_run(git *)"],
+      deny: ["shell_run(rm *)"],
+      always_ask: ["fs_write"],
+    };
+    expect(withSessionAllowRule(prev, "shell_run(git *)").allow).toEqual([
+      "shell_run(git *)",
+    ]);
+    // Новое правило дописывается в конец, deny/always_ask нетронуты
+    const next = withSessionAllowRule(prev, "shell_run(npm *)");
+    expect(next.allow).toEqual(["shell_run(git *)", "shell_run(npm *)"]);
+    expect(next.deny).toEqual(["shell_run(rm *)"]);
+    expect(next.always_ask).toEqual(["fs_write"]);
   });
 });

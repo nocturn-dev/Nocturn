@@ -40,7 +40,7 @@ but stay at the plain-chat level. Nocturn is the missing middle ground:
 
 ## What's new in 0.2.x
 
-The jump from 0.1 to 0.2.2 grew the codebase several times over (~79k lines
+The jump from 0.1 to 0.2.2 grew the codebase several times over (~85k lines
 of TypeScript + Rust today). The highlights, by theme:
 
 ### Agent engine
@@ -368,7 +368,7 @@ Requirements: **Node 20+** and **Rust** (for the native build).
 
 Windows, Linux and macOS builds are produced automatically for every release —
 grab an installer from
-[Releases](https://github.com/nocturn-lab/Nocturn-AI/releases). Notes per
+[Releases](https://gitlab.com/nocturn-lab1/Nocturn-AI/-/releases). Notes per
 platform:
 
 - **Windows** — the most tested platform.

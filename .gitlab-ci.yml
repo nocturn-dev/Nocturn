@@ -27,8 +27,13 @@ rust-linux:
   image: rust:1-bookworm
   tags: [saas-linux-small-amd64]
   cache:
-    key: rust-linux
-    paths: [src-tauri/target/]
+    # Ключ от Cargo.lock: смена зависимостей обязана инвалилидировать кэш
+    # (аудит A7-5 — статический ключ маскировал сломанное разрешение)
+    key:
+      files:
+        - src-tauri/Cargo.lock
+    paths:
+      - src-tauri/target/
   script:
     # Вебкит-зависимости Tauri v2 (Debian 12 несёт webkit2gtk-4.1)
     - apt-get update -qq
@@ -43,8 +48,11 @@ rust-windows:
   stage: test
   tags: [saas-windows-medium-amd64]
   cache:
-    key: rust-windows
-    paths: [src-tauri/target/]
+    key:
+      files:
+        - src-tauri/Cargo.lock
+    paths:
+      - src-tauri/target/
   script:
     # Rust на hosted Windows-раннерах не предустановлен
     - if (!(Test-Path "$env:USERPROFILE\.cargo\bin\cargo.exe")) { Invoke-WebRequest https://win.rustup.rs/x86_64 -OutFile rustup-init.exe; .\rustup-init.exe -y --quiet }
@@ -66,15 +74,23 @@ rust-macos:
     - cargo clippy --all-targets -- -D warnings
     - cargo test
 
-# Схема релиза: tauri-action — GitHub-only, latest.json собирается вручную
-# (урок удалённого make-latest-json.ps1: sig → signature, url → ассет) и
-# заливается release-cli / generic package registry. Полная обвязка — при
-# первом релизе v0.2.3 (docs/internal/GITLAB_MIGRATION.md, шаг 5)
+# Релиз (GITLAB_MIGRATION.md шаг 5): tauri-action — GitHub-only, поэтому
+# latest.json собирает scripts/make-latest-json.mjs (.sig → signature,
+# URL ассета → url), ассеты заливаются в generic package registry,
+# запись релиза создаёт release-cli. Без переменных подписи джоба падает
+# намеренно — неподписанные апдейтер-артефакты не выпускаем (RELEASE.md)
 release-windows:
   stage: release
   rules: [{ if: '$CI_COMMIT_TAG =~ /^v/' }]
+  tags: [saas-windows-medium-amd64]
   script:
     - npm ci
     - npm run tauri build
-    # TODO: собрать latest.json (version/url/signature) из nsis/*.exe + *.sig
-    # TODO: release-cli create + asset links (generic package registry)
+    - node scripts/make-latest-json.mjs src-tauri/target/release/bundle/nsis "$CI_API_V4_URL/projects/$CI_PROJECT_ID/packages/generic/nocturn/$CI_COMMIT_TAG" src-tauri/target/release/bundle/nsis/latest.json
+    - $files = Get-ChildItem "src-tauri/target/release/bundle/nsis" | Where-Object { $_.Extension -in ".exe", ".sig", ".json" }
+    - foreach ($f in $files) { curl --location --silent --show-error --header "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file $f.FullName "$env:CI_API_V4_URL/projects/$env:CI_PROJECT_ID/packages/generic/nocturn/$env:CI_COMMIT_TAG/$($f.Name)" }
+    - release-cli create --name "Nocturn $CI_COMMIT_TAG" --tag-name "$CI_COMMIT_TAG" --description "Nocturn $CI_COMMIT_TAG" --assets-link "{`"name`":`"Windows installer (latest.json)`",`"url`":`"$env:CI_API_V4_URL/projects/$env:CI_PROJECT_ID/packages/generic/nocturn/$env:CI_COMMIT_TAG/latest.json`"}"
+  artifacts:
+    paths:
+      - src-tauri/target/release/bundle/nsis/
+    expire_in: 7 days
