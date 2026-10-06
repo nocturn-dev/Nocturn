@@ -128,36 +128,9 @@ fn build_tool_schemas() -> Value {
     ])
 }
 
-/// Исполнение инструмента по имени с JSON-аргументами.
-/// Возвращает строку-результат (текст для модели).
-/// Обёртка для тестов: без abort-флага
-
-    #[test]
-    fn sleep_caps_and_reports() {
-        // [P4] Sleep исполняется; запрос выше капа прижимается к 30 сек —
-        // проверяем на 1 сек (быстро) и на валидности отчёта
-        let res = execute_tool("sleep", r#"{"seconds":1}"#).unwrap();
-        let v: Value = serde_json::from_str(&res).unwrap();
-        assert_eq!(v["ok"], serde_json::json!(true));
-        assert_eq!(v["slept"], serde_json::json!(1));
-    }
-
-    #[test]
-    fn sleep_aborts_immediately() {
-        // Stop (abort-флаг) гасит ожидание без ожидания полного срока
-        let flag = std::sync::atomic::AtomicBool::new(true);
-        let started = std::time::Instant::now();
-        let res = execute_tool_with_abort("sleep", r#"{"seconds":30}"#, Some(&flag));
-        assert!(res.is_err());
-        assert!(started.elapsed() < std::time::Duration::from_secs(2));
-    }
-#[cfg(test)]
-pub fn execute_tool(name: &str, arguments: &str) -> Result<String, String> {
-    execute_tool_with_abort(name, arguments, None)
-}
-
-/// Как execute_tool, но с abort-флагом прогона: Stop убивает длинный
-/// shell_run немедленно, вместо ожидания его собственного таймаута
+/// Исполнение инструмента с abort-флагом прогона: Stop убивает длинный
+/// shell_run немедленно, вместо ожидания его собственного таймаута.
+/// (Тестовая обёртка execute_tool без флага живёт в mod tests)
 pub fn execute_tool_with_abort(
     name: &str,
     arguments: &str,
@@ -838,6 +811,31 @@ fn shell_run(
 mod tests {
     use super::*;
 
+    /// Обёртка для тестов: без abort-флага
+    fn execute_tool(name: &str, arguments: &str) -> Result<String, String> {
+        execute_tool_with_abort(name, arguments, None)
+    }
+
+    #[test]
+    fn sleep_caps_and_reports() {
+        // [P4] Sleep исполняется; запрос выше капа прижимается к 30 сек —
+        // проверяем на 1 сек (быстро) и на валидности отчёта
+        let res = execute_tool("sleep", r#"{"seconds":1}"#).unwrap();
+        let v: Value = serde_json::from_str(&res).unwrap();
+        assert_eq!(v["ok"], serde_json::json!(true));
+        assert_eq!(v["slept"], serde_json::json!(1));
+    }
+
+    #[test]
+    fn sleep_aborts_immediately() {
+        // Stop (abort-флаг) гасит ожидание без ожидания полного срока
+        let flag = std::sync::atomic::AtomicBool::new(true);
+        let started = std::time::Instant::now();
+        let res = execute_tool_with_abort("sleep", r#"{"seconds":30}"#, Some(&flag));
+        assert!(res.is_err());
+        assert!(started.elapsed() < std::time::Duration::from_secs(2));
+    }
+
     fn tmp_dir(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("haloui-test-{}", name));
         let _ = fs::remove_dir_all(&dir);
@@ -1039,8 +1037,24 @@ unique_needle here
     fn tool_schemas_valid() {
         let v = tool_schemas();
         let arr = v.as_array().expect("schemas must be an array");
-        // fs_list, fs_read, fs_grep, fs_write, fs_delete, shell_run
-        assert_eq!(arr.len(), 6);
+        // Золотой список имён вместо магического счётчика: новый инструмент
+        // попадает сюда сознательно (счётчик протухал молча — кейс sleep)
+        let names: Vec<&str> = arr
+            .iter()
+            .map(|s| s["function"]["name"].as_str().unwrap_or(""))
+            .collect();
+        assert_eq!(
+            names,
+            [
+                "sleep",
+                "fs_list",
+                "fs_read",
+                "fs_grep",
+                "fs_write",
+                "fs_delete",
+                "shell_run"
+            ]
+        );
         for schema in arr {
             assert_eq!(schema["type"], "function");
             assert!(schema["function"]["name"].is_string());
