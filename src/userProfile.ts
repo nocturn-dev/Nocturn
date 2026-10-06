@@ -1,3 +1,4 @@
+import { STORAGE_KEYS } from "./storageKeys";
 /**
  * Локальный профиль пользователя («Профиль пользователя» в настройках):
  * имя, аватар, роль, предпочтения. Всё живёт ТОЛЬКО в localStorage этого
@@ -59,7 +60,7 @@ export const DEFAULT_PROFILE: UserProfile = {
   instructionsShare: false,
 };
 
-const KEY = "haloui-user-profile";
+const KEY = STORAGE_KEYS.userProfile;
 
 /** Кэш АВЕТАРА: UserCard читает его на каждый рендер сообщения —
  *  localStorage дёргать на этом нельзя */

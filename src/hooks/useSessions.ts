@@ -1,3 +1,4 @@
+import { STORAGE_KEYS } from "../storageKeys";
 import {
   useCallback,
   useEffect,
@@ -212,8 +213,8 @@ export function useSessions(opts: {
           // Бэкфилл журнала использования из старой истории
           // (без дат сообщений — относим расход ко дню создания задачи)
           if (
-            !localStorage.getItem("haloui-usage-backfill") &&
-            !localStorage.getItem("haloui-usage")
+            !localStorage.getItem(STORAGE_KEYS.usageBackfill) &&
+            !localStorage.getItem(STORAGE_KEYS.usage)
           ) {
             const backfill: UsageEvent[] = [];
             for (const s of parsed) {
@@ -231,7 +232,7 @@ export function useSessions(opts: {
               }
             }
             if (backfill.length > 0) setUsageLog(backfill);
-            localStorage.setItem("haloui-usage-backfill", "1");
+            localStorage.setItem(STORAGE_KEYS.usageBackfill, "1");
           }
         }
       }

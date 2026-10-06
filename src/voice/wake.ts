@@ -1,3 +1,4 @@
+import { STORAGE_KEYS } from "../storageKeys";
 /**
  * Voice Wake («Jarvis-режим»): всегда слушающий микрофон с локальным
  * детектором активационной фразы. Инференс — openWakeWord (ONNX) в
@@ -188,7 +189,7 @@ export class VoiceWake {
   private async openMic(): Promise<void> {
     if (this.stopped) return;
     try {
-      const micId = localStorage.getItem("haloui-mic-device") ?? "";
+      const micId = localStorage.getItem(STORAGE_KEYS.micDevice) ?? "";
       let stream: MediaStream;
       try {
         stream = await navigator.mediaDevices.getUserMedia({

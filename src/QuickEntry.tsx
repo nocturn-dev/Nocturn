@@ -1,3 +1,4 @@
+import { STORAGE_KEYS } from "./storageKeys";
 import { useEffect, useRef, useState } from "react";
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
 import { useLang } from "./locales";
@@ -24,7 +25,7 @@ function applyTheme() {
     applyAppearance(a);
     document.documentElement.classList.toggle(
       "light",
-      localStorage.getItem("haloui-theme") === "light" && !a.official && !a.fullClaude,
+      localStorage.getItem(STORAGE_KEYS.theme) === "light" && !a.official && !a.fullClaude,
     );
   } catch {
     // нет сохранённой кастомизации — дефолтная палитра из index.css

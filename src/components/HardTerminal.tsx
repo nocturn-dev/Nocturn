@@ -1,3 +1,4 @@
+import { STORAGE_KEYS } from "../storageKeys";
 import { useEffect, useRef, useState } from "react";
 import { useLang } from "../locales";
 import { ptyCreate, ptyKill, ptyResize, ptyWrite } from "../api";
@@ -25,7 +26,7 @@ export default function HardTerminal({ cwd, combo }: { cwd?: string; combo: stri
 
   const termShell = (() => {
     try {
-      return localStorage.getItem("haloui-term-shell") ?? "auto";
+      return localStorage.getItem(STORAGE_KEYS.termShell) ?? "auto";
     } catch {
       return "auto";
     }

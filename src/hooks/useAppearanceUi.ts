@@ -1,3 +1,4 @@
+import { STORAGE_KEYS } from "../storageKeys";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Theme } from "../types";
 import {
@@ -16,7 +17,7 @@ import { setTrayVariant } from "../api";
  */
 export function useAppearanceUi() {
   const [theme, setTheme] = useState<Theme>(() =>
-    localStorage.getItem("haloui-theme") === "light" ? "light" : "dark",
+    localStorage.getItem(STORAGE_KEYS.theme) === "light" ? "light" : "dark",
   );
   const [glass, setGlass] = useState(
     () => localStorage.getItem("haloui-glass") === "1",
@@ -32,7 +33,7 @@ export function useAppearanceUi() {
   useEffect(() => {
     const forceDark = appearance.official || appearance.fullClaude;
     document.documentElement.classList.toggle("light", theme === "light" && !forceDark);
-    localStorage.setItem("haloui-theme", theme);
+    localStorage.setItem(STORAGE_KEYS.theme, theme);
   }, [theme, appearance.official, appearance.fullClaude]);
 
   // Авто-тема: opt-in. off — тема только ручная; system — следуем ОС;

@@ -1,3 +1,4 @@
+import { STORAGE_KEYS } from "../../storageKeys";
 import { useEffect, useRef, useState } from "react";
 import { useLang } from "../../locales";
 import { type McpServerCfg, type McpServerStatus, type McpServerState, mcpListServers, mcpSaveServers, mcpConnect, mcpDisconnect, mcpStatus, mcpOauthAuthorize, mcpOauthRevoke, invalidateToolSchemas } from "../../api";
@@ -25,7 +26,7 @@ export function McpSection() {
   // Волна F4: deferred-схемы (дефолт ON) — сверх порога MCP-схемы сворачиваются
   // в индекс, полные разворачивает mcp_tool_discover
   const [deferred, setDeferred] = useState(
-    localStorage.getItem("haloui-mcp-deferred") !== "0",
+    localStorage.getItem(STORAGE_KEYS.mcpDeferred) !== "0",
   );
   // Волна F3: переменные окружения в конфиге (${VAR}) — предупреждение
   const [envNote, setEnvNote] = useState<string | null>(null);
@@ -336,7 +337,7 @@ export function McpSection() {
           onClick={() => {
             const v = !deferred;
             setDeferred(v);
-            localStorage.setItem("haloui-mcp-deferred", v ? "1" : "0");
+            localStorage.setItem(STORAGE_KEYS.mcpDeferred, v ? "1" : "0");
             invalidateToolSchemas();
           }}
           className={`shrink-0 rounded-md border px-2 py-0.5 text-[0.625rem] transition-colors ${

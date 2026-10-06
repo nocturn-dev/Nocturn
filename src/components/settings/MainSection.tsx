@@ -1,3 +1,4 @@
+import { STORAGE_KEYS } from "../../storageKeys";
 import { useCallback, useEffect, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import { useLang, type Lang } from "../../locales";
@@ -321,7 +322,7 @@ export function MainSection({
   // ctrl+shift, не ctrl+alt: AltGr+Space на AZERTY — типографский пробел
   // (аудит A3-6)
   const [qeBind, setQeBind] = useState<string>(
-    () => localStorage.getItem("haloui-quickentry-bind") ?? "ctrl+shift+space",
+    () => localStorage.getItem(STORAGE_KEYS.quickentryBind) ?? "ctrl+shift+space",
   );
   const [qeRecording, setQeRecording] = useState(false);
   // Диктовка (Whisper): статус CLI/модели; во время скачивания — опрос
@@ -367,7 +368,7 @@ export function MainSection({
   // выдал разрешение на микрофон — до того показываем безымянные опции
   const [mics, setMics] = useState<MediaDeviceInfo[]>([]);
   const [micId, setMicId] = useState(
-    () => localStorage.getItem("haloui-mic-device") ?? "",
+    () => localStorage.getItem(STORAGE_KEYS.micDevice) ?? "",
   );
   const refreshMics = useCallback(() => {
     void navigator.mediaDevices
@@ -383,7 +384,7 @@ export function MainSection({
   }, [refreshMics]);
   const pickMic = (id: string) => {
     setMicId(id);
-    localStorage.setItem("haloui-mic-device", id);
+    localStorage.setItem(STORAGE_KEYS.micDevice, id);
     if (!id) return;
     // Короткий запрос выбранного устройства: выдаёт разрешение, после чего
     // в списке появляются настоящие названия вместо «Микрофон N»
@@ -446,12 +447,12 @@ export function MainSection({
       if (!combo) return; // соло-модификатор/неподдерживаемая клавиша — ждём
       setQeRecording(false);
       setQeBind(combo);
-      localStorage.setItem("haloui-quickentry-bind", combo);
+      localStorage.setItem(STORAGE_KEYS.quickentryBind, combo);
       void quickentrySetBind(combo).catch(() => {
         // Комбо могло быть занято другим приложением — откат на прежнее
         void quickentrySetBind(qeBind).catch(() => {});
         setQeBind(qeBind);
-        localStorage.setItem("haloui-quickentry-bind", qeBind);
+        localStorage.setItem(STORAGE_KEYS.quickentryBind, qeBind);
       });
     };
     window.addEventListener("keydown", onKey, true);

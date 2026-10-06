@@ -1,3 +1,4 @@
+import { STORAGE_KEYS } from "./storageKeys";
 import {
   createContext,
   useCallback,
@@ -57,7 +58,7 @@ export function translate(
 const ALL_LANGS: readonly Lang[] = ["ru", "en", "zh", "ja"];
 
 function detectLang(): Lang {
-  const saved = localStorage.getItem("haloui-lang");
+  const saved = localStorage.getItem(STORAGE_KEYS.lang);
   if (saved && (ALL_LANGS as readonly string[]).includes(saved)) {
     return saved as Lang;
   }
@@ -85,7 +86,7 @@ export function LangProvider({ children }: { children: ReactNode }) {
   const [lang, setLang] = useState<Lang>(detectLang);
   const [dictTick, setDictTick] = useState(0);
   useEffect(() => {
-    localStorage.setItem("haloui-lang", lang);
+    localStorage.setItem(STORAGE_KEYS.lang, lang);
   }, [lang]);
   // D20: lang у <html> синхронно с локалью — скринридеры и IME раньше
   // получали захардкоженный ru при любой выбранной языке
