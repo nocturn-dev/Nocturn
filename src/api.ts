@@ -526,14 +526,17 @@ export async function detectLocalRuntimes(): Promise<LocalRuntimes> {
   return invoke<LocalRuntimes>("detect_local_runtimes");
 }
 
-/* === GGUF Lab (PLAN §28, шаг 2: скачивание/экспорт) === */
+/* === GGUF Lab (PLAN §28, шаг 2: скачивание/экспорт; шаг 3c: резка) === */
 
 /** Прогресс конвейера GGUF Lab — событие gguf-progress */
 export interface GgufProgress {
-  phase: "pull" | "export";
+  phase: "pull" | "export" | "plan" | "surgery" | "done";
   model: string;
   status?: string;
   digest?: string;
+  /** шаг/всего шагов — для surgery (по тензорам) */
+  step?: number;
+  steps?: number;
   received?: number;
   total?: number;
 }
@@ -543,6 +546,25 @@ export interface GgufExported {
   name: string;
   path: string;
   sizeBytes: number;
+}
+
+/** Сводка post-flight гейта резки (§6.2) */
+export interface GgufPostflight {
+  tensorsChecked: number;
+  bytesCompared: number;
+}
+
+/** Отчёт операции резки — UI и агенту */
+export interface GgufSurgeryReport {
+  output: string;
+  outputSizeBytes: number;
+  durationMs: number;
+  removedLayers: number[];
+  renumber: [number, number][];
+  newBlockCount: number;
+  kvEdits: string[];
+  warnings: string[];
+  verified: GgufPostflight;
 }
 
 /** Скачать модель через Ollama (resume — повторным вызовом; Ollama запущен?) */
@@ -557,7 +579,19 @@ export async function ggufExport(model: string): Promise<GgufExported> {
   return invoke<GgufExported>("gguf_export", { model });
 }
 
-/** Отмена активной операции GGUF Lab (pull/export; surgery — шаг 3) */
+/**
+ * Резка слоёв из файла в хранилище GGUF Lab (только имя, не путь):
+ * план → исполнение → post-flight → <база>_cut.gguf
+ */
+export async function ggufCut(
+  srcName: string,
+  remove: number[],
+): Promise<GgufSurgeryReport> {
+  if (!inTauri) throw new Error("GGUF Lab is only available in the native app");
+  return invoke<GgufSurgeryReport>("gguf_cut", { srcName, remove });
+}
+
+/** Отмена активной операции GGUF Lab (pull/export/surgery) */
 export async function ggufCancel(): Promise<void> {
   if (!inTauri) return;
   await invoke("gguf_cancel");
