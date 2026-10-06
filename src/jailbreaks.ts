@@ -1,3 +1,4 @@
+import { STORAGE_KEYS } from "./storageKeys";
 /**
  * Библиотека джейлбрейков: локальные записи пользователя, вставляемые в
  * системный промт задачи ЯВНЫМ кликом (никакой авто-подстановки к прогонам).
@@ -84,7 +85,7 @@ export function sanitizeJailbreaks(parsed: unknown): JailbreakEntry[] {
   return out;
 }
 
-const JB_WARN_KEY = "haloui-jb-warn-dontshow";
+const JB_WARN_KEY = STORAGE_KEYS.jbWarnDontShow;
 
 /** Предупреждение при применении джейлбрейка (решение владельца — «лишний
  * раз огородиться»): показывается при КАЖДОМ применении, пока пользователь

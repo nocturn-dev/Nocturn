@@ -1,3 +1,4 @@
+import { STORAGE_KEYS } from "../storageKeys";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import type { AskQuestion, Attachment, ChangedFile, Message, PermissionMode, PlanTask, Project, Session, ToolCallInfo } from "../types";
 import type { MediaPrefs, MediaLyricsSnapshot } from "../mediaPrefs";
@@ -600,7 +601,7 @@ export default function ChatArea({
       // Микрофон, выбранный в «Основном» (ключ дублирует MainSection);
       // пусто — системный по умолчанию. Фолбэк: выбранное устройство могло
       // отключиться — OverconstrainedError не должен ломать запись совсем
-      const micId = localStorage.getItem("haloui-mic-device") ?? "";
+      const micId = localStorage.getItem(STORAGE_KEYS.micDevice) ?? "";
       let stream: MediaStream;
       try {
         stream = await navigator.mediaDevices.getUserMedia({

@@ -1,3 +1,4 @@
+import { STORAGE_KEYS } from "../storageKeys";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { hideToTray, windowToggleMaximize } from "../api";
 import { useLang } from "../locales";
@@ -55,7 +56,7 @@ export default function WindowControls() {
       <button
         onClick={() => {
           // «Скрывать в трей»: крестик прячет окно, выход — из меню трея
-          if (localStorage.getItem("haloui-close-to-tray") === "1") {
+          if (localStorage.getItem(STORAGE_KEYS.closeToTray) === "1") {
             void hideToTray().catch(() => win.close());
           } else {
             void win.close();

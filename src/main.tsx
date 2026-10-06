@@ -1,3 +1,4 @@
+import { STORAGE_KEYS } from "./storageKeys";
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
@@ -57,7 +58,7 @@ if (isQuickEntry) {
     applyAppearance(a);
     document.documentElement.classList.toggle(
       "light",
-      localStorage.getItem("haloui-theme") === "light" && !a.official && !a.fullClaude,
+      localStorage.getItem(STORAGE_KEYS.theme) === "light" && !a.official && !a.fullClaude,
     );
   } catch {
     // нет сохранённой кастомизации — дефолтная палитра из index.css

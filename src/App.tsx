@@ -1,3 +1,4 @@
+import { STORAGE_KEYS } from "./storageKeys";
 import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   ChangedFile,
@@ -295,7 +296,7 @@ export default function App() {
   // Онбординг первого запуска: показываем после загрузки хранилищ (splashDone);
   // флаг haloui-onboarded ставится по завершению визарда или «Пропустить всё»
   const [onboardingOpen, setOnboardingOpen] = useState(
-    () => !localStorage.getItem("haloui-onboarded"),
+    () => !localStorage.getItem(STORAGE_KEYS.onboarded),
   );
   // Прогрев lazy-чанков: после сплэша на простое приложения подтягиваем
   // тяжёлые поверхности — первый клик по «Настройкам» больше не ждёт чанк
@@ -417,7 +418,7 @@ export default function App() {
   const [scrollFollow, setScrollFollow] = useBoolPref("haloui-scroll-follow", false);
   const [streamSmooth, setStreamSmooth] = useBoolPref("haloui-stream-smooth", true);
   // Git-автокоммит перед правками агента (Aider-паттерн, opt-in)
-  const [gitAutocommit, setGitAutocommit] = useBoolPref("haloui-git-autocommit", false);
+  const [gitAutocommit, setGitAutocommit] = useBoolPref(STORAGE_KEYS.gitAutocommit, false);
   // Подсветка кода во время стрима: выкл — hljs только после завершения
   // (тик плавной печати без highlight в разы дешевле на длинных ответах)
   const [highlightLive, setHighlightLive] = useBoolPref("haloui-highlight-live", true);
@@ -458,9 +459,9 @@ export default function App() {
   // Автопродолжение ask_user: вопрос без ответа 5 минут — агент продолжит сам
   const [askAutoContinue, setAskAutoContinue] = useBoolPref("haloui-ask-auto-continue", true);
   // Оболочка консоли терминала: auto | powershell | cmd | gitbash
-  const [termShell, setTermShell] = useStringPref<string>("haloui-term-shell", "auto");
+  const [termShell, setTermShell] = useStringPref<string>(STORAGE_KEYS.termShell, "auto");
   // Скрывать в трей при закрытии окна (выход — из меню трея)
-  const [closeToTray, setCloseToTray] = useBoolPref("haloui-close-to-tray", false);
+  const [closeToTray, setCloseToTray] = useBoolPref(STORAGE_KEYS.closeToTray, false);
   // Авто-архив: старые задачи (без пина, старше срока) уходят в архив
   const [autoArchive, setAutoArchive] = useBoolPref("haloui-auto-archive", false);
   const [archiveRetention, setArchiveRetention] = useNumPref(
@@ -483,13 +484,13 @@ export default function App() {
   // (первая сеть — checkForUpdate через 8 с)
   useEffect(() => {
     const t = window.setTimeout(() => {
-      const raw = localStorage.getItem("haloui-usage");
+      const raw = localStorage.getItem(STORAGE_KEYS.usage);
       if (!raw) return;
       const events = sanitizeUsageEvents(raw);
       if (events.length === 0 && raw.trim() !== "[]") {
         // Невалидное содержимое стираем: бэкфилл из sessions.json снова увидит
         // пустой ключ и восстановит журнал (голый cast оставлял поломку навсегда)
-        localStorage.removeItem("haloui-usage");
+        localStorage.removeItem(STORAGE_KEYS.usage);
       }
       setUsageLog(events);
     }, 0);
@@ -674,7 +675,7 @@ export default function App() {
   );
   // Корневая папка проекта для файлового менеджера (M4.2), помнит выбор
   const [projectRoot, setProjectRoot] = useState<string | null>(() =>
-    localStorage.getItem("haloui-project-root"),
+    localStorage.getItem(STORAGE_KEYS.projectRoot),
   );
   // projectRoot для агентного цикла: актуальное значение через реф
   const projectRootRef = useRef<string | null>(projectRoot);
@@ -698,15 +699,15 @@ export default function App() {
   // «Не давать ПК уснуть»: тумблер переживает перезапуск, но ОС-уровневый
   // флаг сбрасывается вместе с процессом — восстанавливаем при старте
   useEffect(() => {
-    if (localStorage.getItem("haloui-keep-awake") === "1") {
+    if (localStorage.getItem(STORAGE_KEYS.keepAwake) === "1") {
       void keepAwake(true).catch(() => {});
     }
   }, []);
 
   // Корневая папка файлового менеджера запоминается между запусками
   useEffect(() => {
-    if (projectRoot) localStorage.setItem("haloui-project-root", projectRoot);
-    else localStorage.removeItem("haloui-project-root");
+    if (projectRoot) localStorage.setItem(STORAGE_KEYS.projectRoot, projectRoot);
+    else localStorage.removeItem(STORAGE_KEYS.projectRoot);
   }, [projectRoot]);
 
   // Заметки загружаются при старте
@@ -758,7 +759,7 @@ export default function App() {
     const flushUsage = () => {
       if (!usageDirtyRef.current) return;
       usageDirtyRef.current = false;
-      localStorage.setItem("haloui-usage", JSON.stringify(usageLogRef.current.slice(-4999)));
+      localStorage.setItem(STORAGE_KEYS.usage, JSON.stringify(usageLogRef.current.slice(-4999)));
     };
     const id = window.setInterval(flushUsage, 10_000);
     window.addEventListener("beforeunload", flushUsage);
@@ -1373,7 +1374,7 @@ export default function App() {
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      const saved = localStorage.getItem("haloui-quickentry-bind");
+      const saved = localStorage.getItem(STORAGE_KEYS.quickentryBind);
       if (saved) {
         await quickentrySetBind(saved).catch(() => {
           if (!cancelled) addToast(tMirrorQuickEntry.current("main.quickentryBindFail"));
@@ -2367,7 +2368,7 @@ export default function App() {
     setAppearance((a) => ({ ...a, accent: hex }));
 
   const handleOnboardingFinish = async (res: OnboardingResult) => {
-    localStorage.setItem("haloui-onboarded", "1");
+    localStorage.setItem(STORAGE_KEYS.onboarded, "1");
     setOnboardingOpen(false);
     if (!res.settings) return;
     try {

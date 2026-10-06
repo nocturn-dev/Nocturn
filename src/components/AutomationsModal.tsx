@@ -1,3 +1,4 @@
+import { STORAGE_KEYS } from "../storageKeys";
 /**
  * Автоматизации: запланированные задачи агента.
  * Референс- layout: заголовок + подзаголовок, карточка со списком
@@ -33,7 +34,7 @@ interface AutomationsModalProps {
   onClose: () => void;
 }
 
-const LS_KEEP_AWAKE = "haloui-keep-awake";
+const LS_KEEP_AWAKE = STORAGE_KEYS.keepAwake;
 // satisfies: протухший ключ дня недели = ошибка компиляции, а не пустой пункт
 const WEEKDAY_KEYS = [
   "auto.dowSun",

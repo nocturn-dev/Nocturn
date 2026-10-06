@@ -1,3 +1,4 @@
+import { STORAGE_KEYS } from "../storageKeys";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import type { Project, Session } from "../types";
 import WindowControls from "./WindowControls";
@@ -873,12 +874,12 @@ function Checkpoints({ root }: { root: string }) {
   // Opt-in git-журнал (блок 12 шаг 4): каждый чекпоинт дополнительно
   // коммитится в отдельный index-dir ботовым автором
   const [gitOn, setGitOn] = useState(
-    () => localStorage.getItem("haloui-checkpoints-git") === "1",
+    () => localStorage.getItem(STORAGE_KEYS.checkpointsGit) === "1",
   );
   const toggleGit = () => {
     const next = !gitOn;
     setGitOn(next);
-    localStorage.setItem("haloui-checkpoints-git", next ? "1" : "0");
+    localStorage.setItem(STORAGE_KEYS.checkpointsGit, next ? "1" : "0");
   };
   // Таймлайн: раскрытые снимки + ленивые состояния файлов (before/current
   // из checkpoint_files — base64, сравнение строковое). Кэш по id

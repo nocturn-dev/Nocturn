@@ -1,3 +1,4 @@
+import { STORAGE_KEYS } from "../storageKeys";
 // Агентный движок Nocturn: стримы с ретраем, инструментальные циклы,
 // субагенты, взаимодействия (подтверждения/вопросы), очередь поправок.
 // Выделено из App.tsx: здесь живёт всё состояние прогона, App только
@@ -1766,7 +1767,7 @@ export function useAgentRun(deps: AgentRunDeps) {
           cp = await checkpointSave(
             root,
             label,
-            localStorage.getItem("haloui-checkpoints-git") === "1",
+            localStorage.getItem(STORAGE_KEYS.checkpointsGit) === "1",
           );
         } catch (e) {
           addToast(`checkpoint failed: ${e}`);
@@ -1781,7 +1782,7 @@ export function useAgentRun(deps: AgentRunDeps) {
         // Git-автокоммит (Aider-паттерн, opt-in): состояние репо откатываемо
         // через git независимо от файловых чекпоинтов; best-effort — не репо,
         // нет git или identity — бекенд тихо пропускает
-        if (localStorage.getItem("haloui-git-autocommit") === "1") {
+        if (localStorage.getItem(STORAGE_KEYS.gitAutocommit) === "1") {
           void gitAutocommit(
             root,
             `nocturn: auto-checkpoint — ${label || "agent run"}`,

@@ -1,3 +1,4 @@
+import { STORAGE_KEYS } from "./storageKeys";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { isSeqGap } from "./hooks/streamBuffer";
@@ -227,7 +228,7 @@ export async function getToolSchemas(): Promise<unknown> {
   if (cachedSchemas !== null) return cachedSchemas;
   // Волна F4: deferred-режим схем (дефолт ON, тумблер в McpSection)
   cachedSchemas = await invoke<unknown>("get_tool_schemas", {
-    deferred: localStorage.getItem("haloui-mcp-deferred") !== "0",
+    deferred: localStorage.getItem(STORAGE_KEYS.mcpDeferred) !== "0",
   });
   return cachedSchemas;
 }
@@ -1653,15 +1654,15 @@ const LS_EXCLUDE_KEYS: ReadonlySet<string> = new Set([
   "haloui-profiles",
   "haloui-sessions",
   // Машинно-специфичное: абсолютные пути и железо другой машины бессмысленны
-  "haloui-project-root",
-  "haloui-mic-device",
+  STORAGE_KEYS.projectRoot,
+  STORAGE_KEYS.micDevice,
   "haloui-colibri",
   // Состояние, а не настройка: журнал расхода токенов, кэш аватара,
   // флаг онбординга (свежая машина должна пройти онбординг заново)
-  "haloui-usage",
-  "haloui-usage-backfill",
-  "haloui-user-profile",
-  "haloui-onboarded",
+  STORAGE_KEYS.usage,
+  STORAGE_KEYS.usageBackfill,
+  STORAGE_KEYS.userProfile,
+  STORAGE_KEYS.onboarded,
 ]);
 
 export function collectLocal(): Record<string, string> {
