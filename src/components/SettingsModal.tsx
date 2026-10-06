@@ -208,6 +208,7 @@ interface SettingsModalProps {
   onSaveSettings: () => Promise<void>;
   onRescanLocal: () => void;
   onUseLocalModel: (id: string, runtime: LocalRuntime) => void;
+  onOpenGgufLab: () => void;
   onClose: () => void;
 }
 
@@ -389,6 +390,7 @@ export default function SettingsModal({
   onSaveSettings,
   onRescanLocal,
   onUseLocalModel,
+  onOpenGgufLab,
   onClose,
 }: SettingsModalProps) {
   const { t } = useLang();
@@ -828,6 +830,7 @@ export default function SettingsModal({
               onSave={onSaveSettings}
               onRescanLocal={onRescanLocal}
               onUseLocalModel={onUseLocalModel}
+              onOpenGgufLab={onOpenGgufLab}
             />
           )}
           {section === "prompts" && (

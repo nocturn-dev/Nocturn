@@ -2393,8 +2393,7 @@ pub struct SurgeryReport {
 /// Валидатор имени файла в хранилище GGUF Lab: только имя, только .gguf.
 /// Команда gguf_cut НЕ принимает произвольных путей с фронтенда — лаборатория
 /// самодостаточна в appdata/gguf (§6.4), поэтому ensure_export_target не нужен.
-fn validate_lab_file_name(name: &str) -> Result<String, String> {
-    if name.is_empty()
+fn validate_lab_file_name(name: &str) -> Result<String, String> {    if name.is_empty()
         || name.contains('/')
         || name.contains('\\')
         || name.contains("..")
@@ -2482,6 +2481,111 @@ pub(crate) fn run_surgery_pipeline(
         warnings: plan.warnings.clone(),
         verified,
     })
+}
+
+// ---------------------------------------------------------------------------
+// Хранилище GGUF Lab: список файлов и инспектор (UI шага 5)
+// ---------------------------------------------------------------------------
+
+/// Файл в хранилище GGUF Lab (appdata/gguf)
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LabFile {
+    pub name: String,
+    pub size_bytes: u64,
+}
+
+/// Список .gguf-файлов каталога лаборатории (один уровень, tmp пропущен).
+/// Синхронная — под spawn_blocking команды.
+fn lab_files_in(dir: &Path) -> Vec<LabFile> {
+    let mut out: Vec<LabFile> = fs::read_dir(dir)
+        .map(|rd| {
+            rd.flatten()
+                .filter_map(|e| {
+                    let p = e.path();
+                    if !p.is_file() {
+                        return None;
+                    }
+                    let name = p.file_name()?.to_string_lossy().into_owned();
+                    if !name.to_ascii_lowercase().ends_with(".gguf") || name.contains(".tmp") {
+                        return None;
+                    }
+                    Some(LabFile {
+                        size_bytes: e.metadata().ok()?.len(),
+                        name,
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    out.sort_by(|a, b| a.name.cmp(&b.name));
+    out
+}
+
+/// Файлы хранилища GGUF Lab
+#[tauri::command(async)]
+pub async fn gguf_lab_files(app: tauri::AppHandle) -> Result<Vec<LabFile>, String> {
+    let dir = gguf_dir(&app)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        // Каталог создаётся лениво: пустое хранилище — норма, а не ошибка
+        let _ = fs::create_dir_all(&dir);
+        lab_files_in(&dir)
+    })
+    .await
+    .map_err(|e| format!("gguf lab: task failed: {e}"))
+}
+
+/// Инспектор файла (read-only ядро шага 1): сводка + слои для таблицы UI
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GgufInspect {
+    pub name: String,
+    pub size_bytes: u64,
+    pub version: u32,
+    pub architecture: Option<String>,
+    pub alignment: u32,
+    pub block_count: Option<i64>,
+    pub tensor_count: usize,
+    pub quantization_version: Option<i64>,
+    pub has_tokenizer: bool,
+    pub flags: ArchFlags,
+    pub warnings: Vec<String>,
+    pub layers: Vec<LayerInfo>,
+    pub global_tensors: Vec<TensorInfo>,
+    pub total_tensor_bytes: u64,
+}
+
+/// Разобрать файл хранилища и отдать сводку для UI
+#[tauri::command(async)]
+pub async fn gguf_inspect(app: tauri::AppHandle, src_name: String) -> Result<GgufInspect, String> {
+    let src_name = validate_lab_file_name(&src_name)?;
+    let path = gguf_dir(&app)?.join(&src_name);
+    let name = src_name;
+    tauri::async_runtime::spawn_blocking(move || {
+        let f = GgufFile::open(&path)?;
+        let rep = f.layers();
+        Ok(GgufInspect {
+            name,
+            size_bytes: f.file_len,
+            version: f.meta.version,
+            architecture: f.meta.architecture,
+            alignment: f.meta.alignment,
+            block_count: f.meta.block_count,
+            tensor_count: f.tensors.len(),
+            quantization_version: f.meta.quantization_version,
+            has_tokenizer: f.meta.has_tokenizer,
+            flags: f.flags,
+            warnings: f.warnings,
+            layers: rep.layers,
+            global_tensors: rep.global,
+            total_tensor_bytes: {
+                // ДО частичного перемещения полей f — считаем из тензоров
+                f.tensors.iter().map(|t| t.nbytes).sum()
+            },
+        })
+    })
+    .await
+    .map_err(|e| format!("gguf lab: task failed: {e}"))?
 }
 
 // ---------------------------------------------------------------------------

@@ -530,7 +530,14 @@ export async function detectLocalRuntimes(): Promise<LocalRuntimes> {
 
 /** Прогресс конвейера GGUF Lab — событие gguf-progress */
 export interface GgufProgress {
-  phase: "pull" | "export" | "plan" | "surgery" | "done";
+  phase:
+    | "pull"
+    | "export"
+    | "plan"
+    | "surgery"
+    | "import"
+    | "download"
+    | "done";
   model: string;
   status?: string;
   digest?: string;
@@ -663,6 +670,76 @@ export async function ggufOllamaImport(
 ): Promise<void> {
   if (!inTauri) throw new Error("GGUF Lab is only available in the native app");
   await invoke("gguf_ollama_import", { srcName, model });
+}
+
+/* === GGUF Lab, шаг 5: хранилище + инспектор === */
+
+/** Файл в хранилище GGUF Lab (appdata/gguf) */
+export interface GgufLabFile {
+  name: string;
+  sizeBytes: number;
+}
+
+/** Тензор в таблице инспектора */
+export interface GgufTensorInfo {
+  name: string;
+  nDims: number;
+  dims: number[];
+  typeName: string;
+  typeCode: number;
+  offset: number;
+  nbytes: number;
+}
+
+/** Слой (группа blk.N.*) из инспектора */
+export interface GgufLayerInfo {
+  index: number;
+  totalBytes: number;
+  tensors: GgufTensorInfo[];
+  hasAttention: boolean;
+  hasMoeExperts: boolean;
+  hasSsm: boolean;
+  hasConv: boolean;
+  hasNextn: boolean;
+}
+
+/** Флаги арха — вход политики резки (§6.3) */
+export interface GgufFlags {
+  swa: boolean;
+  moe: boolean;
+  hybridSsm: boolean;
+  hybridConv: boolean;
+  nextn: boolean;
+}
+
+/** Сводка инспектора: read-only разбор файла лаборатории */
+export interface GgufInspect {
+  name: string;
+  sizeBytes: number;
+  version: number;
+  architecture: string | null;
+  alignment: number;
+  blockCount: number | null;
+  tensorCount: number;
+  quantizationVersion: number | null;
+  hasTokenizer: boolean;
+  flags: GgufFlags;
+  warnings: string[];
+  layers: GgufLayerInfo[];
+  globalTensors: GgufTensorInfo[];
+  totalTensorBytes: number;
+}
+
+/** Файлы хранилища GGUF Lab */
+export async function ggufLabFiles(): Promise<GgufLabFile[]> {
+  if (!inTauri) return [];
+  return invoke<GgufLabFile[]>("gguf_lab_files");
+}
+
+/** Инспектор: разбор файла хранилища (слои, флаги, предупреждения) */
+export async function ggufInspect(srcName: string): Promise<GgufInspect> {
+  if (!inTauri) throw new Error("GGUF Lab is only available in the native app");
+  return invoke<GgufInspect>("gguf_inspect", { srcName });
 }
 
 export async function loadSessions(): Promise<string | null> {

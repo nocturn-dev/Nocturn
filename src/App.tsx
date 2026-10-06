@@ -133,6 +133,7 @@ import { ErrorBoundary } from "./components/ErrorBoundary";
 const LazySettingsModal = memo(lazy(() => import("./components/SettingsModal")));
 const LazyAutomationsModal = memo(lazy(() => import("./components/AutomationsModal")));
 const LazyCompareModal = memo(lazy(() => import("./components/CompareModal")));
+const LazyGgufLabModal = memo(lazy(() => import("./components/GgufLabModal")));
 const LazyKnowledgeModal = memo(lazy(() => import("./components/KnowledgeModal")));
 const LazyNotesModal = lazy(() => import("./components/NotesModal"));
 const LazyGraphModal = lazy(() => import("./components/GraphModal"));
@@ -268,12 +269,14 @@ export default function App() {
   const [automationsOpen, setAutomationsOpen] = useState(false);
   // Сравнение моделей бок-о-бок (общий промпт → параллельные стримы)
   const [compareOpen, setCompareOpen] = useState(false);
+  const [ggufLabOpen, setGgufLabOpen] = useState(false);
   // Базы знаний (RAG): индексы документов + привязка к активному чату
   const [knowledgeOpen, setKnowledgeOpen] = useState(false);
   // Sticky-mount ленивых модалок (см. блок lazy выше)
   const settingsMounted = useEverOpened(settingsOpen);
   const automationsMounted = useEverOpened(automationsOpen);
   const compareMounted = useEverOpened(compareOpen);
+  const ggufLabMounted = useEverOpened(ggufLabOpen);
   const knowledgeMounted = useEverOpened(knowledgeOpen);
   // RAG-трасса (PLAN §24 ш.3): последний поиск по базе — для KnowledgeModal
   const [kbTrace, setKbTrace] = useState<KbTrace | null>(null);
@@ -646,6 +649,7 @@ export default function App() {
     handleApplyProfile,
     handleDeleteProfile,
     handleUseLocalModel,
+    handleUseGgufServe,
   } = useApiSettings({ activeId, sessions, setSessions, appearance });
   // Hard Limit: лимиты расхода на задачу (localStorage) — реф синхронный,
   // его читает handleSend, который живёт в замыкании
@@ -3025,6 +3029,7 @@ export default function App() {
       <LazySettingsModal
         open={settingsOpen}
         onWarnCancel={handleWarnCancel}
+        onOpenGgufLab={() => setGgufLabOpen(true)}
         usageLog={usageLog}
         theme={theme}
         glass={glass}
@@ -3153,6 +3158,15 @@ export default function App() {
       <LazyAutomationsModal
         open={automationsOpen}
         onClose={closeAutomations}
+      />
+      </Suspense>
+      )}
+      {ggufLabMounted && (
+      <Suspense fallback={null}>
+      <LazyGgufLabModal
+        open={ggufLabOpen}
+        onClose={() => setGgufLabOpen(false)}
+        onUseAsChatProvider={handleUseGgufServe}
       />
       </Suspense>
       )}

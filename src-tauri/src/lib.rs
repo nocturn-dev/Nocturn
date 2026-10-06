@@ -271,6 +271,8 @@ pub fn run() {
             gguf::gguf_export,
             gguf::gguf_cut,
             gguf::gguf_cancel,
+            gguf::gguf_lab_files,
+            gguf::gguf_inspect,
             gguf::gguf_llama_status,
             gguf::gguf_llama_set_path,
             gguf::gguf_serve_start,

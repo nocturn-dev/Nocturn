@@ -98,6 +98,8 @@ export const SETTINGS_SEARCH_INDEX: { section: Section; keys: MsgKey[] }[] = [
   {
     section: "api",
     keys: [
+      "ggufLab.entry",
+      "ggufLab.entryDesc",
       "api.baseUrl",
       "api.model",
       "api.fallbackModel",
