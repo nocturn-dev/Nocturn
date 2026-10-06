@@ -120,8 +120,8 @@ pub fn ggml_type(code: i32) -> Option<GgmlType> {
 }
 
 /// Коды типов значений KV (§1.1); код — 4 байта в потоке.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ValueType {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub enum ValueType {
     UInt8,
     Int8,
     UInt16,
@@ -290,16 +290,21 @@ pub struct LayerReport {
     pub global: Vec<TensorInfo>,
 }
 
-/// Адрес значения `{arch}.block_count` в файле — для in-place патча при
-/// хирургии (шаг 3a): значение фиксированной ширины переписывается байтами,
-/// весь остальной KV-регион (токенайзер, шаблоны) копируется вербатим —
-/// перекодировка словаря не выполняется никогда (§2.4-7: in-place правомерен
-/// только для фиксширинных скаляров).
+/// Спан KV-пары в файле (шаг 3b): границы пары + структура значения.
+/// Хирургии нужны точные адреса, чтобы СПЛАЙСИТЬ пары (массив по маппингу
+/// короче оригинала) без перекодировки остального региона — токенайзер
+/// копируется байт-в-байт со сдвигом, а не пересобирается.
 #[derive(Debug, Clone, Copy, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct BlockCountPatch {
-    pub value_offset: u64,
-    pub width: u32,
+pub struct KvSpan {
+    /// Абсолютный старт ключа (начало пары)
+    pub key_start: u64,
+    /// Абсолютный конец значения (конец пары)
+    pub end: u64,
+    pub vt: ValueType,
+    /// Массив: (тип элемента, длина, абсолютный старт элементов)
+    pub arr: Option<(ValueType, u64, u64)>,
+    /// Фиксширинный скаляр: (адрес значения, ширина в байтах)
+    pub scalar: Option<(u64, u32)>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -316,10 +321,8 @@ pub struct GgufFile {
     /// Абсолютный конец KV-региона = начало таблицы тензоров (шаг 3a:
     /// вербатим-копия KV с патчем block_count)
     pub kv_end: u64,
-    pub block_count_patch: Option<BlockCountPatch>,
-    /// Больше одного ключа "*.block_count" — патчить нельзя (неясно, какой из
-    /// них настоящий); surgery откажется
-    pub block_count_ambiguous: bool,
+    /// Спаны ВСЕХ KV-пар (шаг 3b) — вход для сплайс-правок плана
+    pub kv_spans: Vec<(String, KvSpan)>,
 }
 
 impl GgufFile {
@@ -534,8 +537,7 @@ impl Parser {
         let mut kv_keys: Vec<String> = Vec::new();
         let mut seen_keys: HashSet<String> = HashSet::new();
         let mut alignment: Option<u32> = None;
-        let mut bc_patch: Option<BlockCountPatch> = None;
-        let mut bc_seen = 0usize;
+        let mut kv_spans: Vec<(String, KvSpan)> = Vec::new();
         let kv_region_start = self.pos;
         for i in 0..kv_count {
             // Кап бюджета СТРОГО по объявленным длинам — враждебный файл
@@ -545,6 +547,7 @@ impl Parser {
                     "gguf: kv region exceeds {MAX_KV_REGION_BYTES} bytes (hostile or corrupt) after {i} pairs"
                 ));
             }
+            let key_start = self.pos;
             let key = self.read_string(MAX_KEY_BYTES, "kv key")?;
             if key.is_empty() {
                 return Err("gguf: empty kv key".into());
@@ -557,29 +560,26 @@ impl Parser {
             let vt = ValueType::from_code(type_code).ok_or_else(|| {
                 format!("gguf: kv '{key}' has unknown value type {type_code}")
             })?;
-            // {arch}.block_count — единственный in-place патч хирургии 3a.
-            // Запоминаем адрес значения ДО его чтения. Несколько ключей с
-            // суффиксом .block_count → неоднозначность, патч отменяется
-            // (архитектурный ключ в файле ровно один; больше — враждебный файл)
-            if key.ends_with(".block_count") {
-                bc_seen += 1;
-                if bc_seen > 1 {
-                    bc_patch = None;
-                } else {
-                    let width = match vt {
-                        ValueType::UInt32 | ValueType::Int32 => 4u32,
-                        ValueType::UInt64 | ValueType::Int64 => 8,
-                        _ => 0,
-                    };
-                    if width > 0 {
-                        bc_patch = Some(BlockCountPatch {
-                            value_offset: self.pos,
-                            width,
-                        });
-                    }
+            // Спан (шаг 3b): для массива тип элемента и длина читаются на
+            // уровне цикла — спану нужен абсолютный старт элементов
+            let value_start = self.pos;
+            let mut arr_span = None;
+            let value = if vt == ValueType::Array {
+                let elem_code = self.read_u32()?;
+                let et = ValueType::from_code(elem_code).ok_or_else(|| {
+                    format!("gguf: kv '{key}' array has unknown element type {elem_code}")
+                })?;
+                let len = self.read_u64()?;
+                if len > MAX_ARRAY_ELEMS {
+                    return Err(format!(
+                        "gguf: kv '{key}' array length {len} exceeds format limit"
+                    ));
                 }
-            }
-            let value = self.read_kv_value(&key, vt)?;
+                arr_span = Some((et, len, self.pos));
+                self.read_kv_array_content(&key, et, len)?
+            } else {
+                self.read_kv_value(&key, vt)?
+            };
             if vt == ValueType::UInt32 && key == "general.alignment" {
                 if let Some(Retained::Int(a)) = value {
                     let a = u32::try_from(a)
@@ -594,6 +594,16 @@ impl Parser {
                     alignment = Some(a);
                 }
             }
+            kv_spans.push((
+                key.clone(),
+                KvSpan {
+                    key_start,
+                    end: self.pos,
+                    vt,
+                    arr: arr_span,
+                    scalar: vt.fixed_size().map(|w| (value_start, w as u32)),
+                },
+            ));
             kv_keys.push(key);
             if let Some(v) = value {
                 retained.push((kv_keys.last().unwrap().clone(), v));
@@ -719,8 +729,7 @@ impl Parser {
             file_len: self.file_len,
             warnings,
             kv_end,
-            block_count_patch: bc_patch,
-            block_count_ambiguous: bc_seen > 1,
+            kv_spans,
         })
     }
 
@@ -779,20 +788,22 @@ impl Parser {
                     None
                 }
             }
-            ValueType::Array => self.read_kv_array(key)?,
+            // Массивы разбираются на уровне цикла KV (спану нужны elem/len) —
+            // сюда попасть не должно
+            ValueType::Array => {
+                return Err("gguf: internal: array value outside the kv loop".into());
+            }
         })
     }
 
-    fn read_kv_array(&mut self, key: &str) -> Result<Option<Retained>, String> {
-        let elem_code = self.read_u32()?;
-        let et = ValueType::from_code(elem_code)
-            .ok_or_else(|| format!("gguf: kv '{key}' array has unknown element type {elem_code}"))?;
-        let len = self.read_u64()?;
-        if len > MAX_ARRAY_ELEMS {
-            return Err(format!(
-                "gguf: kv '{key}' array length {len} exceeds format limit"
-            ));
-        }
+    /// Содержимое массива: тип элемента и длина читает ВЫЗЫВАЮЩИЙ (уровень
+    /// цикла — спану нужен elems_start), здесь только обход/удержание
+    fn read_kv_array_content(
+        &mut self,
+        key: &str,
+        et: ValueType,
+        len: u64,
+    ) -> Result<Option<Retained>, String> {
         match et {
             ValueType::String => {
                 // Токенайзер: массив строк, валидируем каждую длину,
@@ -1466,6 +1477,65 @@ pub struct PlanTensor {
     pub src_offset: u64,
 }
 
+/// Правка KV-региона (шаг 3b). InPlace — фиксширинный скаляр (§2.4-7:
+/// in-place правомерен только для фиксширинных скаляров); ReplacePair —
+/// сплайс целой пары (массив другой длины/типа). ВСТАВОК НЕТ: kv_count
+/// в заголовке не меняется — число пар постоянно.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum KvEdit {
+    InPlace { value_offset: u64, width: u32, value: u64 },
+    ReplacePair { pair_start: u64, pair_end: u64, bytes: Vec<u8> },
+}
+
+/// Элементы перекодируемого массива: int-массивы (head_count_kv и др.)
+/// и bool-массивы (sliding_window_pattern). Строковые массивы (токенайзер)
+/// в хирургии не участвуют никогда.
+#[derive(Debug, Clone, Copy)]
+pub enum PairElems<'a> {
+    Ints(&'a [i64]),
+    Bools(&'a [bool]),
+}
+
+fn push_elem(b: &mut Vec<u8>, et: ValueType, v: i64) {
+    match et {
+        ValueType::UInt8 => b.push(v as u8),
+        ValueType::Int8 => b.push(v as i8 as u8),
+        ValueType::UInt16 => b.extend_from_slice(&(v as u16).to_le_bytes()),
+        ValueType::Int16 => b.extend_from_slice(&(v as i16).to_le_bytes()),
+        ValueType::UInt32 | ValueType::Int32 => b.extend_from_slice(&(v as i32).to_le_bytes()),
+        ValueType::UInt64 | ValueType::Int64 => b.extend_from_slice(&v.to_le_bytes()),
+        // Bool-массивы идут через PairElems::Bools; float/строковые массивы
+        // per-layer семантики не несут и в правки не попадают (гарды)
+        _ => {}
+    }
+}
+
+/// Перекодировать ПАРУ целиком (ключ + Array + elem + len + элементы):
+/// тип элемента сохраняется из исходника — llama.cpp читает его из пары (§1.1)
+fn encode_array_pair(key: &str, elem: ValueType, elems: PairElems) -> Vec<u8> {
+    let mut b = Vec::new();
+    b.extend_from_slice(&(key.len() as u64).to_le_bytes());
+    b.extend_from_slice(key.as_bytes());
+    b.extend_from_slice(&9u32.to_le_bytes()); // ValueType::Array по кодам §1.1
+    b.extend_from_slice(&(elem as u32).to_le_bytes());
+    match elems {
+        PairElems::Ints(v) => {
+            b.extend_from_slice(&(v.len() as u64).to_le_bytes());
+            for &x in v {
+                push_elem(&mut b, elem, x);
+            }
+        }
+        PairElems::Bools(v) => {
+            b.extend_from_slice(&(v.len() as u64).to_le_bytes());
+            for &x in v {
+                b.push(u8::from(x));
+            }
+        }
+    }
+    b
+}
+
 /// План резки — самодостаточен для исполнения: источник мог измениться между
 /// inspect и резкой, поэтому в плане зафиксирована идентичность исходника
 /// (длина файла), и execute_surgery метаданные повторно не читает.
@@ -1488,7 +1558,11 @@ pub struct SurgeryPlan {
     pub src_data_start: u64,
     pub alignment: u32,
     pub kv_end: u64,
-    pub block_count_patch: Option<BlockCountPatch>,
+    /// Правки KV-региона (block_count + per-layer массивы + nextn +
+    /// leading_dense); отсортированы по позиции при исполнении
+    pub kv_edits: Vec<KvEdit>,
+    /// Длина KV-региона ПОСЛЕ правок (для оценки размера выхода)
+    pub kv_out_len: u64,
 }
 
 /// Новый индекс слоя: old минус число удалённых ПЕРЕД ним. Сортированный
@@ -1524,10 +1598,9 @@ pub fn build_surgery_plan(src: &GgufFile, remove: &[u64]) -> Result<SurgeryPlan,
             .map_err(|_| "gguf surgery: negative block_count".to_string())?,
         None => {
             return Err(if src
-                .meta
-                .kv_keys
+                .kv_spans
                 .iter()
-                .any(|k| k.ends_with(".block_count"))
+                .any(|(k, _)| k.ends_with(".block_count"))
             {
                 "gguf surgery: block_count is not a fixed-width int (u32/i32/u64/i64) — cannot patch in place".to_string()
             } else {
@@ -1535,53 +1608,21 @@ pub fn build_surgery_plan(src: &GgufFile, remove: &[u64]) -> Result<SurgeryPlan,
             });
         }
     };
-
-        // Гард-лист 3a (§6.3): отказ ДО любых вычислений ===
-        if src.block_count_ambiguous {
-            return Err("gguf surgery: multiple *.block_count keys — cannot pick the real one".into());
-        }
-        // После резолва block_count патч гарантирован (int-значение было
-        // прочитано фиксширинным чтением) — остаётся защитная проверка
-        let patch = src
-            .block_count_patch
-            .ok_or_else(|| "gguf surgery: internal: block_count patch missing".to_string())?;
-    // SWA-фаза сдвигается при удалении слоя → KV-cache/маска неверны (§1.6)
-    if src.flags.swa {
-        return Err(format!(
-            "gguf surgery: {arch} uses a sliding-window pattern — removal shifts the SWA phase (research §1.6); supported in step 3b"
-        ));
-    }
-    // Stale nextn_predict_layers делает файл unloadable (§2.4-2)
-    if src.flags.nextn {
-        return Err(
-            "gguf surgery: MTP/nextn blocks present — stale nextn_predict_layers makes the file unloadable; supported in step 3b".into(),
-        );
+    // Неоднозначность: больше одного *.block_count — неясно, какой настоящий
+    if src
+        .kv_spans
+        .iter()
+        .filter(|(k, _)| k.ends_with(".block_count"))
+        .count()
+        > 1
+    {
+        return Err("gguf surgery: multiple *.block_count keys — cannot pick the real one".into());
     }
     // Гибриды в практике сообщества не грузятся после хирургии (§2.4-6)
     if src.flags.hybrid_ssm || src.flags.hybrid_conv {
         return Err(
             "gguf surgery: hybrid SSM/conv architecture — deny-list in v1 (research §6.3)".into(),
         );
-    }
-    // Удаление до/внутри dense-диапазона MoE сдвигает границу (§1.6)
-    if src.meta.leading_dense_block_count.is_some() {
-        return Err(
-            "gguf surgery: leading_dense_block_count present (MoE with dense head) — shifts on removal; supported in step 3b".into(),
-        );
-    }
-    // Главная ошибка llama-quantize --prune-layers (research §2.4-1):
-    // block_count правится, массивы — нет. 3a честно отказывается.
-    for (key, spec) in [
-        ("attention.head_count", &src.meta.head_count),
-        ("attention.head_count_kv", &src.meta.head_count_kv),
-        ("feed_forward_length", &src.meta.feed_forward_length),
-        ("expert_used_count", &src.meta.expert_used_count),
-    ] {
-        if matches!(spec, Some(LayerSpec::Array(_))) {
-            return Err(format!(
-                "gguf surgery: {arch}.{key} is a per-layer array — index-mapped trimming lands in step 3b (llama.cpp --prune-layers breaks exactly here, research §2.4-1)"
-            ));
-        }
     }
 
     // === Валидация набора удаления ===
@@ -1643,12 +1684,214 @@ pub fn build_surgery_plan(src: &GgufFile, remove: &[u64]) -> Result<SurgeryPlan,
     }
     renumber.sort_unstable();
 
-    // Оценка выхода: header+KV (вербатим) + регенерированная TI + данные
+    // === KV-правки (шаг 3b): block_count + per-layer массивы + nextn +
+    // leading_dense. Правки строятся по спанам — точные адреса пар. ===
+    let is_removed = |old: u64| sorted_remove.binary_search(&old).is_ok();
+    let span_of = |key: &str| src.kv_spans.iter().find(|(k, _)| k == key).map(|(_, s)| *s);
+    let mut kv_edits: Vec<KvEdit> = Vec::new();
+
+    // block_count — in-place (§2.4-7: фиксширинный скаляр)
+    let bc_span = span_of(&format!("{arch}.block_count"))
+        .ok_or_else(|| "gguf surgery: internal: no span for block_count".to_string())?;
+    let (bc_off, bc_width) = bc_span
+        .scalar
+        .ok_or_else(|| "gguf surgery: internal: block_count is not a scalar".to_string())?;
+    kv_edits.push(KvEdit::InPlace {
+        value_offset: bc_off,
+        width: bc_width,
+        value: new_block_count,
+    });
+
+    // Генерик-гард: ЛЮБОЙ другой {arch}.*-массив длиной block_count несёт
+    // per-layer семантику, которую мы не знаем → отказ. Ловит будущие архи
+    // (§1.6: паттерн-ключи арх-специфичны)
+    const HANDLED_PER_LAYER: [&str; 5] = [
+        "attention.head_count",
+        "attention.head_count_kv",
+        "feed_forward_length",
+        "expert_used_count",
+        "attention.sliding_window_pattern",
+    ];
+    let arch_prefix = format!("{arch}.");
+    for (key, span) in &src.kv_spans {
+        let Some(suffix) = key.strip_prefix(arch_prefix.as_str()) else {
+            continue;
+        };
+        let Some((_, len, _)) = span.arr else { continue };
+        if len == block_count && !HANDLED_PER_LAYER.contains(&suffix) {
+            return Err(format!(
+                "gguf surgery: unknown per-layer array '{key}' (length == block_count) — refusing to produce an inconsistent file"
+            ));
+        }
+    }
+
+    // Per-layer int-массивы: обрезка ПО МАППИНГУ, не хвостом (§2.2) —
+    // ровно то, что ломает llama-quantize --prune-layers (research §2.4-1)
+    for (suffix, spec) in [
+        ("attention.head_count", &src.meta.head_count),
+        ("attention.head_count_kv", &src.meta.head_count_kv),
+        ("feed_forward_length", &src.meta.feed_forward_length),
+        ("expert_used_count", &src.meta.expert_used_count),
+    ] {
+        let Some(LayerSpec::Array(values)) = spec else {
+            continue; // скаляр — вербатим (§1.6: Mistral/Qwen2)
+        };
+        let key = format!("{arch}.{suffix}");
+        let span = span_of(&key)
+            .ok_or_else(|| format!("gguf surgery: internal: no span for {key}"))?;
+        let Some((et, len, _)) = span.arr else {
+            return Err(format!(
+                "gguf surgery: internal: {key} parsed as array but file says otherwise"
+            ));
+        };
+        if len as usize != values.len() || values.len() as u64 != block_count {
+            return Err(format!(
+                "gguf surgery: {key}: array length {} != block_count {block_count} — semantics unknown, refusing",
+                values.len()
+            ));
+        }
+        let new_values: Vec<i64> = (0..block_count)
+            .filter(|old| !is_removed(*old))
+            .map(|old| values[old as usize])
+            .collect();
+        kv_edits.push(KvEdit::ReplacePair {
+            pair_start: span.key_start,
+            pair_end: span.end,
+            bytes: encode_array_pair(&key, et, PairElems::Ints(&new_values)),
+        });
+    }
+
+    // === SWA (3b-0: лоадер llama.cpp читает массив → скаляр → per-arch дефолт) ===
+    let pattern_key = format!("{arch}.attention.sliding_window_pattern");
+    match &src.meta.sliding_window_pattern {
+        Some(SwaPattern::Layers(flags)) => {
+            // Явный bool-массив — полный ремап членства по выжившим
+            let span = span_of(&pattern_key)
+                .ok_or_else(|| format!("gguf surgery: internal: no span for {pattern_key}"))?;
+            let Some((et, len, _)) = span.arr else {
+                return Err(format!(
+                    "gguf surgery: internal: {pattern_key} parsed as array but file says otherwise"
+                ));
+            };
+            if et != ValueType::Bool
+                || len as usize != flags.len()
+                || flags.len() as u64 != block_count
+            {
+                return Err(format!(
+                    "gguf surgery: {pattern_key}: expected bool array of block_count={block_count}, file has {:?} len {len}",
+                    et
+                ));
+            }
+            let new_flags: Vec<bool> = (0..block_count)
+                .filter(|old| !is_removed(*old))
+                .map(|old| flags[old as usize])
+                .collect();
+            kv_edits.push(KvEdit::ReplacePair {
+                pair_start: span.key_start,
+                pair_end: span.end,
+                bytes: encode_array_pair(&pattern_key, ValueType::Bool, PairElems::Bools(&new_flags)),
+            });
+        }
+        Some(SwaPattern::Period(p)) => {
+            // Фазовый гард без знания предиката (3b-0): выживший il переезжает
+            // на j = il - delta(il), где delta = число удалённых ПЕРЕД ним
+            // (partition_point, НЕ новый индекс); членство сохраняется для
+            // ОБОИХ вариантов предиката (оба периодичны) ⇔ delta(il) % p == 0.
+            // Файл НЕ правится.
+            for old in 0..block_count {
+                if is_removed(old) {
+                    continue;
+                }
+                let delta = sorted_remove.partition_point(|&r| r < old) as u64;
+                if !delta.is_multiple_of(u64::from(*p)) {
+                    return Err(format!(
+                        "gguf surgery: {pattern_key} is a period ({p}) — removal shifts the SWA phase (layer {old} moves by {delta}); remove layers in multiples of the period or re-export with an explicit bool-array pattern"
+                    ));
+                }
+            }
+        }
+        None if src.flags.swa => {
+            // Окно есть, явного паттерна нет — членство даёт per-arch дефолт
+            // llama.cpp; хардкодить таблицу архов = дрейф за llama.cpp (3b-0)
+            return Err(format!(
+                "gguf surgery: {arch} has sliding_window but no explicit pattern key — membership comes from a per-arch default we do not hardcode; re-export with an explicit per-layer pattern (llama.cpp reads bool arrays)"
+            ));
+        }
+        None => {}
+    }
+
+    // === MTP/nextn: stale nextn_predict_layers делает файл unloadable (§2.4-2);
+    // trunk = block_count - nextn, MTP-слои — хвост [trunk, block_count) ===
+    if let Some(nn) = src.meta.nextn_predict_layers.filter(|&v| v > 0) {
+        let nn = u64::try_from(nn)
+            .map_err(|_| "gguf surgery: negative nextn_predict_layers".to_string())?;
+        let trunk = block_count - nn;
+        let removed_in_mtp =
+            sorted_remove.len() as u64 - sorted_remove.partition_point(|&r| r < trunk) as u64;
+        let new_nextn = nn - removed_in_mtp;
+        if new_nextn != nn {
+            let key = format!("{arch}.nextn_predict_layers");
+            let span = span_of(&key)
+                .ok_or_else(|| format!("gguf surgery: {key} is not a fixed-width int"))?;
+            let (off, width) = span.scalar.ok_or_else(|| {
+                format!("gguf surgery: {key} is not a fixed-width int — cannot patch")
+            })?;
+            kv_edits.push(KvEdit::InPlace {
+                value_offset: off,
+                width,
+                value: new_nextn,
+            });
+        }
+    }
+
+    // === MoE с dense-головой: dense = ПЕРВЫЕ ld слоёв; сдвигается, только
+    // если удаление зацепило голову (§1.6) ===
+    if let Some(ld) = src.meta.leading_dense_block_count {
+        let ld = u64::try_from(ld)
+            .map_err(|_| "gguf surgery: negative leading_dense_block_count".to_string())?;
+        if ld > block_count {
+            return Err(format!(
+                "gguf surgery: leading_dense_block_count {ld} > block_count {block_count}"
+            ));
+        }
+        let new_dense = (0..ld).filter(|old| !is_removed(*old)).count() as u64;
+        if new_dense != ld {
+            let key = format!("{arch}.leading_dense_block_count");
+            let span = span_of(&key)
+                .ok_or_else(|| format!("gguf surgery: {key} is not a fixed-width int"))?;
+            let (off, width) = span.scalar.ok_or_else(|| {
+                format!("gguf surgery: {key} is not a fixed-width int — cannot patch")
+            })?;
+            kv_edits.push(KvEdit::InPlace {
+                value_offset: off,
+                width,
+                value: new_dense,
+            });
+        }
+    }
+
+    // Оценка выхода: header + KV (после сплайсов) + регенерированная TI + данные
     let ti_size: u64 = new_tensors
         .iter()
         .map(|pt| 8 + pt.info.name.len() as u64 + 4 + 8 * pt.info.dims.len() as u64 + 4 + 8)
         .sum();
-    let data_start = pad_to(src.kv_end + ti_size, align);
+    let kv_out_len: i64 = (src.kv_end - 24) as i64
+        + kv_edits
+            .iter()
+            .map(|e| match e {
+                KvEdit::InPlace { .. } => 0,
+                KvEdit::ReplacePair {
+                    pair_start,
+                    pair_end,
+                    bytes,
+                } => bytes.len() as i64 - (*pair_end - *pair_start) as i64,
+            })
+            .sum::<i64>();
+    if kv_out_len < 0 {
+        return Err("gguf surgery: internal: negative kv length after edits".into());
+    }
+    let kv_out_len = kv_out_len as u64;
+    let data_start = pad_to(24 + kv_out_len + ti_size, align);
     let out_size_estimate = data_start + running;
 
     // === Предупреждения плана (качество — на совести исследователя,
@@ -1678,7 +1921,8 @@ pub fn build_surgery_plan(src: &GgufFile, remove: &[u64]) -> Result<SurgeryPlan,
         src_data_start: src.data_start,
         alignment: align,
         kv_end: src.kv_end,
-        block_count_patch: Some(patch),
+        kv_edits,
+        kv_out_len,
     })
 }
 
@@ -1735,28 +1979,67 @@ pub fn execute_surgery(
         header[8..16].copy_from_slice(&(plan.new_tensors.len() as u64).to_le_bytes());
         track(&mut w, &header, &mut written)?;
 
-        // (2) KV-регион [24..kv_end) вербатим; ровно один чанк накрывает
-        // адрес block_count — в нём переписываются width байтов значения
-        let patch = plan
-            .block_count_patch
-            .ok_or_else(|| "gguf surgery: plan has no block_count patch".to_string())?;
-        let new_bc = plan.new_block_count;
-        let mut pos = 24u64;
-        while pos < plan.kv_end {
-            let end = (pos + COPY_CHUNK as u64).min(plan.kv_end);
-            let mut buf = mmap[pos as usize..end as usize].to_vec();
-            if patch.value_offset >= pos && patch.value_offset + u64::from(patch.width) <= end {
-                let off = (patch.value_offset - pos) as usize;
-                let bytes = if patch.width == 4 {
-                    (new_bc as u32).to_le_bytes().to_vec()
-                } else {
-                    new_bc.to_le_bytes().to_vec()
-                };
-                buf[off..off + bytes.len()].copy_from_slice(&bytes);
+        // (2) KV-регион [24..kv_end): сегментный проход по правкам плана.
+        // Нетронутые пары (токенайзер!) копируются байт-в-байт; ReplacePair —
+        // сплайс пары; InPlace — перезапись ширины значения в буфере (§2.4-7)
+        let mut in_place: Vec<(u64, u32, u64)> = Vec::new();
+        let mut replaces: Vec<(u64, u64, &[u8])> = Vec::new();
+        for e in &plan.kv_edits {
+            match e {
+                KvEdit::InPlace {
+                    value_offset,
+                    width,
+                    value,
+                } => in_place.push((*value_offset, *width, *value)),
+                KvEdit::ReplacePair {
+                    pair_start,
+                    pair_end,
+                    bytes,
+                } => replaces.push((*pair_start, *pair_end, bytes.as_slice())),
             }
-            track(&mut w, &buf, &mut written)?;
-            pos = end;
         }
+        replaces.sort_by_key(|(start, _, _)| *start);
+        fn copy_kv_range(
+            mmap: &memmap2::Mmap,
+            w: &mut BufWriter<File>,
+            from: u64,
+            to: u64,
+            patches: &[(u64, u32, u64)],
+            written: &mut u64,
+            cancel: &AtomicBool,
+        ) -> Result<(), String> {
+            let mut pos = from;
+            while pos < to {
+                if cancel.load(Ordering::Relaxed) {
+                    return Err("gguf surgery: cancelled".into());
+                }
+                let end = (pos + COPY_CHUNK as u64).min(to);
+                let mut buf = mmap[pos as usize..end as usize].to_vec();
+                for &(off, width, value) in patches {
+                    if off >= pos && off + u64::from(width) <= end {
+                        let i = (off - pos) as usize;
+                        let bytes = if width == 4 {
+                            (value as u32).to_le_bytes().to_vec()
+                        } else {
+                            value.to_le_bytes().to_vec()
+                        };
+                        buf[i..i + width as usize].copy_from_slice(&bytes);
+                    }
+                }
+                w.write_all(&buf)
+                    .map_err(|e| format!("gguf surgery: write: {e}"))?;
+                *written += buf.len() as u64;
+                pos = end;
+            }
+            Ok(())
+        }
+        let mut kv_pos = 24u64;
+        for (rs, re, bytes) in &replaces {
+            copy_kv_range(&mmap, &mut w, kv_pos, *rs, &in_place, &mut written, cancel)?;
+            track(&mut w, bytes, &mut written)?;
+            kv_pos = *re;
+        }
+        copy_kv_range(&mmap, &mut w, kv_pos, plan.kv_end, &in_place, &mut written, cancel)?;
 
         // (3) таблица тензоров регенерируется (число/имена/offsets изменились)
         for pt in &plan.new_tensors {
@@ -1771,8 +2054,10 @@ pub fn execute_surgery(
             track(&mut w, &pt.info.offset.to_le_bytes(), &mut written)?;
         }
 
-        // (4) pad до data_start — нулями (§1.9-7)
-        let ti_end = plan.kv_end
+        // (4) pad до data_start — нулями (§1.9-7). TI начинается ПОСЛЕ
+        // KV-региона ПОСЛЕ правок (сплайсы меняют его длину)
+        let kv_out_end = 24 + plan.kv_out_len;
+        let ti_end = kv_out_end
             + plan
                 .new_tensors
                 .iter()
@@ -2821,44 +3106,21 @@ mod tests {
         assert!(err.contains("changed since planning"), "got: {err}");
     }
 
-    /// Каждый гард 3a — свой отказ (deny-list §6.3, §28.1)
+    /// Гард-лист 3b: что по-прежнему запрещено (гибриды, неоднозначность,
+    /// нескалярный block_count, битые наборы, неявный/фазовый SWA, неизвестные
+    /// per-layer массивы)
     #[test]
-    fn surgery_guards_denies_step_3b_cases() {
+    fn surgery_guards_still_deny() {
         let expect_denied = |s: &Synth, remove: &[u64], name: &str, needle: &str| {
             let src = GgufFile::open(&write_tmp(&format!("{name}.src.gguf"), &s.build())).unwrap();
             let err = build_surgery_plan(&src, remove).unwrap_err();
             assert!(err.contains(needle), "expected '{needle}', got: {err}");
         };
 
-        // per-layer массив (глава ошибка llama-quantize, §2.4-1)
-        let mut s = Synth::llama_dense(2);
-        s.kv.push((
-            "llama.attention.head_count_kv".into(),
-            Kv::ArrU32(vec![8, 8]),
-        ));
-        expect_denied(&s, &[0], "guard-arr", "per-layer array");
-
-        // SWA-паттерн (фаза сдвигается, §1.6)
-        let mut s = Synth::llama_dense(2);
-        s.kv.push(("llama.attention.sliding_window".into(), Kv::U32(512)));
-        expect_denied(&s, &[0], "guard-swa", "sliding-window");
-
-        // MTP/nextn (stale nextn_predict_layers, §2.4-2)
-        let mut s = Synth::llama_dense(2);
-        s.kv
-            .push(("llama.nextn_predict_layers".into(), Kv::U32(1)));
-        expect_denied(&s, &[0], "guard-nextn", "MTP/nextn");
-
         // Гибрид (deny-list v1, §2.4-6)
         let mut s = Synth::llama_dense(2);
         s.tensors.push(st("blk.1.shortconv.conv.weight", &[64], 0));
         expect_denied(&s, &[0], "guard-hybrid", "hybrid");
-
-        // MoE с dense-головой (leading_dense_block_count сдвигается, §1.6)
-        let mut s = Synth::llama_dense(2);
-        s.kv
-            .push(("llama.leading_dense_block_count".into(), Kv::U32(1)));
-        expect_denied(&s, &[0], "guard-dense", "leading_dense_block_count");
 
         // Неоднозначный block_count
         let mut s = Synth::llama_dense(2);
@@ -2870,11 +3132,264 @@ mod tests {
         s.kv[2] = ("llama.block_count".into(), Kv::S("2".into()));
         expect_denied(&s, &[0], "guard-strbc", "fixed-width int");
 
+        // Неявный SWA: окно есть, явного паттерна нет — членство даёт
+        // per-arch дефолт, который мы сознательно не хардкодим (3b-0)
+        let mut s = Synth::llama_dense(2);
+        s.kv.push(("llama.attention.sliding_window".into(), Kv::U32(512)));
+        expect_denied(&s, &[0], "guard-implicit-swa", "no explicit pattern key");
+
+        // Скалярный период с фазовым сдвигом: срез [0] двигает выжившего
+        // old=1 на delta=1, 1 % 2 != 0 → отказ
+        let mut s = Synth::llama_dense(2);
+        s.kv.push((
+            "llama.attention.sliding_window_pattern".into(),
+            Kv::U32(2),
+        ));
+        expect_denied(&s, &[0], "guard-swa-phase", "shifts the SWA phase");
+
+        // Неизвестный per-layer массив (len == block_count) — generic-гард
+        let mut s = Synth::llama_dense(2);
+        s.kv.push(("llama.custom_gate".into(), Kv::ArrU32(vec![1, 0])));
+        expect_denied(
+            &s,
+            &[0],
+            "guard-unknown-arr",
+            "unknown per-layer array",
+        );
+
         // Пустой набор / вне диапазона / все слои
         let s = Synth::llama_dense(2);
         expect_denied(&s, &[], "guard-empty", "nothing to remove");
         expect_denied(&s, &[2], "guard-range", "out of range");
         expect_denied(&s, &[0, 1], "guard-all", "cannot remove every");
+    }
+
+    // === Шаг 3b: per-layer массивы, SWA-паттерны, nextn, dense-голова ===
+
+    #[test]
+    fn surgery_3b_per_layer_array_cut_by_mapping() {
+        // §2.2/§2.4-1: элемент удаляется ПО ИНДЕКСУ, не хвостом
+        let mut s = Synth::llama_dense(4);
+        s.kv.push((
+            "llama.attention.head_count_kv".into(),
+            Kv::ArrU32(vec![8, 4, 2, 1]),
+        ));
+        let (src, plan, out, out_bytes, src_path) = run_cut(&s, &[1], "arr-mid");
+        // [8,4,2,1] минус индекс 1 → [8,2,1], а не [8,4,2]
+        assert_eq!(
+            out.meta.head_count_kv,
+            Some(LayerSpec::Array(vec![8, 2, 1])),
+            "обрезка по маппингу (llama-quantize обрезал бы хвост)"
+        );
+        assert_eq!(out.meta.block_count, Some(3));
+        let src_bytes = fs::read(&src_path).unwrap();
+        assert_data_equal(&src, &src_bytes, &out, &out_bytes, &plan);
+
+        // remove first: [8,4,2,1] − idx0 → [4,2,1]
+        let mut s = Synth::llama_dense(4);
+        s.kv.push((
+            "llama.attention.head_count_kv".into(),
+            Kv::ArrU32(vec![8, 4, 2, 1]),
+        ));
+        let (_src, _plan, out, _bytes, _p) = run_cut(&s, &[0], "arr-first");
+        assert_eq!(
+            out.meta.head_count_kv,
+            Some(LayerSpec::Array(vec![4, 2, 1]))
+        );
+    }
+
+    #[test]
+    fn surgery_3b_scalar_head_count_stays_verbatim() {
+        // Скалярный per-layer ключ (Mistral/Qwen2-стиль) не правится вовсе
+        let s = Synth::llama_dense(3);
+        let (_src, plan, out, _b, _p) = run_cut(&s, &[1], "scalar-hc");
+        assert_eq!(out.meta.head_count, Some(LayerSpec::Scalar(32)));
+        // Единственная KV-правка — block_count
+        assert_eq!(plan.kv_edits.len(), 1);
+        assert!(matches!(plan.kv_edits[0], KvEdit::InPlace { .. }));
+    }
+
+    #[test]
+    fn surgery_3b_swa_bool_array_remaps_membership() {
+        // gemma3n/4-стиль: явный bool-массив — членство переносится по
+        // маппингу: старый слой il → новый j с ТЕМ ЖЕ SWA-признаком.
+        // Смена арха = переименовать и арх-ключи (block_count!)
+        let mut s = Synth::llama_dense(6);
+        s.kv[0] = ("general.architecture".into(), Kv::S("gemma3".into()));
+        s.kv[2] = ("gemma3.block_count".into(), Kv::U32(6));
+        s.kv.push(("gemma3.attention.sliding_window".into(), Kv::U32(512)));
+        s.kv.push((
+            "gemma3.attention.sliding_window_pattern".into(),
+            Kv::ArrBool(vec![false, true, true, false, true, true]),
+        ));
+        let (_src, _plan, out, _bytes, _p) = run_cut(&s, &[1, 2], "swa-arr");
+        // Выжившие old [0,3,4,5] → new [0,1,2,3]: [false,false,true,true]
+        assert_eq!(
+            out.meta.sliding_window_pattern,
+            Some(SwaPattern::Layers(vec![false, false, true, true])),
+            "SWA-членство каждого слоя сохранено при переезде"
+        );
+        assert_eq!(out.meta.block_count, Some(4));
+    }
+
+    #[test]
+    fn surgery_3b_swa_period_uniform_cut_is_allowed_without_edits() {
+        // Скалярный период: резка КРАТНА периоду → фаза сохраняется,
+        // файл правок паттерна не требует (predicate-free, 3b-0)
+        let mut s = Synth::llama_dense(4);
+        s.kv.push((
+            "llama.attention.sliding_window_pattern".into(),
+            Kv::U32(2),
+        ));
+        // remove [0,1]: выжившие old [2,3] c delta=2 ≡ 0 (mod 2)
+        let (_src, plan, out, _bytes, _p) = run_cut(&s, &[0, 1], "swa-ok");
+        assert_eq!(
+            out.meta.sliding_window_pattern,
+            Some(SwaPattern::Period(2)),
+            "паттерн-пара не тронута"
+        );
+        // Никаких ReplacePair: правка одна (block_count)
+        assert_eq!(plan.kv_edits.len(), 1);
+    }
+
+    #[test]
+    fn surgery_3b_nextn_tail_cut_resets_count() {
+        // DeepSeek-стиль: bc=4 включает MTP → nextn=1, trunk=0..3, MTP=blk.3;
+        // срез MTP-хвоста обязан обнулить nextn_predict_layers (§2.4-2)
+        let mut s = Synth::llama_dense(4);
+        s.kv.push(("llama.nextn_predict_layers".into(), Kv::U32(1)));
+        s.tensors
+            .push(st("blk.3.nextn.eh_proj.weight", &[128, 128], 0));
+        let (_src, plan, out, _bytes, _p) = run_cut(&s, &[3], "nextn-tail");
+        assert_eq!(out.meta.nextn_predict_layers, Some(0));
+        assert!(!out.flags.nextn);
+        assert_eq!(plan.kv_edits.len(), 2, "block_count + nextn");
+        // MTP-тензоры ушли вместе со слоем
+        assert!(!out.tensors.iter().any(|t| t.name.contains(".nextn.")));
+    }
+
+    #[test]
+    fn surgery_3b_nextn_middle_cut_renumbers_mtp() {
+        // Срез СЕРЕДИНЫ trunk (bc=4, nextn=1, trunk=0..3): счётчик не меняется,
+        // MTP-блок переезжает: blk.3.nextn → blk.2.nextn
+        let mut s = Synth::llama_dense(4);
+        s.kv.push(("llama.nextn_predict_layers".into(), Kv::U32(1)));
+        s.tensors
+            .push(st("blk.3.nextn.eh_proj.weight", &[128, 128], 0));
+        let (_src, _plan, out, _bytes, _p) = run_cut(&s, &[1], "nextn-mid");
+        assert_eq!(out.meta.nextn_predict_layers, Some(1));
+        assert!(out
+            .tensors
+            .iter()
+            .any(|t| t.name == "blk.2.nextn.eh_proj.weight"));
+    }
+
+    #[test]
+    fn surgery_3b_leading_dense_shifts_only_when_head_touched() {
+        // dense-голова = первые 2 слоя из 4; удаляем слой 0 → dense=1
+        let mut s = Synth::llama_dense(4);
+        s.kv
+            .push(("llama.leading_dense_block_count".into(), Kv::U32(2)));
+        let (_src, _plan, out, _bytes, _p) = run_cut(&s, &[0], "dense-shift");
+        assert_eq!(out.meta.leading_dense_block_count, Some(1));
+
+        // удаляем слой MoE-области (2) → dense не меняется
+        let s = {
+            let mut s = Synth::llama_dense(4);
+            s.kv
+                .push(("llama.leading_dense_block_count".into(), Kv::U32(2)));
+            s
+        };
+        let (_src, plan, out, _bytes, _p) = run_cut(&s, &[2], "dense-keep");
+        assert_eq!(out.meta.leading_dense_block_count, Some(2));
+        // правка одна — block_count; dense не патчился
+        assert_eq!(plan.kv_edits.len(), 1);
+    }
+
+    #[test]
+    fn surgery_3b_tokenizer_region_survives_byte_exact() {
+        // Сплайс массива сдвигает хвост KV-региона: токенайзер обязан
+        // переехать БЕЗ перекодировки (§2.4-7)
+        let mut s = Synth::llama_dense(4);
+        let vocab: Vec<String> = (0..300).map(|i| format!("tok-{i}-padpad")).collect();
+        s.kv.push(("tokenizer.ggml.tokens".into(), Kv::ArrStr(vocab)));
+        s.kv.push((
+            "llama.attention.head_count_kv".into(),
+            Kv::ArrU32(vec![8, 8, 4, 4]),
+        ));
+        let (src, plan, out, out_bytes, src_path) = run_cut(&s, &[1, 2], "tok-splice");
+        assert!(out.meta.has_tokenizer);
+        // Токенайзер-пара байт-в-байт (спан → спан)
+        let src_bytes = fs::read(&src_path).unwrap();
+        let tok_key = "tokenizer.ggml.tokens";
+        let src_span = src
+            .kv_spans
+            .iter()
+            .find(|(k, _)| k == tok_key)
+            .unwrap()
+            .1;
+        let out_span = out
+            .kv_spans
+            .iter()
+            .find(|(k, _)| k == tok_key)
+            .unwrap()
+            .1;
+        assert_eq!(
+            &src_bytes[src_span.key_start as usize..src_span.end as usize],
+            &out_bytes[out_span.key_start as usize..out_span.end as usize],
+            "токенайзер переехал байт-в-байт"
+        );
+        // Массив переехал НАЗНАЧЕНИЕ: массив обрезан по маппингу
+        assert_eq!(
+            out.meta.head_count_kv,
+            Some(LayerSpec::Array(vec![8, 4]))
+        );
+        // Сплайс сократил KV-регион, оценка сходится с фактом
+        assert_eq!(out.file_len, plan.out_size_estimate);
+        assert!(plan.kv_out_len < src.kv_end - 24);
+    }
+
+    #[test]
+    fn surgery_3b_mixed_everything_roundtrip() {
+        // Всё сразу: массивы + bool-паттерн + nextn + dense-голова в одном
+        // файле (DeepSeek-раскладка: bc=4 включает MTP, trunk=0..3):
+        // резка середины trunk, байт-в-байт данные, полный roundtrip
+        let mut s = Synth::llama_dense(4);
+        s.kv.push((
+            "llama.attention.head_count_kv".into(),
+            Kv::ArrU32(vec![8, 8, 4, 4]),
+        ));
+        s.kv.push((
+            "llama.attention.sliding_window_pattern".into(),
+            Kv::ArrBool(vec![false, true, false, true]),
+        ));
+        s.kv.push(("llama.nextn_predict_layers".into(), Kv::U32(1)));
+        s.kv
+            .push(("llama.leading_dense_block_count".into(), Kv::U32(2)));
+        s.tensors
+            .push(st("blk.3.nextn.eh_proj.weight", &[128, 128], 0));
+        let (src, plan, out, out_bytes, src_path) = run_cut(&s, &[1, 2], "mixed");
+        assert_eq!(plan.remove, vec![1, 2]);
+        assert_eq!(out.meta.block_count, Some(2));
+        assert_eq!(
+            out.meta.head_count_kv,
+            Some(LayerSpec::Array(vec![8, 4]))
+        );
+        assert_eq!(
+            out.meta.sliding_window_pattern,
+            Some(SwaPattern::Layers(vec![false, true]))
+        );
+        // MTP-хвост не тронут: счётчик на месте, блок переехал blk.3 → blk.1
+        assert_eq!(out.meta.nextn_predict_layers, Some(1));
+        assert!(out
+            .tensors
+            .iter()
+            .any(|t| t.name == "blk.1.nextn.eh_proj.weight"));
+        // dense-голова (первые 2) потеряла слой 1 → 1
+        assert_eq!(out.meta.leading_dense_block_count, Some(1));
+        let src_bytes = fs::read(&src_path).unwrap();
+        assert_data_equal(&src, &src_bytes, &out, &out_bytes, &plan);
+        assert_eq!(out.file_len, plan.out_size_estimate);
     }
 
     #[test]
