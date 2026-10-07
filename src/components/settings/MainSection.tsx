@@ -1099,10 +1099,12 @@ export function MainSection({
 }
 
 /**
- * Список исполняемых конфигов во входном файле импорта: команды хуков
- * и команды запуска MCP-серверов. null — исполняемых конфигов нет.
- * Используется для явного подтверждения перед импортом (защита от RCE
- * через импорт «поделенного конфига»).
+ * Список исполняемых конфигов во входном файле импорта: команды хуков,
+ * команды запуска MCP/LSP-серверов, путь llama-server (gguf.json).
+ * null — исполняемых конфигов нет. Используется для явного подтверждения
+ * перед импортом (защита от RCE через импорт «поделенного конфига»).
+ * КОНТРАКТ: зеркалит EXECUTABLE_CONFIGS в settings.rs (settings_write_all) —
+ * новый конфиг с командой/бинарем обязан попадать в оба списка.
  */
 export function describeExecutableConfigs(
   files: Record<string, unknown>,
@@ -1132,6 +1134,25 @@ export function describeExecutableConfigs(
         );
       }
     }
+  }
+  // lsp.json: {servers: [{extensions, command, args}]} (camelCase, lsp.rs)
+  const lsp = files["lsp.json"] as
+    | { servers?: Array<{ command?: unknown; args?: unknown }> }
+    | undefined;
+  if (Array.isArray(lsp?.servers)) {
+    for (const s of lsp.servers) {
+      if (s && typeof s.command === "string" && s.command.trim() !== "") {
+        const args = Array.isArray(s.args) ? s.args.join(" ") : "";
+        lines.push(`• lsp: ${s.command}${args ? ` ${args}` : ""}`);
+      }
+    }
+  }
+  // gguf.json: llama_server_path спавнится resolve_llama_server (конфиг-first)
+  const ggufPath = (
+    files["gguf.json"] as { llama_server_path?: unknown } | undefined
+  )?.llama_server_path;
+  if (typeof ggufPath === "string" && ggufPath.trim() !== "") {
+    lines.push(`• gguf (llama-server path): ${ggufPath}`);
   }
   if (lines.length === 0) return null;
   return lines.slice(0, 20).join("\n");
