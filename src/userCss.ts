@@ -1,5 +1,7 @@
+import { STORAGE_KEYS } from "./storageKeys";
+
 const ID = "halo-custom-css";
-const LS_KEY = "haloui-custom-css";
+const LS_KEY = STORAGE_KEYS.customCss;
 
 /**
  * Лёгкий санитайзер: CSS «из интернета» (community-темы) не должен уметь

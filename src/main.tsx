@@ -13,7 +13,7 @@ import { applyUserCss, readUserCss } from "./userCss";
 // собиравший одни и те же правила дважды. Подсветка инжектится до первого
 // рендера, чтобы код-блоки первого экрана не мигали неоформленными
 try {
-  const raw = localStorage.getItem("haloui-appearance");
+  const raw = localStorage.getItem(STORAGE_KEYS.appearance);
   const codeTheme = raw
     ? (JSON.parse(raw) as { codeTheme?: string }).codeTheme
     : undefined;

@@ -286,13 +286,14 @@ export function MainSection({
   // Хранилище: размеры каталогов appdata; null вне Tauri — блок не рисуем
   const [stats, setStats] = useState<StorageStats | null>(null);
   // Строка, у которой кнопка очистки уже в шаге «Точно?»
-  const [confirmKind, setConfirmKind] = useState<"checkpoints" | "images" | null>(null);
+  type CleanKind = "checkpoints" | "images" | "gguf";
+  const [confirmKind, setConfirmKind] = useState<CleanKind | null>(null);
   useEffect(() => {
     storageStats()
       .then(setStats)
       .catch(() => {});
   }, []);
-  const cleanStorage = async (kind: "checkpoints" | "images") => {
+  const cleanStorage = async (kind: CleanKind) => {
     // Первый клик — только подтверждение намерения, второй — сама очистка
     if (confirmKind !== kind) {
       setConfirmKind(kind);
@@ -1041,7 +1042,7 @@ export function MainSection({
                 // тот же класс честного confirm, что у исполняемых конфигов
                 // выше — асимметрии «hooks/mcp спрашиваем, CSS нет» больше нет
                 // (аудит A5-6)
-                const css = data.local?.["haloui-custom-css"];
+                const css = data.local?.[STORAGE_KEYS.customCss];
                 if (typeof css === "string" && css.trim()) {
                   if (
                     !window.confirm(
@@ -1087,6 +1088,17 @@ export function MainSection({
               confirmLabel={t("main.storageCleanConfirm")}
               confirm={confirmKind === "images"}
               onClean={() => void cleanStorage("images")}
+            />
+            {/* GGUF Lab: экспорты/результаты/бинарь — гигабайты; бинарь
+                скачивается кнопкой заново (аудит 07.10 A1-12) */}
+            <StorageRow
+              label={t("main.storageGguf")}
+              bytes={stats.gguf}
+              lang={lang}
+              cleanLabel={t("main.storageClean")}
+              confirmLabel={t("main.storageCleanConfirm")}
+              confirm={confirmKind === "gguf"}
+              onClean={() => void cleanStorage("gguf")}
             />
             <StorageRow label={t("main.storageSounds")} bytes={stats.sounds} lang={lang} />
             <StorageRow label={t("main.storageFonts")} bytes={stats.fonts} lang={lang} />

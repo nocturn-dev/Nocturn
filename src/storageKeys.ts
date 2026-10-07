@@ -27,4 +27,10 @@ export const STORAGE_KEYS = {
   projectRoot: "haloui-project-root",
   lang: "haloui-lang",
   jbWarnDontShow: "haloui-jb-warn-dontshow",
+  // appearance: appearance.ts (владелец) + main.tsx (boot-чтение код-темы
+  // до первого рендера) — аудиt 07.10 A5-9
+  appearance: "haloui-appearance",
+  // customCss: userCss.ts (владелец) + MainSection (гард confirm импорта
+  // CSS: переименование ключа иначе сделало бы confirm молчаливым)
+  customCss: "haloui-custom-css",
 } as const;

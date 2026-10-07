@@ -2742,6 +2742,32 @@ fn log_tail(path: &Path) -> String {
     format!("…{tail}")
 }
 
+/// Ротация логов llama-server (аудит 07.10 A1-12): файл на каждый старт
+/// (порт эфемерный), без ротации каталог рос монотонно. Оставляем
+/// LOGS_KEEP новейших, старше — прочь (best-effort: ошибка одного файла
+/// не срывает старт)
+const LOGS_KEEP: usize = 4;
+
+fn prune_llama_logs(dir: &Path) {
+    let Ok(rd) = fs::read_dir(dir) else { return };
+    let mut logs: Vec<(std::time::SystemTime, PathBuf)> = rd
+        .flatten()
+        .filter(|e| e.path().extension().is_some_and(|x| x == "log"))
+        .filter_map(|e| {
+            let md = e.metadata().ok()?;
+            Some((md.modified().ok()?, e.path()))
+        })
+        .collect();
+    if logs.len() <= LOGS_KEEP {
+        return;
+    }
+    logs.sort();
+    let excess = logs.len() - LOGS_KEEP;
+    for (_, p) in logs.into_iter().take(excess) {
+        let _ = fs::remove_file(p);
+    }
+}
+
 /// Статус llama-server: конфиг + резолв + живая сессия
 #[tauri::command(async)]
 pub async fn gguf_llama_status(app: tauri::AppHandle) -> Result<LlamaServerStatus, String> {
@@ -2840,10 +2866,15 @@ pub async fn gguf_serve_start(
 
     let logs_dir = dir.join("logs");
     let log_path = logs_dir.join(format!("llama-server-{port}.log"));
-    tauri::async_runtime::spawn_blocking(move || fs::create_dir_all(&logs_dir))
-        .await
-        .map_err(|e| format!("gguf serve: task failed: {e}"))?
-        .map_err(|e| format!("gguf serve: create logs dir: {e}"))?;
+    let prune_dir = logs_dir.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        fs::create_dir_all(&prune_dir).map_err(|e| e.to_string())?;
+        prune_llama_logs(&prune_dir);
+        Ok::<(), String>(())
+    })
+    .await
+    .map_err(|e| format!("gguf serve: task failed: {e}"))?
+    .map_err(|e| format!("gguf serve: create logs dir: {e}"))?;
 
     let mut cmd = std::process::Command::new(&bin);
     cmd.args([

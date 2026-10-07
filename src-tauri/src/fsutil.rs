@@ -394,6 +394,9 @@ pub struct StorageStats {
     pub images: u64,
     pub sounds: u64,
     pub fonts: u64,
+    /// GGUF Lab: экспорты, результаты резки, бинарник llama-server, логи —
+    /// гигабайты; PLAN §28.3 обещает видимость storage-менеджеру (аудит 07.10 A1-12)
+    pub gguf: u64,
 }
 
 /// Итеративный обход каталога стеком, а не рекурсией (глубина вложенности
@@ -451,6 +454,7 @@ pub async fn storage_stats(app: tauri::AppHandle) -> Result<StorageStats, String
             images: dir_size(&data.join("images")),
             sounds: dir_size(&data.join("sounds")),
             fonts: dir_size(&data.join("fonts")),
+            gguf: dir_size(&data.join("gguf")),
         })
     })
     .await
@@ -465,6 +469,9 @@ pub async fn storage_cleanup(app: tauri::AppHandle, kind: String) -> Result<usiz
         let dir = match kind.as_str() {
             "checkpoints" => data.join("checkpoints"),
             "images" => data.join("images"),
+            // GGUF Lab: выгрузки/результаты/бинарь llama-server (скачивается
+            // кнопкой заново) — единственный способ освободить десятки ГБ
+            "gguf" => data.join("gguf"),
             _ => return Err(format!("unknown storage kind: {kind}")),
         };
         clear_dir_contents(&dir)

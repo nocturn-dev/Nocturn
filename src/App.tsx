@@ -52,7 +52,7 @@ import {
   type KbTrace,
 } from "./api";
 import { stopSpeaking, speak } from "./tts";
-import { VoiceWake, stripWakeWord, type WakeHandle } from "./voice/wake";
+import { VoiceWake, stripWakeWord, type WakeHandle, type WakeOptions } from "./voice/wake";
 import VoicePill, { type VoicePhase } from "./components/VoicePill";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { useApiSettings } from "./hooks/useApiSettings";
@@ -569,6 +569,10 @@ export default function App() {
     }
     setSettingsOpen(false);
   }, [addToast, t]);
+  // Стабильные пропсы sticky-модалок (аудит 07.10 A4-9): инлайн-стрелки
+  // пробивали memo — модалки ре-рендерились на каждом 40мс-флаше стрима
+  const openGgufLab = useCallback(() => setGgufLabOpen(true), []);
+  const closeGgufLab = useCallback(() => setGgufLabOpen(false), []);
 
   const [searchOpen, setSearchOpen] = useState(false);
   // Терминальный режим (M4.5): панель снизу
@@ -617,6 +621,12 @@ export default function App() {
       filterVisibleMessages(activeSession?.messages ?? [], showUserMsgs)
         .length === 0,
     [activeSession, showUserMsgs],
+  );
+  // Стабильный пропс sticky-настроек: `?? []` создавал новый массив каждый
+  // рендер и пробивал memo (аудит 07.10 A4-9)
+  const allowedCommands = useMemo(
+    () => activeSession?.allowedCommands ?? [],
+    [activeSession?.allowedCommands],
   );
 
   // Pre-toggle «Agent» до создания чата: без него клик по чипу создавал
@@ -1746,8 +1756,13 @@ export default function App() {
   // задача стримится) → выполнил (завершена, гаснет сама)
   const [voicePhase, setVoicePhase] = useState<VoicePhase>("idle");
   const voiceOptsRef = useRef({ model: voiceModel, threshold: voiceThreshold, tts: voiceTtsReply });
+  // Опции ЖИВОГО слушателя: слайдер порога мутирует threshold по месту —
+  // VoiceWake читает его каждый кадр детектора, пересоздание микрофона и
+  // модели на каждый шаг слайдера не нужно (аудит 07.10 A4-12)
+  const wakeOptsRef = useRef<WakeOptions | null>(null);
   useEffect(() => {
     voiceOptsRef.current = { model: voiceModel, threshold: voiceThreshold, tts: voiceTtsReply };
+    if (wakeOptsRef.current) wakeOptsRef.current.threshold = voiceThreshold;
   }, [voiceModel, voiceThreshold, voiceTtsReply]);
   // streamingId для асинхронных колбэков слушателя: эффект не должен
   // пересоздавать слушателя на каждый старт/финиш прогона
@@ -1765,9 +1780,12 @@ export default function App() {
   useEffect(() => {
     if (!voiceWakeOn) return;
     setVoicePhase("listen");
-    const handle = new VoiceWake({
+    // Порог — из ref: включение его в deps пересоздавало слушателя (закрыть
+    // микрофон, выгрузить модель, открыть заново) на каждый шаг слайдера
+    // «Порог» (аудит 07.10 A4-12); живое изменение — через wakeOptsRef ниже
+    const opts: WakeOptions = {
       model: voiceModel,
-      threshold: voiceThreshold,
+      threshold: voiceOptsRef.current.threshold,
       onState: (s) => {
         // Индикатор всегда слушающего микрофона (CSS-точка в углу)
         document.documentElement.classList.toggle(
@@ -1806,20 +1824,25 @@ export default function App() {
           }
         })();
       },
-    });
+    };
+    wakeOptsRef.current = opts;
+    const handle = new VoiceWake(opts);
     voiceWakeRef.current = handle;
     void handle.start();
     if (streamingIdRef.current) handle.suspend();
     return () => {
       handle.stop();
       voiceWakeRef.current = null;
+      wakeOptsRef.current = null;
       document.documentElement.classList.remove("voice-listening");
       setVoicePhase("idle");
     };
     // t/addToast/handleSendRef/setSessions/setActiveId — стабильные рефы и
-    // сеттеры; слушатель mount-only по замыслу (как тикер автоматизаций)
+    // сеттеры; слушатель mount-only по замыслу (как тикер автоматизаций).
+    // Порог — через voiceOptsRef (см. комментарий выше): слайдер меняет его
+    // без пересоздания слушателя
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [voiceWakeOn, voiceModel, voiceThreshold]);
+  }, [voiceWakeOn, voiceModel]);
 
   // Ответ голосовой задачи — вслух (локальный SAPI), если тумблер включён.
   // По завершении голосовой задачи пилюля показывает «выполнил» и гаснет
@@ -3035,7 +3058,7 @@ export default function App() {
       <LazySettingsModal
         open={settingsOpen}
         onWarnCancel={handleWarnCancel}
-        onOpenGgufLab={() => setGgufLabOpen(true)}
+        onOpenGgufLab={openGgufLab}
         usageLog={usageLog}
         theme={theme}
         glass={glass}
@@ -3141,7 +3164,7 @@ export default function App() {
         onChangeJailbreaks={handleSaveJailbreaks}
         onApplyJailbreak={handleApplyJailbreak}
         localRuntimes={localRuntimes}
-        allowedCommands={activeSession?.allowedCommands ?? []}
+        allowedCommands={allowedCommands}
         allowedCommandsTitle={activeSession?.title ?? null}
         agentAllowlists={agentAllowlists}
         onSessionAllowedChange={handleSetSessionAllowed}
@@ -3154,7 +3177,7 @@ export default function App() {
         onSaveSettings={handleSaveSettings}
         onRescanLocal={detectLocal}
         onUseLocalModel={handleUseLocalModel}
-        onClose={() => closeSettings()}
+        onClose={closeSettings}
       />
       </Suspense>
       )}
@@ -3171,7 +3194,7 @@ export default function App() {
       <Suspense fallback={null}>
       <LazyGgufLabModal
         open={ggufLabOpen}
-        onClose={() => setGgufLabOpen(false)}
+        onClose={closeGgufLab}
         onUseAsChatProvider={handleUseGgufServe}
       />
       </Suspense>
