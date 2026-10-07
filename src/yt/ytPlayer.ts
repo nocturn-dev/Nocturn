@@ -333,7 +333,8 @@ function onEnded() {
     send("playVideo");
     reapplyRate();
   } else if (state.loopQueue && state.queue.length > 0) {
-    // Повтор очереди: кончилась — с первого
+    // Повтор очереди: кончилась — с первого. Тумблер живёт в «Интеграциях»
+    // (mediaPrefs.ytLoopQueue), сюда доезжает через ytSetLoopQueue
     const first = state.queue[0];
     if (first) {
       set({ queueIndex: 0 });
@@ -461,7 +462,8 @@ export function ytSetRepeatOne(v: boolean): void {
   persist();
 }
 
-/** Синхронизация тумблера «Повтор очереди» из prefs */
+/** Повтор очереди: источник правды — mediaPrefs (тумблер «Интеграций»),
+ *  синк из App; persist не нужен, prefs сохраняет mediaPrefs.ts */
 export function ytSetLoopQueue(v: boolean): void {
   set({ loopQueue: v });
 }

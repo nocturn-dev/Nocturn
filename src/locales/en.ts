@@ -1335,6 +1335,7 @@ export const en = {
     "ggufLab.serveUse": "Use in chat",
     "ggufLab.serveApplied": "Connected: {url}",
     "ggufLab.llamaMissing": "llama-server not found — download it or set the path in gguf.json",
+    "ggufLab.llamaSetPath": "Browse…",
     "ggufLab.llamaFound": "llama-server found",
     "ggufLab.llamaDownload": "Download llama-server (~19 MB)",
     "ggufLab.report.title": "Surgery report",

@@ -182,10 +182,6 @@ export function cachedEntries(): JbRemoteEntry[] {
   return [...cache.values()].flat();
 }
 
-export function cacheIsWarm(): boolean {
-  return cache.size > 0;
-}
-
 /** Разобрать один файл источника в кэш-записи */
 function stash(s: JbSource, path: string, text: string): void {
   const list = cache.get(s.id) ?? [];

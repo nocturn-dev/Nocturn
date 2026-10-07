@@ -78,7 +78,7 @@ import Onboarding, { type OnboardingResult } from "./components/Onboarding";
 import ChatArea, { filterVisibleMessages } from "./components/ChatArea";
 import { LyricsRibbon } from "./components/LyricsRibbon";
 import { YouTubeLayer } from "./components/YouTubeLayer";
-import { ytToggleOpen } from "./yt/ytPlayer";
+import { ytSetLoopQueue, ytToggleOpen } from "./yt/ytPlayer";
 import type { Section } from "./components/SettingsModal";
 import BrowserPanel from "./components/BrowserPanel";
 import Toasts from "./components/Toast";
@@ -1119,6 +1119,12 @@ export default function App() {
   useEffect(() => {
     saveMediaPrefs(mediaPrefs);
   }, [mediaPrefs]);
+  // Повтор очереди YT: тумблер «Интеграций» — источник правды, плеер —
+  // потребитель. Раньше поле и ветка в onTrackChange были, а синка не было:
+  // тумблер молча ничего не делал (аудит 07.10 A7-13)
+  useEffect(() => {
+    ytSetLoopQueue(mediaPrefs.ytLoopQueue);
+  }, [mediaPrefs.ytLoopQueue]);
   // Лента «за интерфейсом» (CSS читает data-attr): ставим по тумблеру,
   // не по наличию снапшота — иначе завеса корня чата мигала бы на паузе
   useEffect(() => {

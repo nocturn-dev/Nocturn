@@ -17,11 +17,13 @@ import {
   ggufInspect,
   ggufLabFiles,
   ggufLlamaDownload,
+  ggufLlamaSetPath,
   ggufLlamaStatus,
   ggufOllamaImport,
   ggufPull,
   ggufServeStart,
   ggufServeStop,
+  pickBinaryFile,
   type GgufInspect,
   type GgufLabFile,
   type GgufLlamaStatus,
@@ -210,6 +212,17 @@ export default function GgufLabModal({
       await ggufServeStop();
       setServe(null);
       setAppliedUrl(null);
+    });
+
+  // Своё место llama-server (CUDA/Vulkan-сборка): путь в gguf.json через
+  // set_path — резолв «PATH → конфиг → скачать» из плана §28.1. Раньше
+  // IPC-команда и api-обёртка существовали без единого потребителя (A7-14)
+  const doSetLlamaPath = () =>
+    run(async () => {
+      const p = await pickBinaryFile();
+      if (!p) return;
+      await ggufLlamaSetPath(p);
+      await refresh();
     });
 
   const doOllamaImport = (f: GgufLabFile) =>
@@ -650,13 +663,22 @@ export default function GgufLabModal({
               </>
             ) : (
               !llama?.resolvedPath && (
-                <button
-                  onClick={() => void doDownloadLlama()}
-                  disabled={busy}
-                  className="rounded-md border border-halo-line px-2 py-0.5 text-[0.625rem] text-halo-muted transition-colors hover:bg-halo-hover hover:text-halo-text disabled:opacity-50"
-                >
-                  {t("ggufLab.llamaDownload")}
-                </button>
+                <>
+                  <button
+                    onClick={() => void doDownloadLlama()}
+                    disabled={busy}
+                    className="rounded-md border border-halo-line px-2 py-0.5 text-[0.625rem] text-halo-muted transition-colors hover:bg-halo-hover hover:text-halo-text disabled:opacity-50"
+                  >
+                    {t("ggufLab.llamaDownload")}
+                  </button>
+                  <button
+                    onClick={() => void doSetLlamaPath()}
+                    disabled={busy}
+                    className="rounded-md border border-halo-line px-2 py-0.5 text-[0.625rem] text-halo-muted transition-colors hover:bg-halo-hover hover:text-halo-text disabled:opacity-50"
+                  >
+                    {t("ggufLab.llamaSetPath")}
+                  </button>
+                </>
               )
             )}
           </div>

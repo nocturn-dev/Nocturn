@@ -40,7 +40,7 @@ but stay at the plain-chat level. Nocturn is the missing middle ground:
 
 ## What's new in 0.2.x
 
-The jump from 0.1 to 0.2.2 grew the codebase several times over (~85k lines
+The jump from 0.1 to 0.2.2 grew the codebase several times over (~93k lines
 of TypeScript + Rust today). The highlights, by theme:
 
 ### Agent engine
@@ -246,8 +246,9 @@ of TypeScript + Rust today). The highlights, by theme:
   Ollama, inspect layers, cut selected layers (per-layer metadata is
   remapped by index, SWA phases and MTP tails are handled), and smoke-test
   the result with a local `llama-server` or by importing it back into
-  Ollama — without leaving Nocturn. Every operation is post-flight verified
-  byte-for-byte; the agent can drive the lab through
+  Ollama — without leaving Nocturn. Surgery output is re-parsed and its
+  surviving tensor bytes are verified byte-for-byte; blob exports are
+  hash-checked. The agent can drive the lab through
   `gguf_inspect` / `gguf_cut` / `gguf_test` tools.
 
 ## Settings: deeper than it looks
@@ -256,9 +257,10 @@ Nocturn keeps its power in settings rather than in your face:
 
 - **20+ sections in 6 groups** — Основное / Профиль / Кастомизация / API /
   Browser Use / Computer Use / Горячие клавиши · Память / Субагенты / Плагины /
-  MCP / Права / Изображения / Промпты / Скиллы / Команды / Хуки · Сеть / Обзор ·
-  Отдых / Маскот · Справка — plus standalone surfaces (knowledge bases, knowledge graph,
-  automations, model comparison, usage statistics, storage manager).
+  MCP / Права / LSP-диагностики / Изображения / Промпты / Скиллы / Команды /
+  Хуки · Сеть / Обзор · Отдых / Маскот · Справка — plus standalone surfaces
+  (knowledge bases, knowledge graph, automations, model comparison, usage
+  statistics, storage manager).
 - **Dozens of settings in Customization alone**: 12 dark theme styles + light +
   **Official**
   monochrome (with OLED and contrast options), 6 accent presets +
@@ -404,14 +406,15 @@ docs/           screenshots
 
 Every change — features, fixes, refactors — lands in the commit history with
 a `type(scope): message` summary. Releases are cut on `v*` tags; see
-[Releases](https://github.com/nocturn-lab/Nocturn-AI/releases) for
+[Releases](https://gitlab.com/nocturn-lab1/Nocturn-AI/-/releases) for
 per-version installers.
 
 ## Contributing
 
 Issues and PRs are welcome. `npm run lint`, `npm test`, `npm run build` and
 `cargo clippy --all-targets -- -D warnings` / `cargo test` (in `src-tauri/`)
-must pass — CI enforces all of them.
+must pass — GitLab CI enforces all of them (`.github/` workflows are kept
+for reference only; the GitHub account is frozen).
 
 ## License
 
