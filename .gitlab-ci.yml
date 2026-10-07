@@ -84,6 +84,10 @@ release-windows:
   rules: [{ if: '$CI_COMMIT_TAG =~ /^v/' }]
   tags: [saas-windows-medium-amd64]
   script:
+    # Rust на hosted Windows-раннерах не предустановлен (аудит A3-8: tauri
+    # build зовёт cargo — без бутстрапа релиз падал на первом же теге)
+    - if (!(Test-Path "$env:USERPROFILE\.cargo\bin\cargo.exe")) { Invoke-WebRequest https://win.rustup.rs/x86_64 -OutFile rustup-init.exe; .\rustup-init.exe -y --quiet }
+    - $env:Path += ";$env:USERPROFILE\.cargo\bin"
     - npm ci
     - npm run tauri build
     - node scripts/make-latest-json.mjs src-tauri/target/release/bundle/nsis "$CI_API_V4_URL/projects/$CI_PROJECT_ID/packages/generic/nocturn/$CI_COMMIT_TAG" src-tauri/target/release/bundle/nsis/latest.json

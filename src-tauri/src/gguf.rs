@@ -1673,6 +1673,26 @@ fn with_layer_index(name: &str, new_idx: u64) -> Option<String> {
     Some(format!("blk.{new_idx}{}", &rest[dot..]))
 }
 
+/// InPlace-патч только для 4/8-байтных фиксширинных int (u32/i32/u64/i64):
+/// писатель льёт value как u32/u64 LE (copy_kv_range), постфлайт перечитывает
+/// так же. Узкая ширина (u8/u16/bool у неканоничного файла) через get_int
+/// дала бы Some и панику copy_from_slice уже ПОСЛЕ начала записи —
+/// многогигабайтный tmp остался бы на диске (аудит 07.10 A1-9). Единая точка
+/// гарда для всех трёх InPlace-правок: block_count, nextn, leading_dense.
+fn in_place_edit(key: &str, off: u64, width: u32, value: u64) -> Result<KvEdit, String> {
+    if width != 4 && width != 8 {
+        return Err(format!(
+            "gguf surgery: {key} is a {width}-byte int — cannot patch in place (u32/i32/u64/i64 only)"
+        ));
+    }
+    Ok(KvEdit::InPlace {
+        key: key.to_string(),
+        value_offset: off,
+        width,
+        value,
+    })
+}
+
 /// Построить план резки (3a: dense-архитектуры без per-layer семантики).
 /// Всё, что требует консистентности per-layer массивов/паттернов, — отказ
 /// с внятной ошибкой до 3b (§28.1: гибриды — deny-list v1).
@@ -1787,12 +1807,12 @@ pub fn build_surgery_plan(src: &GgufFile, remove: &[u64]) -> Result<SurgeryPlan,
     let (bc_off, bc_width) = bc_span
         .scalar
         .ok_or_else(|| "gguf surgery: internal: block_count is not a scalar".to_string())?;
-    kv_edits.push(KvEdit::InPlace {
-        key: format!("{arch}.block_count"),
-        value_offset: bc_off,
-        width: bc_width,
-        value: new_block_count,
-    });
+    kv_edits.push(in_place_edit(
+        &format!("{arch}.block_count"),
+        bc_off,
+        bc_width,
+        new_block_count,
+    )?);
     let mut kv_edits_summary = vec![format!(
         "{arch}.block_count = {new_block_count} (in-place)"
     )];
@@ -1945,12 +1965,7 @@ pub fn build_surgery_plan(src: &GgufFile, remove: &[u64]) -> Result<SurgeryPlan,
             })?;
             kv_edits_summary
                 .push(format!("{key}: {nn} → {new_nextn} (MTP-хвост изменён)"));
-            kv_edits.push(KvEdit::InPlace {
-                key,
-                value_offset: off,
-                width,
-                value: new_nextn,
-            });
+            kv_edits.push(in_place_edit(&key, off, width, new_nextn)?);
         }
     }
 
@@ -1974,12 +1989,7 @@ pub fn build_surgery_plan(src: &GgufFile, remove: &[u64]) -> Result<SurgeryPlan,
             })?;
             kv_edits_summary
                 .push(format!("{key}: {ld} → {new_dense} (dense-голова сдвинута)"));
-            kv_edits.push(KvEdit::InPlace {
-                key,
-                value_offset: off,
-                width,
-                value: new_dense,
-            });
+            kv_edits.push(in_place_edit(&key, off, width, new_dense)?);
         }
     }
 
@@ -2712,9 +2722,25 @@ pub async fn gguf_llama_status(app: tauri::AppHandle) -> Result<LlamaServerStatu
 }
 
 /// Путь к llama-server: Some — задать (перезаписать), None — оставить как есть.
-/// Хранится в gguf.json (паттерн dictation.json)
+/// Хранится в gguf.json (паттерн dictation.json). Some проходит sensitive-гардал
+/// с канонизацией (как ca_path в network.rs — аудит A1-5) и проверку
+/// существования файла: исполняемый по природе конфиг не должен молча
+/// принимать произвольную строку (аудит 07.10, пакет реестров / A7-15).
+/// Resolve-time фолбэк в PATH при мёртвом конфиге сохранён.
 #[tauri::command(async)]
 pub async fn gguf_llama_set_path(app: tauri::AppHandle, path: Option<String>) -> Result<(), String> {
+    if let Some(p) = path.as_deref().map(str::trim).filter(|p| !p.is_empty()) {
+        crate::settings::rejects_sensitive_path(p)?;
+        let canon = std::fs::canonicalize(p)
+            .map(|c| c.to_string_lossy().into_owned())
+            .unwrap_or_else(|_| p.to_string());
+        crate::settings::rejects_sensitive_path(&canon)?;
+        let meta = std::fs::metadata(p)
+            .map_err(|e| format!("gguf: llama-server path is not accessible: {e}"))?;
+        if !meta.is_file() {
+            return Err("gguf: llama-server path must be a file, not a directory".into());
+        }
+    }
     tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
         let mut cur = crate::settings::read_json_config(&app, "gguf.json")
             .ok()
@@ -3516,6 +3542,9 @@ mod tests {
     enum Kv {
         S(String),
         U32(u32),
+        /// Узкий int — hostile/неканоничный блок_count: гард ширины InPlace
+        /// обязан отказать ДО записи (аудит 07.10 A1-9)
+        U16(u16),
         Bool(bool),
         ArrU32(Vec<u32>),
         ArrI32(Vec<i32>),
@@ -3672,6 +3701,11 @@ mod tests {
                     }
                     Kv::U32(x) => {
                         w.extend_from_slice(&4u32.to_le_bytes());
+                        w.extend_from_slice(&x.to_le_bytes());
+                    }
+                    // GGUF-тип 2 = UInt16 (2 байта) — спеки §1.2
+                    Kv::U16(x) => {
+                        w.extend_from_slice(&2u32.to_le_bytes());
                         w.extend_from_slice(&x.to_le_bytes());
                     }
                     Kv::Bool(b) => {
@@ -4359,6 +4393,28 @@ mod tests {
                 pt.info.name
             );
         }
+    }
+
+    #[test]
+    fn surgery_rejects_narrow_block_count_before_write() {
+        // A1-9 (аудит 07.10): u16-block_count проходит get_int (Some) — раньше
+        // паника copy_from_slice случалась уже ПОСЛЕ начала записи (вечный
+        // tmp). Гард ширины обязан отказать с честной ошибкой до диска.
+        let mut s = Synth::llama_dense(3);
+        let bc = s
+            .kv
+            .iter_mut()
+            .position(|(k, _)| k == "llama.block_count")
+            .expect("dense synth has block_count");
+        s.kv[bc].1 = Kv::U16(3);
+        let src_path = write_tmp("cutu16.src.gguf", &s.build());
+        let src = GgufFile::open(&src_path).unwrap();
+        let err = build_surgery_plan(&src, &[1]).unwrap_err();
+        assert!(
+            err.contains("cannot patch in place"),
+            "guard must reject narrow width, got: {err}"
+        );
+        let _ = fs::remove_file(&src_path);
     }
 
     #[test]

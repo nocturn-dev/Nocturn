@@ -599,9 +599,22 @@ pub async fn execute_tool_inner(
     }
     // GGUF Lab (§28 шаг 6): inspect/cut/test — команда сама знает, как
     // стримить прогресс; cut/test мутирующие (гарды perm.rs отработали
-    // ДО этого вызова — гардалы ставятся до PreToolUse-хуков)
+    // ДО этого вызова — гардалы ставятся до PreToolUse-хуков).
+    // Stop обязан отвечать сразу и здесь (аудит 07.10 A1-10: единственная
+    // ветка диспетчера без select! — Stop висел минуты, операция писала
+    // гигабайты после отмены прогона). При отмене дёргаем кооперативный
+    // GGUF_CANCEL — циклы операции выходят между чанками и чистят tmp, —
+    // и гасим тестовый сервер (health-поллинг gguf_test умирает мгновенно)
     if name == "gguf_inspect" || name == "gguf_cut" || name == "gguf_test" {
-        return crate::gguf::run_agent_tool(&app, &name, &args).await;
+        let work = crate::gguf::run_agent_tool(&app, &name, &args);
+        return tokio::select! {
+            res = work => res,
+            _ = wait_for_abort(abort_flag.as_ref()) => {
+                crate::gguf::gguf_cancel();
+                let _ = crate::gguf::gguf_serve_stop();
+                Err("aborted by user".to_string())
+            }
+        };
     }
     // Инструменты блокирующие (shell_run — до 300 сек, fs-вызовы — ФС):
     // исполняем в отдельном потоке, иначе главный поток окна замирает на

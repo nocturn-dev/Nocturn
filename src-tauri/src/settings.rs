@@ -528,6 +528,9 @@ pub async fn crypto_reset(app: tauri::AppHandle, confirm: String) -> Result<(), 
 /// memory.json (личная память агента) сознательно НЕ входит: приватные
 /// данные пользователя, перенос — только руками, как у sessions.json
 /// в «поделенный» экспорт без секретов.
+/// lsp.json/gguf.json входят (аудит 07.10, пакет реестров): конфиги волны
+/// LSP/GGUF забывали внести в реестр — экспорт молча терял их. Секретов
+/// в них нет (команда/путь), как в mcp.json — в «поделенный» экспорт идут.
 const EXPORT_FILES: &[&str] = &[
     "settings.json",
     "profiles.json",
@@ -549,6 +552,8 @@ const EXPORT_FILES: &[&str] = &[
     "fonts.json",
     "telegram.json",
     "crypto.json",
+    "lsp.json",
+    "gguf.json",
 ];
 
 /// Собрать содержимое всех конфиг-файлов (отсутствующие пропускаются).
@@ -683,16 +688,28 @@ fn mask_secrets(file: &str, v: &mut serde_json::Value) {
 }
 
 /// Записать набор конфиг-файлов (импорт). Имена жёстко из whitelist.
-/// hooks.json/mcp.json исполняемы по своей природе (команды хуков через
-/// cmd /C, запуск серверов) — пишутся только при явном подтверждении с
-/// фронтенда, иначе импорт «поделенного конфига» был бы RCE.
+/// Исполняемые по природе конфиги (команды хуков через cmd /C, запуск
+/// MCP/LSP-серверов, спавн llama-server по пути) — пишутся только при
+/// явном подтверждении с фронтенда, иначе импорт «поделенного конфига»
+/// был бы RCE.
 fn settings_write_all_blocking(
     app: &tauri::AppHandle,
     files: std::collections::HashMap<String, serde_json::Value>,
     allow_executable_configs: bool,
 ) -> Result<usize, String> {
     use tauri::Manager;
-    const EXECUTABLE_CONFIGS: &[&str] = &["hooks.json", "mcp.json"];
+    // КОНТРАКТ: исполняемые по природе конфиги. hooks.json — команды хуков;
+    // mcp.json — command+args серверов; lsp.json — command+args языковых
+    // серверов; gguf.json — llama_server_path (спавнится resolve_llama_server).
+    // Новый конфиг с командой/бинарем ОБЯЗАН попасть сюда одновременно с
+    // describeExecutableConfigs (MainSection.tsx) — теста-гарда списка нет,
+    // инвариант держится на этой паре (аудит 07.10: пакет реестров)
+    const EXECUTABLE_CONFIGS: &[&str] = &[
+        "hooks.json",
+        "mcp.json",
+        "lsp.json",
+        "gguf.json",
+    ];
     if !allow_executable_configs
         && EXECUTABLE_CONFIGS.iter().any(|name| files.contains_key(*name))
     {

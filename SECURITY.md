@@ -56,7 +56,12 @@ tools operate on GGUF files inside a dedicated lab storage
   allocating, so hostile files cannot cause runaway allocations.
 - **No arbitrary paths from the frontend.** Lab commands accept only plain
   file *names* inside `appdata/gguf` (a validator rejects path separators,
-  `..` and non-`.gguf` names). Surgery always writes a new file
+  `..` and non-`.gguf` names). The single exception is the llama-server
+  path you set yourself (`gguf_llama_set_path`, UI/settings surface): it
+  passes the sensitive-path guard with canonicalization and must point at
+  an existing file — and it is never reachable from a shared/imported
+  config without the explicit executable-config confirmation below.
+  Surgery always writes a new file
   (`temp + fsync + rename`); the source is never modified in place.
 - **Network sources, all explicit.** Pulling models talks to *your* local
   Ollama server (`127.0.0.1:11434`) — the same traffic as running
@@ -105,10 +110,13 @@ tools operate on GGUF files inside a dedicated lab storage
   parser copies only endpoints/wire/model into a profile — token
   environment references (`$VAR`, `env:VAR`) are imported empty, so no
   third-party secret material lands on disk; the API key is pasted by you.
-- **Executable configs.** `hooks.json` / `mcp.json` define commands that the
-  app will execute. They are only written through an explicit confirmation
-  flow (`allowExecutableConfigs`) — treat any file claiming to be a Nocturn
-  config as untrusted input.
+- **Executable configs.** `hooks.json`, `mcp.json`, `lsp.json` and
+  `gguf.json` define commands or binary paths that the app will execute
+  (hooks via `cmd /C`, MCP/LSP server commands, the llama-server path).
+  They are only written through an explicit confirmation flow
+  (`allowExecutableConfigs`, mirrored by `describeExecutableConfigs` on
+  the frontend) — treat any file claiming to be a Nocturn config as
+  untrusted input.
 - **Remote images in model output.** The CSP allows `img-src https:` so
   markdown images returned by providers render inline. A prompt injection
   (e.g. in a page the agent reads via Browser Use) could abuse this as a
