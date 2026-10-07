@@ -478,8 +478,14 @@ fn wait_for_code_on(
 }
 
 /// Single-flight refresh (заметка владельца): один запрос, остальные ждут.
-/// Вызывается только из 401-ветки активного вызова — фоновых рефрешей нет
-pub async fn refresh_single_flight(server: &str) -> Result<(), String> {
+/// Вызывается только из 401-ветки активного вызова — фоновых рефрешей нет.
+/// AppHandle нужен для персиста: провайдер вправе РОТИРОВАТЬ refresh_token
+/// при refresh_token grant — без записи на диск рестарт поднимал бы
+/// отозванный токен и требовал re-authorize (аудит 07.10 A2-13)
+pub async fn refresh_single_flight(
+    app: &tauri::AppHandle,
+    server: &str,
+) -> Result<(), String> {
     let lock = refresh_lock(server);
     let _guard = lock.lock().await;
     let (tokens, meta) = {
@@ -541,8 +547,11 @@ pub async fn refresh_single_flight(server: &str) -> Result<(), String> {
     if let Ok(mut m) = TOKENS.lock() {
         m.insert(server.to_string(), updated);
     }
-    // Персист обновлённых токенов — при следующем authorize/по кнопке:
-    // здесь нет AppHandle, токен живёт в памяти до конца сессии
+    // Персист сразу: при ротации refresh_token дисковая копия становится
+    // ЛОЖНОЙ (не «нет свежего», а «сломанный») — рестарт требовал бы
+    // re-authorize. Err (vault заперт) → токен живёт в памяти до конца
+    // сессии, как раньше; лучший-усилие
+    let _ = persist_tokens(app);
     Ok(())
 }
 

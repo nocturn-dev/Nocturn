@@ -484,6 +484,9 @@ pub fn run() {
                 }
                 tts::kill_on_exit();
                 lsp::kill_all();
+                // GGUF-сессия — static вне реестров: без этого llama-server
+                // переживал приложение с моделью в памяти (аудит 07.10 A1-11)
+                gguf::kill_session_on_exit();
                 cleanup_browser_profiles();
             }
         });
