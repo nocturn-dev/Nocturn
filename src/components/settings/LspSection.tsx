@@ -59,15 +59,22 @@ export function LspSection() {
     lspGetConfig().then((loaded) => {
       setCfg(loaded);
       // Серверы на диске перекрывают дефолты: поле показывает фактическую
-      // команду; семейства без записи остаются на дефолте (пустое поле)
-      const byFirstExt = new Map<string, LspServerEntry>();
+      // команду; семейства без записи остаются на дефолте (пустое поле).
+      // Резолв по ЛЮБОМУ расширению записи — бекенд lsp.rs резолвит так же:
+      // матч по головому ext молча терял запись с неканоничной головой
+      // (["\.tsx",".ts"], hand-правка) и любой тоггл её затирал (A5-10)
+      const byAnyExt = new Map<string, LspServerEntry>();
       for (const s of loaded.servers) {
-        const first = s.extensions[0];
-        if (first) byFirstExt.set(first.toLowerCase(), s);
+        for (const e of s.extensions) byAnyExt.set(e.toLowerCase(), s);
       }
       setCommands(
         Object.fromEntries(
-          FAMILIES.map((f) => [f.id, byFirstExt.get(f.exts[0] ?? "")?.command ?? ""]),
+          FAMILIES.map((f) => {
+            const hit = f.exts
+              .map((e) => byAnyExt.get(e.toLowerCase()))
+              .find(Boolean);
+            return [f.id, hit?.command ?? ""];
+          }),
         ),
       );
     }).catch(() => {});
@@ -94,18 +101,29 @@ export function LspSection() {
   // Непустой пользовательский список ЗАМЕНЯЕТ дефолты целиком (семантика
   // бекенда), поэтому при любом переопределении материализуем ВСЕ семейства:
   // переопределён только rust-analyzer — TS не должен молча остаться без
-  // сервера. Пустое поле = встроенный дефолт той же строки
+  // сервера. Пустое поле = встроенный дефолт той же строки.
+  // Hand-записи lsp.json вне встроенных семейств доезжают до сохранения
+  // как есть — buildServers раньше стирал их на любом applyToggle (A5-10)
   const buildServers = (cmds: Record<string, string>): LspServerEntry[] => {
+    const familyExts = new Set(
+      FAMILIES.flatMap((f) => f.exts.map((e) => e.toLowerCase())),
+    );
+    const hand = cfg.servers.filter(
+      (s) => !s.extensions.some((e) => familyExts.has(e.toLowerCase())),
+    );
     const anyCustom = FAMILIES.some((f) => {
       const v = (cmds[f.id] ?? "").trim();
       return v !== "" && v !== f.def;
     });
-    if (!anyCustom) return [];
-    return FAMILIES.map((f) => ({
-      extensions: f.exts,
-      command: (cmds[f.id] ?? "").trim() || f.def,
-      args: [...f.args],
-    }));
+    if (!anyCustom) return hand;
+    return [
+      ...FAMILIES.map((f) => ({
+        extensions: f.exts,
+        command: (cmds[f.id] ?? "").trim() || f.def,
+        args: [...f.args],
+      })),
+      ...hand,
+    ];
   };
 
   const applyToggle = (patch: Partial<LspConfig>) => {

@@ -17,6 +17,7 @@ import {
   type CustomStyleId,
 } from "./themeStyles";
 import { applyCodeTheme, CODE_THEME_IDS } from "./codeThemes";
+import { STORAGE_KEYS } from "./storageKeys";
 import { TERMINAL_PALETTES } from "./vt";
 
 export type DarkStyle =
@@ -186,7 +187,7 @@ export const DEFAULT_APPEARANCE: Appearance = {
   ambientRender: "front",
 };
 
-const LS_KEY = "haloui-appearance";
+const LS_KEY = STORAGE_KEYS.appearance;
 
 export const AMBIENT_SCENES = [
   "glow",
@@ -243,7 +244,9 @@ export function loadAppearance(): Appearance {
           : DEFAULT_APPEARANCE.customGreeting,
       official: p.official ?? DEFAULT_APPEARANCE.official,
       reduceMotion: p.reduceMotion ?? DEFAULT_APPEARANCE.reduceMotion,
-      motionScale: typeof p.motionScale === 'number' ? p.motionScale : 1,
+      // clamp: шкала слайдера ThemeSection 0.7/1/1.4; кривое значение с
+      // диска/профиля иначе уходило в --motion-scale сырым (аудит 07.10 A6-11)
+      motionScale: clamp(p.motionScale ?? 1, 0.7, 1.4),
       officialOled: p.officialOled ?? DEFAULT_APPEARANCE.officialOled,
       officialContrast: p.officialContrast ?? DEFAULT_APPEARANCE.officialContrast,
       officialMonoCode: p.officialMonoCode ?? DEFAULT_APPEARANCE.officialMonoCode,

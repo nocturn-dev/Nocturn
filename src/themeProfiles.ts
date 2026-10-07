@@ -79,7 +79,7 @@ export function parseProfile(raw: unknown): ThemeProfile | null {
       shimmerTo: typeof a.shimmerTo === "string" ? a.shimmerTo : undefined,
       markColor: typeof a.markColor === "string" ? a.markColor : "",
       reduceMotion: a.reduceMotion === true,
-      motionScale: typeof a.motionScale === 'number' ? a.motionScale : 1,
+      motionScale: num(a.motionScale, 1, 0.7, 1.4),
       ambient: a.ambient === true,
       ambientScene: isAmbientScene(a.ambientScene) ? a.ambientScene : "glow",
       ambientVideo: typeof a.ambientVideo === "string" ? a.ambientVideo : "",

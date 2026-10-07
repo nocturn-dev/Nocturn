@@ -388,8 +388,10 @@ export function useApiSettings(opts: {
   };
 
   /** Подключить поднятый GGUF Lab сервер к текущим настройкам чата:
-   *  llama-server без --api-key игнорирует Authorization — ключ-маркер */
-  const handleUseGgufServe = (baseUrl: string, model: string) => {
+   *  llama-server без --api-key игнорирует Authorization — ключ-маркер.
+   *  useCallback: пробрасывается в memo-модалку GGUF Lab — инлайн-функция
+   *  пробивала мемоизацию (аудит 07.10 A4-9) */
+  const handleUseGgufServe = useCallback((baseUrl: string, model: string) => {
     setApiSettings((prev) => ({
       ...prev,
       api_key: "gguf-lab",
@@ -397,7 +399,7 @@ export function useApiSettings(opts: {
       model,
       provider: "custom",
     }));
-  };
+  }, []);
 
   return {
     apiSettings,
