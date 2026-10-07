@@ -136,6 +136,17 @@ export default function GgufLabModal({
     }
   }, [open, refresh]);
 
+  // Escape закрывает, как у остальных sticky-модалок (SettingsModal/CompareModal);
+  // busy-гард сохранён: во время операции Escape её не отменяет
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !busy) onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, busy, onClose]);
+
   const doPull = () =>
     run(async () => {
       const name = pullName.trim();
