@@ -2882,9 +2882,36 @@ pub async fn gguf_serve_start(
 pub fn gguf_serve_stop() -> Result<(), String> {
     let mut g = lock_server()?;
     if let Some(s) = g.take() {
-        crate::proc::kill_tree(s.pid);
+        kill_session_tree(&s);
     }
     Ok(())
+}
+
+/// Жив ли процесс сессии: порт-зонд. PID умершего процесса возвращается
+/// системе — вслепую kill_tree по переиспользованному pid гасит чужое
+/// дерево (аудит 07.10 A3-12). Отказывающий порт = сервер мёртв: чистим
+/// запись без kill. Живой, но не отвечающий сервер порт держит → гасится.
+fn kill_session_tree(s: &ServerSession) {
+    let alive = std::net::TcpStream::connect_timeout(
+        &std::net::SocketAddr::from(([127, 0, 0, 1], s.port)),
+        std::time::Duration::from_millis(300),
+    )
+    .is_ok();
+    if alive {
+        crate::proc::kill_tree(s.pid);
+    }
+}
+
+/// Гасит тестовый сервер при выходе приложения (RunEvent::Exit): сессия —
+/// static вне реестров, которые Exit обходит (аудит 07.10 A1-11: осиротевший
+/// llama-server переживал приложение и держал модель в памяти; UI после
+/// рестарта его не видел и остановить не мог)
+pub fn kill_session_on_exit() {
+    if let Ok(mut g) = lock_server() {
+        if let Some(s) = g.take() {
+            kill_session_tree(&s);
+        }
+    }
 }
 
 // === Скачивание llama-server (§4.4) ===

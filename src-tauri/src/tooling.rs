@@ -451,7 +451,7 @@ pub async fn execute_tool_inner(
                 // Волна F5: 401 на oauth-сервере — запрос НЕ исполнялся
                 // (auth-гейт), поэтому повтор безопасен. Refresh single-flight:
                 // ровно один запрос к провайдеру, остальные ждут новый токен
-                mcp_oauth::refresh_single_flight(&server)
+                mcp_oauth::refresh_single_flight(&app, &server)
                     .await
                     .map_err(|re| format!("mcp {server}.{tool}: token refresh failed: {re}"))?;
                 handle

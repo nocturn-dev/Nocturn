@@ -86,6 +86,21 @@ export default function GgufLabModal({
     setFiles(fs);
     setLlama(llamaStatus);
     setOllama(await detectLocalRuntimes().then((r) => r.ollama));
+    // A4-10 (аудит 07.10): бекенд-сессия жива, а локальный serve-стейт пуст
+    // (reload/ремаунт фронтенда, агентный gguf_test с keep_running) —
+    // восстанавливаем управление из статуса, иначе кнопки Стоп/Подключить
+    // недоступны и сервер не остановить до рестарта приложения
+    setServe(
+      (prev) =>
+        prev ??
+        (llamaStatus.serverRunning && llamaStatus.serverPort != null
+          ? {
+              port: llamaStatus.serverPort,
+              baseUrl: `http://127.0.0.1:${llamaStatus.serverPort}`,
+              model: llamaStatus.serverModel ?? "",
+            }
+          : null),
+    );
   }, []);
 
   // Слушатель прогресса: успех фазы → рефреш (новый файл в хранилище)

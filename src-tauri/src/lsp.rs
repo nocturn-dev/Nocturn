@@ -178,7 +178,13 @@ fn resolve_server(ext: &str) -> Option<LspServerEntry> {
 /// Content-Length байт. EOF → None (сервер умер). Потолок MESSAGE_CAP:
 /// сервер, шлющий гигабайты одним сообщением, не должен раздувать память
 fn read_message(r: &mut dyn BufRead) -> std::io::Result<Option<Vec<u8>>> {
+    /// Суммарный потолок заголовочной секции: построчный 4 КБ ограничивает
+    /// память одной строки, но сервер, льющий мусор без '\n' или бесконечную
+    /// серию заголовков, раньше крутил поток-читатель в CPU-цикле до EOF
+    /// (аудит 07.10 A2-12)
+    const HEADER_SECTION_CAP: usize = 64 * 1024;
     let mut content_length: Option<usize> = None;
+    let mut header_bytes: usize = 0;
     loop {
         let mut line = Vec::new();
         // read_until('\n') с потолком: заголовочная строка больше 4 КБ —
@@ -186,6 +192,13 @@ fn read_message(r: &mut dyn BufRead) -> std::io::Result<Option<Vec<u8>>> {
         let n = r.take(4096).read_until(b'\n', &mut line)?;
         if n == 0 {
             return Ok(None); // EOF
+        }
+        header_bytes += n;
+        if header_bytes > HEADER_SECTION_CAP {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "LSP header section too large",
+            ));
         }
         let text = String::from_utf8_lossy(&line);
         let text = text.trim_end_matches(['\r', '\n']);
@@ -412,7 +425,9 @@ fn spawn_process(command: &str, args: &[String]) -> std::io::Result<Child> {
     }
     #[cfg(not(windows))]
     {
-        // Своя процесс-группа: kill гасит и внуков (npx-обёртки), как в mcp.rs
+        // Своя процесс-группа (pgid == pid): гашение идёт через
+        // proc::kill_tree → kill(-pgid), который гасит и внуков
+        // npx-обёрток; сам по себе process_group внуков не гасит
         use std::os::unix::process::CommandExt;
         cmd.process_group(0);
     }
@@ -603,7 +618,12 @@ fn spawn_handle(entry: &LspServerEntry, root: &str) -> Result<Arc<ServerHandle>,
             }
         }))
         .map_err(|e| {
-            let _ = handle.child.lock().unwrap_or_else(|p| p.into_inner()).kill();
+            // Гашение деревом (аудит 07.10 A2-10): npx-обёртки и cmd-шим
+            // порождают внуков, std Child::kill сигналит только прямому
+            // потомку — выживший внук держал пайпы и reader-поток
+            let pid = handle.child.lock().unwrap_or_else(|p| p.into_inner()).id();
+            crate::proc::kill_tree(pid);
+            let _ = handle.child.lock().unwrap_or_else(|p| p.into_inner()).wait();
             format!("lsp initialize failed: {e}")
         })?;
     let _ = handle.send(&json!({"jsonrpc": "2.0", "method": "initialized", "params": {}}));
@@ -613,13 +633,15 @@ fn spawn_handle(entry: &LspServerEntry, root: &str) -> Result<Arc<ServerHandle>,
 fn ensure_server(entry: &LspServerEntry, root: &str) -> Result<Arc<ServerHandle>, String> {
     let key = format!("{}\u{1}{}", entry.command, entry.args.join("\u{1}"));
     let mut reg = registry().lock().map_err(|e| e.to_string())?;
+    // A2-9 (аудит 07.10): мёртвые записи выносим ДО поиска — раньше мёртвая
+    // same-key запись навсегда заслоняла живой хендл (find брал первую по
+    // порядку), и каждый вызов diagnostics пересоздавал сервер с полной
+    // индексацией, пока мёртвую не выселял LRU (до MAX_SERVERS спавнов)
+    reg.retain(|(_, h)| !h.is_dead());
     if let Some((_, h)) = reg.iter().find(|(k, _)| *k == key) {
-        if !h.is_dead() {
-            return Ok(Arc::clone(h));
-        }
+        return Ok(Arc::clone(h));
     }
-    reg.retain(|(k, h)| *k == key || !h.is_dead());
-    // LRU-выселение: реестр полон — самый старый живой сервер умирает
+    // LRU-выселение: реестр полон ЖИВЫХ серверов — самый старый умирает
     if reg.len() >= MAX_SERVERS {
         if let Some((_, oldest)) = reg.iter().min_by_key(|(_, h)| h.born) {
             let idx = reg
@@ -631,8 +653,9 @@ fn ensure_server(entry: &LspServerEntry, root: &str) -> Result<Arc<ServerHandle>
             if let Ok(mut g) = victim.stdin.lock() {
                 *g = None; // закрытие stdin: серверы обычно выходят сами
             }
+            // Деревом: см. комментарий initialize-ветки выше
             let mut child = victim.child.lock().unwrap_or_else(|p| p.into_inner());
-            let _ = child.kill();
+            crate::proc::kill_tree(child.id());
             let _ = child.wait();
         }
     }
@@ -649,8 +672,9 @@ pub fn kill_all() {
         if let Ok(mut g) = h.stdin.lock() {
             *g = None;
         }
+        // Деревом: см. комментарий initialize-ветки выше
         let mut child = h.child.lock().unwrap_or_else(|p| p.into_inner());
-        let _ = child.kill();
+        crate::proc::kill_tree(child.id());
         let _ = child.wait();
     }
 }
@@ -897,6 +921,12 @@ pub fn edit_feedback(fs_write_result: &str) -> String {
 mod tests {
     use super::*;
 
+    /// Глобалы lsp (CONFIG/REGISTRY) общие на процесс тестов: set_config при
+    /// смене команд дренажит реестр через kill_all — тесты, трогающие глобалы,
+    /// сериализуются, иначе чужой set_config убивал живой хендл посреди теста
+    /// (класс «глобал-стейт в параллельных тестах», правило 26 промта аудита)
+    static GLOBALS_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn read_message_parses_framing() {
         let body = br#"{"jsonrpc":"2.0"}"#;
@@ -930,6 +960,59 @@ mod tests {
     }
 
     #[test]
+    fn read_message_rejects_header_flood() {
+        // A2-12 (аудит 07.10): сервер, льющий заголовки без пустой строки,
+        // раньше крутил читатель вечно — суммарный потолок секции рвёт
+        let mut buf = Vec::new();
+        for i in 0..4096 {
+            buf.extend_from_slice(format!("X-Fill-{i}: 0123456789abcdef\r\n").as_bytes());
+        }
+        let mut cursor = std::io::Cursor::new(buf);
+        let err = read_message(&mut cursor).unwrap_err();
+        assert!(err.to_string().contains("header section too large"));
+    }
+
+    /// Dummy-процесс-«сервер»: живёт, ничего не говорит — только чтобы у
+    /// реестра был настоящий Child (is_dead/kill_tree работают по нему)
+    fn dummy_entry() -> LspServerEntry {
+        if cfg!(windows) {
+            LspServerEntry {
+                extensions: vec![".rs".into()],
+                command: "ping".into(),
+                args: vec!["-n".into(), "120".into(), "127.0.0.1".into()],
+            }
+        } else {
+            LspServerEntry {
+                extensions: vec![".rs".into()],
+                command: "sleep".into(),
+                args: vec!["120".into()],
+            }
+        }
+    }
+
+    #[test]
+    fn ensure_server_replaces_dead_entry_without_respawn_loop() {
+        // A2-9 (аудит 07.10): мёртвая same-key запись не должна заслонять
+        // живой хендл — ensure_server обязан заменить её ровно один раз,
+        // а живой переиспользовать (раньше каждый вызов спавнил новый сервер)
+        let _globals = GLOBALS_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let root = std::env::temp_dir().to_string_lossy().into_owned();
+        let entry = dummy_entry();
+        let h1 = ensure_server(&entry, &root).unwrap();
+        {
+            let mut child = h1.child.lock().unwrap_or_else(|p| p.into_inner());
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        assert!(h1.is_dead(), "dummy must be reaped");
+        let h2 = ensure_server(&entry, &root).unwrap();
+        assert!(!Arc::ptr_eq(&h1, &h2), "dead entry must be replaced");
+        let h3 = ensure_server(&entry, &root).unwrap();
+        assert!(Arc::ptr_eq(&h2, &h3), "live handle must be reused");
+        kill_all();
+    }
+
+    #[test]
     fn language_ids_cover_families() {
         assert_eq!(language_id(".ts"), "typescript");
         assert_eq!(language_id(".tsx"), "typescriptreact");
@@ -943,6 +1026,7 @@ mod tests {
 
     #[test]
     fn resolve_server_defaults_and_user_override() {
+        let _globals = GLOBALS_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         // Пользовательский список пуст → дефолты
         set_config(LspConfig::default());
         let ts = resolve_server(".TS").expect("default ts server");
@@ -1040,6 +1124,7 @@ mod tests {
 
     #[test]
     fn edit_feedback_disabled_is_noop() {
+        let _globals = GLOBALS_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         set_config(LspConfig::default()); // enabled = false
         let res = edit_feedback("{\"path\":\"C:\\\\x.rs\"}");
         assert!(!res.contains("lsp diagnostics"));
