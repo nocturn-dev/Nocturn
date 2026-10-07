@@ -974,6 +974,10 @@ const OLLAMA_URL: &str = "http://127.0.0.1:11434";
 /// легитимно идёт десятки минут, а «замерло навсегда» — это 60 с без единого
 /// байта (§4.6: соединение с Ollama — долгоживущий NDJSON-поток).
 const PULL_STALL_SECS: u64 = 60;
+/// Кап буфера NDJSON-строки /api/pull: класс входа тот же, что SSE в chat.rs
+/// (там SSE_BUF_LIMIT 1 МиБ) — «вечная строка» не должна расти в памяти
+/// (аудит 07.10 A1-14)
+const PULL_LINE_CAP: usize = 1024 * 1024;
 /// Буфер копирования блоба: 8 МиБ — в 2–4 раза больше alignment-паддинга
 /// любых тензоров, при этом буфер не раздувает RSS (§3.3 ресёрча).
 const COPY_CHUNK: usize = 8 << 20;
@@ -1253,6 +1257,15 @@ async fn do_pull(app: &tauri::AppHandle, model: &str) -> Result<(), String> {
             }
         };
         buf.extend_from_slice(&chunk);
+        // Кап буфера строк (аудит 07.10 A1-14): SSE-путь chat.rs ставит
+        // SSE_BUF_LIMIT 1 МиБ на тот же класс входа — «вечная строка без \n»
+        // из некорректного/скомпрометированного прокси не должна расти в
+        // памяти, пока stall-детект видит живой поток байтов
+        if buf.len() > PULL_LINE_CAP {
+            return Err(format!(
+                "gguf pull: NDJSON line exceeded {PULL_LINE_CAP} bytes — not an Ollama stream"
+            ));
+        }
         while let Some(pos) = buf.iter().position(|&b| b == b'\n') {
             let line: Vec<u8> = buf.drain(..=pos).collect();
             let line = std::str::from_utf8(&line[..line.len() - 1]).unwrap_or_default();
@@ -2126,47 +2139,66 @@ pub fn execute_surgery(
             }
         }
         replaces.sort_by_key(|(start, _, _)| *start);
-        fn copy_kv_range(
-            mmap: &memmap2::Mmap,
-            w: &mut BufWriter<File>,
-            from: u64,
-            to: u64,
-            patches: &[(u64, u32, u64)],
-            written: &mut u64,
-            cancel: &AtomicBool,
-        ) -> Result<(), String> {
-            let mut pos = from;
-            while pos < to {
-                if cancel.load(Ordering::Relaxed) {
-                    return Err("gguf surgery: cancelled".into());
-                }
-                let end = (pos + COPY_CHUNK as u64).min(to);
-                let mut buf = mmap[pos as usize..end as usize].to_vec();
-                for &(off, width, value) in patches {
-                    if off >= pos && off + u64::from(width) <= end {
-                        let i = (off - pos) as usize;
-                        let bytes = if width == 4 {
-                            (value as u32).to_le_bytes().to_vec()
-                        } else {
-                            value.to_le_bytes().to_vec()
-                        };
-                        buf[i..i + width as usize].copy_from_slice(&bytes);
-                    }
-                }
-                w.write_all(&buf)
-                    .map_err(|e| format!("gguf surgery: write: {e}"))?;
-                *written += buf.len() as u64;
-                pos = end;
-            }
-            Ok(())
+        // Контекст копии KV-региона: mmap/патчи/отмена/буфер одним borrow'ем
+        // (written наружу — в цикле между диапазонами пишутся сплайсы)
+        struct KvCopy<'a> {
+            mmap: &'a memmap2::Mmap,
+            patches: &'a [(u64, u32, u64)],
+            cancel: &'a AtomicBool,
+            buf: &'a mut Vec<u8>,
         }
+        impl KvCopy<'_> {
+            fn copy_range(
+                &mut self,
+                w: &mut BufWriter<File>,
+                from: u64,
+                to: u64,
+            ) -> Result<u64, String> {
+                let mut copied: u64 = 0;
+                let mut pos = from;
+                while pos < to {
+                    if self.cancel.load(Ordering::Relaxed) {
+                        return Err("gguf surgery: cancelled".into());
+                    }
+                    let end = (pos + COPY_CHUNK as u64).min(to);
+                    // Буфер переиспользуется между чанками — как в копии
+                    // блоба (COPY_CHUNK): новый 8 МиБ Vec на каждый чанк
+                    // был churn'ом аллокатора без пользы (аудит 07.10 A1-16)
+                    self.buf.clear();
+                    self.buf
+                        .extend_from_slice(&self.mmap[pos as usize..end as usize]);
+                    for &(off, width, value) in self.patches {
+                        if off >= pos && off + u64::from(width) <= end {
+                            let i = (off - pos) as usize;
+                            let bytes = if width == 4 {
+                                (value as u32).to_le_bytes().to_vec()
+                            } else {
+                                value.to_le_bytes().to_vec()
+                            };
+                            self.buf[i..i + width as usize].copy_from_slice(&bytes);
+                        }
+                    }
+                    w.write_all(self.buf)
+                        .map_err(|e| format!("gguf surgery: write: {e}"))?;
+                    copied += self.buf.len() as u64;
+                    pos = end;
+                }
+                Ok(copied)
+            }
+        }
+        let mut kv = KvCopy {
+            mmap: &mmap,
+            patches: &in_place,
+            cancel,
+            buf: &mut Vec::new(),
+        };
         let mut kv_pos = 24u64;
         for (rs, re, bytes) in &replaces {
-            copy_kv_range(&mmap, &mut w, kv_pos, *rs, &in_place, &mut written, cancel)?;
+            written += kv.copy_range(&mut w, kv_pos, *rs)?;
             track(&mut w, bytes, &mut written)?;
             kv_pos = *re;
         }
-        copy_kv_range(&mmap, &mut w, kv_pos, plan.kv_end, &in_place, &mut written, cancel)?;
+        written += kv.copy_range(&mut w, kv_pos, plan.kv_end)?;
 
         // (3) таблица тензоров регенерируется (число/имена/offsets изменились)
         for pt in &plan.new_tensors {
@@ -2458,8 +2490,16 @@ pub(crate) fn run_surgery_pipeline(
         .unwrap_or_else(|| "out.gguf".into());
     let tmp_path = dst_path.with_file_name(format!("{out_name}.tmp"));
     on_progress("plan", 0, 0, 0, plan.out_size_estimate);
+    // Троттлинг прогресса (аудит 07.10 A4-15): на крупной модели тензоров
+    // сотни — каждый эміт это IPC-событие и полный ре-рендер модалки.
+    // Не чаще 100 мс; финальный (i == n) проходит всегда — потребитель
+    // ждёт его как сигнал конца копии
+    let mut last_emit = std::time::Instant::now() - std::time::Duration::from_secs(1);
     execute_surgery(src_path, &plan, &tmp_path, cancel, |i, n, b, t| {
-        on_progress("surgery", i, n, b, t)
+        if i == n || last_emit.elapsed() >= std::time::Duration::from_millis(100) {
+            last_emit = std::time::Instant::now();
+            on_progress("surgery", i, n, b, t);
+        }
     })?;
     // Post-flight: ошибка/отмена → tmp прочь, отказ без «полуготового» файла
     let verified = match postflight_verify(src_path, &tmp_path, &plan, cancel) {
@@ -3485,13 +3525,21 @@ pub async fn run_agent_tool(
         }
         "gguf_cut" => {
             let src = get_str("src_name")?;
-            let remove: Vec<u64> = args
+            let raw = args
                 .get("remove_layers")
                 .and_then(|v| v.as_array())
-                .ok_or_else(|| "missing required argument: remove_layers".to_string())?
-                .iter()
-                .filter_map(|v| v.as_u64())
-                .collect();
+                .ok_or_else(|| "missing required argument: remove_layers".to_string())?;
+            // Валидация с ошибкой, не тихий filter_map (аудит 07.10 A1-13):
+            // [1, "2", -3] от модели усекался бы молча — резка не тех слоёв,
+            // отчёт показывает фактически удалённые, расхождение с замыслом
+            // агент не видит
+            let mut remove: Vec<u64> = Vec::with_capacity(raw.len());
+            for v in raw {
+                let n = v.as_u64().ok_or_else(|| {
+                    format!("remove_layers: invalid element {v} (expected non-negative integer)")
+                })?;
+                remove.push(n);
+            }
             if remove.is_empty() {
                 return Err("remove_layers must not be empty".into());
             }
