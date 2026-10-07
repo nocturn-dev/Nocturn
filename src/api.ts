@@ -2125,6 +2125,17 @@ export async function pickJsonFile(): Promise<string | null> {
   return typeof picked === "string" ? picked : null;
 }
 
+/** Диалог выбора исполняемого файла (путь к llama-server и т.п.); без
+ * фильтров: CUDA/Vulkan-сборки называются по-разному и живут где угодно */
+export async function pickBinaryFile(): Promise<string | null> {
+  if (!inTauri) {
+    throw new Error("Выбор файла работает в нативном приложении");
+  }
+  const { open } = await import("@tauri-apps/plugin-dialog");
+  const picked = await open({ multiple: false });
+  return typeof picked === "string" ? picked : null;
+}
+
 // ---------- Диктовка (Whisper): mic → PCM → whisper-cli ----------
 
 export interface DictationStatus {

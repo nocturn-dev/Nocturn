@@ -1362,6 +1362,7 @@ export const zh = {
     "ggufLab.serveUse": "连接到聊天",
     "ggufLab.serveApplied": "已连接：{url}",
     "ggufLab.llamaMissing": "未找到 llama-server — 请下载或在 gguf.json 中指定路径",
+    "ggufLab.llamaSetPath": "选择路径…",
     "ggufLab.llamaFound": "已找到 llama-server",
     "ggufLab.llamaDownload": "下载 llama-server (~19 MB)",
     "ggufLab.report.title": "剪裁报告",

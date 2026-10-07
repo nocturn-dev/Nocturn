@@ -1362,6 +1362,7 @@ export const ja = {
     "ggufLab.serveUse": "チャットに接続",
     "ggufLab.serveApplied": "接続済み：{url}",
     "ggufLab.llamaMissing": "llama-serverが見つかりません — ダウンロードするか gguf.json にパスを指定",
+    "ggufLab.llamaSetPath": "パスを指定…",
     "ggufLab.llamaFound": "llama-serverを検出",
     "ggufLab.llamaDownload": "llama-serverをダウンロード (~19 MB)",
     "ggufLab.report.title": "切り取りレポート",

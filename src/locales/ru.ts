@@ -1348,6 +1348,7 @@ export const ru = {
     "ggufLab.serveUse": "Подключить к чату",
     "ggufLab.serveApplied": "Подключено: {url}",
     "ggufLab.llamaMissing": "llama-server не найден — скачайте или укажите путь в gguf.json",
+    "ggufLab.llamaSetPath": "Указать путь…",
     "ggufLab.llamaFound": "llama-server найден",
     "ggufLab.llamaDownload": "Скачать llama-server (~19 МБ)",
     "ggufLab.report.title": "Отчёт резки",
