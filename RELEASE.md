@@ -32,14 +32,15 @@
    git push origin main --tags
    ```
 
-3. The `v*` tag runs `release-windows` in `.github/workflows/release.yml`:
-   it builds the signed NSIS installer (`npm run tauri build`), generates
-   `latest.json` with `scripts/make-latest-json.mjs`, and creates the GitHub
-   release with the installer, its `.sig` and `latest.json` attached.
-   Without the signing secrets the job fails — that is intentional
-   (unsigned updater artifacts must not ship). Linux/macOS release jobs are
-   not wired yet; the CI workflow (`ci.yml`) covers builds and rust tests on
-   all three platforms (macOS non-blocking).
+3. The `v*` tag runs the `release` matrix in `.github/workflows/release.yml`
+   (windows-latest, ubuntu-22.04, macos-latest): each job builds via
+   `tauri-action` (signed where the updater requires it), and the action
+   merges per-platform entries into one `latest.json` attached to the release.
+   Without the signing secrets the build step fails — that is intentional
+   (unsigned updater artifacts must not ship). The macOS job is
+   `continue-on-error`: the builds are not signed/notarized, so the dmg ships
+   but the in-app updater does not work on macOS (Gatekeeper rejects ad-hoc
+   signatures — see Notes).
 4. Installed clients check `latest.json` on startup and offer the update.
 
 ## Notes

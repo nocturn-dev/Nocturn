@@ -792,6 +792,9 @@ mod tests {
         assert!(decide(&st, "shell_run", Some("git status")).is_ok());
     }
 
+    // Тест гоняет Windows-пути (C:\, канонизация \?\) — на unix семантика другая,
+    // unix-поведение покрывают *_unix-тесты ниже
+    #[cfg(windows)]
     #[test]
     fn deny_prefix_word_boundary_and_canonical_fs() {
         let st = state_with_rules(
@@ -856,6 +859,9 @@ mod tests {
 
     // ---------- чувствительные пути и самозащита (волна E3) ----------
 
+    // Тест гоняет Windows-пути (C:\, канонизация \?\) — на unix семантика другая,
+    // unix-поведение покрывают *_unix-тесты ниже
+    #[cfg(windows)]
     #[test]
     fn sensitive_paths_denied_by_default_in_all_modes() {
         for mode in [PermMode::Plan, PermMode::Ask, PermMode::Edit, PermMode::Full] {
@@ -874,6 +880,9 @@ mod tests {
         }
     }
 
+    // Тест гоняет Windows-пути (C:\, канонизация \?\) — на unix семантика другая,
+    // unix-поведение покрывают *_unix-тесты ниже
+    #[cfg(windows)]
     #[test]
     fn env_substring_backstop_and_allow_escape() {
         let st = state(PermMode::Full, &["C:\\proj"]);
@@ -886,6 +895,9 @@ mod tests {
         assert!(decide(&st2, "fs_read", Some("C:\\proj\\app.env.backup")).is_ok());
     }
 
+    // Тест гоняет Windows-пути (C:\, канонизация \?\) — на unix семантика другая,
+    // unix-поведение покрывают *_unix-тесты ниже
+    #[cfg(windows)]
     #[test]
     fn sensitive_escape_via_exact_allow_rule() {
         let mut st = state(PermMode::Full, &["C:\\proj"]);
@@ -898,6 +910,9 @@ mod tests {
         assert!(decide(&st, "fs_write", Some("C:\\proj\\.env")).is_err());
     }
 
+    // Тест гоняет Windows-пути (C:\, канонизация \?\) — на unix семантика другая,
+    // unix-поведение покрывают *_unix-тесты ниже
+    #[cfg(windows)]
     #[test]
     fn config_dir_gate_unconditional_and_first() {
         let mut st = state(PermMode::Full, &["C:\\Users\\me\\AppData\\Roaming"]);
