@@ -294,7 +294,7 @@ export default function Sidebar({
   // недоступен, и быстрая расстановка тегов молча не работала
   const [taggingId, setTaggingId] = useState<string | null>(null);
   // Группировка списка задач: плоский / по проектам (запоминается).
-  // Дефолт — по проектам (ZCode-вид: проект → его диалоги), 29.09
+  // Дефолт — по проектам (вид-референс: проект → его диалоги), 29.09
   const [groupBy, setGroupBy] = useState<"flat" | "project">(() =>
     localStorage.getItem("haloui-sidebar-group") === "flat" ? "flat" : "project",
   );

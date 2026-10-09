@@ -345,7 +345,7 @@ export function useAgentRun(deps: AgentRunDeps) {
   const patchSubRun = (id: string, fn: (r: SubRunState) => SubRunState) =>
     setSubRuns((prev) => (prev[id] ? { ...prev, [id]: fn(prev[id]) } : prev));
 
-  // ── Фоновые субагенты (ZCode-стиль): background=true возвращает сразу,
+  // ── Фоновые субагенты (стиль референса): background=true возвращает сразу,
   // отчёт дописывается в сессию по завершении; статус — subagent_status ──
   interface BgSubTask {
     id: string;

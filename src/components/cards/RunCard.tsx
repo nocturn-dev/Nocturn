@@ -31,7 +31,7 @@ const REHYPE_PLUGINS = [rehypeHighlight];
 const REHYPE_PLUGINS_NO_HL: typeof REHYPE_PLUGINS = [];
 
 /**
- * Лента хода в стиле ZCode (фидбек 30.09): ВЕСЬ ход — один плоский фид
+ * Лента хода в стиле референса (фидбек 30.09): ВЕСЬ ход — один плоский фид
  * без карточек-дублей. Шапка «Работает/Работал N мин N с» (живой таймер),
  * внутри хронологически по раундам: строка «Размышления · N с» (свёрнута,
  * клик раскрывает текст) → текст раунда → плоские ряды шагов
@@ -40,7 +40,7 @@ const REHYPE_PLUGINS_NO_HL: typeof REHYPE_PLUGINS = [];
  * Раздельный режим (groupTurns=false) продолжает использовать AssistantCard.
  */
 
-/** Длительность по-ZCode: «6 мин 23 с» / «6m 23s», до минуты — только секунды */
+/** Длительность по-референс: «6 мин 23 с» / «6m 23s», до минуты — только секунды */
 function fmtDur(ms: number, lang: string): string {
   const total = Math.max(0, Math.round(ms / 1000));
   const m = Math.floor(total / 60);
@@ -51,7 +51,7 @@ function fmtDur(ms: number, lang: string): string {
   return m > 0 ? `${m}m ${s}s` : `${s}s`;
 }
 
-/** Иконка мысли: искра-мозг (как ряд Thought в ZCode) */
+/** Иконка мысли: искра-мозг (как ряд Thought в референс) */
 function ThoughtIcon() {
   return (
     <svg
@@ -313,7 +313,7 @@ function RunCardBase({
   const firstTs = rounds[0]?.ts;
 
   // Живой счётчик строк правок по всем шагам хода («+N −M» в шапке, как
-  // в ZCode): виден ВО ВРЕМЯ работы; карточка файлов появляется после
+  // в референс): виден ВО ВРЕМЯ работы; карточка файлов появляется после
   // завершения всего запроса (ChatArea гейтит по streaming/typing)
   const diffTotals = useMemo(() => {
     let added = 0;
@@ -330,7 +330,7 @@ function RunCardBase({
 
   return (
     <div data-mid={runKey} className="anim-fade-up mr-auto w-full max-w-[85%]">
-      {/* Шапка хода: модель + живой таймер, hairline снизу — как в ZCode */}
+      {/* Шапка хода: модель + живой таймер, hairline снизу — как в референсе */}
       <div className="flex items-center gap-2.5 border-b border-halo-line/40 pb-1.5">
         <span className="flex shrink-0 items-center gap-1.5">
           <ProviderIcon modelId={model} size={14} />

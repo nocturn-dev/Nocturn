@@ -363,7 +363,7 @@ export async function chatStream(opts: {
   provider?: string;
   onDelta: (delta: string, seq?: number) => void;
   onThought: (thought: string, seq?: number) => void;
-  /** Барьер (ZCode-паттерн, блок 12): событие-финал — обработчик обязан
+  /** Барьер (паттерн-референс, блок 12): событие-финал — обработчик обязан
    *  дренировать батч-буфер дельт до обработки барьера */
   onUsage: (usage: ChatUsage, barrier?: boolean, seq?: number) => void;
   onToolCalls?: (calls: ToolCallInfo[], barrier?: boolean, seq?: number) => void;
@@ -757,7 +757,7 @@ export async function saveSessions(data: string): Promise<void> {
   return invoke("save_sessions", { data });
 }
 
-/** Сессии проекта: читаются из <root>/.nocturn/sessions.json (ZCode-стиль —
+/** Сессии проекта: читаются из <root>/.nocturn/sessions.json (стиль референса —
  *  данные проекта живут в папке проекта). Нет хранилища — null */
 export async function loadProjectSessions(root: string): Promise<string | null> {
   if (!inTauri) return null;

@@ -65,7 +65,7 @@ function codeText(node: unknown): string {
     как файл» (fs_write в выбранный пользователем путь — ручное действие
     и есть согласие; пермишены агента здесь не участвуют). Для ```html —
     кнопка «Предпросмотр»: HTML уезжает в панель Artifacts (sandbox-iframe).
-    Экспорт: RunCard (лента хода в стиле ZCode) рендерит тот же блок */
+    Экспорт: RunCard (лента хода в стиле референса) рендерит тот же блок */
 export function CodeBlock({
   node: _node,
   children,

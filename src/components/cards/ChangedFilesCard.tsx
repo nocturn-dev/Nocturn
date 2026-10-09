@@ -30,7 +30,7 @@ function ChangedFilesCardBase({
   onUndo: (f: ChangedFile) => void;
   /** Review: открыть правую панель с живым диффом прогона (App собирает
    *  fs_write-диффы + чекпоинт). Аргумент — фокус на файле строки
-   *  (ZCode-стиль: у каждого файла своя кнопка). Без колбэка не рендерится */
+   *  (стиль референса: у каждого файла своя кнопка). Без колбэка не рендерится */
   onReview?: (focusPath?: string) => void;
   /** Open: открыть файл системным приложением (бекенд резолвит root) */
   onOpenExternal?: (path: string, mode: "open" | "explorer" | "vscode") => void;
@@ -184,7 +184,7 @@ function ChangedFilesCardBase({
                       −{st.removed}
                     </span>
                   </button>
-                  {/* Кнопки строки как в ZCode: Review — дифф файла в панели,
+                  {/* Кнопки строки как в референсе: Review — дифф файла в панели,
                       Open — системное приложение. Undo не трогаем */}
                   {onReview && !isUndone && (
                     <button

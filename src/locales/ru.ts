@@ -737,7 +737,7 @@ export const ru = {
     "mcp.delete": "Удалить сервер",
     "mcp.import": "Импорт JSON",
     "mcp.importHint":
-      'Вставь конфиг в формате Claude Desktop / ZCode: {"mcpServers": {"имя": {"command": "…", "args": […]}}} или просто {"имя": {…}}. Существующие серверы с тем же именем обновятся.',
+      'Вставь конфиг в формате Claude Desktop: {"mcpServers": {"имя": {"command": "…", "args": […]}}} или просто {"имя": {…}}. Существующие серверы с тем же именем обновятся.',
     "mcp.transport": "Транспорт",
     "mcp.transportStdio": "Локальный процесс",
     "mcp.transportHttp": "Удалённый (HTTP)",

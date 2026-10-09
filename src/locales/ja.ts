@@ -754,7 +754,7 @@ export const ja = {
     "mcp.delete": "サーバーを削除",
     "mcp.import": "JSON をインポート",
     "mcp.importHint":
-      'Claude Desktop / ZCode 形式の設定を貼り付けてください：{"mcpServers": {"名前": {"command": "…", "args": […]}}} または単に {"名前": {…}}。同名の既存サーバーは更新されます。',
+      'Claude Desktop 形式の設定を貼り付けてください：{"mcpServers": {"名前": {"command": "…", "args": […]}}} または単に {"名前": {…}}。同名の既存サーバーは更新されます。',
     "mcp.transport": "トランスポート",
     "mcp.transportStdio": "ローカルプロセス",
     "mcp.transportHttp": "リモート (HTTP)",

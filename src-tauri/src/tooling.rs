@@ -1452,7 +1452,7 @@ fn project_store_dir(root: &str, create: bool) -> Result<std::path::PathBuf, Str
     Ok(dir)
 }
 
-/// Сессии проекта: читаются из <root>/.nocturn/sessions.json (ZCode-стиль —
+/// Сессии проекта: читаются из <root>/.nocturn/sessions.json (стиль референса —
 /// данные проекта живут в папке проекта). Нет файла — None
 #[tauri::command(async)]
 pub async fn load_project_sessions(root: String) -> Result<Option<String>, String> {

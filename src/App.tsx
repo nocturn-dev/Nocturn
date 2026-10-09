@@ -1533,7 +1533,7 @@ export default function App() {
     [lastCheckpointRef],
   );
 
-  // «＋ Новый проект» из селектора композера (ZCode-паттерн «добавить проект
+  // «＋ Новый проект» из селектора композера (паттерн-референс «добавить проект
   // прямо в секции»): выбранная папка → проект → сразу становится активным
   const handleNewProjectFromComposer = useCallback(async () => {
     const picked = await pickFolder().catch(() => null);
@@ -1546,7 +1546,7 @@ export default function App() {
     setProjectRoot(picked);
   }, []);
 
-  // Open на строке карточки изменений: системное приложение (ZCode-стиль).
+  // Open на строке карточки изменений: системное приложение (стиль референса).
   // Корень проекта — для относительных путей fs_write; ошибка — тостом,
   // а не молча (open_path фейлится на файлах без ассоциации)
   const handleOpenFileExternal = useCallback(
@@ -1664,7 +1664,7 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ---------- Идл-очередь (offpeak, блок 12 шаг 3 — паттерн ZCode) ----------
+  // ---------- Идл-очередь (offpeak, блок 12 шаг 3 — паттерн референс) ----------
   // Задачи без расписания: исполняются, когда движок свободен и пользователь
   // не активен дольше порога простоя. Активность = клавиши/клики где угодно
   const lastActivityRef = useRef(Date.now());
@@ -2907,7 +2907,7 @@ export default function App() {
         onSelectProject={(id) => {
           setActiveProjectId(id);
           // Корень работы следует за проектом: выбор над композером задаёт
-          // и контекст новых чатов, и рабочую папку (ZCode-стиль)
+          // и контекст новых чатов, и рабочую папку (стиль референса)
           const p = id ? projects.find((x) => x.id === id) : undefined;
           if (p?.root) setProjectRoot(p.root);
         }}

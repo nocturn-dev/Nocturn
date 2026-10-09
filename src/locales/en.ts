@@ -725,7 +725,7 @@ export const en = {
     "mcp.delete": "Remove server",
     "mcp.import": "Import JSON",
     "mcp.importHint":
-      'Paste a config in the Claude Desktop / ZCode format: {"mcpServers": {"name": {"command": "…", "args": […]}}} or just {"name": {…}}. Existing servers with the same name are updated.',
+      'Paste a config in the Claude Desktop format: {"mcpServers": {"name": {"command": "…", "args": […]}}} or just {"name": {…}}. Existing servers with the same name are updated.',
     "mcp.transport": "Transport",
     "mcp.transportStdio": "Local process",
     "mcp.transportHttp": "Remote (HTTP)",

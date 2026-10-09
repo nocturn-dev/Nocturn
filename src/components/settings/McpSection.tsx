@@ -36,7 +36,7 @@ export function McpSection() {
   const [oauthMsg, setOauthMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   /**
-   * Разбор JSON-конфига в формате Claude Desktop / ZCode:
+   * Разбор JSON-конфига в формате Claude Desktop / референс:
    * {"mcpServers": {"name": {command, args, env}}} или {"name": {…}}.
    * Неизвестные поля (type, timeout, protocolVersion…) игнорируются.
    */
@@ -600,7 +600,7 @@ export function McpSection() {
         </div>
       </div>
 
-      {/* Импорт конфига в формате Claude Desktop / ZCode */}
+      {/* Импорт конфига в формате Claude Desktop / референс */}
       <div className="mt-3 rounded-xl border border-halo-line p-3">
         <button
           onClick={() => setImportOpen((v) => !v)}
