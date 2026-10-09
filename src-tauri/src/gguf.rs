@@ -51,6 +51,9 @@ const RETAIN_STRING_CAP: u64 = 1 << 20;
 const RETAIN_ARRAY_CAP: usize = 4096;
 /// Реальные модели ≤ ~150 слоёв; кап для bool-массивов паттернов.
 const MAX_LAYERS_CAP: usize = 1024;
+/// Порог «дешёвого» пропуска (аудит GGUF п.3): до него skip читает через
+/// буфер BufReader'а, выше — seek (тянуть байты в память незачем).
+const SKIP_BUFFERED: u64 = 8 * 1024;
 
 // ---------------------------------------------------------------------------
 // Типы тензоров и значения метаданных
@@ -336,6 +339,7 @@ impl GgufFile {
             r: BufReader::new(file),
             pos: 0,
             file_len,
+            scratch: Vec::new(),
         }
         .parse()
     }
@@ -419,6 +423,8 @@ struct Parser {
     r: BufReader<File>,
     pos: u64,
     file_len: u64,
+    /// Переиспользуемый буфер коротких пропусков (аудит GGUF п.3)
+    scratch: Vec<u8>,
 }
 
 impl Parser {
@@ -459,8 +465,12 @@ impl Parser {
     }
 
     /// Пропуск объявленных байтов (содержимое не нужно и не читается).
-    /// Seek за EOF легален — «дыру» поймает либо кап бюджета KV-региона,
-    /// либо последующий read_exact, либо проверка усечения файла.
+    /// Короткие пропуски — чтением в переиспользуемый scratch: seek на КАЖДЫЙ
+    /// элемент строкового массива (токенайзер — сотни тысяч строк) сбрасывал
+    /// буфер BufReader'а и делал lseek на элемент (аудит GGUF п.3). Длинные —
+    /// по-прежнему seek: тянуть их в память незачем.
+    /// За EOF не пропускаем вовсе: объявленная длина мимо файла — усечение,
+    /// и раньше это выяснялось лишь косвенно, по проверке размера (п.2).
     fn skip(&mut self, n: u64) -> Result<(), String> {
         let Some(target) = self.pos.checked_add(n) else {
             return Err(format!(
@@ -468,6 +478,21 @@ impl Parser {
                 self.pos
             ));
         };
+        if target > self.file_len {
+            return Err(format!(
+                "gguf: declared {n} bytes at byte {} run past end of file ({} total)",
+                self.pos, self.file_len
+            ));
+        }
+        if n <= SKIP_BUFFERED {
+            self.scratch.resize(n as usize, 0);
+            // r и scratch — разные поля self: заимствования расщепляются
+            self.r
+                .read_exact(&mut self.scratch[..n as usize])
+                .map_err(|_| format!("gguf: unexpected end of file at byte {}", self.pos))?;
+            self.pos = target;
+            return Ok(());
+        }
         self.r
             .seek(SeekFrom::Start(target))
             .map_err(|e| format!("gguf: seek failed at byte {}: {e}", self.pos))?;
@@ -475,7 +500,10 @@ impl Parser {
         Ok(())
     }
 
-    fn read_string(&mut self, cap: u64, what: &str) -> Result<String, String> {
+    /// Сырые байты строки. Проверки длины имени и дедуп идут по НИМ, а не по
+    /// lossy-строке: невалидный байт превращается в U+FFFD (+2 байта) и
+    /// склеивает разные имена в ложный «дубликат» (аудит GGUF п.4).
+    fn read_string_raw(&mut self, cap: u64, what: &str) -> Result<Vec<u8>, String> {
         let len = self.read_u64()?;
         if len > cap {
             return Err(format!(
@@ -485,6 +513,11 @@ impl Parser {
         }
         let mut buf = vec![0u8; len as usize];
         self.read_exact(&mut buf)?;
+        Ok(buf)
+    }
+
+    fn read_string(&mut self, cap: u64, what: &str) -> Result<String, String> {
+        let buf = self.read_string_raw(cap, what)?;
         // Валидные GGUF пишут UTF-8; битые байты не повод валить файл
         // (ридер llama.cpp тоже не строго проверяет) — lossy.
         Ok(String::from_utf8_lossy(&buf).into_owned())
@@ -514,6 +547,11 @@ impl Parser {
         // Эвристика big-endian v3 [код]: BE-файл на LE-хосте даёт version
         // с нулевым младшим полусловом (§1.2). BE-модели экзотика — отказ
         // с внятной ошибкой вместо тихого мусора.
+        if version == 0 {
+            // Не BE-эвристика: BE-файл v3 на LE-хосте читается как 0x03000000,
+            // а не 0 — у нуля своя причина и своё сообщение (аудит GGUF п.6)
+            return Err("gguf: unsupported version 0".into());
+        }
         if version & 0xFFFF == 0 {
             return Err(format!(
                 "gguf: version {version:#010x} looks big-endian — LE GGUF only"
@@ -535,7 +573,7 @@ impl Parser {
         // === METADATA KV (§1.1) ===
         let mut retained: Vec<(String, Retained)> = Vec::new();
         let mut kv_keys: Vec<String> = Vec::new();
-        let mut seen_keys: HashSet<String> = HashSet::new();
+        let mut seen_keys: HashSet<Vec<u8>> = HashSet::new();
         let mut alignment: Option<u32> = None;
         let mut kv_spans: Vec<(String, KvSpan)> = Vec::new();
         let kv_region_start = self.pos;
@@ -548,14 +586,19 @@ impl Parser {
                 ));
             }
             let key_start = self.pos;
-            let key = self.read_string(MAX_KEY_BYTES, "kv key")?;
-            if key.is_empty() {
+            let key_raw = self.read_string_raw(MAX_KEY_BYTES, "kv key")?;
+            if key_raw.is_empty() {
                 return Err("gguf: empty kv key".into());
             }
-            if !seen_keys.insert(key.clone()) {
+            if !seen_keys.insert(key_raw.clone()) {
                 // Дубликат ключа — хард-ошибка в обоих ридерах (§1.7-5)
-                return Err(format!("gguf: duplicate kv key '{key}'"));
+                return Err(format!(
+                    "gguf: duplicate kv key '{}'",
+                    String::from_utf8_lossy(&key_raw)
+                ));
             }
+            // Наружу (спаны, отчёты) ключ идёт lossy-строкой — как и раньше
+            let key = String::from_utf8_lossy(&key_raw).into_owned();
             let type_code = self.read_u32()?;
             let vt = ValueType::from_code(type_code).ok_or_else(|| {
                 format!("gguf: kv '{key}' has unknown value type {type_code}")
@@ -576,7 +619,7 @@ impl Parser {
                     ));
                 }
                 arr_span = Some((et, len, self.pos));
-                self.read_kv_array_content(&key, et, len)?
+                self.read_kv_array_content(&key, et, len, kv_region_start)?
             } else {
                 self.read_kv_value(&key, vt)?
             };
@@ -617,24 +660,32 @@ impl Parser {
         // === TENSOR INFOS (§1.1): имя, n_dims, dims, type, offset ===
         let align = meta.alignment;
         let mut tensors: Vec<TensorInfo> = Vec::new();
-        let mut seen_names: HashSet<String> = HashSet::new();
+        let mut seen_names: HashSet<Vec<u8>> = HashSet::new();
         let mut running: u64 = 0; // кумулятивная сумма pad(nbytes) — инвариант §1.1
         let mut quants_present = false;
         for i in 0..tensor_count {
-            let name = self.read_string(MAX_TENSOR_NAME_BYTES + 1, "tensor name")?;
-            if name.is_empty() {
+            let name_raw = self.read_string_raw(MAX_TENSOR_NAME_BYTES + 1, "tensor name")?;
+            if name_raw.is_empty() {
                 return Err(format!("gguf: tensor #{i} has empty name"));
             }
-            if name.len() as u64 > MAX_TENSOR_NAME_BYTES {
+            // Длина и дубликаты — по СЫРЫМ байтам (п.4): lossy-строка длиннее
+            // исходника и склеивает разные имена в один «дубликат»
+            if name_raw.len() as u64 > MAX_TENSOR_NAME_BYTES {
                 // §1.7-8: ≥ 64 байт — отказ читающего билда
                 return Err(format!(
-                    "gguf: tensor name is too long ({} bytes): '{name}'",
-                    name.len()
+                    "gguf: tensor name is too long ({} bytes): '{}'",
+                    name_raw.len(),
+                    String::from_utf8_lossy(&name_raw)
                 ));
             }
-            if !seen_names.insert(name.clone()) {
-                return Err(format!("gguf: duplicate tensor name '{name}'"));
+            if !seen_names.insert(name_raw.clone()) {
+                return Err(format!(
+                    "gguf: duplicate tensor name '{}'",
+                    String::from_utf8_lossy(&name_raw)
+                ));
             }
+            // Наружу имя идёт lossy-строкой (TensorInfo.name, слои, маппинг)
+            let name = String::from_utf8_lossy(&name_raw).into_owned();
             let n_dims = self.read_u32()?;
             if !(1..=4).contains(&n_dims) {
                 // GGML_MAX_DIMS=4; ноль/пять — битый файл (§1.7)
@@ -675,8 +726,10 @@ impl Parser {
             }
             let nbytes = tensor_nbytes(&ty, &dims)
                 .ok_or_else(|| format!("gguf: tensor '{name}' size overflows u64"))?;
+            let padded = pad_to(nbytes, align)
+                .ok_or_else(|| format!("gguf: tensor '{name}' size overflows u64 after padding"))?;
             running = running
-                .checked_add(pad_to(nbytes, align))
+                .checked_add(padded)
                 .ok_or_else(|| format!("gguf: tensor '{name}' pushes data end past u64"))?;
             tensors.push(TensorInfo {
                 name,
@@ -690,7 +743,8 @@ impl Parser {
         }
 
         // === PADDING + данные: data_start = pad(конец таблицы, alignment) (§1.4) ===
-        let data_start = pad_to(self.pos, align);
+        let data_start = pad_to(self.pos, align)
+            .ok_or_else(|| "gguf: header end overflows u64 after padding".to_string())?;
         // Паддинг после ПОСЛЕДНЕГО тензора писатели могут не писать — требуем
         // только фактические байты данных последнего тензора.
         let min_file = match tensors.last() {
@@ -719,6 +773,7 @@ impl Parser {
             warnings
                 .push("quantized tensors present but general.quantization_version is missing".into());
         }
+        warnings.extend(lost_kv_warnings(&meta));
 
         let flags = detect_flags(&meta, &tensors);
         Ok(GgufFile {
@@ -803,12 +858,20 @@ impl Parser {
         key: &str,
         et: ValueType,
         len: u64,
+        kv_region_start: u64,
     ) -> Result<Option<Retained>, String> {
         match et {
             ValueType::String => {
                 // Токенайзер: массив строк, валидируем каждую длину,
-                // содержимое не удерживаем (§1.4 ресёрча)
+                // содержимое не удерживаем (§1.4 ресёрча). Бюджет региона
+                // проверяется И ВНУТРИ массива: кап на границе пар не ловит
+                // одну гигантскую пару (аудит GGUF п.3)
                 for _ in 0..len {
+                    if self.pos - kv_region_start > MAX_KV_REGION_BYTES {
+                        return Err(format!(
+                            "gguf: kv '{key}' string array pushes the region past {MAX_KV_REGION_BYTES} bytes (hostile or corrupt)"
+                        ));
+                    }
                     self.skip_string()?;
                 }
                 Ok(None)
@@ -884,9 +947,12 @@ fn tensor_nbytes(ty: &GgmlType, dims: &[u64]) -> Option<u64> {
     Some(n)
 }
 
-fn pad_to(v: u64, align: u32) -> u64 {
+/// Округление вверх до выравнивания; None при переполнении u64: битые
+/// метаданные с огромными размерами не должны ронять процесс паникой
+fn pad_to(v: u64, align: u32) -> Option<u64> {
     debug_assert!(align.is_power_of_two());
-    v.div_ceil(u64::from(align)) * u64::from(align)
+    let a = u64::from(align);
+    v.div_ceil(a).checked_mul(a)
 }
 
 /// Удержанные KV → GgufMeta: арх-специфичные ключи резолвятся post-parse,
@@ -942,6 +1008,55 @@ fn resolve_meta(
     }
 }
 
+/// Ключи, которые модуль РАСПОЗНАЁТ (вход политики хирургии и отчётов): если
+/// ключ в файле ЕСТЬ, а значение не удержано (массив длиннее капа, не-целый
+/// тип) — семантика теряется молча. Например, потерянный
+/// attention.sliding_window_pattern оставлял бы swa=false без единого слова
+/// (аудит GGUF п.5/12).
+fn lost_kv_warnings(meta: &GgufMeta) -> Vec<String> {
+    let arch = meta.architecture.clone().unwrap_or_default();
+    let checks = [
+        (format!("{arch}.block_count"), meta.block_count.is_none()),
+        (
+            format!("{arch}.nextn_predict_layers"),
+            meta.nextn_predict_layers.is_none(),
+        ),
+        (
+            format!("{arch}.leading_dense_block_count"),
+            meta.leading_dense_block_count.is_none(),
+        ),
+        (
+            format!("{arch}.attention.head_count"),
+            meta.head_count.is_none(),
+        ),
+        (
+            format!("{arch}.attention.head_count_kv"),
+            meta.head_count_kv.is_none(),
+        ),
+        (
+            format!("{arch}.feed_forward_length"),
+            meta.feed_forward_length.is_none(),
+        ),
+        (
+            format!("{arch}.expert_used_count"),
+            meta.expert_used_count.is_none(),
+        ),
+        (
+            format!("{arch}.attention.sliding_window_pattern"),
+            meta.sliding_window_pattern.is_none(),
+        ),
+    ];
+    let mut out = Vec::new();
+    for (key, not_retained) in checks {
+        if not_retained && meta.kv_keys.contains(&key) {
+            out.push(format!(
+                "kv '{key}' is present but not retained (over cap or unexpected type) — its per-layer semantics are unavailable"
+            ));
+        }
+    }
+    out
+}
+
 fn detect_flags(meta: &GgufMeta, tensors: &[TensorInfo]) -> ArchFlags {
     let mut f = ArchFlags {
         swa: meta.sliding_window.is_some() || meta.sliding_window_pattern.is_some(),
@@ -988,6 +1103,27 @@ const EMIT_CHUNK: u64 = 32 << 20;
 /// Одна операция GGUF Lab за раз (§28.3): pull/export/surgery —
 /// мульти-гигабайтный диск-IO, параллелить — гарантированный трэшинг.
 static GGUF_BUSY: AtomicBool = AtomicBool::new(false);
+
+/// Держит GGUF_BUSY на время операции: сбрасывается и при возврате, и при
+/// панике внутри неё. Без этого паника оставляла модуль заблокированным
+/// до перезапуска приложения (аудит GGUF пункт 7).
+struct BusyGuard;
+
+impl BusyGuard {
+    fn acquire() -> Option<Self> {
+        if GGUF_BUSY.swap(true, Ordering::Relaxed) {
+            return None;
+        }
+        GGUF_CANCEL.store(false, Ordering::Relaxed);
+        Some(BusyGuard)
+    }
+}
+
+impl Drop for BusyGuard {
+    fn drop(&mut self) {
+        GGUF_BUSY.store(false, Ordering::Relaxed);
+    }
+}
 /// Кооперативная отмена: циклы pull/copy проверяют между чанками.
 static GGUF_CANCEL: AtomicBool = AtomicBool::new(false);
 
@@ -1211,13 +1347,10 @@ pub struct ExportedModel {
 /// это процесс-сервер, без него ни pull, ни create (§4.6).
 #[tauri::command(async)]
 pub async fn gguf_pull(app: tauri::AppHandle, model: String) -> Result<(), String> {
-    if GGUF_BUSY.swap(true, Ordering::Relaxed) {
+    let Some(_busy) = BusyGuard::acquire() else {
         return Err("gguf lab: another operation is already running".into());
-    }
-    GGUF_CANCEL.store(false, Ordering::Relaxed);
-    let result = do_pull(&app, &model).await;
-    GGUF_BUSY.store(false, Ordering::Relaxed);
-    result
+    };
+    do_pull(&app, &model).await
 }
 
 async fn do_pull(app: &tauri::AppHandle, model: &str) -> Result<(), String> {
@@ -1306,7 +1439,7 @@ async fn do_pull(app: &tauri::AppHandle, model: &str) -> Result<(), String> {
                     // Тротлинг emit: статус сменился ИЛИ докачалось ≥ 8 МиБ
                     let moved = p
                         .completed
-                        .map(|c| last_emit_received.is_none_or(|last| c - last >= 8 << 20))
+                        .map(|c| last_emit_received.is_none_or(|last| c.saturating_sub(last) >= 8 << 20))
                         .unwrap_or(true);
                     if p.status != last_emit_status || moved || p.completed.is_none() {
                         last_emit_status = p.status.clone();
@@ -1340,13 +1473,10 @@ async fn do_pull(app: &tauri::AppHandle, model: &str) -> Result<(), String> {
 /// MLX-модели и split-GGUF — внятный отказ (v1, §28.1).
 #[tauri::command(async)]
 pub async fn gguf_export(app: tauri::AppHandle, model: String) -> Result<ExportedModel, String> {
-    if GGUF_BUSY.swap(true, Ordering::Relaxed) {
+    let Some(_busy) = BusyGuard::acquire() else {
         return Err("gguf lab: another operation is already running".into());
-    }
-    GGUF_CANCEL.store(false, Ordering::Relaxed);
-    let result = do_export(&app, &model).await;
-    GGUF_BUSY.store(false, Ordering::Relaxed);
-    result
+    };
+    do_export(&app, &model).await
 }
 
 async fn do_export(app: &tauri::AppHandle, model: &str) -> Result<ExportedModel, String> {
@@ -1450,12 +1580,10 @@ async fn do_export(app: &tauri::AppHandle, model: &str) -> Result<ExportedModel,
 
     match copied {
         Ok(bytes) => {
-            // rename поверх существующего на Windows невозможен — экспорт
-            // перезаписывает сознательно (повторный экспорт той же модели)
-            if final_path.exists() {
-                fs::remove_file(&final_path)
-                    .map_err(|e| format!("gguf export: replace existing: {e}"))?;
-            }
+            // Один rename: на Windows MoveFileExW(MOVEFILE_REPLACE_EXISTING)
+            // заменяет существующий файл, поэтому remove_file перед ним не
+            // нужен — он открывал окно, когда целевого файла нет вовсе
+            // (аудит GGUF п.19). Перезапись сознательна: повторный экспорт.
             fs::rename(&tmp_path, &final_path)
                 .map_err(|e| format!("gguf export: rename: {e}"))?;
             Ok(ExportedModel {
@@ -1484,13 +1612,10 @@ pub async fn gguf_cut(
     src_name: String,
     remove: Vec<u64>,
 ) -> Result<SurgeryReport, String> {
-    if GGUF_BUSY.swap(true, Ordering::Relaxed) {
+    let Some(_busy) = BusyGuard::acquire() else {
         return Err("gguf lab: another operation is already running".into());
-    }
-    GGUF_CANCEL.store(false, Ordering::Relaxed);
-    let result = do_cut(app, src_name, remove).await;
-    GGUF_BUSY.store(false, Ordering::Relaxed);
-    result
+    };
+    do_cut(app, src_name, remove).await
 }
 
 async fn do_cut(
@@ -1588,6 +1713,14 @@ pub enum KvEdit {
         pair_end: u64,
         bytes: Vec<u8>,
     },
+}
+
+impl KvEdit {
+    fn key(&self) -> &str {
+        match self {
+            KvEdit::InPlace { key, .. } | KvEdit::ReplacePair { key, .. } => key,
+        }
+    }
 }
 
 /// Элементы перекодируемого массива: int-массивы (head_count_kv и др.)
@@ -1749,6 +1882,20 @@ pub fn build_surgery_plan(src: &GgufFile, remove: &[u64]) -> Result<SurgeryPlan,
         );
     }
 
+    // Тензор blk.N с N >= block_count в remove не попадёт, и ренумерация
+    // оставит его вне нового block_count — «сиротские» offsets, файл не
+    // загрузится (аудит GGUF п.9). Битый/самодельный файл — отказ до записи.
+    for t in &src.tensors {
+        if let Some(idx) = layer_index(&t.name) {
+            if idx >= block_count {
+                return Err(format!(
+                    "gguf surgery: tensor '{}' references layer {idx} >= block_count {block_count} — file is inconsistent",
+                    t.name
+                ));
+            }
+        }
+    }
+
     // === Валидация набора удаления ===
     let mut sorted_remove = remove.to_vec();
     sorted_remove.sort_unstable();
@@ -1784,7 +1931,11 @@ pub fn build_surgery_plan(src: &GgufFile, remove: &[u64]) -> Result<SurgeryPlan,
                 },
                 src_offset: t.offset,
             });
-            running += pad_to(t.nbytes, align);
+            running = running
+                .checked_add(pad_to(t.nbytes, align).ok_or_else(|| {
+                    format!("gguf surgery: tensor '{}' size overflows u64", t.name)
+                })?)
+                .ok_or_else(|| "gguf surgery: data region overflows u64".to_string())?;
             continue;
         };
         if sorted_remove.binary_search(&old_idx).is_ok() {
@@ -1804,7 +1955,11 @@ pub fn build_surgery_plan(src: &GgufFile, remove: &[u64]) -> Result<SurgeryPlan,
             },
             src_offset: t.offset,
         });
-        running += pad_to(t.nbytes, align);
+        running = running
+            .checked_add(pad_to(t.nbytes, align).ok_or_else(|| {
+                format!("gguf surgery: tensor '{}' size overflows u64", t.name)
+            })?)
+            .ok_or_else(|| "gguf surgery: data region overflows u64".to_string())?;
     }
     renumber.sort_unstable();
 
@@ -1965,10 +2120,14 @@ pub fn build_surgery_plan(src: &GgufFile, remove: &[u64]) -> Result<SurgeryPlan,
     if let Some(nn) = src.meta.nextn_predict_layers.filter(|&v| v > 0) {
         let nn = u64::try_from(nn)
             .map_err(|_| "gguf surgery: negative nextn_predict_layers".to_string())?;
-        let trunk = block_count - nn;
+        let trunk = block_count
+            .checked_sub(nn)
+            .ok_or_else(|| format!("gguf surgery: nextn_predict_layers {nn} exceeds block_count {block_count}"))?;
         let removed_in_mtp =
             sorted_remove.len() as u64 - sorted_remove.partition_point(|&r| r < trunk) as u64;
-        let new_nextn = nn - removed_in_mtp;
+        let new_nextn = nn
+            .checked_sub(removed_in_mtp)
+            .ok_or_else(|| "gguf surgery: removed more MTP layers than nextn_predict_layers".to_string())?;
         if new_nextn != nn {
             let key = format!("{arch}.nextn_predict_layers");
             let span = span_of(&key)
@@ -2028,8 +2187,11 @@ pub fn build_surgery_plan(src: &GgufFile, remove: &[u64]) -> Result<SurgeryPlan,
         return Err("gguf surgery: internal: negative kv length after edits".into());
     }
     let kv_out_len = kv_out_len as u64;
-    let data_start = pad_to(24 + kv_out_len + ti_size, align);
-    let out_size_estimate = data_start + running;
+    let data_start = pad_to(24 + kv_out_len + ti_size, align)
+        .ok_or_else(|| "gguf surgery: output header overflows u64".to_string())?;
+    let out_size_estimate = data_start
+        .checked_add(running)
+        .ok_or_else(|| "gguf surgery: output size overflows u64".to_string())?;
 
     // === Предупреждения плана (качество — на совести исследователя,
     // механику не ломаем; §2.3/§2.4) ===
@@ -2139,6 +2301,9 @@ pub fn execute_surgery(
             }
         }
         replaces.sort_by_key(|(start, _, _)| *start);
+        // Патчи — по возрастанию смещения: порядок нужен для резки чанка по
+        // границе патча (ниже), стабильность — для воспроизводимости
+        in_place.sort_by_key(|(off, _, _)| *off);
         // Контекст копии KV-региона: mmap/патчи/отмена/буфер одним borrow'ем
         // (written наружу — в цикле между диапазонами пишутся сплайсы)
         struct KvCopy<'a> {
@@ -2160,7 +2325,17 @@ pub fn execute_surgery(
                     if self.cancel.load(Ordering::Relaxed) {
                         return Err("gguf surgery: cancelled".into());
                     }
-                    let end = (pos + COPY_CHUNK as u64).min(to);
+                    let mut end = (pos + COPY_CHUNK as u64).min(to);
+                    // Патч, начинающийся внутри чанка и вылезающий за его
+                    // конец, иначе не применился бы НИ В ОДНОМ чанке (условие
+                    // ниже требует полного попадания) — режем чанк по началу
+                    // патча (аудит GGUF п.18). end > pos гарантирован: при
+                    // off == pos условие требует width > COPY_CHUNK
+                    for &(off, width, _) in self.patches {
+                        if off >= pos && off < end && off + u64::from(width) > end {
+                            end = off;
+                        }
+                    }
                     // Буфер переиспользуется между чанками — как в копии
                     // блоба (COPY_CHUNK): новый 8 МиБ Vec на каждый чанк
                     // был churn'ом аллокатора без пользы (аудит 07.10 A1-16)
@@ -2222,7 +2397,8 @@ pub fn execute_surgery(
                 .iter()
                 .map(|pt| 8 + pt.info.name.len() as u64 + 4 + 8 * pt.info.dims.len() as u64 + 4 + 8)
                 .sum::<u64>();
-        let data_start = pad_to(ti_end, plan.alignment);
+        let data_start = pad_to(ti_end, plan.alignment)
+            .ok_or_else(|| "gguf surgery: tensor table overflows u64".to_string())?;
         if data_start > ti_end {
             track(&mut w, &vec![0u8; (data_start - ti_end) as usize], &mut written)?;
         }
@@ -2250,7 +2426,8 @@ pub fn execute_surgery(
                 track(&mut w, &mmap[off..chunk_end], &mut written)?;
                 off = chunk_end;
             }
-            let padded_end = pad_to(pt.info.offset + pt.info.nbytes, plan.alignment);
+            let padded_end = pad_to(pt.info.offset + pt.info.nbytes, plan.alignment)
+                .ok_or_else(|| "gguf surgery: tensor end overflows u64".to_string())?;
             let pad_len = (padded_end - (pt.info.offset + pt.info.nbytes)) as usize;
             if pad_len > 0 {
                 track(&mut w, &zeros[..pad_len], &mut written)?;
@@ -2268,7 +2445,11 @@ pub fn execute_surgery(
         Ok(written)
     };
     let result = run();
-    if result.is_err() || cancel.load(Ordering::Relaxed) {
+    // Решение об очистке — только по результату записи: отмену, выставленную
+    // ПОСЛЕ успешной записи, решает пайплайн явными точками между этапами —
+    // иначе готовый файл удалялся «из-под» постфлайта с невнятным
+    // «cannot open» (аудит GGUF п.20)
+    if result.is_err() {
         let _ = fs::remove_file(dst_tmp);
     }
     result
@@ -2280,6 +2461,8 @@ pub fn execute_surgery(
 pub struct PostflightSummary {
     pub tensors_checked: usize,
     pub bytes_compared: u64,
+    /// Нетронутые KV-пары, сверенные с исходником байт-в-байт (аудит п.21)
+    pub kv_pairs_compared: usize,
 }
 
 /// Post-flight гейт (§6.2, §2.3 — «гейт на публикацию: реальная загрузка
@@ -2326,6 +2509,7 @@ pub fn postflight_verify(
         }
     }
     let out_mmap = map_for_verify(out_path, "output")?;
+    let src_mmap = map_for_verify(src_path, "source")?;
     for e in &plan.kv_edits {
         match e {
             KvEdit::InPlace {
@@ -2377,8 +2561,41 @@ pub fn postflight_verify(
         }
     }
 
+    // (2b) Нетронутые KV-пары — байт-в-байт против исходника: сплайс обязан
+    // переносить их verbatim, а не «примерно так же» (аудит GGUF п.21).
+    // Смена набора ключей (порядок/потеря) ловится отдельной сверкой.
+    let src = GgufFile::open(src_path)?;
+    if src.meta.kv_keys != out.meta.kv_keys {
+        return Err("gguf surgery: postflight: kv key set changed".into());
+    }
+    let edited: HashSet<&str> = plan.kv_edits.iter().map(|e| e.key()).collect();
+    let mut kv_pairs_compared = 0usize;
+    for (key, sspan) in &src.kv_spans {
+        if edited.contains(key.as_str()) {
+            continue; // правка уже сверена против байтов плана выше
+        }
+        let ospan = out
+            .kv_spans
+            .iter()
+            .find(|(k, _)| k == key)
+            .map(|(_, s)| *s)
+            .ok_or_else(|| format!("gguf surgery: postflight: key '{key}' missing in output"))?;
+        let s = sspan.key_start as usize..sspan.end as usize;
+        let o = ospan.key_start as usize..ospan.end as usize;
+        if s.end > src_mmap.len() || o.end > out_mmap.len() {
+            return Err(format!(
+                "gguf surgery: postflight: span of '{key}' is out of bounds"
+            ));
+        }
+        if src_mmap[s] != out_mmap[o] {
+            return Err(format!(
+                "gguf surgery: postflight: untouched kv pair '{key}' differs from the source"
+            ));
+        }
+        kv_pairs_compared += 1;
+    }
+
     // (3) данные выживших байт-в-байт (mmap обоих, чанки, отмена)
-    let src_mmap = map_for_verify(src_path, "source")?;
     for pt in &plan.new_tensors {
         let s = (plan.src_data_start + pt.src_offset) as usize;
         let o = (out.data_start + pt.info.offset) as usize;
@@ -2407,6 +2624,7 @@ pub fn postflight_verify(
     Ok(PostflightSummary {
         tensors_checked: plan.new_tensors.len(),
         bytes_compared: plan.total_out_bytes,
+        kv_pairs_compared,
     })
 }
 
@@ -2501,7 +2719,13 @@ pub(crate) fn run_surgery_pipeline(
             on_progress("surgery", i, n, b, t);
         }
     })?;
-    // Post-flight: ошибка/отмена → tmp прочь, отказ без «полуготового» файла
+    // Явная точка отмены между этапами (аудит GGUF п.20): успешная запись
+    // не удаляется «задним числом», но и не публикуется после Stop
+    if cancel.load(Ordering::Relaxed) {
+        let _ = fs::remove_file(&tmp_path);
+        return Err("gguf surgery: cancelled".into());
+    }
+    // Post-flight: ошибка → tmp прочь, отказ без «полуготового» файла
     let verified = match postflight_verify(src_path, &tmp_path, &plan, cancel) {
         Ok(s) => s,
         Err(e) => {
@@ -2509,11 +2733,13 @@ pub(crate) fn run_surgery_pipeline(
             return Err(e);
         }
     };
-    // rename поверх существующего на Windows невозможен — перезапись
-    // сознательна (повторная резка той же модели)
-    if dst_path.exists() {
-        fs::remove_file(dst_path).map_err(|e| format!("gguf surgery: replace existing: {e}"))?;
+    if cancel.load(Ordering::Relaxed) {
+        let _ = fs::remove_file(&tmp_path);
+        return Err("gguf surgery: cancelled".into());
     }
+    // Один rename (как в экспорте): remove_file перед ним не нужен и открывал
+    // окно, когда на диске нет ни старого, ни нового файла (аудит GGUF п.19);
+    // перезапись сознательна — повторная резка той же модели
     fs::rename(&tmp_path, dst_path).map_err(|e| format!("gguf surgery: rename: {e}"))?;
     on_progress("done", 1, 1, plan.total_out_bytes, plan.total_out_bytes);
 
@@ -3077,13 +3303,10 @@ fn current_os_arch() -> (&'static str, &'static str) {
 /// Найденный бинарь сохраняется в gguf.json как llama_server_path.
 #[tauri::command(async)]
 pub async fn gguf_llama_download(app: tauri::AppHandle) -> Result<String, String> {
-    if GGUF_BUSY.swap(true, Ordering::Relaxed) {
+    let Some(_busy) = BusyGuard::acquire() else {
         return Err("gguf lab: another operation is already running".into());
-    }
-    GGUF_CANCEL.store(false, Ordering::Relaxed);
-    let result = do_llama_download(app).await;
-    GGUF_BUSY.store(false, Ordering::Relaxed);
-    result
+    };
+    do_llama_download(app).await
 }
 
 async fn do_llama_download(app: tauri::AppHandle) -> Result<String, String> {
@@ -3331,13 +3554,10 @@ pub async fn gguf_ollama_import(
     src_name: String,
     model_name: String,
 ) -> Result<(), String> {
-    if GGUF_BUSY.swap(true, Ordering::Relaxed) {
+    let Some(_busy) = BusyGuard::acquire() else {
         return Err("gguf lab: another operation is already running".into());
-    }
-    GGUF_CANCEL.store(false, Ordering::Relaxed);
-    let result = do_ollama_import(app, src_name, model_name).await;
-    GGUF_BUSY.store(false, Ordering::Relaxed);
-    result
+    };
+    do_ollama_import(app, src_name, model_name).await
 }
 
 async fn wait_cancelled() {
@@ -3664,6 +3884,9 @@ mod tests {
 
     struct SynthTensor {
         name: String,
+        /// Сырые байты имени вместо name — невалидный UTF-8 в имени String не
+        /// удержать, а проверять дедуп/длину по сырым байтам обязательно (п.4)
+        name_raw: Option<Vec<u8>>,
         dims: Vec<u64>,
         ttype: i32,
         /// 0 = нули; >0 = детерминированный паттерн — данные после хирургии
@@ -3674,6 +3897,7 @@ mod tests {
     fn st(name: &str, dims: &[u64], ttype: i32) -> SynthTensor {
         SynthTensor {
             name: name.to_string(),
+            name_raw: None,
             dims: dims.to_vec(),
             ttype,
             pattern: 0,
@@ -3683,6 +3907,18 @@ mod tests {
     fn stp(name: &str, dims: &[u64], ttype: i32, pattern: u8) -> SynthTensor {
         SynthTensor {
             name: name.to_string(),
+            name_raw: None,
+            dims: dims.to_vec(),
+            ttype,
+            pattern,
+        }
+    }
+
+    /// Тензор с сырыми (возможно невалидными) байтами имени — п.4
+    fn straw(name: Vec<u8>, dims: &[u64], ttype: i32, pattern: u8) -> SynthTensor {
+        SynthTensor {
+            name: String::new(),
+            name_raw: Some(name),
             dims: dims.to_vec(),
             ttype,
             pattern,
@@ -3860,7 +4096,10 @@ mod tests {
 
             let offsets = canonical_offsets(self, align);
             for (i, t) in self.tensors.iter().enumerate() {
-                write_str(&mut w, &t.name);
+                match &t.name_raw {
+                    Some(raw) => write_str_bytes(&mut w, raw),
+                    None => write_str(&mut w, &t.name),
+                }
                 w.extend_from_slice(&(t.dims.len() as u32).to_le_bytes());
                 for d in &t.dims {
                     w.extend_from_slice(&d.to_le_bytes());
@@ -3896,8 +4135,12 @@ mod tests {
     }
 
     fn write_str(w: &mut Vec<u8>, s: &str) {
+        write_str_bytes(w, s.as_bytes());
+    }
+
+    fn write_str_bytes(w: &mut Vec<u8>, s: &[u8]) {
         w.extend_from_slice(&(s.len() as u64).to_le_bytes());
-        w.extend_from_slice(s.as_bytes());
+        w.extend_from_slice(s);
     }
 
     /// Канонические offsets: кумулятивная сумма pad(nbytes) (§1.1) —
@@ -3977,6 +4220,19 @@ mod tests {
         assert!(ggml_type(43).is_none());
     }
 
+    #[test]
+    fn pad_to_reports_overflow_instead_of_wrapping() {
+        assert_eq!(pad_to(0, 32), Some(0));
+        assert_eq!(pad_to(1, 32), Some(32));
+        assert_eq!(pad_to(32, 32), Some(32));
+        // Граница: 2^64−32 ещё делится на 32 ровно, а 2^64−31 округляется
+        // вверх за u64 — None (ошибка), а не паника в debug и не обёртка
+        // в release (п.1)
+        assert_eq!(pad_to(u64::MAX - 31, 32), Some(u64::MAX - 31));
+        assert_eq!(pad_to(u64::MAX - 30, 32), None);
+        assert_eq!(pad_to(u64::MAX, 32), None);
+    }
+
     // === Позитивные сценарии ===
 
     #[test]
@@ -4021,6 +4277,39 @@ mod tests {
         let f = parse_bytes("tok.gguf", &s.build()).unwrap();
         assert!(f.meta.has_tokenizer);
         assert!(f.meta.kv_keys.contains(&"tokenizer.ggml.tokens".to_string()));
+    }
+
+    #[test]
+    fn large_string_array_parses_through_buffered_skip() {
+        // Токенайзер на 5000 строк: короткие пропуски идут через буфер
+        // BufReader'а, а не seek'ом на каждую строку (аудит GGUF п.3)
+        let mut s = Synth::llama_dense(1);
+        let vocab: Vec<String> = (0..5000).map(|i| format!("tok{i}")).collect();
+        s.kv.push(("tokenizer.ggml.tokens".into(), Kv::ArrStr(vocab)));
+        let f = parse_bytes("bigtok.gguf", &s.build()).unwrap();
+        assert!(f.meta.has_tokenizer);
+    }
+
+    #[test]
+    fn raw_tensor_names_are_not_merged_or_stretched_by_lossy() {
+        // Два имени, различающиеся невалидным байтом: lossy-строки совпали бы
+        // → ложный «duplicate tensor name» (аудит GGUF п.4)
+        let mut s = Synth::llama_dense(0);
+        s.tensors.push(straw(b"blk.0.a\x80".to_vec(), &[128], 0, 0));
+        s.tensors.push(straw(b"blk.0.a\x81".to_vec(), &[128], 0, 0));
+        let f = parse_bytes("rawnames.gguf", &s.build()).unwrap();
+        // 2 базовых тензора llama_dense + наши 2: дедуп по сырым байтам
+        // не счёл их дубликатами (lossy-строки совпали бы)
+        assert_eq!(f.tensors.len(), 4, "разные сырые имена — не дубликаты");
+
+        // 63 СЫРЫХ байта с невалидным UTF-8: lossy-длина была бы 65, и файл
+        // отвергался бы «too long» без причины
+        let mut s = Synth::llama_dense(0);
+        let mut name = vec![b'a'; 62];
+        name.push(0x80);
+        s.tensors.push(straw(name, &[128], 0, 0));
+        let f = parse_bytes("rawlong.gguf", &s.build()).unwrap();
+        assert_eq!(f.tensors.len(), 3);
     }
 
     #[test]
@@ -4144,6 +4433,45 @@ mod tests {
         assert!(f.warnings.iter().any(|w| w.contains("quantization_version")));
     }
 
+    #[test]
+    fn over_cap_arrays_warn_instead_of_silent_drop() {
+        // bool-паттерн > MAX_LAYERS_CAP не удержан → флага swa нет, и об этом
+        // обязано быть сказано (аудит GGUF п.5/12)
+        let mut s = Synth::llama_dense(2);
+        s.kv.push((
+            "llama.attention.sliding_window_pattern".into(),
+            Kv::ArrBool(vec![true; 2000]),
+        ));
+        let f = parse_bytes("swacap.gguf", &s.build()).unwrap();
+        assert!(!f.flags.swa, "неудержанный паттерн не даёт флага");
+        assert!(
+            f.warnings.iter().any(|w| w.contains("sliding_window_pattern")),
+            "потеря ключа обязана попадать в warnings, got: {:?}",
+            f.warnings
+        );
+
+        // int-массив > RETAIN_ARRAY_CAP у per-layer ключа — то же самое
+        let mut s = Synth::llama_dense(2);
+        s.kv.push((
+            "llama.attention.head_count_kv".into(),
+            Kv::ArrU32(vec![8; 5000]),
+        ));
+        let f = parse_bytes("hckvcap.gguf", &s.build()).unwrap();
+        assert_eq!(f.meta.head_count_kv, None);
+        assert!(f.warnings.iter().any(|w| w.contains("head_count_kv")));
+
+        // Нераспознаваемый ключ (scores) капом не комментируется: его
+        // семантика модулю не нужна
+        let mut s = Synth::llama_dense(2);
+        s.kv.push(("tokenizer.ggml.scores".into(), Kv::ArrU32(vec![7; 5000])));
+        let f = parse_bytes("scorescap.gguf", &s.build()).unwrap();
+        assert!(
+            !f.warnings.iter().any(|w| w.contains("scores")),
+            "кап нераспознаваемых ключей — не наша семантика: {:?}",
+            f.warnings
+        );
+    }
+
     // === Негативные: по одному на пункт §1.7 ===
 
     #[test]
@@ -4156,6 +4484,11 @@ mod tests {
 
     #[test]
     fn rejects_v1_v4_and_big_endian() {
+        // version 0 — не BE-эвристика: своя причина, своё сообщение (п.6)
+        let mut s = Synth::llama_dense(1);
+        s.version = 0;
+        expect_err(&s, "v0.gguf", "version 0");
+
         let mut s = Synth::llama_dense(1);
         s.version = 1;
         expect_err(&s, "v1.gguf", "version 1");
@@ -4271,6 +4604,38 @@ mod tests {
         let mut s = Synth::llama_dense(1);
         s.kv.push(("evil.arr".into(), Kv::HugeArrU64(1 << 40)));
         expect_err(&s, "hugearr.gguf", "exceeds");
+    }
+
+    #[test]
+    fn skip_past_eof_is_rejected_immediately() {
+        // Объявленные 8 МиБ данных массива, которых в файле нет: skip обязан
+        // отказать на месте, а не «легально» уехать за EOF (аудит GGUF п.2/3)
+        let mut s = Synth::llama_dense(1);
+        s.kv.push(("evil.arr".into(), Kv::HugeArrU64(1 << 20)));
+        let err = parse_bytes("skipeof.gguf", &s.build()).unwrap_err();
+        assert!(err.contains("past end of file"), "got: {err}");
+    }
+
+    #[test]
+    fn rejects_tensor_size_that_overflows_padding() {
+        // Q8_0 (блок 32, 34 байта) с dims=[32, (2^63)/17]: nbytes = 34*K =
+        // 2^64−18 — pad_to обязан вернуть ошибку, а не паниковать в debug и
+        // не обернуться в release (аудит GGUF п.1). Файл собран вручную:
+        // builder тестов pad_raw на таком размере переполнился бы сам
+        let k = (1u64 << 63) / 17;
+        let mut b = Vec::new();
+        b.extend_from_slice(b"GGUF");
+        b.extend_from_slice(&3u32.to_le_bytes());
+        b.extend_from_slice(&1u64.to_le_bytes()); // tensor_count
+        b.extend_from_slice(&0u64.to_le_bytes()); // kv_count
+        write_str(&mut b, "x");
+        b.extend_from_slice(&2u32.to_le_bytes()); // n_dims
+        b.extend_from_slice(&32u64.to_le_bytes());
+        b.extend_from_slice(&k.to_le_bytes());
+        b.extend_from_slice(&8i32.to_le_bytes()); // Q8_0
+        b.extend_from_slice(&0u64.to_le_bytes()); // offset
+        let err = GgufFile::open(&write_tmp("ovfpad.gguf", &b)).unwrap_err();
+        assert!(err.contains("overflows u64"), "got: {err}");
     }
 
     #[test]
@@ -4719,6 +5084,62 @@ mod tests {
         expect_denied(&s, &[0, 1], "guard-all", "cannot remove every");
     }
 
+    #[test]
+    fn surgery_rejects_out_of_range_layer_tensor() {
+        // blk.5 при block_count=2: в remove его нет, ренумерация оставила бы
+        // его вне нового block_count — «сирота», файл не загрузится (п.9)
+        let mut s = Synth::llama_dense(2);
+        s.tensors.push(st("blk.5.attn_norm.weight", &[128], 0));
+        let src = GgufFile::open(&write_tmp("orphan.src.gguf", &s.build())).unwrap();
+        let err = build_surgery_plan(&src, &[0]).unwrap_err();
+        assert!(err.contains("references layer 5"), "got: {err}");
+    }
+
+    #[test]
+    fn surgery_patches_kv_value_on_chunk_boundary() {
+        // Значение block_count ровно на границе 8 МиБ-чанка (аудит GGUF п.18):
+        // разрезанный границей патч не применялся НИ В ОДНОМ чанке, и
+        // постфлайт валил резку такого файла навсегда.
+        let target = 24 + COPY_CHUNK as u64 - 2; // [target, target+4) пересекает границу
+        let mk = |pad_len: usize| {
+            let mut s = Synth::llama_dense(3);
+            s.kv.insert(
+                2, // перед llama.block_count
+                ("pad.marker".to_string(), Kv::S("p".repeat(pad_len))),
+            );
+            s
+        };
+        let bc_offset = |s: &Synth| -> u64 {
+            let f = GgufFile::open(&write_tmp("bnd.src.gguf", &s.build())).unwrap();
+            build_surgery_plan(&f, &[1])
+                .unwrap()
+                .kv_edits
+                .iter()
+                .find_map(|e| match e {
+                    KvEdit::InPlace {
+                        key, value_offset, ..
+                    } if key.ends_with(".block_count") => Some(*value_offset),
+                    _ => None,
+                })
+                .expect("block_count правится in-place")
+        };
+        // Сдвиг значения == сдвиг длины пэд-строки → коррекция сходится за раз
+        let base = bc_offset(&mk(COPY_CHUNK - 4096));
+        let s = mk((COPY_CHUNK as i64 - 4096 + (target as i64 - base as i64)) as usize);
+        assert_eq!(bc_offset(&s), target, "тест обязан попасть на границу чанка");
+
+        let src_path = write_tmp("bnd.src.gguf", &s.build());
+        let src = GgufFile::open(&src_path).unwrap();
+        let plan = build_surgery_plan(&src, &[1]).unwrap();
+        let dst = write_tmp("bnd.out.gguf", &[]);
+        execute_surgery(&src_path, &plan, &dst, &AtomicBool::new(false), |_, _, _, _| {}).unwrap();
+        // Именно постфлайт ловил неприменённый патч до правки
+        postflight_verify(&src_path, &dst, &plan, &AtomicBool::new(false)).unwrap();
+        assert_eq!(GgufFile::open(&dst).unwrap().meta.block_count, Some(2));
+        let _ = fs::remove_file(&src_path);
+        let _ = fs::remove_file(&dst);
+    }
+
     // === Шаг 3b: per-layer массивы, SWA-паттерны, nextn, dense-голова ===
 
     #[test]
@@ -4959,7 +5380,7 @@ mod tests {
         let mut running = 0u64;
         for pt in &plan.new_tensors {
             assert_eq!(pt.info.offset, running);
-            running += pad_to(pt.info.nbytes, plan.alignment);
+            running += pad_to(pt.info.nbytes, plan.alignment).expect("test sizes fit u64");
         }
     }
 
@@ -5042,6 +5463,38 @@ mod tests {
         let err = postflight_verify(&src_path, &corrupt, &plan, &AtomicBool::new(false))
             .unwrap_err();
         assert!(err.contains("postflight"), "got: {err}");
+    }
+
+    #[test]
+    fn postflight_catches_corrupted_untouched_kv() {
+        // Порча байта ВНУТРИ нетронутой пары (токенайзер) обязана ловиться:
+        // «KV переносится verbatim» — главный инвариант сплайса (п.21)
+        let mut s = Synth::llama_dense(4);
+        let vocab: Vec<String> = (0..300).map(|i| format!("tok-{i}-padpad")).collect();
+        s.kv.push(("tokenizer.ggml.tokens".into(), Kv::ArrStr(vocab)));
+        let src_path = write_tmp("pf-tok.src.gguf", &s.build());
+        let src = GgufFile::open(&src_path).unwrap();
+        let plan = build_surgery_plan(&src, &[1]).unwrap();
+        let dst = write_tmp("pf-tok.out.gguf", &[]);
+        execute_surgery(&src_path, &plan, &dst, &AtomicBool::new(false), |_, _, _, _| {}).unwrap();
+        let clean = postflight_verify(&src_path, &dst, &plan, &AtomicBool::new(false)).unwrap();
+        assert!(clean.kv_pairs_compared >= 1, "нетронутые пары обязаны сверяться");
+
+        // Порча контента ПЕРВОГО токена: длины и структура целы, парс пройдёт
+        let mut bytes = fs::read(&dst).unwrap();
+        let span = src
+            .kv_spans
+            .iter()
+            .find(|(k, _)| k == "tokenizer.ggml.tokens")
+            .unwrap()
+            .1;
+        let elems_start = span.arr.expect("строковый массив имеет спан элементов").2;
+        let mid = (elems_start + 8 + 4) as usize; // за u64-длиной первого элемента
+        bytes[mid] ^= 0x01;
+        let corrupt = write_tmp("pf-tok.corrupt.gguf", &bytes);
+        let err = postflight_verify(&src_path, &corrupt, &plan, &AtomicBool::new(false))
+            .unwrap_err();
+        assert!(err.contains("untouched kv pair"), "got: {err}");
     }
 
     #[test]
