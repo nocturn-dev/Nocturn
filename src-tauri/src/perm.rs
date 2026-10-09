@@ -653,8 +653,12 @@ mod tests {
         assert!(!path_allowed(&roots, "/home/u/project/a.rs"));
         assert!(!path_allowed(&roots, "src/a.rs"));
         assert!(!path_allowed(&roots, "/home/u/proj/../other/x"));
-        // Регистр на linux значим: корень в другом регистре не матчится
+        // Регистр: на linux значим (регистрозависимая ФС), на macOS — нет
+        // (norm_for_compare lowercaсe'ит под case-insensitive ФС)
+        #[cfg(target_os = "linux")]
         assert!(!path_allowed(&roots, "/HOME/u/proj/src/a.rs"));
+        #[cfg(target_os = "macos")]
+        assert!(path_allowed(&roots, "/HOME/u/proj/src/a.rs"));
     }
 
     #[test]
