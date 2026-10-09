@@ -559,6 +559,8 @@ export interface GgufExported {
 export interface GgufPostflight {
   tensorsChecked: number;
   bytesCompared: number;
+  /** Нетронутые KV-пары, сверенные с исходником байт-в-байт */
+  kvPairsCompared: number;
 }
 
 /** Отчёт операции резки — UI и агенту */

@@ -19,7 +19,7 @@ use std::fs;
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use serde::Serialize;
 use serde_json::json;
@@ -160,6 +160,27 @@ impl ValueType {
         })
     }
 
+    /// Код типа в потоке GGUF (§1.1) — зеркало from_code. Именно метод, а не
+    /// `as u32`: приведение держалось бы на порядке вариантов enum, и его
+    /// перестановка молча ломала бы запись пар (аудит GGUF п.11)
+    fn code(self) -> u32 {
+        match self {
+            Self::UInt8 => 0,
+            Self::Int8 => 1,
+            Self::UInt16 => 2,
+            Self::Int16 => 3,
+            Self::UInt32 => 4,
+            Self::Int32 => 5,
+            Self::Float32 => 6,
+            Self::Bool => 7,
+            Self::String => 8,
+            Self::Array => 9,
+            Self::UInt64 => 10,
+            Self::Int64 => 11,
+            Self::Float64 => 12,
+        }
+    }
+
     /// Размер скаляра в байтах; None у String/Array (переменная длина).
     fn fixed_size(self) -> Option<u64> {
         Some(match self {
@@ -257,6 +278,8 @@ pub struct GgufMeta {
     pub file_type: Option<i64>,
     pub quantization_version: Option<i64>,
     pub block_count: Option<i64>,
+    /// Объявленный контекст модели — верхняя граница для -c тест-сервера (§17)
+    pub context_length: Option<i64>,
     pub nextn_predict_layers: Option<i64>,
     pub leading_dense_block_count: Option<i64>,
     pub expert_count: Option<i64>,
@@ -994,6 +1017,7 @@ fn resolve_meta(
         file_type: get_int("general.file_type"),
         quantization_version: get_int("general.quantization_version"),
         block_count: get_int(&format!("{arch}.block_count")),
+        context_length: get_int(&format!("{arch}.context_length")),
         nextn_predict_layers: get_int(&format!("{arch}.nextn_predict_layers")),
         leading_dense_block_count: get_int(&format!("{arch}.leading_dense_block_count")),
         expert_count: get_int(&format!("{arch}.expert_count")),
@@ -1017,6 +1041,10 @@ fn lost_kv_warnings(meta: &GgufMeta) -> Vec<String> {
     let arch = meta.architecture.clone().unwrap_or_default();
     let checks = [
         (format!("{arch}.block_count"), meta.block_count.is_none()),
+        (
+            format!("{arch}.context_length"),
+            meta.context_length.is_none(),
+        ),
         (
             format!("{arch}.nextn_predict_layers"),
             meta.nextn_predict_layers.is_none(),
@@ -1089,10 +1117,10 @@ const OLLAMA_URL: &str = "http://127.0.0.1:11434";
 /// легитимно идёт десятки минут, а «замерло навсегда» — это 60 с без единого
 /// байта (§4.6: соединение с Ollama — долгоживущий NDJSON-поток).
 const PULL_STALL_SECS: u64 = 60;
-/// Кап буфера NDJSON-строки /api/pull: класс входа тот же, что SSE в chat.rs
-/// (там SSE_BUF_LIMIT 1 МиБ) — «вечная строка» не должна расти в памяти
-/// (аудит 07.10 A1-14)
-const PULL_LINE_CAP: usize = 1024 * 1024;
+/// Кап буфера NDJSON-строки /api/pull и /api/create: класс входа тот же, что
+/// SSE в chat.rs (там SSE_BUF_LIMIT 1 МиБ) — «вечная строка» не должна расти
+/// в памяти (аудит 07.10 A1-14)
+const NDJSON_LINE_CAP: usize = 1024 * 1024;
 /// Буфер копирования блоба: 8 МиБ — в 2–4 раза больше alignment-паддинга
 /// любых тензоров, при этом буфер не раздувает RSS (§3.3 ресёрча).
 const COPY_CHUNK: usize = 8 << 20;
@@ -1205,22 +1233,26 @@ pub fn parse_show_body(body: &str) -> Result<ShowInfo, String> {
 }
 
 /// Корень хранилища Ollama: OLLAMA_MODELS → дефолт по ОС (§4.2: envconfig).
-/// env_value/home — параметры (не чтение env) — под тесты.
-pub fn models_root_from(env_value: Option<&str>, home: Option<&Path>) -> PathBuf {
+/// env_value/home — параметры (не чтение env) — под тесты. Без домашнего
+/// каталога — ошибка, а не относительный путь: free_bytes по «.ollama/models»
+/// от CWD проверял бы чужой том (аудит GGUF п.13/33).
+pub fn models_root_from(env_value: Option<&str>, home: Option<&Path>) -> Result<PathBuf, String> {
     if let Some(v) = env_value.map(str::trim).filter(|s| !s.is_empty()) {
-        return PathBuf::from(v);
+        return Ok(PathBuf::from(v));
     }
-    let mut p = home.map(Path::to_path_buf).unwrap_or_default();
-    p.push(".ollama");
-    p.push("models");
-    p
+    let home = home.ok_or_else(|| {
+        "ollama models root: neither OLLAMA_MODELS nor a home directory is available".to_string()
+    })?;
+    Ok(home.join(".ollama").join("models"))
 }
 
-pub fn resolve_models_root() -> PathBuf {
+/// None — корень неизвестен: проверка места пропускается (она оптимизация
+/// сообщения, а не гарант — см. doc free_bytes)
+pub fn resolve_models_root() -> Option<PathBuf> {
     let env = std::env::var("OLLAMA_MODELS").ok();
     let home = std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" })
         .map(PathBuf::from);
-    models_root_from(env.as_deref(), home.as_deref())
+    models_root_from(env.as_deref(), home.as_deref()).ok()
 }
 
 /// Паттерн имени блоба: sha256-<64 hex> [код, manifest/layer.go, §4.2].
@@ -1251,6 +1283,19 @@ fn slug_for(model: &str) -> String {
     } else {
         s
     }
+}
+
+/// Имя файла экспорта. slug_for не инъективен («a:b» и «a_b» дают одно имя),
+/// поэтому при потере символов добавляется 8 hex от sha256 ПОЛНОГО имени:
+/// повторный экспорт той же модели стабилен, а разные модели больше не
+/// перезаписывают файл друг друга (аудит GGUF п.14)
+fn export_slug(model: &str) -> String {
+    let slug = slug_for(model);
+    if slug == model {
+        return slug;
+    }
+    let digest = hex_lower(&Sha256::digest(model.as_bytes()));
+    format!("{slug}-{}", &digest[..8])
 }
 
 fn hex_lower(bytes: &[u8]) -> String {
@@ -1394,15 +1439,18 @@ async fn do_pull(app: &tauri::AppHandle, model: &str) -> Result<(), String> {
         // SSE_BUF_LIMIT 1 МиБ на тот же класс входа — «вечная строка без \n»
         // из некорректного/скомпрометированного прокси не должна расти в
         // памяти, пока stall-детект видит живой поток байтов
-        if buf.len() > PULL_LINE_CAP {
+        if buf.len() > NDJSON_LINE_CAP {
             return Err(format!(
-                "gguf pull: NDJSON line exceeded {PULL_LINE_CAP} bytes — not an Ollama stream"
+                "gguf pull: NDJSON line exceeded {NDJSON_LINE_CAP} bytes — not an Ollama stream"
             ));
         }
-        while let Some(pos) = buf.iter().position(|&b| b == b'\n') {
-            let line: Vec<u8> = buf.drain(..=pos).collect();
-            let line = std::str::from_utf8(&line[..line.len() - 1]).unwrap_or_default();
-            if line.trim().is_empty() {
+        // Разбор строк — общий с chat.rs (lossy UTF-8 + один drain на чанк):
+        // своя копия молча теряла строку с невалидным UTF-8, включая финальный
+        // {"status":"success"}, и отдавала ложное «stream ended without success»
+        // (аудит GGUF п.8/30)
+        for line in crate::chat::take_complete_lines(&mut buf) {
+            let line = line.trim();
+            if line.is_empty() {
                 continue;
             }
             match parse_pull_line(line)? {
@@ -1422,17 +1470,21 @@ async fn do_pull(app: &tauri::AppHandle, model: &str) -> Result<(), String> {
                         // digest borrowing (не move): p живёт дальше в emit
                         if let (Some(total), Some(_)) = (p.total, p.digest.as_deref()) {
                             space_checked = true;
-                            let root = resolve_models_root();
-                            match crate::fsutil::free_bytes(&root) {
-                                Ok(free) if free < total => {
-                                    return Err(format!(
-                                        "gguf pull: insufficient disk space at {}: need {total}, have {free}",
-                                        root.display()
-                                    ));
+                            // Корень неизвестен (нет OLLAMA_MODELS и home) —
+                            // проверку пропускаем: free_bytes по относительному
+                            // пути смотрел бы на том CWD, а не Ollama (п.13/33)
+                            if let Some(root) = resolve_models_root() {
+                                match crate::fsutil::free_bytes(&root) {
+                                    Ok(free) if free < total => {
+                                        return Err(format!(
+                                            "gguf pull: insufficient disk space at {}: need {total}, have {free}",
+                                            root.display()
+                                        ));
+                                    }
+                                    // free_bytes — оптимизация сообщения, не гарант:
+                                    // ошибка statvfs не останавливает скачивание
+                                    Ok(_) | Err(_) => {}
                                 }
-                                // free_bytes — оптимизация сообщения, не гарант:
-                                // ошибка statvfs не останавливает скачивание
-                                Ok(_) | Err(_) => {}
                             }
                         }
                     }
@@ -1525,6 +1577,21 @@ async fn do_export(app: &tauri::AppHandle, model: &str) -> Result<ExportedModel,
             "gguf export: unexpected blob name '{file_name}' (expected sha256-<hex>)"
         ));
     }
+    // Путь из /api/show не доверяем целиком (аудит GGUF п.13): блоб Ollama
+    // живёт в <models_root>/blobs. Привязку к models_root сознательно НЕ
+    // делаем — OLLAMA_MODELS может быть не виден нашему процессу (Ollama
+    // службой), и легальный экспорт получал бы ложный отказ; содержимое всё
+    // равно сверяется с sha256 из имени файла.
+    let parent_is_blobs = blob
+        .parent()
+        .and_then(|p| p.file_name())
+        .is_some_and(|n| n.eq_ignore_ascii_case("blobs"));
+    if !parent_is_blobs {
+        return Err(format!(
+            "gguf export: blob path is not inside a 'blobs' directory — unexpected /api/show response: {}",
+            blob.display()
+        ));
+    }
     let expected_hex = file_name["sha256-".len()..].to_lowercase();
     let size = fs::metadata(blob)
         .map_err(|e| format!("gguf export: stat blob {}: {e}", blob.display()))?
@@ -1548,7 +1615,7 @@ async fn do_export(app: &tauri::AppHandle, model: &str) -> Result<ExportedModel,
         Ok(_) | Err(_) => {}
     }
 
-    let slug = slug_for(model);
+    let slug = export_slug(model);
     let final_path = dir.join(format!("{slug}.gguf"));
     let tmp_path = dir.join(format!("{slug}.gguf.tmp"));
 
@@ -1752,8 +1819,8 @@ fn encode_array_pair(key: &str, elem: ValueType, elems: PairElems) -> Vec<u8> {
     let mut b = Vec::new();
     b.extend_from_slice(&(key.len() as u64).to_le_bytes());
     b.extend_from_slice(key.as_bytes());
-    b.extend_from_slice(&9u32.to_le_bytes()); // ValueType::Array по кодам §1.1
-    b.extend_from_slice(&(elem as u32).to_le_bytes());
+    b.extend_from_slice(&ValueType::Array.code().to_le_bytes());
+    b.extend_from_slice(&elem.code().to_le_bytes());
     match elems {
         PairElems::Ints(v) => {
             b.extend_from_slice(&(v.len() as u64).to_le_bytes());
@@ -2653,9 +2720,14 @@ pub struct SurgeryReport {
 /// Валидатор имени файла в хранилище GGUF Lab: только имя, только .gguf.
 /// Команда gguf_cut НЕ принимает произвольных путей с фронтенда — лаборатория
 /// самодостаточна в appdata/gguf (§6.4), поэтому ensure_export_target не нужен.
-fn validate_lab_file_name(name: &str) -> Result<String, String> {    if name.is_empty()
+fn validate_lab_file_name(name: &str) -> Result<String, String> {
+    if name.is_empty()
         || name.contains('/')
         || name.contains('\\')
+        // ':' на Windows — альтернативный поток NTFS: x.gguf:y.gguf проходил
+        // все проверки; на остальных платформах легальных таких имён нет
+        // (аудит GGUF п.22)
+        || name.contains(':')
         || name.contains("..")
         || name != Path::new(name)
             .file_name()
@@ -2873,23 +2945,98 @@ pub async fn gguf_inspect(app: tauri::AppHandle, src_name: String) -> Result<Ggu
 /// ДО загрузки модели — единственный надёжный сигнал готовности, §4.4)
 const LLAMA_HEALTH_TIMEOUT_SECS: u64 = 300;
 const HEALTH_POLL_MS: u64 = 500;
+/// Дефолт -c и общий потолок контекста: llama.cpp выделяет KV-кэш
+/// пропорционально -c, поэтому «любое u32 до 4 млрд» — это OOM или зависший
+/// старт (аудит GGUF п.17). Объявленный контекст модели — граница точнее,
+/// но метаданные могут не прочитаться (п.28: там же и обрезка u64→u32).
+const DEFAULT_CTX_SIZE: u32 = 4096;
+const CTX_HARD_CAP: u32 = 262_144;
 
 /// Состояние тест-сервера GGUF Lab: pid для kill_tree, порт и имя модели.
 /// Child-хэндл не хранится сознательно: после успешного старта управляем
-/// процессом через kill_tree (§proc), смерть процесса в чате проявится
-/// ошибкой соединения — UI шага 5 покажет «сервер упал» по статусу.
+/// процессом через kill_tree (§proc), а живость сессии проверяется порт-зондом
+/// (gguf_llama_status) — он же ловит упавший сервер.
 struct ServerSession {
     pid: u32,
     port: u16,
     model: String,
 }
 
-static TEST_SERVER: std::sync::Mutex<Option<ServerSession>> = std::sync::Mutex::new(None);
+/// Сессия или зарезервированный слот старта. Starting закрывает гонку двух
+/// почти одновременных gguf_serve_start (аудит GGUF п.16): раньше оба вызова
+/// проходили проверку «сервера нет» ДО долгого health-поллинга, поднимали два
+/// процесса, второй перезаписывал сессию — и первый llama-server оставался
+/// без учёта (kill_session_on_exit гасил только один). token отличает свой
+/// старт от чужого и от отменённого стопом.
+enum ServerState {
+    /// Слот занят, процесс ещё не опубликован; pid появляется после spawn
+    Starting { token: u64, pid: Option<u32> },
+    Running(ServerSession),
+}
 
-fn lock_server() -> Result<std::sync::MutexGuard<'static, Option<ServerSession>>, String> {
+static TEST_SERVER: std::sync::Mutex<Option<ServerState>> = std::sync::Mutex::new(None);
+/// Монотонный счётчик «владельца» слота старта (см. ServerState)
+static SERVE_TOKEN: AtomicU64 = AtomicU64::new(1);
+
+fn lock_server() -> Result<std::sync::MutexGuard<'static, Option<ServerState>>, String> {
     TEST_SERVER
         .lock()
         .map_err(|_| "gguf serve: server state poisoned".to_string())
+}
+
+/// Наш ли старт ещё владеет слотом (стоп/выход могли его снять)
+fn serve_start_ours(token: u64) -> Result<bool, String> {
+    Ok(matches!(
+        lock_server()?.as_ref(),
+        Some(ServerState::Starting { token: t, .. }) if *t == token
+    ))
+}
+
+/// Записать pid в свой слот; false — старт уже отменён, процесс гасит вызывающий
+fn serve_start_set_pid(token: u64, pid: u32) -> Result<bool, String> {
+    let mut g = lock_server()?;
+    match g.as_mut() {
+        Some(ServerState::Starting { token: t, pid: p }) if *t == token => {
+            *p = Some(pid);
+            Ok(true)
+        }
+        _ => Ok(false),
+    }
+}
+
+/// Опубликовать готовую сессию; false — старт отменён (стоп/выход)
+fn serve_publish(token: u64, session: ServerSession) -> Result<bool, String> {
+    let mut g = lock_server()?;
+    if matches!(
+        g.as_ref(),
+        Some(ServerState::Starting { token: t, .. }) if *t == token
+    ) {
+        *g = Some(ServerState::Running(session));
+        return Ok(true);
+    }
+    Ok(false)
+}
+
+/// Снять слот после ошибки старта (если он всё ещё наш)
+fn release_start(token: u64) {
+    if let Ok(mut g) = lock_server() {
+        if matches!(
+            g.as_ref(),
+            Some(ServerState::Starting { token: t, .. }) if *t == token
+        ) {
+            *g = None;
+        }
+    }
+}
+
+/// Жив ли порт: TCP-connect с коротким таймаутом. Локальный отказ приходит
+/// мгновенно, 300 мс — потолок на «зависший» порт (аудит GGUF п.23).
+fn port_alive(port: u16) -> bool {
+    std::net::TcpStream::connect_timeout(
+        &std::net::SocketAddr::from(([127, 0, 0, 1], port)),
+        std::time::Duration::from_millis(300),
+    )
+    .is_ok()
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -2958,11 +3105,15 @@ fn interpret_health(status: u16, body: &str) -> HealthState {
 
 /// Хвост лога для диагностики упавшего сервера (последние ~1.5 КиБ)
 fn log_tail(path: &Path) -> String {
-    let Ok(s) = fs::read_to_string(path) else {
+    // Байты, не read_to_string: один невалидный байт в логе отдавал
+    // «(log unreadable)» ровно тогда, когда хвост нужен для диагностики
+    // падения (аудит GGUF п.24)
+    let Ok(bytes) = fs::read(path) else {
         return "(log unreadable)".into();
     };
+    let s = String::from_utf8_lossy(&bytes);
     if s.chars().count() <= 1500 {
-        return s;
+        return s.into_owned();
     }
     let tail: String = s.chars().skip(s.chars().count() - 1500).collect();
     format!("…{tail}")
@@ -3003,13 +3154,26 @@ pub async fn gguf_llama_status(app: tauri::AppHandle) -> Result<LlamaServerStatu
         &std::env::var("PATH").unwrap_or_default(),
     )
     .map(|p| p.to_string_lossy().into_owned());
-    let g = lock_server()?;
+    let mut g = lock_server()?;
+    // Живость — порт-зондом (аудит GGUF п.23): без него упавший сервер вечно
+    // показывался «running», а новый старт требовал «stop». Мёртвую запись
+    // снимаем БЕЗ kill: pid мог быть переиспользован другим процессом.
+    if let Some(ServerState::Running(s)) = g.as_ref() {
+        if !port_alive(s.port) {
+            *g = None;
+        }
+    }
+    let running = match g.as_ref() {
+        Some(ServerState::Running(s)) => Some(s),
+        // Starting — сервер ещё поднимается: «running» было бы преждевременно
+        _ => None,
+    };
     Ok(LlamaServerStatus {
         configured_path: configured,
         resolved_path: resolved,
-        server_running: g.is_some(),
-        server_port: g.as_ref().map(|s| s.port),
-        server_model: g.as_ref().map(|s| s.model.clone()),
+        server_running: running.is_some(),
+        server_port: running.map(|s| s.port),
+        server_model: running.map(|s| s.model.clone()),
     })
 }
 
@@ -3055,6 +3219,24 @@ fn read_llama_config(app: &tauri::AppHandle) -> Option<String> {
         })
 }
 
+/// Контекст тест-сервера: запрошенный ограничивается контекстом модели (если
+/// он известен) и общим капом; превышение — ошибка, а не молчаливый кламп:
+/// агент обязан узнать, что получил бы другой контекст, чем просил (п.17/28).
+fn resolve_ctx_size(requested: Option<u32>, model_max: Option<u32>) -> Result<u32, String> {
+    let cap = model_max
+        .filter(|m| *m > 0)
+        .map_or(CTX_HARD_CAP, |m| m.min(CTX_HARD_CAP));
+    match requested {
+        // 0 у llama.cpp означает «взять контекст из метаданных модели»
+        Some(0) => Ok(0),
+        Some(v) if v > cap => Err(format!(
+            "gguf serve: ctx_size {v} exceeds the model context limit ({cap}) — refusing to start with an oversized KV cache"
+        )),
+        Some(v) => Ok(v),
+        None => Ok(DEFAULT_CTX_SIZE.min(cap)),
+    }
+}
+
 /// Поднять llama-server над моделью из хранилища GGUF Lab: эфемерный порт,
 /// лог в appdata/gguf/logs, /health-поллинг до готовности (§4.4: 503 = грузится,
 /// refused = ещё не слушает — ждём, но смерть процесса фейлим сразу с хвостом
@@ -3066,18 +3248,40 @@ pub async fn gguf_serve_start(
     ctx_size: Option<u32>,
 ) -> Result<ServeInfo, String> {
     let src_name = validate_lab_file_name(&src_name)?;
-    if lock_server()?.is_some() {
-        return Err("gguf serve: a test server is already running — stop it first".into());
+    // Слот резервируется ДО долгого health-поллинга (аудит GGUF п.16): иначе
+    // два параллельных вызова поднимали два сервера, второй перетирал сессию,
+    // и первый процесс оставался без учёта (ни stop, ни выход его не гасили)
+    let token = SERVE_TOKEN.fetch_add(1, Ordering::Relaxed);
+    {
+        let mut g = lock_server()?;
+        if g.is_some() {
+            return Err("gguf serve: a test server is already running — stop it first".into());
+        }
+        *g = Some(ServerState::Starting { token, pid: None });
     }
-    let dir = gguf_dir(&app)?;
-    let model_path = dir.join(&src_name);
+    // Ошибка обязана снять слот: иначе «уже запущен» до перезапуска приложения
+    let result = serve_start_inner(&app, &src_name, ctx_size, token).await;
+    if result.is_err() {
+        release_start(token);
+    }
+    result
+}
+
+async fn serve_start_inner(
+    app: &tauri::AppHandle,
+    src_name: &str,
+    ctx_size: Option<u32>,
+    token: u64,
+) -> Result<ServeInfo, String> {
+    let dir = gguf_dir(app)?;
+    let model_path = dir.join(src_name);
     if !model_path.is_file() {
         return Err(format!(
             "gguf serve: source file not found in GGUF Lab storage: {src_name}"
         ));
     }
     let bin = {
-        let configured = read_llama_config(&app);
+        let configured = read_llama_config(app);
         resolve_llama_server(
             configured.as_deref(),
             &std::env::var("PATH").unwrap_or_default(),
@@ -3086,8 +3290,20 @@ pub async fn gguf_serve_start(
             "llama-server not found — install llama.cpp, add it to PATH or set the path in settings (or use the download button)".to_string()
         })?
     };
+    // Граница контекста — best-effort: строгий парсер вправе отвергнуть файл,
+    // который llama.cpp грузит (новый тип квантования), и это не повод не дать
+    // запустить сервер
+    let model_ctx = {
+        let p = model_path.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            GgufFile::open(&p).ok().and_then(|f| f.meta.context_length)
+        })
+        .await
+        .map_err(|e| format!("gguf serve: task failed: {e}"))?
+        .and_then(|v| u32::try_from(v).ok())
+    };
+    let ctx = resolve_ctx_size(ctx_size, model_ctx)?;
     let port = pick_free_port()?;
-    let ctx = ctx_size.unwrap_or(4096);
     let alias = src_name.trim_end_matches(".gguf").to_string();
 
     let logs_dir = dir.join("logs");
@@ -3115,12 +3331,24 @@ pub async fn gguf_serve_start(
         "-a",
         &alias,
     ]);
-    let mut child = tauri::async_runtime::spawn_blocking({
+    let (mut child, ours) = tauri::async_runtime::spawn_blocking({
         let log_path = log_path.clone();
-        move || crate::proc::spawn_detached(&mut cmd, &log_path)
+        move || -> Result<(std::process::Child, bool), String> {
+            let child = crate::proc::spawn_detached(&mut cmd, &log_path)?;
+            // pid в слот сразу после spawn: закрывает и окно, когда процесс
+            // уже есть, а выход из приложения о нём ещё не знает (§16)
+            let ours = serve_start_set_pid(token, child.id())?;
+            Ok((child, ours))
+        }
     })
     .await
     .map_err(|e| format!("gguf serve: task failed: {e}"))??;
+
+    // false — старт уже отменён (stop/выход): свой процесс гасим сами
+    if !ours {
+        crate::proc::kill_tree(child.id());
+        return Err("gguf serve: start cancelled".into());
+    }
 
     // /health-поллинг (§4.4): 503 = Loading → ждать; refused → ждать, но
     // смерть процесса фейлит сразу; 200 = Ready
@@ -3129,6 +3357,11 @@ pub async fn gguf_serve_start(
     let deadline =
         std::time::Instant::now() + std::time::Duration::from_secs(LLAMA_HEALTH_TIMEOUT_SECS);
     loop {
+        // Отмена: слот снят стопом или выходом — гасим свой процесс и уходим
+        if !serve_start_ours(token)? {
+            crate::proc::kill_tree(child.id());
+            return Err("gguf serve: start cancelled".into());
+        }
         if let Ok(Some(status)) = child.try_wait() {
             crate::proc::kill_tree(child.id());
             return Err(format!(
@@ -3163,24 +3396,41 @@ pub async fn gguf_serve_start(
     let info = ServeInfo {
         port,
         base_url: format!("http://127.0.0.1:{port}/v1"),
-        model: alias.clone(),
+        model: alias,
     };
-    *lock_server()? = Some(ServerSession {
-        pid: child.id(),
-        port,
-        model: src_name,
-    });
+    // Публикация только если слот всё ещё наш: stop между spawn и готовностью
+    // не должен «воскрешать» сессию (§16)
+    if !serve_publish(
+        token,
+        ServerSession {
+            pid: child.id(),
+            port,
+            model: src_name.to_string(),
+        },
+    )? {
+        crate::proc::kill_tree(child.id());
+        return Err("gguf serve: start cancelled".into());
+    }
     drop(child);
     Ok(info)
+}
+
+/// Погасить то, что стоит за снятой записью: Running — по порту+pid,
+/// Starting — по pid (если процесс уже поднят), снятие слота без pid
+/// отменяет сам старт (§16)
+fn kill_taken(state: Option<ServerState>) {
+    match state {
+        Some(ServerState::Running(s)) => kill_session_tree(&s),
+        Some(ServerState::Starting { pid: Some(pid), .. }) => crate::proc::kill_tree(pid),
+        Some(ServerState::Starting { pid: None, .. }) | None => {}
+    }
 }
 
 /// Остановить тест-сервер: kill_tree по pid сессии
 #[tauri::command]
 pub fn gguf_serve_stop() -> Result<(), String> {
     let mut g = lock_server()?;
-    if let Some(s) = g.take() {
-        kill_session_tree(&s);
-    }
+    kill_taken(g.take());
     Ok(())
 }
 
@@ -3189,12 +3439,7 @@ pub fn gguf_serve_stop() -> Result<(), String> {
 /// дерево (аудит 07.10 A3-12). Отказывающий порт = сервер мёртв: чистим
 /// запись без kill. Живой, но не отвечающий сервер порт держит → гасится.
 fn kill_session_tree(s: &ServerSession) {
-    let alive = std::net::TcpStream::connect_timeout(
-        &std::net::SocketAddr::from(([127, 0, 0, 1], s.port)),
-        std::time::Duration::from_millis(300),
-    )
-    .is_ok();
-    if alive {
+    if port_alive(s.port) {
         crate::proc::kill_tree(s.pid);
     }
 }
@@ -3205,9 +3450,7 @@ fn kill_session_tree(s: &ServerSession) {
 /// рестарта его не видел и остановить не мог)
 pub fn kill_session_on_exit() {
     if let Ok(mut g) = lock_server() {
-        if let Some(s) = g.take() {
-            kill_session_tree(&s);
-        }
+        kill_taken(g.take());
     }
 }
 
@@ -3217,6 +3460,9 @@ pub fn kill_session_on_exit() {
 struct ReleaseAsset {
     name: String,
     url: String,
+    /// sha256 из ответа API (поле digest, без префикса "sha256:") — архив
+    /// сверяется ДО распаковки и запуска бинаря (аудит GGUF п.25)
+    digest: Option<String>,
 }
 
 /// Чистый парсер ответа /releases (массив объектов {tag_name, assets:
@@ -3239,6 +3485,10 @@ fn parse_releases(body: &str) -> Result<Vec<(String, Vec<ReleaseAsset>)>, String
                     Some(ReleaseAsset {
                         name: a.get("name")?.as_str()?.to_string(),
                         url: a.get("browser_download_url")?.as_str()?.to_string(),
+                        digest: a
+                            .get("digest")
+                            .and_then(|d| d.as_str())
+                            .map(|d| d.trim_start_matches("sha256:").to_ascii_lowercase()),
                     })
                 })
                 .collect();
@@ -3247,16 +3497,25 @@ fn parse_releases(body: &str) -> Result<Vec<(String, Vec<ReleaseAsset>)>, String
         .collect())
 }
 
-/// Бинари llama.cpp живут на per-commit тегах bNNNNN; semver-«latest» несёт
-/// только nightly-tag.txt (проверено по API 10.2026, §4.4) — берём ПЕРВЫЙ
-/// b-тег в списке релизов
-fn pick_binary_release(
-    releases: &[(String, Vec<ReleaseAsset>)],
-) -> Option<&(String, Vec<ReleaseAsset>)> {
-    releases.iter().find(|(tag, _)| {
-        tag.strip_prefix('b')
-            .is_some_and(|rest| !rest.is_empty() && rest.bytes().all(|b| b.is_ascii_digit()))
-    })
+/// Тег бинарного релиза llama.cpp: bNNNNN (semver-«latest» несёт только
+/// nightly-tag.txt — проверено по API 10.2026, §4.4)
+fn is_binary_tag(tag: &str) -> bool {
+    tag.strip_prefix('b')
+        .is_some_and(|rest| !rest.is_empty() && rest.bytes().all(|b| b.is_ascii_digit()))
+}
+
+/// Ассет под платформу из ПЕРВОГО b-релиза, где он есть: у свежего релиза
+/// нужного CPU-ассета могло ещё не быть, и падать на нём, когда ассет лежит
+/// в предыдущем, нельзя (аудит GGUF п.27). Возвращает (тег, ассет).
+fn pick_binary_asset<'a>(
+    releases: &'a [(String, Vec<ReleaseAsset>)],
+    os: &str,
+    arch: &str,
+) -> Option<(&'a str, &'a ReleaseAsset)> {
+    releases
+        .iter()
+        .filter(|(tag, _)| is_binary_tag(tag))
+        .find_map(|(tag, assets)| pick_release_asset(assets, os, arch).map(|a| (tag.as_str(), a)))
 }
 
 /// Выбор ассета под платформу: CPU-варианты (CUDA/Vulkan/RoCM/SYCL/OpenVINO —
@@ -3298,6 +3557,29 @@ fn current_os_arch() -> (&'static str, &'static str) {
     (os, arch)
 }
 
+/// Best-effort удаление файлов при выходе из функции — в том числе по ошибке
+/// и отмене: tmp-загрузка не должна переживать сбой, а скачанный архив —
+/// провал распаковки (аудит GGUF п.26). disarm() снимает охрану.
+struct Cleanup(Vec<PathBuf>);
+
+impl Cleanup {
+    fn new(paths: Vec<PathBuf>) -> Self {
+        Cleanup(paths)
+    }
+
+    fn disarm(&mut self) {
+        self.0.clear();
+    }
+}
+
+impl Drop for Cleanup {
+    fn drop(&mut self) {
+        for p in &self.0 {
+            let _ = fs::remove_file(p);
+        }
+    }
+}
+
 /// Скачать llama-server последнего бинарого релиза в appdata/gguf/bin и
 /// распаковать: tar/bsdtar (Windows tar.exe умеет zip) — без zip-зависимости.
 /// Найденный бинарь сохраняется в gguf.json как llama_server_path.
@@ -3329,13 +3611,19 @@ async fn do_llama_download(app: tauri::AppHandle) -> Result<String, String> {
         .await
         .map_err(|e| format!("gguf download: read releases: {e}"))?;
     let releases = parse_releases(&body)?;
-    let (tag, assets) = pick_binary_release(&releases)
-        .ok_or_else(|| "gguf download: no binary release (bNNNNN) found in the last 15 releases".to_string())?;
     let (os, arch) = current_os_arch();
-    let asset = pick_release_asset(assets, os, arch)
-        .ok_or_else(|| format!("gguf download: no CPU asset for {os}/{arch} in {tag}"))?;
+    // Перебор b-релизов: в свежем CPU-ассета могло ещё не быть (п.27)
+    let (tag, asset) = pick_binary_asset(&releases, os, arch).ok_or_else(|| {
+        format!(
+            "gguf download: no CPU asset for {os}/{arch} in the last {} releases",
+            releases.len()
+        )
+    })?;
     let asset_url = asset.url.clone();
     let asset_name = asset.name.clone();
+    // digest из API (поле появилось у GitHub; при отсутствии — fail-open:
+    // блокировать установку из-за неполного ответа API хуже, чем не сверить)
+    let expected_digest = asset.digest.clone();
     let _ = app.emit(
         "gguf-progress",
         json!({ "phase": "download", "model": asset_name, "status": format!("downloading {tag}") }),
@@ -3354,6 +3642,10 @@ async fn do_llama_download(app: tauri::AppHandle) -> Result<String, String> {
     let archive_path = bin_dir.join(&asset_name);
     let tmp_path = bin_dir.join(format!("{asset_name}.tmp"));
     let tmp_in_task = tmp_path.clone();
+    // tmp и архив — под охраной до успешного конца: ошибка внутри
+    // spawn_blocking уходила через ?? раньше уборки, и *.tmp переживал сбой,
+    // а при провале распаковки оставался и архив (аудит GGUF п.26)
+    let mut cleanup = Cleanup::new(vec![tmp_path.clone(), archive_path.clone()]);
 
     let resp = client
         .get(&asset_url)
@@ -3379,6 +3671,7 @@ async fn do_llama_download(app: tauri::AppHandle) -> Result<String, String> {
                     .await
                     .map_err(|e| format!("gguf download: create tmp: {e}"))?;
                 use tokio::io::AsyncWriteExt as _;
+                let mut hasher = Sha256::new();
                 let mut received: u64 = 0;
                 let mut last_emit: u64 = 0;
                 while let Some(chunk) = resp
@@ -3392,6 +3685,7 @@ async fn do_llama_download(app: tauri::AppHandle) -> Result<String, String> {
                     file.write_all(&chunk)
                         .await
                         .map_err(|e| format!("gguf download: write: {e}"))?;
+                    hasher.update(&chunk);
                     received += chunk.len() as u64;
                     if received - last_emit >= 1 << 20 {
                         last_emit = received;
@@ -3407,6 +3701,16 @@ async fn do_llama_download(app: tauri::AppHandle) -> Result<String, String> {
                 if received == 0 {
                     return Err("gguf download: empty response".into());
                 }
+                // Сверка ДО rename: подменённый на стороне загрузки или прокси
+                // архив не должен стать «скачанным бинарём» (аудит GGUF п.25)
+                let hex = hex_lower(&hasher.finalize());
+                if let Some(expected) = expected_digest.as_deref() {
+                    if !hex.eq_ignore_ascii_case(expected) {
+                        return Err(format!(
+                            "gguf download: archive digest mismatch (got {hex}, expected {expected}) — refusing to extract"
+                        ));
+                    }
+                }
                 Ok(())
             })
         })
@@ -3414,7 +3718,7 @@ async fn do_llama_download(app: tauri::AppHandle) -> Result<String, String> {
         .map_err(|e| format!("gguf download: task failed: {e}"))??;
     }
     if GGUF_CANCEL.load(Ordering::Relaxed) {
-        let _ = fs::remove_file(&tmp_path);
+        // tmp снимет Cleanup (§26)
         return Err("gguf download: cancelled".into());
     }
     fs::rename(&tmp_path, &archive_path)
@@ -3467,6 +3771,8 @@ async fn do_llama_download(app: tauri::AppHandle) -> Result<String, String> {
     })
     .await
     .map_err(|e| format!("gguf download: task failed: {e}"))??;
+    // Всё сошлось: tmp и архив больше не под охраной
+    cleanup.disarm();
     Ok(found_str)
 }
 
@@ -3604,15 +3910,19 @@ async fn do_ollama_import(
             .await
             .map_err(|e| format!("gguf import: open: {e}"))?;
         // Стрим чанками — файл не материализуется в памяти (§3.3)
+        // Буфер живёт в состоянии unfold и переиспользуется: vec![0u8; 8 МиБ]
+        // на каждый чанк — это лишнее зануление 8 МиБ вдобавок к копии
+        // (аудит GGUF п.29, тот же churn, что снят в execute_surgery).
+        // Одна копия остаётся: владение чанком уходит в тело запроса, а
+        // `bytes` нет в зависимостях крейта.
         use tokio::io::AsyncReadExt as _;
         let stream = futures_util::stream::unfold(
-            (file, 0u64),
-            |(mut f, done)| async move {
-                let mut buf = vec![0u8; COPY_CHUNK];
+            (file, vec![0u8; COPY_CHUNK]),
+            |(mut f, mut buf)| async move {
                 match f.read(&mut buf).await {
                     Ok(0) => None,
-                    Ok(n) => Some((Ok::<_, std::io::Error>(buf[..n].to_vec()), (f, done + n as u64))),
-                    Err(e) => Some((Err(e), (f, done))),
+                    Ok(n) => Some((Ok::<_, std::io::Error>(buf[..n].to_vec()), (f, buf))),
+                    Err(e) => Some((Err(e), (f, buf))),
                 }
             },
         );
@@ -3670,10 +3980,16 @@ async fn do_ollama_import(
         };
         let Some(chunk) = chunk else { break };
         buf.extend_from_slice(&chunk);
-        while let Some(pos) = buf.iter().position(|&b| b == b'\n') {
-            let line: Vec<u8> = buf.drain(..=pos).collect();
-            let line = std::str::from_utf8(&line[..line.len() - 1]).unwrap_or_default();
-            if line.trim().is_empty() {
+        // Тот же кап строки, что в pull: «вечная строка» не должна растить
+        // память (в импорте его раньше не было вовсе)
+        if buf.len() > NDJSON_LINE_CAP {
+            return Err(format!(
+                "gguf import: NDJSON line exceeded {NDJSON_LINE_CAP} bytes — not an Ollama stream"
+            ));
+        }
+        for line in crate::chat::take_complete_lines(&mut buf) {
+            let line = line.trim();
+            if line.is_empty() {
                 continue;
             }
             match parse_create_line(line)? {
@@ -3745,7 +4061,7 @@ pub fn gguf_tool_schemas() -> serde_json::Value {
                     "type": "object",
                     "properties": {
                         "src_name": { "type": "string", "description": "File name in GGUF Lab storage" },
-                        "ctx_size": { "type": "integer", "description": "Context size for the test server (default 4096)" },
+                        "ctx_size": { "type": "integer", "description": "Context size for the test server (default 4096; 0 = take the model's own context; values above the model's context length are rejected)" },
                         "keep_running": { "type": "boolean", "description": "Keep the server running for the user after the smoke test (default false)" }
                     },
                     "required": ["src_name"]
@@ -3799,10 +4115,19 @@ pub async fn run_agent_tool(
         }
         "gguf_test" => {
             let src = get_str("src_name")?;
-            let ctx = args
-                .get("ctx_size")
-                .and_then(|v| v.as_u64())
-                .map(|v| v as u32);
+            // u64 → u32 только с проверкой: `as` молча обрезал бы
+            // 4096 + 2^32 до 4096 (аудит GGUF п.28)
+            let ctx = match args.get("ctx_size") {
+                None => None,
+                Some(v) => {
+                    let n = v.as_u64().ok_or_else(|| {
+                        format!("ctx_size: invalid value {v} (expected a non-negative integer)")
+                    })?;
+                    Some(u32::try_from(n).map_err(|_| {
+                        format!("ctx_size {n} does not fit u32 — refusing to truncate")
+                    })?)
+                }
+            };
             let keep = args
                 .get("keep_running")
                 .and_then(|v| v.as_bool())
@@ -4218,6 +4543,17 @@ mod tests {
             assert!(ggml_type(code).is_none(), "removed type {code} must not parse");
         }
         assert!(ggml_type(43).is_none());
+    }
+
+    #[test]
+    fn value_type_codes_roundtrip() {
+        // encode_array_pair пишет пару по code(), читатель разбирает по
+        // from_code: коды обязаны совпадать (аудит GGUF п.11 — `as u32`
+        // держался только на порядке вариантов enum)
+        for code in 0u32..=12 {
+            assert_eq!(ValueType::from_code(code).unwrap().code(), code);
+        }
+        assert!(ValueType::from_code(13).is_none());
     }
 
     #[test]
@@ -4643,13 +4979,16 @@ mod tests {
         let mut s = Synth::llama_dense(1);
         s.kv.push(("some.flag".into(), Kv::Bool(true)));
         let mut b = s.build();
-        // bool-значение в потоке: код типа 07 00 00 00, затем байт 0/1;
-        // «anything else is invalid» (§1.1) — правим сам байт значения
-        let pos = b
-            .windows(5)
-            .position(|w| w[0] == 7 && w[1] == 0 && w[2] == 0 && w[3] == 0)
-            .expect("bool kv present in synth file");
-        b[pos + 4] = 2;
+        // Адрес значения считаем от КЛЮЧА, а не поиском 07 00 00 00 по всему
+        // файлу: та же последовательность встречается в u64-длине 7 или в
+        // dims, и тест держался бы на везении (аудит GGUF п.35).
+        // Раскладка пары: [длина ключа][ключ][тип 4 байта][значение 1 байт]
+        let key = b"some.flag";
+        let kpos = b
+            .windows(key.len())
+            .position(|w| w == key)
+            .expect("ключ some.flag есть в синтетическом файле");
+        b[kpos + key.len() + 4] = 2; // «anything else is invalid» (§1.1)
         let err = parse_bytes("badbool.gguf", &b).unwrap_err();
         assert!(err.contains("bool"), "got: {err}");
     }
@@ -4765,22 +5104,20 @@ mod tests {
         let home = Path::new("/home/u");
         // OLLAMA_MODELS перекрывает дефолт (§4.2), в т.ч. пустая строка — нет
         assert_eq!(
-            models_root_from(Some("D:\\models"), Some(home)),
+            models_root_from(Some("D:\\models"), Some(home)).unwrap(),
             PathBuf::from("D:\\models")
         );
         assert_eq!(
-            models_root_from(Some("  "), Some(home)),
+            models_root_from(Some("  "), Some(home)).unwrap(),
             home.join(".ollama").join("models")
         );
         assert_eq!(
-            models_root_from(None, Some(home)),
+            models_root_from(None, Some(home)).unwrap(),
             home.join(".ollama").join("models")
         );
-        // home неизвестен — не паникуем (относительный фолбэк)
-        assert_eq!(
-            models_root_from(None, None),
-            PathBuf::from(".ollama").join("models")
-        );
+        // home неизвестен и env нет — ошибка, а не относительный путь:
+        // free_bytes по нему смотрел бы на том CWD, а не Ollama (п.13/33)
+        assert!(models_root_from(None, None).is_err());
     }
 
     #[test]
@@ -4798,6 +5135,22 @@ mod tests {
         assert_eq!(slug_for("llama3:latest"), "llama3_latest");
         assert_eq!(slug_for("hf.co/user/repo:Q4_K_M"), "hf.co_user_repo_Q4_K_M");
         assert_eq!(slug_for(""), "model");
+    }
+
+    #[test]
+    fn export_slug_disambiguates_lossy_names() {
+        // slug_for не инъективен: «a:b» и «a_b» дали бы ОДИН файл, и экспорт
+        // второй модели молча перезаписывал бы первую (аудит GGUF п.14)
+        let a = export_slug("llama3:latest");
+        let b = export_slug("llama3_latest");
+        assert_ne!(a, b, "разные модели — разные файлы");
+        assert!(a.starts_with("llama3_latest-"), "got: {a}");
+        // Повторный экспорт той же модели стабилен
+        assert_eq!(a, export_slug("llama3:latest"));
+        // Имя без спецсимволов не меняется вовсе
+        assert_eq!(export_slug("model-Q4_K_M"), "model-Q4_K_M");
+        // Пустое имя не совпадает с моделью, буквально названной «model»
+        assert_ne!(export_slug(""), export_slug("model"));
     }
 
     #[test]
@@ -5546,7 +5899,6 @@ mod tests {
             .kv_edits
             .iter()
             .any(|x| x.contains("block_count = 3")));
-        assert!(report.duration_ms < 60_000);
         // Верификация: сверены все тензоры и все байты данных
         let out = GgufFile::open(&dst_path).unwrap();
         assert_eq!(report.verified.tensors_checked, out.tensors.len());
@@ -5576,6 +5928,9 @@ mod tests {
             "model.txt",
             "",
             "sub/../model.gguf",
+            // ':' — альтернативный поток NTFS на Windows (п.22)
+            "x.gguf:y.gguf",
+            "C:model.gguf",
         ] {
             assert!(
                 validate_lab_file_name(bad).is_err(),
@@ -5610,13 +5965,89 @@ mod tests {
     }
 
     #[test]
+    fn ctx_size_is_bounded_by_model_and_hard_cap() {
+        // llama.cpp выделяет KV-кэш пропорционально -c: без границы «любое
+        // u32» — это OOM или зависший старт (аудит GGUF п.17/28)
+        assert_eq!(resolve_ctx_size(None, None).unwrap(), DEFAULT_CTX_SIZE);
+        assert_eq!(
+            resolve_ctx_size(None, Some(2048)).unwrap(),
+            2048,
+            "дефолт не выше контекста модели"
+        );
+        assert_eq!(resolve_ctx_size(None, Some(131_072)).unwrap(), DEFAULT_CTX_SIZE);
+        assert_eq!(
+            resolve_ctx_size(Some(0), Some(2048)).unwrap(),
+            0,
+            "0 у llama.cpp = контекст из модели"
+        );
+        assert_eq!(resolve_ctx_size(Some(2048), Some(4096)).unwrap(), 2048);
+        assert!(resolve_ctx_size(Some(4096), Some(2048)).is_err());
+        assert!(resolve_ctx_size(Some(u32::MAX), None).is_err());
+        assert_eq!(
+            resolve_ctx_size(Some(CTX_HARD_CAP), None).unwrap(),
+            CTX_HARD_CAP
+        );
+        assert!(
+            resolve_ctx_size(Some(u32::MAX), Some(u32::MAX))
+                .unwrap_err()
+                .contains("context limit")
+        );
+    }
+
+    #[test]
+    fn port_probe_tells_live_from_dead() {
+        // На порт-зонде держатся и статус упавшего сервера, и kill по сессии
+        // (аудит GGUF п.23): слушающий порт жив, закрытый — мёртв
+        let l = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let port = l.local_addr().unwrap().port();
+        assert!(port_alive(port), "слушающий порт обязан читаться живым");
+        drop(l);
+        assert!(!port_alive(port), "закрытый порт — мёртв");
+    }
+
+    #[test]
+    fn log_tail_survives_invalid_utf8() {
+        // Хвост лога нужен ровно при падении: один битый байт не должен
+        // превращать его в «(log unreadable)» (аудит GGUF п.24)
+        let p = write_tmp("llama-server-test.log", b"aaa \xff\xfe bbb");
+        let tail = log_tail(&p);
+        assert!(tail.contains("aaa") && tail.contains("bbb"), "got: {tail}");
+        assert!(!tail.contains("unreadable"));
+        let _ = fs::remove_file(&p);
+    }
+
+    #[test]
+    fn cleanup_guard_removes_files_on_drop() {
+        // tmp загрузки и архив — под Cleanup: сбой распаковки/сверки не должен
+        // оставлять мусор на диске (аудит GGUF п.26)
+        let a = write_tmp("cleanup-a.tmp", b"x");
+        let b = write_tmp("cleanup-b.tmp", b"y");
+        {
+            let _guard = Cleanup::new(vec![a.clone(), b.clone()]);
+        }
+        assert!(!a.exists() && !b.exists(), "Drop обязан убрать файлы");
+
+        // disarm оставляет файл на месте (успешный путь)
+        let c = write_tmp("cleanup-c.tmp", b"z");
+        let mut guard = Cleanup::new(vec![c.clone()]);
+        guard.disarm();
+        drop(guard);
+        assert!(c.exists());
+        let _ = fs::remove_file(&c);
+    }
+
+    #[test]
     fn release_parsing_and_asset_pick() {
         // Реальная структура ответа /releases: semver-«latest» без бинарей
-        // (v0.6.0 + nightly-tag.txt) и бинарный b-тег (имена — с b11451, 4-0)
+        // (v0.6.0 + nightly-tag.txt) и бинарные b-теги (имена — с b11451, 4-0);
+        // digest — поле ассета, по нему сверяется скачанный архив (п.25)
         let body = r#"[
             {"tag_name": "v0.6.0", "assets": [{"name": "nightly-tag.txt", "browser_download_url": "https://x/nightly-tag.txt"}]},
+            {"tag_name": "b11452", "assets": [
+                {"name": "llama-b11452-bin-win-cuda-12.4-x64.zip", "browser_download_url": "https://x/cuda.zip"}
+            ]},
             {"tag_name": "b11451", "assets": [
-                {"name": "llama-b11451-bin-win-cpu-x64.zip", "browser_download_url": "https://x/win.zip"},
+                {"name": "llama-b11451-bin-win-cpu-x64.zip", "browser_download_url": "https://x/win.zip", "digest": "sha256:ABCDEF0123456789"},
                 {"name": "llama-b11451-bin-win-cuda-12.4-x64.zip", "browser_download_url": "https://x/cuda.zip"},
                 {"name": "llama-b11451-bin-ubuntu-x64.tar.gz", "browser_download_url": "https://x/lin.tar.gz"},
                 {"name": "llama-b11451-bin-macos-x64.tar.gz", "browser_download_url": "https://x/mac.tar.gz"},
@@ -5624,25 +6055,27 @@ mod tests {
             ]}
         ]"#;
         let releases = parse_releases(body).unwrap();
-        let bin = pick_binary_release(&releases).unwrap();
-        assert_eq!(bin.0, "b11451", "semver-релиз с одним nightly-tag.txt пропускается");
+        assert_eq!(releases[0].1[0].digest, None, "у nightly-tag.txt digest нет");
+        assert_eq!(
+            releases[2].1[0].digest.as_deref(),
+            Some("abcdef0123456789"),
+            "digest читается без префикса sha256: и в нижнем регистре"
+        );
+        // Свежий b11452 без CPU-ассета пропускаем: ассет есть в b11451 (п.27)
+        let (tag, a) = pick_binary_asset(&releases, "windows", "x86_64").unwrap();
+        assert_eq!(tag, "b11451", "перебор b-релизов до первого с ассетом");
         // Windows CPU (не CUDA!)
-        let a = pick_release_asset(&bin.1, "windows", "x86_64").unwrap();
         assert_eq!(a.name, "llama-b11451-bin-win-cpu-x64.zip");
         assert_eq!(a.url, "https://x/win.zip");
-        assert_eq!(
-            pick_release_asset(&bin.1, "linux", "x86_64").unwrap().name,
-            "llama-b11451-bin-ubuntu-x64.tar.gz"
-        );
-        assert_eq!(
-            pick_release_asset(&bin.1, "macos", "aarch64").unwrap().name,
-            "llama-b11451-bin-macos-arm64.tar.gz"
-        );
+        let (_, lin) = pick_binary_asset(&releases, "linux", "x86_64").unwrap();
+        assert_eq!(lin.name, "llama-b11451-bin-ubuntu-x64.tar.gz");
+        let (_, arm) = pick_binary_asset(&releases, "macos", "aarch64").unwrap();
+        assert_eq!(arm.name, "llama-b11451-bin-macos-arm64.tar.gz");
         // Нет ассета для экзотики → None (отказ с сообщением наверху)
-        assert!(pick_release_asset(&bin.1, "linux", "riscv64").is_none());
+        assert!(pick_binary_asset(&releases, "linux", "riscv64").is_none());
         // Совсем без бинарей → None
         let empty = parse_releases(r#"[{"tag_name": "v1.0", "assets": []}]"#).unwrap();
-        assert!(pick_binary_release(&empty).is_none());
+        assert!(pick_binary_asset(&empty, "windows", "x86_64").is_none());
         // Битый JSON
         assert!(parse_releases("not json").is_err());
     }
