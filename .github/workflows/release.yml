@@ -1,0 +1,63 @@
+# Релизный пайплайн (порт release-windows из .gitlab-ci.yml после переезда
+# с GitLab на GitHub: gitlab удалён из истории — см. RELEASE.md).
+# Тег v* → подписанный NSIS-инсталлятор + latest.json → GitHub Release.
+# Без TAURI_SIGNING_PRIVATE_KEY сборка падает намеренно: неподписанные
+# артефакты апдейтера нельзя выпускать.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release-windows:
+    name: Windows installer
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: windows-release
+
+      - run: npm ci
+
+      - name: Build signed installer
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: npm run tauri build
+
+      - name: Generate latest.json
+        shell: bash
+        run: |
+          node scripts/make-latest-json.mjs \
+            src-tauri/target/release/bundle/nsis \
+            "https://github.com/${{ github.repository }}/releases/latest/download" \
+            src-tauri/target/release/bundle/nsis/latest.json
+
+      - name: Create release with assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -eo pipefail
+          cd src-tauri/target/release/bundle/nsis
+          args=()
+          for f in *.exe *.sig latest.json; do
+            [ -f "$f" ] && args+=("$f")
+          done
+          gh release create "${{ github.ref_name }}" "${args[@]}" \
+            --repo "${{ github.repository }}" \
+            --title "Nocturn ${{ github.ref_name }}" \
+            --notes "Nocturn ${{ github.ref_name }} — Windows installer (NSIS). The in-app updater reads latest.json from this release."

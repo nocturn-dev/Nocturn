@@ -1413,18 +1413,11 @@ html.glass .glass-pane {
   backdrop-filter: blur(var(--halo-blur, 14px)) saturate(1.25);
   -webkit-backdrop-filter: blur(var(--halo-blur, 14px)) saturate(1.25);
 }
-/* D13: заодно экономим GPU при reduce-motion — покрываются ВСЕ blur-носители,
-   а не только html.glass: sidebar-glass и msg-glass живут при выключенном
-   общем стекле и раньше продолжали блюрить (аудит A6-7) */
-@media (prefers-reduced-motion: reduce) {
-  html.glass aside,
-  html.glass .glass-pane,
-  html.sidebar-glass aside.bg-halo-deep,
-  html:not(.glass) .msg-glass {
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
-  }
-}
+/* D13: экономим GPU при reduce-motion — глушители ВСЕХ blur-носителей
+   переехали в САМЫЙ КОНЕЦ файла (блок после reduce-motion-хвоста ниже):
+   при равной специфичности базы sidebar-glass/msg-glass объявлены ниже
+   этого места и побеждали, глушители были мертвы (аудит 07.10 A6-10 —
+   неполный фикс A6-7 из bad3ced) */
 
 /* Выход модалок при активном стекле: .anim-pop-out объявлен выше с
    backdrop-filter: none, но специфичностью (0,1,0) проигрывает
@@ -1825,5 +1818,16 @@ html:not(.has-wallpaper):not([data-ambient-render="behind"]).official aside.bg-h
   .shimmer::after,
   .ask-ping {
     animation: none;
+  }
+  /* D13-хвост (аудит 07.10 A6-10): глушители blur ВСЕХ носителей — базы
+     html.glass aside/.glass-pane, sidebar-glass и msg-glass объявлены выше
+     по файлу, при равной специфичности решает позиция. По образцу самого
+     reduce-motion-блока выше (урок A6-1) */
+  html.glass aside,
+  html.glass .glass-pane,
+  html.sidebar-glass aside.bg-halo-deep,
+  html:not(.glass) .msg-glass {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
   }
 }
