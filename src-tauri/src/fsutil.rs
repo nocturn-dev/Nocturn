@@ -115,7 +115,8 @@ fn final_path_of(f: &fs::File) -> Result<PathBuf, String> {
 fn final_path_of(f: &fs::File) -> Result<PathBuf, String> {
     use std::os::unix::io::AsRawFd;
     let fd = f.as_raw_fd();
-    let mut buf = vec![0u8; libc::MAXPATHLEN];
+    // MAXPATHLEN в libc — c_int, в длину вектора нужен usize
+    let mut buf = vec![0u8; libc::MAXPATHLEN as usize];
     let n = unsafe { libc::fcntl(fd, libc::F_GETPATH, buf.as_mut_ptr()) };
     if n < 0 {
         return Err(format!(

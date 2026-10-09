@@ -104,7 +104,9 @@ async fn run(app: AppHandle, trigger: &str) -> Result<(), String> {
     // продолжал слушать receive_activated — каждое нажатие дёргало
     // toggle_quickentry дважды, и старое комбо оставалось живым
     if let Ok(mut guard) = PORTAL_SESSION.lock() {
-        *guard = Some(session.clone());
+        // ashpd 0.13: Session больше не Clone — забираем владением; ниже
+        // session не используется (receive_activated живёт на прокси)
+        *guard = Some(session);
     }
 
     // Фильтр по shortcut_id: сигнал прилетает на общий объект портала, но

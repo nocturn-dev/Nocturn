@@ -865,13 +865,10 @@ fn window_toggle_fullscreen(app: tauri::AppHandle) -> Result<(), String> {
     if w.is_minimized().unwrap_or(false) {
         let _ = w.unminimize();
     }
-    let active = w.fullscreen().map_err(|e| e.to_string())?;
-    w.set_fullscreen(if active {
-        None
-    } else {
-        Some(tauri::window::Fullscreen::Borderless(true))
-    })
-    .map_err(|e| e.to_string())
+    // Tauri 2: fullscreen() переименован в is_fullscreen(), set_fullscreen
+    // принимает bool, а не Option<Fullscreen>
+    let active = w.is_fullscreen().map_err(|e| e.to_string())?;
+    w.set_fullscreen(!active).map_err(|e| e.to_string())
 }
 
 /// Невидимые DWM-границы безрамочного окна (outer - inner), чтобы видимый

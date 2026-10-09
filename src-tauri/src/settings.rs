@@ -1433,7 +1433,9 @@ pub(crate) fn save_json_config<T: serde::Serialize>(
     crate::fsutil::atomic_write(&dir.join(file), json.as_bytes())
 }
 
-#[cfg(test)]
+// Все тесты — про Windows-специфику путей; на Linux/macOS модуль был бы
+// пуст и clippy ругался на неиспользуемый `use super::*`
+#[cfg(all(test, windows))]
 mod tests {
     use super::*;
 
@@ -1804,7 +1806,8 @@ wire_api = "responses"
     }
 }
 
-#[cfg(test)]
+// См. модуль tests выше: только Windows-тесты
+#[cfg(all(test, windows))]
 mod verbatim_guard_regression {
     use super::*;
 

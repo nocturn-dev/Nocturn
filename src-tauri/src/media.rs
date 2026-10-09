@@ -65,6 +65,7 @@ pub async fn media_status(app: tauri::AppHandle) -> Result<Option<MediaStateDto>
 /// неудача применения видна фронту как неизменившийся статус (следующий
 /// опрос пришлёт факт) — ошибки наблюдателя печатаются в stderr.
 #[tauri::command(async)]
+#[cfg_attr(not(windows), allow(unused_variables))]
 pub async fn media_control(app: tauri::AppHandle, action: String) -> Result<(), String> {
     #[cfg(windows)]
     {
