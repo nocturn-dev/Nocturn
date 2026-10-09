@@ -9,9 +9,23 @@
 //! Модель агента получает компактный набор инструментов browser_*:
 //! navigate / read / screenshot / click / type / scroll / close.
 //! Соединение ленивое: первый browser_*-вызов запускает браузер.
+//!
+//! Модель угроз. CDP-порт слушает 127.0.0.1 и доступен любому локальному
+//! процессу того же пользователя: профиль временный и изолированный, но
+//! содержимое открытых страниц читаемо. На общем хосте это стоит учитывать.
+//!
+//! SSRF-защита двухслойная: входной URL навигации проверяет is_navigable_url,
+//! а перед отдачей ЛЮБОГО содержимого сверяется фактический location.href
+//! (page_url_blocked) — редирект или клик на private-адрес страницу не спасёт.
+//! Остаточный риск: подресурсы и iframe самой страницы не перехватываются
+//! (полное закрытие — Fetch.enable с раздачей событий) и DNS rebinding
+//! (резолв имени сознательно не проверяется, см. is_private_host).
+//!
+//! Два ws-канала к одному таргету: основной (агентские вызовы) и «мягкий»
+//! (кадры живого просмотра, смена вьюпорта) — мягкие запросы не стоят в
+//! очереди за жёстким до 120 с, см. request_soft.
 
 use serde_json::{json, Value};
-use std::collections::HashSet;
 use std::fs;
 use std::io::{Read, Write};
 use std::net::TcpStream;
@@ -21,10 +35,17 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tungstenite::{Message, WebSocket};
 
+/// ws-сокет CDP-таргета: общий тип основного и «мягкого» каналов
+type Ws = WebSocket<tungstenite::stream::MaybeTlsStream<TcpStream>>;
+
 const VIEWPORT_W: u32 = 1280;
 const VIEWPORT_H: u32 = 800;
 const SCREENSHOT_QUALITY: u8 = 70; // jpeg — компромисс размер/качество для vision
-const READ_TEXT_LIMIT: usize = 20_000; // текст страницы в ответе инструмента
+const READ_TEXT_LIMIT: usize = 20_000; // символов текста страницы в ответе инструмента
+/// Байтовый бэкстоп к срезу текста: сам срез делает JS (лимит в символах),
+/// но враждебная страница может подменить String.prototype.slice/innerText —
+/// Rust всё равно не пропустит больше 4× лимита (1 UTF-16 unit ≤ 4 байта UTF-8)
+const READ_TEXT_BYTE_CAP: usize = READ_TEXT_LIMIT * 4;
 const SNAPSHOT_TEXT_LIMIT: usize = 24_000; // снапшот интерактивных элементов
 const NAV_TIMEOUT: Duration = Duration::from_secs(20);
 const WS_READ_TIMEOUT: Duration = Duration::from_secs(120);
@@ -32,6 +53,10 @@ const WS_READ_TIMEOUT: Duration = Duration::from_secs(120);
 /// ws.send навсегда под ws-мьютексом — встают ВСЕ browser-вызовы и view-тред.
 /// Класс закрыт WRITE_TIMEOUT в mcp.rs (10 с, единый масштаб)
 const WS_WRITE_TIMEOUT: Duration = Duration::from_secs(10);
+/// Таймаут «мягкого» канала (кадры живого просмотра, смена вьюпорта):
+/// просрочка не помечает соединение мёртвым и на отдельном канале не ждёт
+/// освобождения основного, который может быть занят до WS_READ_TIMEOUT
+const WS_SOFT_TIMEOUT: Duration = Duration::from_secs(3);
 
 // ---------------------------------------------------------------------------
 // Конфигурация (вкладка «Browser Use» в настройках)
@@ -268,7 +293,13 @@ fn http_get_json(port: u16, path: &str) -> Result<String, String> {
 
     let mut buf: Vec<u8> = Vec::new();
     let mut chunk = [0u8; 4096];
-    // Читаем до конца заголовков
+    // Читаем до конца заголовков. Потолок обязателен: локальный процесс,
+    // перехвативший порт, может слать байты без \r\n\r\n — без капа буфер
+    // рос бы до исчерпания памяти. Поиск разделителя идёт только в новых
+    // байтах (отступ 3 на стык чанков): пересканирование всего буфера на
+    // каждом чанке — квадратичная работа (аудит 38/45)
+    const CDP_HEADER_MAX_BYTES: usize = 64 * 1024;
+    let mut scanned = 0usize;
     let header_end = loop {
         let n = stream
             .read(&mut chunk)
@@ -277,8 +308,13 @@ fn http_get_json(port: u16, path: &str) -> Result<String, String> {
             return Err("CDP connection closed before headers".into());
         }
         buf.extend_from_slice(&chunk[..n]);
-        if let Some(pos) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
-            break pos + 4;
+        let from = scanned.saturating_sub(3);
+        if let Some(pos) = buf[from..].windows(4).position(|w| w == b"\r\n\r\n") {
+            break from + pos + 4;
+        }
+        scanned = buf.len();
+        if buf.len() > CDP_HEADER_MAX_BYTES {
+            return Err("CDP response headers too large".into());
         }
     };
     // Content-Length: сколько байт тела осталось дочитать
@@ -351,25 +387,131 @@ fn wait_for_page_ws_url(port: u16) -> Result<String, String> {
 // Соединение с браузером
 // ---------------------------------------------------------------------------
 
+/// Ошибка обмена по ws. Разделение нужно, чтобы вызывающий решал, помечать ли
+/// соединение мёртвым: транспорт (сокет/коннект) — да, CDP-ошибка метода — нет
+enum WsError {
+    Timeout,
+    Transport(String),
+    Protocol(String),
+}
+
+/// Отправка запроса и ожидание ответа ровно с этим id на конкретном сокете.
+/// Общий протокол обмена основного и «мягкого» каналов: у них разная политика
+/// ошибок, но одинаковый цикл чтения (чужие id и события CDP пропускаем)
+fn ws_exchange(
+    ws: &mut Ws,
+    id: u64,
+    method: &str,
+    params: &Value,
+    timeout: Duration,
+) -> Result<Value, WsError> {
+    // Таймауты чтения/записи сокета: WouldBlock завершает ожидание read()
+    // (внутренний буфер tungstenite сохраняет частичные кадры), по записи
+    // оглохший пир рвёт write() вместо вечного блока под мьютексом
+    if let tungstenite::stream::MaybeTlsStream::Plain(stream) = ws.get_ref() {
+        stream
+            .set_read_timeout(Some(Duration::from_millis(250)))
+            .ok();
+        stream.set_write_timeout(Some(WS_WRITE_TIMEOUT)).ok();
+    }
+    let msg = json!({ "id": id, "method": method, "params": params });
+    ws.send(Message::text(msg.to_string())).map_err(|e| {
+        let stalled = matches!(
+            &e,
+            tungstenite::Error::Io(io)
+                if io.kind() == std::io::ErrorKind::WouldBlock
+                    || io.kind() == std::io::ErrorKind::TimedOut
+        );
+        if stalled {
+            WsError::Transport(format!(
+                "browser write timed out after {}s — CDP peer stopped reading",
+                WS_WRITE_TIMEOUT.as_secs()
+            ))
+        } else {
+            WsError::Transport(format!("browser write failed: {e}"))
+        }
+    })?;
+
+    let deadline = Instant::now() + timeout;
+    loop {
+        if Instant::now() > deadline {
+            return Err(WsError::Timeout);
+        }
+        let message = match ws.read() {
+            Ok(m) => m,
+            // Таймаут чтения сокета: на Unix — WouldBlock, на Windows —
+            // TimedOut (os error 10060). Оба = «пока тихо», ждём дедлайна
+            Err(tungstenite::Error::Io(e))
+                if e.kind() == std::io::ErrorKind::WouldBlock
+                    || e.kind() == std::io::ErrorKind::TimedOut =>
+            {
+                continue;
+            }
+            Err(e) => return Err(WsError::Transport(format!("browser read failed: {e}"))),
+        };
+        let Message::Text(text) = message else {
+            continue; // бинарные/ping/pong игнорируем
+        };
+        let Ok(v) = serde_json::from_str::<Value>(&text) else {
+            continue;
+        };
+        // События CDP (без id) и поздние ответы просроченных запросов
+        // пропускаем: свой ответ найдём по id
+        if v.get("id").and_then(|i| i.as_u64()) != Some(id) {
+            continue;
+        }
+        if let Some(err) = v.get("error") {
+            return Err(WsError::Protocol(format!(
+                "{method} failed: {}",
+                err.get("message").and_then(|m| m.as_str()).unwrap_or("unknown")
+            )));
+        }
+        return Ok(v.get("result").cloned().unwrap_or(Value::Null));
+    }
+}
+
 pub struct BrowserConnection {
     child: Mutex<Child>,
-    ws: Mutex<WebSocket<tungstenite::stream::MaybeTlsStream<TcpStream>>>,
+    ws: Mutex<Ws>,
     next_id: AtomicU64,
-    /// id просроченных запросов: их поздние ответы молча пропускаются
-    abandoned: Mutex<HashSet<u64>>,
     dead: Mutex<bool>,
     /// Каталог профиля в temp: удаляется при Drop (cookie/история сессии
     /// раньше копились в temp вечно)
     profile: std::path::PathBuf,
+    /// ws-URL таргета: по нему открывается отдельное «мягкое» подключение
+    ws_url: String,
+    /// Отдельный ws-канал для мягких запросов (кадры живого просмотра, смена
+    /// вьюпорта): они не делят мьютекс с жёсткими агентскими вызовами, иначе
+    /// «3 с» и «15 с» не начинали отсчёт до освобождения основного канала
+    /// (аудит 37/44). Создаётся лениво, при первом мягком запросе
+    soft: Mutex<Option<Ws>>,
+    soft_next_id: AtomicU64,
+}
+
+/// Итог шага запуска: различаем «порт ещё не отвечает» (TOCTOU-перехват порта,
+/// есть смысл на вторую попытку) и всё остальное. Раньше ретрай решался по
+/// подстрокам текста ошибки — переименование сообщения молча его ломало
+/// (аудит 41)
+enum BuildFailure {
+    Retryable(String),
+    Fatal(String),
 }
 
 impl BrowserConnection {
     /// Запуск headless-браузера и подключение к его CDP-порту
     pub fn launch() -> Result<Self, String> {
-        let exe = find_browser_executable().ok_or(
-            "Browser not found: install Edge or Chrome, or set HALOUI_BROWSER to the browser executable.",
-        )?;
         let cfg = config();
+        let exe = find_browser_executable().ok_or_else(|| {
+            // Свой путь, которого нет, — это не «нет браузера»: сообщение
+            // должно указывать на настройку, иначе пользователь ставит Edge
+            // поверх уже указанного (и битого) пути (аудит 50)
+            let configured = cfg.executable.trim();
+            if configured.is_empty() {
+                "Browser not found: install Edge or Chrome, or set HALOUI_BROWSER to the browser executable.".to_string()
+            } else {
+                format!("Browser executable from Settings not found: {configured}")
+            }
+        })?;
         let size_arg = format!("--window-size={VIEWPORT_W},{VIEWPORT_H}");
 
         let mut last_err = String::new();
@@ -401,7 +543,14 @@ impl BrowserConnection {
                 browser_args.insert(0, "--headless=new");
             }
             let mut command = Command::new(&exe);
-            command.args(&browser_args).stdin(Stdio::null());
+            // stdout/stderr явно в null: логи Chromium иначе лились бы в
+            // консоль GUI-приложения (аудит 42). Диагностика запуска — в наших
+            // структурированных ошибках
+            command
+                .args(&browser_args)
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null());
             #[cfg(unix)]
             {
                 use std::os::unix::process::CommandExt;
@@ -423,34 +572,33 @@ impl BrowserConnection {
 
             // При любой ошибке запуска гасим процесс — браузер-сирота
             // держит порт и профиль и ломает все следующие запуски
-            let built = Self::build(child, port, &profile);
-            match built {
+            match Self::build(child, port, &profile) {
                 Ok(conn) => return Ok(conn),
-                Err(e) => {
+                Err(failure) => {
                     let _ = fs::remove_dir_all(&profile);
-                    let retryable = e.contains("CDP endpoint did not respond")
-                        || e.contains("cannot connect to CDP port")
-                        || e.contains("no page target")
-                        || e.contains("bad JSON from /json/list");
-                    if retryable {
-                        last_err = e;
-                        continue;
+                    match failure {
+                        BuildFailure::Retryable(e) => {
+                            last_err = e;
+                            continue;
+                        }
+                        BuildFailure::Fatal(e) => return Err(e),
                     }
-                    return Err(e);
                 }
             }
         }
         Err(last_err)
     }
 
-    fn build(child: Child, port: u16, profile: &std::path::Path) -> Result<Self, String> {
+    fn build(child: Child, port: u16, profile: &std::path::Path) -> Result<Self, BuildFailure> {
         let mut child = child;
         let ws_url = match wait_for_page_ws_url(port) {
             Ok(u) => u,
             Err(e) => {
                 let _ = child.kill();
                 let _ = child.wait();
-                return Err(e);
+                // CDP-порт не поднялся — ровно тот случай, ради которого есть
+                // вторая попытка с новым портом (TOCTOU free_port)
+                return Err(BuildFailure::Retryable(e));
             }
         };
         let (ws, _resp) = match tungstenite::connect(ws_url.as_str()) {
@@ -458,7 +606,9 @@ impl BrowserConnection {
             Err(e) => {
                 let _ = child.kill();
                 let _ = child.wait();
-                return Err(format!("cannot connect to browser WebSocket: {e}"));
+                return Err(BuildFailure::Fatal(format!(
+                    "cannot connect to browser WebSocket: {e}"
+                )));
             }
         };
 
@@ -466,9 +616,11 @@ impl BrowserConnection {
             child: Mutex::new(child),
             ws: Mutex::new(ws),
             next_id: AtomicU64::new(1),
-            abandoned: Mutex::new(HashSet::new()),
             dead: Mutex::new(false),
             profile: profile.to_path_buf(),
+            ws_url,
+            soft: Mutex::new(None),
+            soft_next_id: AtomicU64::new(1),
         };
 
         // Viewport должен точно совпадать со скриншотом — на нём строится клик
@@ -482,7 +634,7 @@ impl BrowserConnection {
             }),
         ) {
             conn.kill();
-            return Err(e);
+            return Err(BuildFailure::Fatal(e));
         }
         Ok(conn)
     }
@@ -506,18 +658,48 @@ impl BrowserConnection {
         self.request_impl(method, params, WS_READ_TIMEOUT, true)
     }
 
-    /// «Мягкий» запрос для фоновой трансляции: короткий таймаут и просрочка
+    /// «Мягкий» запрос по ОТДЕЛЬНОМУ ws-каналу: короткий таймаут и просрочка
     /// НЕ помечает соединение мёртвым — иначе фоновый кадр во время загрузки
-    /// страницы убивал соединение и ломал инструменты агента.
+    /// страницы убивал соединение и ломал инструменты агента. Отдельный канал
+    /// нужен, чтобы мягкий дедлайн отсчитывался сразу: на общем мьютексе он
+    /// ждал бы освобождения жёсткого запроса (до 120 с), и «3 с» ничего бы
+    /// не ограничивали (аудит 37/44)
     fn request_soft(&self, method: &str, params: Value) -> Result<Value, String> {
-        self.request_impl(method, params, Duration::from_secs(3), false)
+        if self.is_dead() || !self.child_alive() {
+            return Err("browser connection is closed".into());
+        }
+        let id = self.soft_next_id.fetch_add(1, Ordering::SeqCst);
+        let mut slot = self.soft.lock().unwrap_or_else(|p| p.into_inner());
+        if slot.is_none() {
+            let (ws, _resp) = tungstenite::connect(self.ws_url.as_str())
+                .map_err(|e| format!("cannot connect to browser WebSocket: {e}"))?;
+            *slot = Some(ws);
+        }
+        let Some(ws) = slot.as_mut() else {
+            return Err("soft ws channel unavailable".into());
+        };
+        match ws_exchange(ws, id, method, &params, WS_SOFT_TIMEOUT) {
+            Ok(v) => Ok(v),
+            Err(err) => {
+                // Кэш сокета сбрасываем — следующий кадр переподключится сам.
+                // dead не трогаем: сбой мягкого канала не должен убивать
+                // агентскую сессию (семантика прежняя, аудит A2-5)
+                *slot = None;
+                Err(match err {
+                    WsError::Timeout => format!("{method} timed out (soft)"),
+                    WsError::Transport(m) | WsError::Protocol(m) => m,
+                })
+            }
+        }
     }
 
     /// Runtime.evaluate с «мягким» индивидуальным дедлайном (просрочка не
     /// убивает соединение). wait_ready опрашивает readyState в своём
     /// NAV_TIMEOUT-цикле — жёсткий 120-с WS-дедлайн каждого evaluate
     /// растягивал «20-секундную» навигацию до 120 с на stalled-пире
-    /// (аудит A2-5)
+    /// (аудит A2-5). Канал основной: вызов идёт внутри своей же операции,
+    /// конкурировать за мьютекс не с кем (отдельный «мягкий» канал — только
+    /// для фоновой трансляции и смены вьюпорта)
     fn evaluate_soft(&self, expression: &str, timeout: Duration) -> Result<Value, String> {
         let result = self.request_impl(
             "Runtime.evaluate",
@@ -546,84 +728,26 @@ impl BrowserConnection {
             return Err("browser connection is closed".into());
         }
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
-        let msg = json!({ "id": id, "method": method, "params": params });
-
         let mut ws = self.ws.lock().unwrap_or_else(|p| p.into_inner());
-        // Таймауты чтения/записи сокета: WouldBlock завершает ожидание read()
-        // (внутренний буфер tungstenite сохраняет частичные кадры), по записи
-        // оглохший пир рвёт write() вместо вечного блока под мьютексом
-        if let tungstenite::stream::MaybeTlsStream::Plain(stream) = ws.get_ref() {
-            stream
-                .set_read_timeout(Some(Duration::from_millis(250)))
-                .ok();
-            stream.set_write_timeout(Some(WS_WRITE_TIMEOUT)).ok();
-        }
-        ws.send(Message::text(msg.to_string()))
-            .map_err(|e| {
-                self.mark_dead();
-                let stalled = matches!(
-                    &e,
-                    tungstenite::Error::Io(io)
-                        if io.kind() == std::io::ErrorKind::WouldBlock
-                            || io.kind() == std::io::ErrorKind::TimedOut
-                );
-                if stalled {
-                    format!(
-                        "browser write timed out after {}s — CDP peer stopped reading",
-                        WS_WRITE_TIMEOUT.as_secs()
-                    )
-                } else {
-                    format!("browser write failed: {e}")
-                }
-            })?;
-
-        let deadline = Instant::now() + timeout;
-        loop {
-            if Instant::now() > deadline {
-                self.abandoned.lock().unwrap_or_else(|p| p.into_inner()).insert(id);
+        match ws_exchange(&mut ws, id, method, &params, timeout) {
+            Ok(v) => Ok(v),
+            Err(WsError::Timeout) => {
                 if fatal {
                     self.mark_dead();
-                    return Err(format!("browser did not respond to {method} in {}s", timeout.as_secs()));
+                    Err(format!(
+                        "browser did not respond to {method} in {}s",
+                        timeout.as_secs()
+                    ))
+                } else {
+                    Err(format!("{method} timed out (soft)"))
                 }
-                return Err(format!("{method} timed out (soft)"));
             }
-            let message = match ws.read() {
-                Ok(m) => m,
-                // Таймаут чтения сокета: на Unix — WouldBlock, на Windows —
-                // TimedOut (os error 10060). Оба = «пока тихо», ждём дедлайна
-                Err(tungstenite::Error::Io(e))
-                    if e.kind() == std::io::ErrorKind::WouldBlock
-                        || e.kind() == std::io::ErrorKind::TimedOut =>
-                {
-                    continue;
-                }
-                Err(e) => {
-                    self.mark_dead();
-                    return Err(format!("browser read failed: {e}"));
-                }
-            };
-            let Message::Text(text) = message else {
-                continue; // бинарные/ping/pong игнорируем
-            };
-            let Ok(v) = serde_json::from_str::<Value>(&text) else {
-                continue;
-            };
-            match v.get("id").and_then(|i| i.as_u64()) {
-                Some(resp_id) if resp_id == id => {
-                    if let Some(err) = v.get("error") {
-                        return Err(format!(
-                            "{method} failed: {}",
-                            err.get("message").and_then(|m| m.as_str()).unwrap_or("unknown")
-                        ));
-                    }
-                    return Ok(v.get("result").cloned().unwrap_or(Value::Null));
-                }
-                Some(resp_id) => {
-                    // Поздний ответ просроченного запроса — пропускаем
-                    self.abandoned.lock().unwrap_or_else(|p| p.into_inner()).remove(&resp_id);
-                }
-                None => {} // события CDP (без id) — не нужны, readyState опрашиваем
+            Err(WsError::Transport(e)) => {
+                self.mark_dead();
+                Err(e)
             }
+            // CDP-ошибка метода — не транспорт: соединение живо, не метим мёртвым
+            Err(WsError::Protocol(e)) => Err(e),
         }
     }
 
@@ -676,8 +800,26 @@ impl BrowserConnection {
         Ok(desc.as_str().unwrap_or("").to_string())
     }
 
+    /// Гард перед отдачей содержимого страницы: входной фильтр проверяет
+    /// только URL навигации, а редирект или клик по ссылке уводят браузер
+    /// куда угодно (аудит 54). Сверяем фактический location.href; нарушителя
+    /// уводим на about:blank, чтобы контент не утёк следующим вызовом
+    fn ensure_page_allowed(&self) -> Result<(), String> {
+        let href = self.evaluate("location.href")?;
+        let href = href.as_str().unwrap_or("").to_string();
+        if page_url_blocked(&href, config().allow_private_networks) {
+            let _ = self.request("Page.navigate", json!({ "url": "about:blank" }));
+            return Err(format!(
+                "page URL {href} is not allowed (private/loopback or non-http scheme); \
+                 the page was reset — navigate again via browser_navigate"
+            ));
+        }
+        Ok(())
+    }
+
     /// Кадр живого просмотра (JPEG base64) + текущий URL — для панели.
-    /// Мягкие запросы: просрочка не убивает соединение (фоновой поток)
+    /// Мягкий канал: просрочка не убивает соединение и не ждёт освобождения
+    /// основного (фоновая трансляция)
     pub fn view_frame(&self) -> Result<(String, String), String> {
         let res = self.request_soft(
             "Page.captureScreenshot",
@@ -707,15 +849,20 @@ impl BrowserConnection {
         Ok((data, url))
     }
 
-    /// Смена вьюпорта мягким запросом: короткий таймаут и просрочка не
+    /// Смена вьюпорта мягким каналом: короткий таймаут и просрочка не
     /// помечает соединение мёртвым. Команда browser_view_size раньше шла
     /// жёстким request и могла блокировать воркер до 120 с
     pub fn set_viewport_short(&self, w: Option<i64>, h: Option<i64>) -> Result<(), String> {
         match (w, h) {
             (Some(w), Some(h)) => {
+                // deviceScaleFactor: 1 — тот же масштаб, что при запуске: при 0
+                // CDP снимает свой override («0 disables the override», спека
+                // Emulation.setDeviceMetricsOverride), и инвариант «скриншот 1:1
+                // к CSS-пикселям» держался бы только на флаге
+                // --force-device-scale-factor=1 (аудит 40)
                 self.request_soft(
                     "Emulation.setDeviceMetricsOverride",
-                    json!({ "width": w, "height": h, "deviceScaleFactor": 0, "mobile": false }),
+                    json!({ "width": w, "height": h, "deviceScaleFactor": 1, "mobile": false }),
                 )?;
             }
             _ => {
@@ -738,6 +885,9 @@ impl Drop for BrowserConnection {
 
 impl BrowserConnection {
     fn kill(&self) {
+        // Мягкий канал закрываем до процесса: drop сокета шлёт FIN, и
+        // view-тред не переиспользует соединение умершего браузера
+        let _ = self.soft.lock().unwrap_or_else(|p| p.into_inner()).take();
         // Деревом, а не одиночным kill(): Chromium плодит поддерево — сироты
         // держат CDP-порт и temp-профиль (AGENTS.md: гасить деревом)
         let mut child = self.child.lock().unwrap_or_else(|p| p.into_inner());
@@ -870,6 +1020,20 @@ const REF_FOCUS_JS_TEMPLATE: &str = r#"
   return JSON.stringify({ focused: el.tagName.toLowerCase() });
 })()"#;
 
+/// Активный редактируемый элемент для Input.insertText (аудит 57).
+/// Shadow DOM: document.activeElement — хост, спускаемся внутрь;
+/// isContentEditable проверяется ДО тега — body в редакторах вроде
+/// Google Docs сам editable и обязан считаться валидной целью
+const ACTIVE_EDITABLE_JS: &str = "(() => { \
+  let el = document.activeElement; \
+  while (el && el.shadowRoot && el.shadowRoot.activeElement) el = el.shadowRoot.activeElement; \
+  if (!el) return 'none'; \
+  if (el.isContentEditable) return 'ok'; \
+  const t = el.tagName; \
+  if (t === 'INPUT' || t === 'TEXTAREA') return 'ok'; \
+  if (el === document.body || el === document.documentElement) return 'none'; \
+  return t ? t.toLowerCase() : 'none'; })()";
+
 /// ref из снапшота — строго `e<число>` (его генерирует REF_REGISTRY_JS).
 /// Валидация ДО подстановки в JS-шаблон: ref приходит от модели, а модель
 /// управляется содержимым страницы — сырая подстановка в JS-литерал была
@@ -975,7 +1139,7 @@ pub fn browser_tool_schemas() -> Value {
             "type": "function",
             "function": {
                 "name": "browser_screenshot",
-                "description": "Take a JPEG screenshot of the viewport (1280x800). Returns an image you can see. Prefer browser_snapshot refs for actions; screenshot coordinates are the fallback.",
+                "description": "Take a JPEG screenshot of the current viewport (default 1280x800; the size may be changed in the Browser panel). Returns an image you can see. Prefer browser_snapshot refs for actions; screenshot coordinates are the fallback.",
                 "parameters": { "type": "object", "properties": {} }
             }
         },
@@ -1038,6 +1202,23 @@ pub fn browser_tool_schemas() -> Value {
     ])
 }
 
+/// Имена инструментов, которые обрабатывает execute_on. Держатся синхронными
+/// со схемами тестом browser_schemas_match_dispatch: схема и диспетчер раньше
+/// могли разъехаться молча (аудит 60)
+const DISPATCHED_TOOLS: &[&str] = &[
+    "browser_navigate",
+    "browser_read",
+    "browser_snapshot",
+    "browser_screenshot",
+    "browser_click",
+    "browser_type",
+    "browser_scroll",
+];
+
+/// Lifecycle-инструменты: объявлены в схемах, но обрабатываются диспетчером
+/// инструментов (tooling.rs) — до execute_on они не доходят
+const LIFECYCLE_TOOLS: &[&str] = &["browser_close"];
+
 /// Навигация разрешена только на http/https: file:, data:, javascript: и пр.
 /// позволяют добраться до локальных ресурсов или исполнить скрипт — запрещены.
 /// Дополнительно блокируются private/loopback/link-local адреса (SSRF-защита):
@@ -1051,6 +1232,21 @@ fn is_navigable_url(url: &str, allow_private_networks: bool) -> bool {
         return false;
     }
     true
+}
+
+/// Заблокирован ли ФАКТИЧЕСКИЙ URL страницы (то, что в location.href):
+/// входной фильтр проверяет только аргумент навигации, а редирект или клик
+/// по ссылке уводят браузер куда угодно (аудит 54). about:* — не страница
+/// (утечки нет), не-http(s) схемы — fail closed (file:, chrome:, ...)
+fn page_url_blocked(href: &str, allow_private_networks: bool) -> bool {
+    let lower = href.trim().to_ascii_lowercase();
+    if lower.is_empty() || lower.starts_with("about:") {
+        return false;
+    }
+    if !allow_private_networks && is_private_host(&lower) {
+        return true;
+    }
+    !(lower.starts_with("http://") || lower.starts_with("https://"))
 }
 
 /// Хост в URL указывает на private/loopback/link-local? Разбор через
@@ -1089,6 +1285,12 @@ fn is_private_ipv4(ip: std::net::Ipv4Addr) -> bool {
         || (o[0] == 192 && o[1] == 168)
         || (o[0] == 169 && o[1] == 254)
         || (o[0] == 100 && (64..=127).contains(&o[1]))
+        // 192.0.0.0/24 (IETF protocol assignments)
+        || (o[0] == 192 && o[1] == 0 && o[2] == 0)
+        // 198.18.0.0/15 (benchmark-сети)
+        || (o[0] == 198 && (18..=19).contains(&o[1]))
+        // 240.0.0.0/4 (reserved; включает 255.255.255.255) — аудит 61
+        || o[0] >= 240
 }
 
 fn is_private_ipv6(ip: std::net::Ipv6Addr) -> bool {
@@ -1106,11 +1308,27 @@ fn is_private_ipv6(ip: std::net::Ipv6Addr) -> bool {
     }
     // 64:ff9b::/96 (NAT64): последние 32 бита — вложенный IPv4
     if seg[0] == 0x0064 && seg[1] == 0xff9b {
+        // 64:ff9b:1::/48 — локальный NAT64 (RFC 8215): диапазон для
+        // внутренних сетей, блокируем целиком
+        if seg[2] == 0x0001 {
+            return true;
+        }
         let v4 = std::net::Ipv4Addr::new(
             (seg[6] >> 8) as u8,
             seg[6] as u8,
             (seg[7] >> 8) as u8,
             seg[7] as u8,
+        );
+        return is_private_ipv4(v4);
+    }
+    // 2002::/16 (6to4): первые 32 бита после префикса — вложенный IPv4,
+    // приватный вложенный блокируем (аудит 61)
+    if seg[0] == 0x2002 {
+        let v4 = std::net::Ipv4Addr::new(
+            (seg[1] >> 8) as u8,
+            seg[1] as u8,
+            (seg[2] >> 8) as u8,
+            seg[2] as u8,
         );
         return is_private_ipv4(v4);
     }
@@ -1142,21 +1360,47 @@ pub fn execute_on(conn: &BrowserConnection, name: &str, args: &Value) -> Result<
                 return Err(format!("navigation failed: {err}"));
             }
             let note = conn.wait_ready()?;
+            // Редирект мог увести на private-адрес: входной фильтр проверяет
+            // только аргумент, фактический landing сверяем здесь (аудит 54)
+            conn.ensure_page_allowed()?;
             Ok(format!("Navigated to {url}. {}", conn.describe()? + &note))
         }
         "browser_read" => {
-            // innerText требует лэйаута — в headless бывает пуст; фолбэк textContent
-            let text = conn.evaluate(
-                "document.body ? (document.body.innerText || document.body.textContent || '') : ''",
-            )?;
-            let mut text = text.as_str().unwrap_or("").to_string();
-            if text.len() > READ_TEXT_LIMIT {
-                crate::truncate_at_char_boundary(&mut text, READ_TEXT_LIMIT);
+            // Перед отдачей текста — сверка фактического URL (аудит 54)
+            conn.ensure_page_allowed()?;
+            // innerText требует лэйаута — в headless бывает пуст; фолбэк textContent.
+            // Срез делается В JS: страница с десятками мегабайт текста иначе
+            // упиралась в лимит кадра tungstenite (16 МиБ), соединение
+            // помечалось мёртвым, а следующий вызов перезапускал браузер
+            // (аудит 55). Лимит — в символах (аудит 63), байтовый бэкстоп ниже
+            let expr = format!(
+                "(() => {{ const b = document.body; \
+                 const t = b ? (b.innerText || b.textContent || '') : ''; \
+                 return JSON.stringify({{ t: t.slice(0, {READ_TEXT_LIMIT}), \
+                 more: t.length > {READ_TEXT_LIMIT} }}); }})()"
+            );
+            let raw = conn.evaluate(&expr)?;
+            let parsed: Value =
+                serde_json::from_str(raw.as_str().unwrap_or("{}")).unwrap_or(Value::Null);
+            let mut text = parsed
+                .get("t")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let mut truncated = parsed.get("more").and_then(|v| v.as_bool()).unwrap_or(false);
+            // Бэкстоп: враждебная страница может подменить slice/innerText
+            if text.len() > READ_TEXT_BYTE_CAP {
+                crate::truncate_at_char_boundary(&mut text, READ_TEXT_BYTE_CAP);
+                truncated = true;
+            }
+            if truncated {
                 text.push_str("\n...[truncated]");
             }
             Ok(format!("{}\n\n--- page text ---\n{}", conn.describe()?, text))
         }
         "browser_screenshot" => {
+            // Скриншот — тоже канал утечки: страницу-нарушителя не снимаем
+            conn.ensure_page_allowed()?;
             let result = conn.request(
                 "Page.captureScreenshot",
                 json!({ "format": "jpeg", "quality": SCREENSHOT_QUALITY }),
@@ -1165,9 +1409,17 @@ pub fn execute_on(conn: &BrowserConnection, name: &str, args: &Value) -> Result<
                 .get("data")
                 .and_then(|d| d.as_str())
                 .ok_or("screenshot: no data in response")?;
+            // Ярлык viewport — фактический: после browser_view_size из панели
+            // константа 1280x800 врала бы, а модель считает координаты именно
+            // по нему (deviceScaleFactor=1, поэтому CSS-пиксели = пиксели снимка)
+            let size = conn
+                .evaluate("`${window.innerWidth}x${window.innerHeight}`")
+                .ok()
+                .and_then(|v| v.as_str().map(String::from))
+                .unwrap_or_else(|| format!("{VIEWPORT_W}x{VIEWPORT_H}"));
             Ok(json!({
                 "ok": true,
-                "viewport": format!("{VIEWPORT_W}x{VIEWPORT_H}"),
+                "viewport": size,
                 "dataUrl": format!("data:image/jpeg;base64,{data}")
             })
             .to_string())
@@ -1204,15 +1456,25 @@ pub fn execute_on(conn: &BrowserConnection, name: &str, args: &Value) -> Result<
                 }
                 return Ok(format!("clicked by ref {r}: {desc} (at {x},{y})"));
             }
+            // Координатный fallback: клик тоже ДОВЕРЕННЫЙ (Input.dispatchMouseEvent),
+            // как в ref-пути. el.click() — синтетика: обработчики с проверкой
+            // isTrusted и hover-меню её не видят, хотя описание инструмента
+            // обещает тот же клик (аудит 56)
             let (x, y) = (arg_int(args, "x")?, arg_int(args, "y")?);
             let desc = conn.evaluate(&format!(
                 "(() => {{ const el = document.elementFromPoint({x},{y}); \
                  if (!el) return 'no element at point'; \
-                 const d = el.tagName + (el.id ? '#'+el.id : '') + \
-                 (el.textContent ? ' «' + el.textContent.trim().slice(0,60) + '»' : ''); \
-                 el.click(); return 'clicked: ' + d; }})()"
+                 return el.tagName + (el.id ? '#'+el.id : '') + \
+                 (el.textContent ? ' «' + el.textContent.trim().slice(0,60) + '»' : ''); }})()"
             ))?;
-            Ok(desc.as_str().unwrap_or("clicked").to_string())
+            let desc = desc.as_str().unwrap_or("element").to_string();
+            for t in ["mousePressed", "mouseReleased"] {
+                conn.request(
+                    "Input.dispatchMouseEvent",
+                    json!({ "type": t, "x": x, "y": y, "button": "left", "clickCount": 1 }),
+                )?;
+            }
+            Ok(format!("clicked at {x},{y}: {desc}"))
         }
         "browser_type" => {
             let text = arg_str(args, "text")?;
@@ -1235,11 +1497,29 @@ pub fn execute_on(conn: &BrowserConnection, name: &str, args: &Value) -> Result<
                     return Err(err.to_string());
                 }
             } else if let (Some(x), Some(y)) = (arg_int_opt(args, "x"), arg_int_opt(args, "y")) {
-                conn.evaluate(&format!(
-                    "(() => {{ const el = document.elementFromPoint({x},{y}); \
-                     if (!el) return 'no element at point'; el.click(); \
-                     if (el.focus) el.focus(); return 'focused'; }})()"
-                ))?;
+                // Доверенный клик по координатам фокусирует поле как настоящий
+                // пользователь (el.click()+focus — синтетика, аудит 56)
+                for t in ["mousePressed", "mouseReleased"] {
+                    conn.request(
+                        "Input.dispatchMouseEvent",
+                        json!({ "type": t, "x": x, "y": y, "button": "left", "clickCount": 1 }),
+                    )?;
+                }
+            }
+            // Input.insertText уходит АКТИВНОМУ элементу: без проверки фокуса
+            // текст мог уйти в никуда, а инструмент рапортовал «typed N»
+            // (аудит 57)
+            let active = conn.evaluate(ACTIVE_EDITABLE_JS)?;
+            let active = active.as_str().unwrap_or("none").to_string();
+            if active != "ok" {
+                let what = if active == "none" {
+                    "nothing is focused".to_string()
+                } else {
+                    format!("active element is <{active}>")
+                };
+                return Err(format!(
+                    "no focused editable element — {what}; pass \"ref\" or click coordinates first, text was not typed"
+                ));
             }
             conn.request(
                 "Input.insertText",
@@ -1258,6 +1538,9 @@ pub fn execute_on(conn: &BrowserConnection, name: &str, args: &Value) -> Result<
             Ok(format!("typed {}", text.len()))
         }
         "browser_snapshot" => {
+            // Снапшот отдаёт имена элементов и href'ы — тоже содержимое
+            // страницы, поэтому та же сверка landing-URL (аудит 54)
+            conn.ensure_page_allowed()?;
             let raw = conn.evaluate(REF_REGISTRY_JS)?;
             let mut text = raw.as_str().unwrap_or("{}").to_string();
             // Потолок ответа: сотни интерактивных элементов * строка описания.
@@ -1273,6 +1556,14 @@ pub fn execute_on(conn: &BrowserConnection, name: &str, args: &Value) -> Result<
             conn.evaluate(&format!("window.scrollBy(0, {dy})"))?;
             Ok(format!("scrolled by {dy}"))
         }
+        // Объявлен в списке диспетчера, но ветки нет — рассинхрон схемы и
+        // обработчика: ошибка громкая, а не «unknown tool» (аудит 60)
+        other if DISPATCHED_TOOLS.contains(&other) => Err(format!(
+            "browser tool {other} is declared but has no handler — internal mismatch"
+        )),
+        other if LIFECYCLE_TOOLS.contains(&other) => Err(format!(
+            "browser tool {other} is handled by the tool dispatcher (tooling.rs), not execute_on"
+        )),
         other => Err(format!("unknown browser tool: {other}")),
     }
 }
@@ -1363,6 +1654,135 @@ mod tests {
         );
     }
 
+    /// Гард landing-URL: редирект или клик по ссылке уводит браузер мимо
+    /// входного фильтра, поэтому перед отдачей содержимого проверяется
+    /// фактический location.href (аудит 54)
+    #[test]
+    fn landed_url_guard_blocks_private_pages() {
+        // about:blank — не страница: читать нечего, вызовы не ломаем
+        assert!(!page_url_blocked("about:blank", false));
+        assert!(!page_url_blocked("", false));
+        // private-адрес после редиректа — блок при выключенном тумблере
+        assert!(page_url_blocked("http://127.0.0.1:8080/admin", false));
+        assert!(page_url_blocked("http://192.168.1.1/", false));
+        assert!(page_url_blocked("http://localhost:3000/", false));
+        // …и разрешён при включённом (осознанный opt-in)
+        assert!(!page_url_blocked("http://127.0.0.1:8080/admin", true));
+        assert!(!page_url_blocked("http://localhost:3000/", true));
+        // публичный http(s) не блокируем
+        assert!(!page_url_blocked("https://example.com/x", false));
+        // не-http(s) схемы — fail closed (file:, chrome:, view-source:)
+        assert!(page_url_blocked("file:///C:/secret.txt", false));
+        assert!(page_url_blocked("chrome://settings", false));
+        assert!(page_url_blocked("view-source:https://example.com", false));
+    }
+
+    /// Мини-сервер с сырым ответом (без браузера): проверяет кап заголовков и
+    /// чтение тела по Content-Length
+    fn spawn_raw_http_server(response: Vec<u8>) -> (u16, Arc<AtomicBool>) {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("cannot bind raw server");
+        let port = listener.local_addr().unwrap().port();
+        let stop = Arc::new(AtomicBool::new(false));
+        let stop_flag = Arc::clone(&stop);
+        std::thread::spawn(move || {
+            listener.set_nonblocking(true).ok();
+            loop {
+                if stop_flag.load(Ordering::SeqCst) {
+                    return;
+                }
+                let Ok((mut stream, _)) = listener.accept() else {
+                    std::thread::sleep(Duration::from_millis(20));
+                    continue;
+                };
+                stream.set_nonblocking(false).ok();
+                stream.set_read_timeout(Some(Duration::from_secs(2))).ok();
+                // Запрос вычитываем до конца заголовков, затем отдаём ответ
+                let mut req: Vec<u8> = Vec::new();
+                let mut chunk = [0u8; 1024];
+                loop {
+                    match stream.read(&mut chunk) {
+                        Ok(0) | Err(_) => break,
+                        Ok(n) => {
+                            req.extend_from_slice(&chunk[..n]);
+                            if req.windows(4).any(|w| w == b"\r\n\r\n") {
+                                break;
+                            }
+                        }
+                    }
+                }
+                let _ = stream.write_all(&response);
+                let _ = stream.flush();
+            }
+        });
+        (port, stop)
+    }
+
+    /// Кап заголовков CDP-ответа и чтение тела (аудит 38/45). Без браузера —
+    /// только TCP: перехвативший порт процесс может слать байты без \r\n\r\n,
+    /// и без капа буфер клиента рос бы до исчерпания памяти
+    #[test]
+    fn cdp_http_reads_body_and_caps_headers() {
+        let body = "{\"ok\":true}";
+        let resp = format!(
+            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        )
+        .into_bytes();
+        let (port, stop) = spawn_raw_http_server(resp);
+        let got = http_get_json(port, "/json/list").expect("normal response must parse");
+        assert_eq!(got, body);
+        stop.store(true, Ordering::SeqCst);
+
+        // Терминированные заголовки длиннее капа, разделитель в том же чанке:
+        // поиск идёт ДО проверки капа, иначе валидный ответ отвергался бы
+        // (регресс на порядок проверок)
+        let filler = format!("X-Pad: {}", "y".repeat(66 * 1024));
+        let resp = format!(
+            "HTTP/1.1 200 OK\r\n{filler}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        )
+        .into_bytes();
+        let (port, stop) = spawn_raw_http_server(resp);
+        let got = http_get_json(port, "/json/list").expect("terminated headers must parse");
+        assert_eq!(got, body);
+        stop.store(true, Ordering::SeqCst);
+
+        // Без разделителя и без границы — обязаны упереться в кап
+        let (port, stop) = spawn_raw_http_server(vec![b'x'; 128 * 1024]);
+        let err = http_get_json(port, "/json/list").expect_err("oversized headers must fail");
+        assert!(err.contains("headers too large"), "got: {err}");
+        stop.store(true, Ordering::SeqCst);
+    }
+
+    /// Каждое имя из схемы обязано быть либо в диспетчере execute_on, либо в
+    /// списке lifecycle-инструментов: раньше связь не проверялась, и
+    /// browser_close мог тихо остаться без обработчика (аудит 60)
+    #[test]
+    fn browser_schemas_match_dispatch() {
+        let names: Vec<String> = browser_tool_schemas()
+            .as_array()
+            .expect("schemas array")
+            .iter()
+            .map(|s| s["function"]["name"].as_str().unwrap().to_string())
+            .collect();
+        for name in &names {
+            assert!(
+                DISPATCHED_TOOLS.contains(&name.as_str())
+                    || LIFECYCLE_TOOLS.contains(&name.as_str()),
+                "{name} объявлен в схеме, но не обрабатывается"
+            );
+        }
+        // и наоборот: диспетчер не держит имён, которых нет в схеме
+        for name in DISPATCHED_TOOLS.iter().chain(LIFECYCLE_TOOLS) {
+            assert!(
+                names.iter().any(|s| s == name),
+                "{name} есть в диспетчере, но не объявлен в схеме"
+            );
+        }
+        // lifecycle обрабатывается до execute_on — пересечения быть не должно
+        assert!(DISPATCHED_TOOLS.iter().all(|n| !LIFECYCLE_TOOLS.contains(n)));
+    }
+
     #[test]
     fn browser_schemas_valid() {
         let v = browser_tool_schemas();
@@ -1403,6 +1823,19 @@ mod tests {
         assert!(is_navigable_url("https://172.32.0.1/", false)); // 172.16-31 — приват, 172.32 нет
         // Хосты, содержащие «127» как подстроку, но не являющиеся loopback
         assert!(is_navigable_url("https://example.com/127.0.0.1", false));
+        // Расширенный список private/reserved (аудит 61)
+        assert!(!is_navigable_url("http://192.0.0.1/", false)); // 192.0.0.0/24
+        assert!(!is_navigable_url("http://198.18.0.1/", false)); // benchmark /15
+        assert!(!is_navigable_url("http://198.19.255.255/", false));
+        assert!(!is_navigable_url("http://240.1.2.3/", false)); // reserved /4
+        assert!(!is_navigable_url("http://255.255.255.255/", false));
+        // 6to4 (2002::/16) с вложенным private-адресом
+        assert!(!is_navigable_url("http://[2002:7f00:1::]/", false));
+        assert!(!is_navigable_url("http://[2002:c0a8:0101::]/", false));
+        // 64:ff9b:1::/48 — локальный NAT64 (RFC 8215)
+        assert!(!is_navigable_url("http://[64:ff9b:1::1]/", false));
+        // 6to4 с ПУБЛИЧНЫМ вложенным адресом (8.8.8.8) — не блокируем
+        assert!(is_navigable_url("http://[2002:0808:0808::]/", false));
         // С включённым тумблером приватные адреса проходят
         assert!(is_navigable_url("http://127.0.0.1:11434/api", true));
         assert!(is_navigable_url("http://localhost:8080/", true));
@@ -1480,7 +1913,8 @@ mod tests {
                 // Input.insertText должен зажечь input-событие)
                 let body = "<html><title>HaloUI Test</title><h1>Привет</h1>\
                             <input id='q' placeholder='поиск' oninput='document.title=\"typed:\"+this.value'>\
-                            <button onclick='document.title=\"clicked\"'>go</button></html>";
+                            <button onclick='document.title=\"clicked\"'>go</button>\
+                            <button id='probe' onclick='document.title=\"trusted:\"+event.isTrusted'>probe</button></html>";
                 let len = body.len();
                 let resp = format!(
                     "HTTP/1.1 200 OK\r\n\
@@ -1495,6 +1929,26 @@ mod tests {
             }
         });
         (port, stop)
+    }
+
+    /// Возврат глобального CONFIG на выходе из теста, включая панику: иначе
+    /// allow_private_networks=true утекал в остальные тесты бинаря (аудит 58)
+    struct ConfigGuard(BrowserConfig);
+
+    impl Drop for ConfigGuard {
+        fn drop(&mut self) {
+            set_config(self.0.clone());
+        }
+    }
+
+    /// Остановка тестового HTTP-сервера на любом выходе, включая панику
+    /// (аудит 58)
+    struct StopGuard(Arc<AtomicBool>);
+
+    impl Drop for StopGuard {
+        fn drop(&mut self) {
+            self.0.store(true, Ordering::SeqCst);
+        }
     }
 
     /// Полный e2e против реального браузера, если он установлен.
@@ -1521,7 +1975,11 @@ mod tests {
             executable: String::new(),
             allow_private_networks: true,
         });
+        // Страховки от паники в ассертах: конфиг и тестовый сервер возвращаются
+        // в исходное состояние через Drop (аудит 58)
+        let _cfg_guard = ConfigGuard(prev_config);
         let (port, stop_server) = spawn_test_http_server();
+        let _stop_guard = StopGuard(Arc::clone(&stop_server));
         let registry = BrowserRegistry::default();
         let conn = registry.get_or_launch().expect("browser must launch");
         let nav = execute_on(
@@ -1588,15 +2046,89 @@ mod tests {
             "trusted click must run onclick, got: {title_after_click}"
         );
 
+        // Координатный клик — тоже доверенные Input.dispatchMouseEvent (аудит 56):
+        // синтетический el.click() дал бы isTrusted=false
+        let probe = elements
+            .iter()
+            .find(|e| e["name"].as_str() == Some("probe"))
+            .expect("probe button must be in the snapshot");
+        let (px, py) = (
+            probe["x"].as_i64().unwrap() + 2,
+            probe["y"].as_i64().unwrap() + 2,
+        );
+        execute_on(&conn, "browser_click", &json!({ "x": px, "y": py }))
+            .expect("coordinate click must succeed");
+        let title_after_coord = conn.evaluate("document.title").expect("evaluate title");
+        assert_eq!(
+            title_after_coord.as_str(),
+            Some("trusted:true"),
+            "coordinate click must be trusted (isTrusted=true)"
+        );
+
+        // Без ref и координат при фокусе на кнопке текст не вводится, а вызов
+        // падает — раньше уходило «typed N» при ушедшем в никуда insertText
+        // (аудит 57)
+        let no_focus = execute_on(&conn, "browser_type", &json!({ "text": "x" }))
+            .expect_err("type without a focused editable element must fail");
+        assert!(
+            no_focus.contains("no focused editable element"),
+            "got: {no_focus}"
+        );
+
+        // ── Мягкий канал не ждёт жёсткий запрос (аудит 37/44) ──
+        // Жёсткий запрос на never-resolving promise висит до своего дедлайна,
+        // удерживая основной ws-мьютекс; кадр живого просмотра обязан прийти
+        // сразу по своему (отдельному) каналу
+        let stalled = {
+            let c = Arc::clone(&conn);
+            std::thread::spawn(move || {
+                let _ = c.request_impl(
+                    "Runtime.evaluate",
+                    json!({
+                        "expression": "new Promise(() => {})",
+                        "awaitPromise": true,
+                        "returnByValue": true
+                    }),
+                    Duration::from_secs(4),
+                    false,
+                );
+            })
+        };
+        std::thread::sleep(Duration::from_millis(200)); // жёсткому — взять мьютекс
+        let t0 = Instant::now();
+        let frame = conn
+            .view_frame()
+            .expect("soft frame must not wait for the hard request");
+        let waited = t0.elapsed();
+        assert!(!frame.0.is_empty(), "frame must contain jpeg data");
+        assert!(
+            waited < Duration::from_secs(3),
+            "soft frame waited {waited:?} for the hard request"
+        );
+        stalled.join().unwrap();
+
+        // ── Гард landing-URL (аудит 54): private-страница не читается ──
+        // Тумблер выключаем ПОСЛЕ навигации — так воспроизводится редирект или
+        // клик на private-адрес, не требуя внешнего публичного хоста
+        set_config(BrowserConfig {
+            allow_private_networks: false,
+            ..config()
+        });
+        let err = execute_on(&conn, "browser_read", &json!({}))
+            .expect_err("private page must not be readable");
+        assert!(err.contains("not allowed"), "got: {err}");
+        let href = conn.evaluate("location.href").unwrap();
+        assert_eq!(
+            href.as_str(),
+            Some("about:blank"),
+            "page must be reset away from the private URL"
+        );
+        // about:blank не блокируется: контента нет, вызовы не ломаем
+        let blank = execute_on(&conn, "browser_read", &json!({})).expect("about:blank is readable");
+        assert!(blank.contains("--- page text ---"), "got: {blank}");
+
         // В execute_on нет ветки browser_close — гасим реестр напрямую,
         // как делает продакшн-путь в lib.rs
         registry.kill_all();
-
-        // Восстанавливаем глобальный CONFIG: тесты в одном бинарнике не должны
-        // видеть browser_e2e-конфиг (allow_private_networks и пр.)
-        set_config(prev_config);
-
-        // Сценарий прошёл — останавливаем тестовый сервер
-        stop_server.store(true, Ordering::SeqCst);
     }
 }
