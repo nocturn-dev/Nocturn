@@ -534,7 +534,7 @@ fn git_run(
     Ok(out.stdout.trim().to_string())
 }
 
-/// Ботовый автор журнала (ZCode-паттерн, блок 12 шаг 4): личные git-конфиги
+/// Ботовый автор журнала (паттерн-референс, блок 12 шаг 4): личные git-конфиги
 /// пользователя не участвуют
 const CP_GIT_AUTHOR: &[(&str, &str)] = &[
     ("GIT_AUTHOR_NAME", "Nocturn Checkpoint"),

@@ -137,7 +137,7 @@ export interface Session {
 export interface Project {
   id: string;
   name: string;
-  /** Папка проекта: в <root>/.nocturn хранятся сессии проекта (ZCode-стиль) */
+  /** Папка проекта: в <root>/.nocturn хранятся сессии проекта (стиль референса) */
   root?: string;
   /** Привязанный профиль API: новые чаты проекта наследуют его */
   profileId?: string;

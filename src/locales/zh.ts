@@ -754,7 +754,7 @@ export const zh = {
     "mcp.delete": "删除服务器",
     "mcp.import": "导入 JSON",
     "mcp.importHint":
-      '粘贴 Claude Desktop / ZCode 格式的配置：{"mcpServers": {"名称": {"command": "…", "args": […]}}} 或直接 {"名称": {…}}。同名服务器会被更新。',
+      '粘贴 Claude Desktop 格式的配置：{"mcpServers": {"名称": {"command": "…", "args": […]}}} 或直接 {"名称": {…}}。同名服务器会被更新。',
     "mcp.transport": "传输方式",
     "mcp.transportStdio": "本地进程",
     "mcp.transportHttp": "远程 (HTTP)",

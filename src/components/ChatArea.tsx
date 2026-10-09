@@ -89,7 +89,7 @@ function artifactTitleFromHtml(html: string): string | null {
 /** Единая анатомия чипов нижней панели композера: одна высота, паддинги
  *  и кегль у всех контролов — раньше каждый чип жил со своими px/py/кеглем,
  *  и ряд «плясал» по вертикали (фидбек владельца про непропорциональные
- *  иконки; референсы — Claude Desktop и ZCode). Обводка — hairline 1px:
+ *  иконки; референсы — Claude Desktop и референс). Обводка — hairline 1px:
  *  активный акцент/25, неактивный прозрачный (толстые рамки — фидбек 01.10) */
 const COMPOSER_CHIP =
   "flex h-7 shrink-0 items-center gap-1.5 rounded-lg border px-2 text-[0.6875rem] font-medium transition duration-150 disabled:cursor-not-allowed disabled:opacity-40";
@@ -527,7 +527,7 @@ export default function ChatArea({
   useEffect(() => {
     setOldTurnsShown(0); // смена задачи — снова сворачиваем историю
   }, [sessionKey]);
-  // Селектор проекта над центрированным композером (ZCode-стиль)
+  // Селектор проекта над центрированным композером (стиль референса)
   const [projectOpen, setProjectOpen] = useState(false);
   const [permOpen, setPermOpen] = useState(false);
   // Поповер «Инструменты»: список имён из живых схем, тянется один раз при открытии
@@ -1489,7 +1489,7 @@ export default function ChatArea({
   // раз в минуту ре-рендерил весь ChatArea с сотнями карточек впустую
   const [now, setNow] = useState(() => new Date());
   const greetingVisible = visible.length === 0 && !typing;
-  // Пустой чат без терминала: композер уезжает в центр экрана (ZCode-стиль),
+  // Пустой чат без терминала: композер уезжает в центр экрана (стиль референса),
   // приветствие сдвигается выше, селектор проекта — прямо над композером
   const composerCentered = greetingVisible && !terminalOpen;
   useEffect(() => {
@@ -1930,7 +1930,7 @@ export default function ChatArea({
                 const assistants = derived.assistants;
 
                 if (groupTurns) {
-                  // —— Ход ОДНОЙ плоской лентой в стиле ZCode (фидбек 30.09):
+                  // —— Ход ОДНОЙ плоской лентой в стиле референса (фидбек 30.09):
                   // шапка с таймером, строки «Размышления · N с» → текст →
                   // шаги хронологически, usage один раз в конце. Без карточек
                   // на каждый раунд — они и дублировали шапки/мысли ——
@@ -2328,7 +2328,7 @@ export default function ChatArea({
                 : "justify-center"
             }`}
           >
-            {/* Гигантский призрачный логотип фоном — как в ZCode */}
+            {/* Гигантский призрачный логотип фоном — как в референсе */}
             <div className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-[64%] select-none opacity-[0.05]">
               <NocturnMark size={480} />
             </div>
@@ -2512,7 +2512,7 @@ export default function ChatArea({
                           </span>
                         </button>
                       ))}
-                      {/* ZCode-паттерн: «добавить проект» прямо в секции */}
+                      {/* паттерн-референс: «добавить проект» прямо в секции */}
                       {onNewProject && (
                         <>
                           <div className="my-1 border-t border-halo-line/60" />
@@ -2535,7 +2535,7 @@ export default function ChatArea({
           )}
           {/* z-[var(--halo-z-panel-raised)] выше ленты сообщений (z-10): glass-pane создаёт stacking
               context, и палитра slash без этого слоя оказывалась под лентой.
-              Пропорции по ZCode: компактный радиус, тонкая рамка, без тени —
+              Пропорции по референс: компактный радиус, тонкая рамка, без тени —
               композер не должен перетягивать фокус с ленты */}
           <div className="glass-pane relative z-[var(--halo-z-panel-raised)] rounded-xl border border-halo-line/70 bg-halo-surface/80 p-2 transition duration-200">
             {/* Нок: сидит на углу шелла (сторона — преф, переносится драгом);
@@ -2876,7 +2876,7 @@ export default function ChatArea({
               </div>
             )}
 
-            {/* Нижняя панель в духе ZCode: режимы слева, модель и настройки
+            {/* Нижняя панель в духе референс: режимы слева, модель и настройки
                 справа. Все чипы — единая анатомия COMPOSER_CHIP */}
             <div className="mt-1 flex items-center gap-1.5 px-1">
               <button
@@ -3105,7 +3105,7 @@ export default function ChatArea({
                   )}
                 </div>
               )}
-              {/* Модель — в правом кластере (ZCode/Claude:Capabilities слева,
+              {/* Модель — в правом кластере (референс/Claude:Capabilities слева,
                   модель и настройки справа) */}
               <button
                 onClick={onOpenSettings}
