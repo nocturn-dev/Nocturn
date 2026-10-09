@@ -106,7 +106,9 @@ of TypeScript + Rust today). The highlights, by theme:
 - Any OpenAI-compatible endpoint, native Anthropic — and now the **OpenAI
   Responses API** (`wire_api=responses`) for Codex-style providers; **import
   provider configs** straight from a Codex `config.toml`; compare up to three
-  providers side-by-side on one prompt.
+  providers side-by-side on one prompt. **Local runtimes** — Ollama and LM
+  Studio are detected automatically in API settings, with their models listed
+  and ready to use in one click.
 
 ### Mascot
 - **Nok** — a pixel firefly on the composer edge who mirrors the run:
@@ -138,6 +140,12 @@ of TypeScript + Rust today). The highlights, by theme:
   sandboxed worker: no disk, no IPC, stdout/stderr go back to the model.
   Read-only calls run in parallel batches; permission and deny checks stay
   enforced on the Rust side.
+- **LSP diagnostics loop** — a read-only `lsp_diagnostics` tool (language
+  servers over stdio, spawned lazily per language) and automatic diagnostics
+  attached to every `fs_write` result: edit → compile errors in the same turn
+  → the model fixes them immediately, no extra `tsc`/`cargo check` shell call
+  needed. Diagnostics are best-effort and never break an edit; project-root
+  and sensitive-path gates apply like any file tool.
 - **Context management for long runs** — old tool results are compacted away
   (microcompact) and the conversation is summarized into a persistent boundary
   when the model nears its window (autocompact); a response cut by the output
@@ -158,6 +166,9 @@ of TypeScript + Rust today). The highlights, by theme:
   background: when one finishes, the agent picks up its report automatically —
   and if the run has already ended, a new one starts by itself (capped at
   three auto-continuations per task).
+- **Local models** — Nocturn detects local runtimes (Ollama, LM Studio)
+  automatically and lists their models in API settings; picking one fills in
+  the endpoint for you (ports 11434 / 1234).
 - **Memory** — persistent facts the agent saves and recalls itself
   (`memory_save` / `memory_recall`); review, edit or wipe them in settings.
 - **Project rules** — an `AGENTS.md` / `CLAUDE.md` in the project root is
@@ -249,7 +260,8 @@ of TypeScript + Rust today). The highlights, by theme:
   Ollama — without leaving Nocturn. Surgery output is re-parsed and its
   surviving tensor bytes are verified byte-for-byte; blob exports are
   hash-checked. The agent can drive the lab through
-  `gguf_inspect` / `gguf_cut` / `gguf_test` tools.
+  `gguf_inspect` / `gguf_cut` / `gguf_test` tools; GGUF artifacts also appear
+  in the storage manager with a dedicated cleanup.
 
 ## Settings: deeper than it looks
 
