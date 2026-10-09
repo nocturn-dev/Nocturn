@@ -383,8 +383,9 @@ pub fn free_bytes(path: &Path) -> Result<u64, String> {
     if rc != 0 {
         return Err(format!("free_bytes({}): statvfs failed", path.display()));
     }
-    // f_bavail — доступно НЕ-root пользователю (f_bfree — включая резерв root'а)
-    Ok(u64::from(st.f_bavail) * u64::from(st.f_frsize))
+    // f_bavail — доступно НЕ-root пользователю (f_bfree — включая резерв root'а);
+    // типы полей statvfs различаются между ОС, `as` приводит одинаково всюду
+    Ok(st.f_bavail as u64 * st.f_frsize as u64)
 }
 
 /// Размеры каталогов хранилища — менеджер в «Основном» (секция «Хранилище»).

@@ -431,10 +431,12 @@ fn spawn_process(command: &str, args: &[String]) -> std::io::Result<Child> {
         use std::os::unix::process::CommandExt;
         cmd.process_group(0);
     }
+    // cmd /C-фолбэк нужен только на Windows (.cmd-файлы); на unix лишний
+    // match — needless_match, поэтому ветка целиком под cfg(windows)
+    #[cfg(windows)]
     match cmd.spawn() {
         Ok(c) => Ok(c),
         Err(direct_err) => {
-            #[cfg(windows)]
             {
                 // typescript-language-server и компания — .cmd-файлы:
                 // CreateProcess их не исполняет, как в mcp.rs — cmd /C с
@@ -450,12 +452,10 @@ fn spawn_process(command: &str, args: &[String]) -> std::io::Result<Child> {
                     .spawn()
                     .map_err(|_| direct_err)
             }
-            #[cfg(not(windows))]
-            {
-                Err(direct_err)
-            }
         }
     }
+    #[cfg(not(windows))]
+    cmd.spawn()
 }
 
 /// (ключ сервера, хендл): ключ = команда+args, дедуп переспавна того же

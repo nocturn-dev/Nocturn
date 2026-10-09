@@ -1,8 +1,12 @@
-# Релизный пайплайн (порт release-windows из .gitlab-ci.yml после переезда
-# с GitLab на GitHub: gitlab удалён из истории — см. RELEASE.md).
-# Тег v* → подписанный NSIS-инсталлятор + latest.json → GitHub Release.
-# Без TAURI_SIGNING_PRIVATE_KEY сборка падает намеренно: неподписанные
-# артефакты апдейтера нельзя выпускать.
+# Релизный пайплайн: один тег v* → три платформы в один GitHub Release.
+# tauri-action сам генерирует latest.json для авто-обновлятора
+# (createUpdaterArtifacts: true в tauri.conf.json) и мержит записи всех
+# платформ в один файл в релизе. Без TAURI_SIGNING_PRIVATE_KEY сборка падает
+# намеренно: неподписанные артефакты апдейтера нельзя выпускать.
+#
+# macOS: сборки неподписанные — dmg в релизе есть, но апдейтер на macOS не
+# сработает (Gatekeeper не пропустит ad-hoc подпись, см. RELEASE.md); джоба
+# continue-on-error, чтобы не ронять Windows/Linux-релиз.
 name: Release
 
 on:
@@ -13,9 +17,14 @@ permissions:
   contents: write
 
 jobs:
-  release-windows:
-    name: Windows installer
-    runs-on: windows-latest
+  release:
+    name: Release (${{ matrix.platform }})
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [windows-latest, ubuntu-22.04, macos-latest]
+    continue-on-error: ${{ matrix.platform == 'macos-latest' }}
+    runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4
 
@@ -28,36 +37,29 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
-          key: windows-release
+          key: ${{ matrix.platform }}-release
+
+      - name: Install Linux dependencies (Tauri v2)
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev libfuse2
 
       - run: npm ci
 
-      - name: Build signed installer
+      - name: Build and upload to GitHub Release
+        uses: tauri-apps/tauri-action@v0
         env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: npm run tauri build
-
-      - name: Generate latest.json
-        shell: bash
-        run: |
-          node scripts/make-latest-json.mjs \
-            src-tauri/target/release/bundle/nsis \
-            "https://github.com/${{ github.repository }}/releases/latest/download" \
-            src-tauri/target/release/bundle/nsis/latest.json
-
-      - name: Create release with assets
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -eo pipefail
-          cd src-tauri/target/release/bundle/nsis
-          args=()
-          for f in *.exe *.sig latest.json; do
-            [ -f "$f" ] && args+=("$f")
-          done
-          gh release create "${{ github.ref_name }}" "${args[@]}" \
-            --repo "${{ github.repository }}" \
-            --title "Nocturn ${{ github.ref_name }}" \
-            --notes "Nocturn ${{ github.ref_name }} — Windows installer (NSIS). The in-app updater reads latest.json from this release."
+        with:
+          tagName: ${{ github.ref_name }}
+          # releaseDraft/prerelease выключены: /releases/latest не включает
+          # такие релизы, а на него смотрит endpoint авто-обновления
+          # (tauri.conf.json → plugins.updater)
+          releaseName: Nocturn ${{ github.ref_name }}
+          releaseBody: "Скачай установщик для своей платформы. Обновление из приложения — автоматически (Windows: NSIS/MSI, Linux: AppImage; .deb обновляется вручную). macOS-сборки не автоподписаны — обновление из приложения на macOS не работает."
+          releaseDraft: false
+          prerelease: false
+          includeUpdaterJson: true
