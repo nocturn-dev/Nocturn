@@ -392,9 +392,11 @@ grab an installer from
 [Releases](https://github.com/nocturn-dev/Nocturn/releases). Notes per
 platform:
 
-- **Windows** — the most tested platform.
+- **Windows** — the most tested platform; in-app auto-update via NSIS/MSI.
 - **macOS** — builds are unsigned; on first launch right-click the app →
-  *Open*, or allow it in System Settings → Privacy & Security.
+  *Open*, or allow it in System Settings → Privacy & Security. In-app
+  auto-update does not work on unsigned builds — update by downloading a new
+  dmg.
 - **Linux** — use the `.AppImage` for automatic in-app updates (`.deb` updates
   manually); the UI requires **WebKitGTK 2.40+** (Debian 12+, Ubuntu 23.04+,
   Fedora 38+ — older versions silently degrade glass/ambient effects);

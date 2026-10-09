@@ -4370,6 +4370,9 @@ mod tests {
         let info = parse_show_body(body).unwrap();
         assert_eq!(info.format.as_deref(), Some("gguf"));
         assert_eq!(info.from_paths.len(), 1);
+        // file_name() сепараторы зависят от ОС: на unix `\` в Windows-пути
+        // не разбивается, blob-суффикс проверяем только там, где он им является
+        #[cfg(windows)]
         assert!(is_blob_name(
             info.from_paths[0]
                 .file_name()
