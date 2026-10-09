@@ -480,6 +480,8 @@ fn path_allowed(roots_canon: &[String], path: &str) -> bool {
 fn norm_for_compare(s: &str) -> String {
     #[cfg(any(windows, target_os = "macos"))]
     {
+        // mut нужен только windows-ветке (срез \\?\-префикса)
+        #[cfg_attr(not(windows), allow(unused_mut))]
         let mut s = s.to_lowercase();
         #[cfg(windows)]
         {
