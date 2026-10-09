@@ -389,7 +389,7 @@ Requirements: **Node 20+** and **Rust** (for the native build).
 
 Windows, Linux and macOS builds are produced automatically for every release —
 grab an installer from
-[Releases](https://gitlab.com/nocturn-lab1/Nocturn-AI/-/releases). Notes per
+[Releases](https://github.com/nocturn-dev/Nocturn/releases). Notes per
 platform:
 
 - **Windows** — the most tested platform.
@@ -418,15 +418,14 @@ docs/           screenshots
 
 Every change — features, fixes, refactors — lands in the commit history with
 a `type(scope): message` summary. Releases are cut on `v*` tags; see
-[Releases](https://gitlab.com/nocturn-lab1/Nocturn-AI/-/releases) for
+[Releases](https://github.com/nocturn-dev/Nocturn/releases) for
 per-version installers.
 
 ## Contributing
 
 Issues and PRs are welcome. `npm run lint`, `npm test`, `npm run build` and
 `cargo clippy --all-targets -- -D warnings` / `cargo test` (in `src-tauri/`)
-must pass — GitLab CI enforces all of them (`.github/` workflows are kept
-for reference only; the GitHub account is frozen).
+must pass — GitHub Actions enforces all of them.
 
 ## License
 

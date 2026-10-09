@@ -44,8 +44,8 @@ Tailwind 4, бекенд Rust в `src-tauri/`. Без облаков: ключи
 2. Новые ключи локалей добавляются во **все 4** файла (ru/en/zh/ja),
    с настоящими переводами, не заглушками.
 3. Коммиты делает **агент — локально** (стиль `type(scope): message` по
-   `git log`); **пуш в GitLab** (`nocturn-lab1/Nocturn-AI`, remote `gitlab`) —
-   агент по запросу владельца; GitHub `origin` заморожен (аккаунт заблокирован).
+   `git log`); **пуш в GitHub** (`nocturn-dev/Nocturn`, remote `origin`) —
+   агент по запросу владельца (GitLab `nocturn-lab1` удалён — аккаунт забанен).
 4. Коммит-стиль: `type(scope): message` по-английски — сверяться с `git log`.
 
 ## Конвенции

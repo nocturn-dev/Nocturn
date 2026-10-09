@@ -957,6 +957,7 @@ export interface StorageStats {
   images: number;
   sounds: number;
   fonts: number;
+  gguf: number;
 }
 
 export async function storageStats(): Promise<StorageStats | null> {
@@ -964,7 +965,7 @@ export async function storageStats(): Promise<StorageStats | null> {
   return invoke<StorageStats>("storage_stats");
 }
 
-/** kind: "checkpoints" | "images" — возвращает число удалённых записей */
+/** kind: "checkpoints" | "images" | "gguf" — возвращает число удалённых записей */
 export async function storageCleanup(kind: string): Promise<number> {
   if (!inTauri) {
     throw new Error("Очистка хранилища работает в нативном приложении (npm run tauri dev)");
