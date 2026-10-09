@@ -870,7 +870,7 @@ pub(crate) fn rejects_sensitive_path(path: &str) -> Result<(), String> {
         let comps: Vec<&str> = norm.split('/').filter(|c| !c.is_empty()).collect();
         // `..` под запретом так же, как на Windows-ветке: подъём уводит
         // проверку топ-уровня мимо целевого каталога (/home/u/../../etc/…)
-        if comps.iter().any(|c| *c == "..") {
+        if comps.contains(&"..") {
             return Err("path must not contain '..'".into());
         }
         if comps
@@ -884,15 +884,14 @@ pub(crate) fn rejects_sensitive_path(path: &str) -> Result<(), String> {
         // /private/etc, который без этой ветки проходил мимо блока — два пути
         // к одному месту были защищены асимметрично (аудит А3-3)
         #[cfg(target_os = "macos")]
-        if comps.first().is_some_and(|c| *c == "private") {
-            if comps
+        if comps.first().is_some_and(|c| *c == "private")
+            && comps
                 .get(1)
                 .is_some_and(|c| matches!(*c, "etc" | "var" | "root"))
-            {
-                return Err("path points to a protected system location".into());
-            }
+        {
+            return Err("path points to a protected system location".into());
         }
-        if comps.iter().any(|c| *c == ".ssh") {
+        if comps.contains(&".ssh") {
             return Err("path points to a protected location (SSH keys)".into());
         }
         Ok(())
