@@ -131,20 +131,20 @@ const SessionRow = memo(function SessionRow({
             h.onSessionMenu(s.id, e.clientX, e.clientY);
           }}
           title={s.tag ? `[${s.tag}] ${s.title}` : s.title}
-          className={`flex w-full items-center gap-1.5 rounded-md px-2 py-2 text-left text-sm transition duration-150 ${
+          className={`flex h-8 w-full items-center gap-1.5 rounded-md px-2 text-left text-sm transition duration-150 ${
             active
               ? "bg-halo-hover-strong text-halo-text"
               : "text-halo-muted hover:bg-halo-hover hover:text-halo-text"
           }`}
         >
           {s.pinned && (
-            <span className="shrink-0 text-halo-accent/80">
+            <span className="shrink-0 text-halo-text/70">
               <PinIcon />
             </span>
           )}
           {/* Ветка edit-and-resend: оригинал в списке рядом, возврат кликом */}
           {s.branchedFrom && (
-            <span title={t("branch.badge")} className="shrink-0 text-halo-accent/80">
+            <span title={t("branch.badge")} className="shrink-0 text-halo-muted">
               ↳
             </span>
           )}
@@ -171,7 +171,7 @@ const SessionRow = memo(function SessionRow({
               title={s.pinned ? t("menu.unpin") : t("menu.pin")}
               className={`rounded p-0.5 transition-colors hover:text-halo-text ${
                 s.pinned
-                  ? "text-halo-accent"
+                  ? "text-halo-text/70"
                   : "text-halo-muted opacity-0 group-hover/row:opacity-100"
               }`}
             >
@@ -215,7 +215,7 @@ const SessionRow = memo(function SessionRow({
               }}
               title={t("sidebar.tag")}
               className={`rounded p-0.5 transition-colors hover:text-halo-text ${
-                s.tag ? "text-halo-accent/80" : "text-halo-muted opacity-0 group-hover/row:opacity-100"
+                s.tag ? "text-halo-text/70" : "text-halo-muted opacity-0 group-hover/row:opacity-100"
               }`}
             >
               <TagIcon />
@@ -433,7 +433,7 @@ export default function Sidebar({
         }}
         onDoubleClick={onResizeReset}
         title={t("sidebar.resizeHint")}
-        className={`absolute top-0 z-[var(--halo-z-panel-raised)] h-full w-2.5 cursor-col-resize transition-colors hover:bg-halo-accent/40 ${
+        className={`absolute top-0 z-[var(--halo-z-panel-raised)] h-full w-2.5 cursor-col-resize transition-colors hover:bg-halo-hover-strong ${
           side === "left" ? "-right-1" : "-left-1"
         }`}
       />
@@ -448,10 +448,10 @@ export default function Sidebar({
           title={t("sidebar.collapse")}
           className="flex items-center gap-2 rounded-md py-1 pl-1 pr-2 text-halo-text transition-colors hover:bg-halo-hover"
         >
-          <span className="text-halo-accent">
+          <span className="text-halo-text">
             <BrandMark />
           </span>
-          <span className="text-[0.9375rem] font-semibold tracking-wide">Nocturn</span>
+          <span className="text-[0.9375rem] font-medium tracking-wide">Nocturn</span>
         </button>
         <span data-tauri-drag-region className="h-full flex-1" />
         {showWindowControls && <WindowControls />}
@@ -461,9 +461,9 @@ export default function Sidebar({
       <div className="space-y-0.5 px-3">
         <button
           onClick={onNewChat}
-          className="group flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-sm text-halo-text transition-colors hover:bg-halo-hover"
+          className="group flex h-8 w-full items-center gap-2.5 rounded-lg px-2 text-sm text-halo-muted transition-colors hover:bg-halo-hover hover:text-halo-text"
         >
-          <span className="shrink-0 text-halo-muted transition-colors group-hover:text-halo-accent">
+          <span className="shrink-0 text-halo-muted transition-colors group-hover:text-halo-text">
             <PlusIcon />
           </span>
           <span className="flex-1 text-left">{t("sidebar.newTask")}</span>
@@ -473,9 +473,9 @@ export default function Sidebar({
         </button>
         <button
           onClick={onOpenSearch}
-          className="group flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-sm text-halo-text transition-colors hover:bg-halo-hover"
+          className="group flex h-8 w-full items-center gap-2.5 rounded-lg px-2 text-sm text-halo-muted transition-colors hover:bg-halo-hover hover:text-halo-text"
         >
-          <span className="shrink-0 text-halo-muted transition-colors group-hover:text-halo-accent">
+          <span className="shrink-0 text-halo-muted transition-colors group-hover:text-halo-text">
             <SearchIcon />
           </span>
           <span className="flex-1 text-left">{t("sidebar.search")}</span>
@@ -486,18 +486,18 @@ export default function Sidebar({
         {/* Автоматизации: запланированные задачи агента */}
         <button
           onClick={onOpenAutomations}
-          className="group flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-sm text-halo-text transition-colors hover:bg-halo-hover"
+          className="group flex h-8 w-full items-center gap-2.5 rounded-lg px-2 text-sm text-halo-muted transition-colors hover:bg-halo-hover hover:text-halo-text"
         >
-          <span className="shrink-0 text-halo-muted transition-colors group-hover:text-halo-accent">
+          <span className="shrink-0 text-halo-muted transition-colors group-hover:text-halo-text">
             <ZapIcon />
           </span>
           <span className="flex-1 text-left">{t("sidebar.automations")}</span>
         </button>
         <button
           onClick={onOpenPlugins}
-          className="group flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-sm text-halo-text transition-colors hover:bg-halo-hover"
+          className="group flex h-8 w-full items-center gap-2.5 rounded-lg px-2 text-sm text-halo-muted transition-colors hover:bg-halo-hover hover:text-halo-text"
         >
-          <span className="shrink-0 text-halo-muted transition-colors group-hover:text-halo-accent">
+          <span className="shrink-0 text-halo-muted transition-colors group-hover:text-halo-text">
             <GridIcon />
           </span>
           <span className="flex-1 text-left">{t("sidebar.plugins")}</span>
@@ -505,28 +505,31 @@ export default function Sidebar({
       </div>
 
       {/* Разделительная черта (как у «Настройки») — с воздухом с обеих сторон */}
-      <div className="mx-4 mt-4 border-t border-halo-line" />
+      <div className="mx-4 mt-4 border-t border-halo-line/50" />
 
       <nav className="scroll-slim flex-1 overflow-y-auto overflow-x-hidden px-3 pb-4">
         {/* Переключатель группировки + справа: архив и сворачивание проектов */}
         <div className="flex items-center gap-1 px-2 pt-4 pb-2">
+          {/* Сегментный контрол: одна рамка 1px, активный сегмент — фон
+              6% белого, радиус 8. Без pill-форм и ярких подсветок */}
+          <div className="flex items-center gap-0.5 rounded-lg border border-halo-line/60 p-0.5">
           <button
             onClick={() => changeGroupBy("flat")}
-            className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs transition-colors ${
+            className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs transition-colors ${
               groupBy === "flat"
-                ? "border-halo-line bg-halo-hover-strong text-halo-text"
-                : "border-transparent text-halo-muted/70 hover:text-halo-text"
+                ? "bg-halo-hover text-halo-text"
+                : "text-halo-muted/70 hover:text-halo-text"
             }`}
           >
-            <span className="text-[0.625rem] font-semibold">#</span>
+            <span className="text-[0.625rem]">#</span>
             {t("sidebar.tasks")}
           </button>
           <button
             onClick={() => changeGroupBy("project")}
-            className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs transition-colors ${
+            className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs transition-colors ${
               groupBy === "project"
-                ? "border-halo-line bg-halo-hover-strong text-halo-text"
-                : "border-transparent text-halo-muted/70 hover:text-halo-text"
+                ? "bg-halo-hover text-halo-text"
+                : "text-halo-muted/70 hover:text-halo-text"
             }`}
           >
             <span className="text-halo-muted/70">
@@ -534,6 +537,7 @@ export default function Sidebar({
             </span>
             {t("sidebar.projects")}
           </button>
+          </div>
           <span className="flex-1" />
           {/* Свернуть/развернуть секцию проектов (только в режиме «Проекты») */}
           {groupBy === "project" && !showArchived && (
@@ -721,7 +725,7 @@ export default function Sidebar({
             <button
               onClick={() => setFilesOpen((v) => !v)}
               style={headerColor ? { color: headerColor } : undefined}
-              className="flex flex-1 items-center gap-1.5 text-[0.6875rem] font-medium uppercase tracking-[0.14em] text-halo-muted/50 transition-colors hover:text-halo-text"
+              className="flex flex-1 items-center gap-1.5 text-[0.6875rem] uppercase tracking-[0.14em] text-halo-muted/50 transition-colors hover:text-halo-text"
             >
               <ChevronSmallIcon className={filesOpen ? "" : "-rotate-90"} />
               {t("files.section")}
@@ -755,7 +759,7 @@ export default function Sidebar({
                 const picked = await pickFolder().catch(() => null);
                 if (picked) onProjectRootChange(picked);
               }}
-              className="flex w-full items-center gap-2 rounded-lg border border-dashed border-halo-line px-3 py-2.5 text-sm text-halo-muted transition-colors hover:border-halo-accent/50 hover:text-halo-text"
+              className="flex w-full items-center gap-2 rounded-lg border border-dashed border-halo-line px-3 py-2.5 text-sm text-halo-muted transition-colors hover:border-halo-line hover:text-halo-text"
             >
               <FolderIcon />
               {t("files.pick")}
@@ -967,7 +971,7 @@ function Checkpoints({ root }: { root: string }) {
 
   return (
     <div className="mb-2 ml-3 border-l border-halo-line pl-3">
-      <p className="py-1 text-[0.6875rem] font-medium uppercase tracking-[0.14em] text-halo-muted/50">
+      <p className="py-1 text-[0.6875rem] uppercase tracking-[0.14em] text-halo-muted/50">
         {t("cp.title")}
       </p>
       {items.length === 0 && (
@@ -1116,7 +1120,7 @@ function HeaderLabel({
         onClick={() => setOpen((v) => !v)}
         title={t("sidebar.headerColorTitle")}
         style={color ? { color } : undefined}
-        className={`text-[0.6875rem] font-medium uppercase tracking-[0.14em] transition-colors ${
+        className={`text-[0.6875rem] uppercase tracking-[0.14em] transition-colors ${
           color ? "hover:opacity-80" : "text-halo-muted/50 hover:text-halo-text"
         }`}
       >
@@ -1239,7 +1243,7 @@ function RestoreIcon() {
 
 function ZapIcon() {
   return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
       <path d="M13 2 4.5 13.5H11L9.5 22 19 10h-6.5L13 2z" />
     </svg>
   );
@@ -1247,7 +1251,7 @@ function ZapIcon() {
 
 function GridIcon() {
   return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
       <rect x="3" y="3" width="7" height="7" rx="1" />
       <rect x="14" y="3" width="7" height="7" rx="1" />
       <rect x="3" y="14" width="7" height="7" rx="1" />
@@ -1535,7 +1539,7 @@ function PlusIcon() {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth="2"
+      strokeWidth="1.5"
       strokeLinecap="round"
     >
       <path d="M12 5v14M5 12h14" />
@@ -1551,7 +1555,7 @@ function SearchIcon() {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth="2"
+      strokeWidth="1.5"
       strokeLinecap="round"
     >
       <circle cx="11" cy="11" r="7" />

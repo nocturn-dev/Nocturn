@@ -45,6 +45,9 @@ html[data-mark="classic"] .nocturn-mark .mark-bold {
   --halo-on-accent: #ffffff; /* цвет контента ПОВЕРХ акцента (в Official — тёмный) */
   --halo-hover: rgba(255, 255, 255, 0.055);
   --halo-hover-strong: rgba(255, 255, 255, 0.085);
+  --halo-focus: rgba(255, 255, 255, 0.35);
+  --halo-scrollbar-thumb: rgba(255, 255, 255, 0.12);
+  --halo-scrollbar-thumb-hover: rgba(255, 255, 255, 0.2);
   --halo-code-bg: #1a1918;
   --halo-term-font: 11.5px; /* размер шрифта терминала (кастомизация) */
   /* Z-шкала: объявленная лестница слоёв вместо подбора значений. Raw CSS
@@ -76,6 +79,9 @@ html.light {
   --halo-accent-deep: #b26247; /* = darken(accent, 0.82), см. :root */
   --halo-hover: rgba(0, 0, 0, 0.05);
   --halo-hover-strong: rgba(0, 0, 0, 0.085);
+  --halo-focus: rgba(0, 0, 0, 0.35);
+  --halo-scrollbar-thumb: rgba(0, 0, 0, 0.14);
+  --halo-scrollbar-thumb-hover: rgba(0, 0, 0, 0.24);
   --halo-code-bg: #1a1918;
   color-scheme: light;
 }
@@ -364,11 +370,11 @@ html.motion-reduced .snake-preview-seg {
   }
 }
 
-/* Фокус-кольца выключены (решение владельца): подсветка по Tab/клику
-   считалась визуальным мусором. Активный элемент виден по каретке ввода
-   и по ховер-стилям; клавиатурная навигация работает как раньше */
+/* Фокус-кольцо: строгое 2px-кольцо с низкой непрозрачностью (WCAG-навигация
+   с клавиатуры). Срабатывает только на Tab (focus-visible), клик не рисует */
 :focus-visible {
-  outline: none;
+  outline: 2px solid var(--halo-focus);
+  outline-offset: 1px;
 }
 
 /* ---------- Voice Wake: индикатор всегда слушающего микрофона ----------
@@ -682,6 +688,28 @@ html.motion-reduced body::before {
   background-clip: content-box;
 }
 
+/* Лента сообщений: скроллбар строже и нейтральнее scroll-slim — thumb 12%
+   белого (14% чёрного — light), track прозрачный. Высота полосы задаёт
+   контейнер (.feed-scroll = flex-1 min-h-0): раньше MediaBar над контейнером
+   выталкивал его вниз и нижний край полосы уезжал под композер */
+.feed-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--halo-scrollbar-thumb) transparent;
+}
+.feed-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+.feed-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.feed-scroll::-webkit-scrollbar-thumb {
+  background: var(--halo-scrollbar-thumb);
+  border-radius: 9999px;
+}
+.feed-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--halo-scrollbar-thumb-hover);
+}
+
 /* ---------- Markdown в ответах ассистента ---------- */
 /* Масштаб текста ответов (кастомизация): дефолт 1 = как было */
 .markdown {
@@ -718,8 +746,9 @@ html.motion-reduced body::before {
 .markdown h2,
 .markdown h3,
 .markdown h4 {
-  font-weight: 600;
-  margin: 0.6rem 0 0.3rem;
+  /* Референс Claude: заголовки в ответах лёгкие, не «прожимают» текст */
+  font-weight: 500;
+  margin: 0.45rem 0 0.25rem;
 }
 .markdown a {
   color: var(--halo-accent);
@@ -1759,9 +1788,16 @@ html[data-media-ribbon="1"][data-ambient-render="behind"].ambient:not(.glass)
 }
 
 /* Стекло выключено → карточка ответа строго плотная: html.glass-правила
-   (.bg-halo-surface и пр.) не должны делать её полупрозрачной без blur */
+   (.bg-halo-surface и пр.) не должны делать её полупрозрачной без blur.
+   Строгий стиль: фон ближе к фону чата (surface 40% + bg), рамку снял
+   компонент — блок ответа не выделяется пятном, как у Claude */
 .ai-card-solid {
   background: var(--halo-surface) !important;
+}
+@supports (background: color-mix(in srgb, red 50%, blue)) {
+  .ai-card-solid {
+    background: color-mix(in srgb, var(--halo-surface) 40%, var(--halo-bg)) !important;
+  }
 }
 
 /* «Стекло в ответах ИИ» самодостаточно: работает и при выключенном общем
