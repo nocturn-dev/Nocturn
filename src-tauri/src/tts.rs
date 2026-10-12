@@ -97,7 +97,7 @@ async fn speak_impl(text: String, output: Option<String>) -> Result<(), String> 
     // Текст режется на куски: base64 -EncodedCommand упирается в лимит
     // командной строки Windows (~32767 симв.) уже на ~12 тыс. символов
     // текста — длинные ответы падали с невнятной ошибкой spawn
-    let paths = tauri::async_runtime::spawn_blocking(move || render_wavs(&text))
+    let paths = tauri::async_runtime::spawn_blocking(move || render_wavs(&text, gen))
         .await
         .map_err(|e| format!("join error: {e}"))??;
     if CANCELED.load(Ordering::Relaxed) {
@@ -121,29 +121,30 @@ async fn speak_impl(text: String, output: Option<String>) -> Result<(), String> 
 /// на байт UTF-8 — переполнения нет (подозрение аудита А2-7 не
 /// подтвердилось: лимит байтовый, а не посимвольный)
 #[cfg(windows)]
-const MAX_TTS_CHUNK_CHARS: usize = 8000;
+const MAX_TTS_CHUNK_BYTES: usize = 8000;
 
-/// Режет текст на куски ≤ MAX_TTS_CHUNK_CHARS по границам предложений;
+/// Режет текст на куски ≤ MAX_TTS_CHUNK_BYTES по границам предложений;
 /// жёсткий разрез — только когда предложение само длиннее лимита
 #[cfg(windows)]
 fn split_tts_text(text: &str) -> Vec<String> {
     let mut chunks: Vec<String> = Vec::new();
     let mut start = 0usize;
     while start < text.len() {
-        if text.len() - start <= MAX_TTS_CHUNK_CHARS {
+        if text.len() - start <= MAX_TTS_CHUNK_BYTES {
             let tail = text[start..].trim();
             if !tail.is_empty() {
                 chunks.push(tail.to_string());
             }
             break;
         }
-        let mut probe = start + MAX_TTS_CHUNK_CHARS;
+        let mut probe = start + MAX_TTS_CHUNK_BYTES;
         while probe > start && !text.is_char_boundary(probe) {
             probe -= 1;
         }
         let window = &text[start..probe];
         let mut cut = probe;
-        if let Some(pos) = window.rfind(['.', '!', '?', '…', '\n']) {
+        let sign_re = |c: char| matches!(c, '.' | '!' | '?' | '…') || c == '\n';
+        if let Some(pos) = window.rfind(sign_re) {
             // Режем после знака (+ хвостовые пробелы), не внутри многобайта
             let abs = start + pos;
             let mut after = abs + text[abs..].chars().next().map_or(1, |c| c.len_utf8());
@@ -157,7 +158,9 @@ fn split_tts_text(text: &str) -> Vec<String> {
             }
         }
         if cut <= start {
-            break;
+            // Аудит tts 497: break молча выбрасывал хвост. Жёсткий разрез
+            // по лимиту: граница символа уже выровнена probe-циклом
+            cut = probe;
         }
         let piece = text[start..cut].trim();
         if !piece.is_empty() {
@@ -171,11 +174,14 @@ fn split_tts_text(text: &str) -> Vec<String> {
 /// Рендер всех кусков в отдельные WAV; отмена между кусками не тратит
 /// время на оставшиеся
 #[cfg(windows)]
-fn render_wavs(text: &str) -> Result<Vec<std::path::PathBuf>, String> {
+fn render_wavs(text: &str, gen: u64) -> Result<Vec<std::path::PathBuf>, String> {
     let chunks = split_tts_text(text);
     let mut paths = Vec::with_capacity(chunks.len());
     for chunk in chunks {
-        if CANCELED.load(Ordering::Relaxed) {
+        // Аудит tts 499: CANCELED сбрасывается новым speak сразу, и прежний
+        // рендер дорабатывал до конца. Поколение: устаревший рендер сам
+        // прекращается, даже когда флаг отмены уже погашен новым вызовом
+        if CANCELED.load(Ordering::Relaxed) || gen != GEN.load(Ordering::Relaxed) {
             break;
         }
         paths.push(render_wav(&chunk)?);
@@ -211,7 +217,9 @@ fn render_wav(text: &str) -> Result<std::path::PathBuf, String> {
         .env("NOCTURN_TTS_WAV", &path)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::null());
+        // Аудит tts 492: ошибки SAPI (нет голосов и т.п.) терялись — код
+        // выхода без причины. stderr пайпится и читается run_command_opts
+        .stderr(Stdio::piped());
     // CREATE_NO_WINDOW: консольное окно из GUI-процесса иначе мигает
     use std::os::windows::process::CommandExt;
     cmd.creation_flags(CREATE_NO_WINDOW);
@@ -329,12 +337,12 @@ mod tests {
     fn split_tts_text_hard_split_respects_char_boundary() {
         // Нет знаков препинания — жёсткий разрез по границе символа;
         // 'ё' двухбайтовый: наивный байтовый срез паниковал бы/резал букву
-        let text = "ё".repeat(MAX_TTS_CHUNK_CHARS + 10);
+        let text = "ё".repeat(MAX_TTS_CHUNK_BYTES + 10);
         let chunks = split_tts_text(&text);
         assert!(chunks.len() >= 2);
         assert_eq!(
             chunks.concat().chars().count(),
-            MAX_TTS_CHUNK_CHARS + 10,
+            MAX_TTS_CHUNK_BYTES + 10,
             "hard split lost characters"
         );
     }
