@@ -321,13 +321,21 @@ export interface ModelInfo {
 export async function testConnection(
   baseUrl: string,
   apiKey: string,
+  provider?: string,
 ): Promise<ModelInfo[]> {
   if (!inTauri) {
     throw new Error(
       "Проверка подключения работает в нативном приложении (npm run tauri dev)",
     );
   }
-  return invoke<ModelInfo[]>("test_connection", { baseUrl, apiKey });
+  // Метка провайдера идёт в бекенд: выбор адаптера авторизации по URL
+  // ломался на прокси вида https://gw.corp/api.anthropic.com/v1 (x-api-key
+  // вместо Bearer → 401 на валидном ключе)
+  return invoke<ModelInfo[]>("test_connection", {
+    baseUrl,
+    apiKey,
+    provider: provider ?? null,
+  });
 }
 
 export interface ChatUsage {
@@ -340,6 +348,16 @@ export interface ChatUsage {
   /** Токены, прочитанные провайдером из промпт-кэша ([P2]). undefined —
    *  провайдер кэш-статистику не отдал */
   cacheRead?: number;
+  /** Токены, ЗАПИСАННЫЕ в промпт-кэш (Anthropic cache_creation_input_tokens):
+   *  дорогой тариф, раньше не учитывались в prompt/Hard Limit */
+  cacheCreation?: number;
+}
+
+/** Reasoning-элемент Responses API (type:"reasoning", encrypted_content при
+ *  store:false): возвращается в следующий запрос перед function_call хода */
+export interface ReasoningItem {
+  type: "reasoning";
+  [key: string]: unknown;
 }
 
 /**
@@ -369,6 +387,8 @@ export async function chatStream(opts: {
   onToolCalls?: (calls: ToolCallInfo[], barrier?: boolean, seq?: number) => void;
   /** Закрытый thinking-блок Anthropic: подпись + redacted для возврата в историю */
   onThinkingBlock?: (block: { thinking: string; signature: string; redacted: string[] }, seq?: number) => void;
+  /** Reasoning-элементы Responses API: вернуть в историю следующего запроса */
+  onReasoningItems?: (items: ReasoningItem[], barrier?: boolean, seq?: number) => void;
 }): Promise<void> {
   if (!inTauri) {
     throw new Error("Чат работает в нативном приложении (npm run tauri dev)");
@@ -413,6 +433,7 @@ export async function chatStream(opts: {
           totalTokens: number;
           stopReason?: string;
           cacheRead?: number;
+          cacheCreation?: number;
           barrier?: boolean;
           seq?: number;
         }>("chat-usage", (e) => {
@@ -425,6 +446,7 @@ export async function chatStream(opts: {
                 total: e.payload.totalTokens,
                 stopReason: e.payload.stopReason,
                 cacheRead: e.payload.cacheRead,
+                cacheCreation: e.payload.cacheCreation,
               },
               e.payload.barrier,
               e.payload.seq,
@@ -450,6 +472,17 @@ export async function chatStream(opts: {
           if (e.payload.requestId === opts.requestId) {
             checkSeq(e.payload.seq);
             opts.onThinkingBlock?.(e.payload, e.payload.seq);
+          }
+        }),
+        listen<{
+          requestId: string;
+          items: ReasoningItem[];
+          barrier?: boolean;
+          seq?: number;
+        }>("chat-reasoning-items", (e) => {
+          if (e.payload.requestId === opts.requestId) {
+            checkSeq(e.payload.seq);
+            opts.onReasoningItems?.(e.payload.items, e.payload.barrier, e.payload.seq);
           }
         }),
       ])),

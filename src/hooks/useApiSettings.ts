@@ -83,7 +83,7 @@ export function useApiSettings(opts: {
           // Свежий список моделей при старте — для vision-предупреждений
           if (s.api_key && s.base_url) {
             setApiStatus({ kind: "checking" });
-            testConnection(s.base_url, s.api_key)
+            testConnection(s.base_url, s.api_key, s.provider)
               .then((models) =>
                 setApiStatus({
                   kind: "ok",
@@ -165,7 +165,7 @@ export function useApiSettings(opts: {
 
   const handleTestConnection = useCallback(() => {
     setApiStatus({ kind: "checking" });
-    testConnection(apiSettings.base_url, apiSettings.api_key)
+    testConnection(apiSettings.base_url, apiSettings.api_key, apiSettings.provider)
       .then((models) =>
         setApiStatus({
           kind: "ok",
@@ -174,7 +174,7 @@ export function useApiSettings(opts: {
         }),
       )
       .catch((e) => setApiStatus({ kind: "error", message: String(e) }));
-  }, [apiSettings.base_url, apiSettings.api_key, t]);
+  }, [apiSettings.base_url, apiSettings.api_key, apiSettings.provider, t]);
 
   const handleSaveSettings = async () => {
     await saveSettings(apiSettings);

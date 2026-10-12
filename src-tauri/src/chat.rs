@@ -2,6 +2,7 @@
 //! Anthropic), команды chat_stream / chat_abort / detect_local_runtimes / test_connection,
 //! реестр отмены стримов.
 
+use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -13,10 +14,13 @@ impl AbortRegistry {
     /// Копия карты с ТЕМИ ЖЕ Arc-флагами. Паникоизоляция прогона (блок 12
     /// шаг 5) требует 'static-будущего для spawn —State не отдать; значения
     /// общие, поэтому chat_abort в оригинальной карте поднимает флаг,
-    /// который видит изолированный прогон
+    /// который видит изолированный прогон.
+    /// Отравленный лок (паника под ним) разбирается через into_inner, как в
+    /// chat_abort: unwrap_or_default отдавал ПУСТУЮ карту, и Stop для стрима
+    /// молча переставал работать до перезапуска (аудит chat 67)
     fn snapshot(&self) -> AbortRegistry {
         AbortRegistry(Mutex::new(
-            self.0.lock().map(|m| m.clone()).unwrap_or_default(),
+            self.0.lock().unwrap_or_else(|p| p.into_inner()).clone(),
         ))
     }
 }
@@ -59,12 +63,26 @@ pub struct ModelInfo {
 
 /// Лёгкая проверка провайдера: GET {base_url}/models со Bearer-ключом.
 #[tauri::command]
-pub async fn test_connection(base_url: String, api_key: String) -> Result<Vec<ModelInfo>, String> {
+pub async fn test_connection(
+    base_url: String,
+    api_key: String,
+    // Метка провайдера с фронта ("anthropic", …): тот же контракт, что у
+    // chat_stream. Раньше адаптер выбирался только эвристикой по URL, и прокси
+    // вида https://gw.corp/api.anthropic.com/v1 получал x-api-key вместо
+    // Bearer — 401 на валидном ключе (аудит chat 84)
+    provider: Option<String>,
+) -> Result<Vec<ModelInfo>, String> {
     let base_url = normalize_base_url(&base_url);
+    ensure_key_transport_is_safe(&base_url)?;
+    let anthropic = match provider.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        Some("anthropic") => true,
+        Some(_) => false,
+        None => is_anthropic_base(&base_url),
+    };
     // Лимит страницы понимает не каждый провайдер (Gemini на нём падает
     // с 400), а OpenRouter без него отдаёт весь список — оставляем
     // ?limit только Anthropic, остальным — голый /models
-    let url = if is_anthropic_base(&base_url) {
+    let url = if anthropic {
         format!("{}/models?limit=100", base_url.trim_end_matches('/'))
     } else {
         format!("{}/models", base_url.trim_end_matches('/'))
@@ -72,7 +90,7 @@ pub async fn test_connection(base_url: String, api_key: String) -> Result<Vec<Mo
 
     let client = crate::network::shared_client(std::time::Duration::from_secs(30))?;
     let mut req = client.get(&url);
-    if is_anthropic_base(&base_url) {
+    if anthropic {
         // Anthropic: /v1/models существует, но авторизация — x-api-key + версия
         req = req
             .header("x-api-key", api_key.trim())
@@ -87,10 +105,7 @@ pub async fn test_connection(base_url: String, api_key: String) -> Result<Vec<Mo
         .map_err(|e| format!("failed to connect: {e}"))?;
 
     let status = resp.status();
-    let body = resp
-        .text()
-        .await
-        .map_err(|e| format!("failed to read response body: {e}"))?;
+    let body = read_body_capped(resp, PROVIDER_BODY_LIMIT).await?;
     if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
         return Err(format!(
             "ключ не принят ({}): проверьте, что ключ выдан именно этим провайдером — у каждого сервиса свой ключ, ключ от OpenRouter не подходит к другим",
@@ -170,6 +185,7 @@ pub async fn chat_once(
     max_tokens: u32,
 ) -> Result<String, String> {
     let base_url = normalize_base_url(&base_url);
+    ensure_key_transport_is_safe(&base_url)?;
     let anthropic = match provider.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
         Some("anthropic") => true,
         Some(_) => false,
@@ -245,15 +261,25 @@ pub async fn chat_once(
     };
 
     let status = resp.status();
-    let body = resp
-        .text()
-        .await
-        .map_err(|e| format!("failed to read response body: {e}"))?;
+    let body = read_body_capped(resp, PROVIDER_BODY_LIMIT).await?;
     if !status.is_success() {
         return Err(provider_error(status, &body));
     }
     let json: serde_json::Value =
         serde_json::from_str(&body).map_err(|e| format!("unexpected response format: {e}"))?;
+    // Причина остановки раньше не читалась вовсе: «Рефлексия» в «Обзоре»
+    // молча получала обрезанный по лимиту текст без сигнала (аудит chat 71)
+    let truncated = if anthropic {
+        json.get("stop_reason").and_then(|v| v.as_str()) == Some("max_tokens")
+    } else if responses_wire {
+        json.get("status").and_then(|v| v.as_str()) == Some("incomplete")
+            || json
+                .pointer("/incomplete_details/reason")
+                .and_then(|v| v.as_str())
+                == Some("max_output_tokens")
+    } else {
+        json.pointer("/choices/0/finish_reason").and_then(|v| v.as_str()) == Some("length")
+    };
     let text = if anthropic {
         // content — массив блоков; собираем текстовые (thinking-блоки пропускаем)
         let blocks = json
@@ -301,6 +327,12 @@ pub async fn chat_once(
     if text.trim().is_empty() {
         return Err("empty response".to_string());
     }
+    if truncated {
+        // Явный маркер потребителю (сводка «Обзора»): текст оборван лимитом
+        return Ok(format!(
+            "{text}\n\n[truncated: output token limit reached]"
+        ));
+    }
     Ok(text)
 }
 
@@ -318,6 +350,96 @@ pub fn provider_error(status: reqwest::StatusCode, body: &str) -> String {
         })
         .unwrap_or_else(|| body.chars().take(200).collect());
     format!("HTTP {}: {}", status.as_u16(), detail)
+}
+
+/// Потолок тела обычного ответа провайдера (/models может быть крупным)
+const PROVIDER_BODY_LIMIT: usize = 16 * 1024 * 1024;
+/// Потолок для ответов-ошибок и локальных зондов: мегабайты там не нужны
+const ERROR_BODY_LIMIT: usize = 1024 * 1024;
+
+/// Чтение тела ответа с потолком (замена `resp.text()` без границ): ответ
+/// неожиданного размера — сбойный шлюз или подмена прокси — не должен
+/// буферизоваться в память целиком (аудит chat 69/78)
+async fn read_body_capped(resp: reqwest::Response, limit: usize) -> Result<String, String> {
+    let mut stream = resp.bytes_stream();
+    let mut buf: Vec<u8> = Vec::new();
+    while let Some(chunk) = stream.next().await {
+        let bytes = chunk.map_err(|e| format!("failed to read response body: {e}"))?;
+        if buf.len() + bytes.len() > limit {
+            return Err(format!(
+                "response body exceeds the {} MB limit",
+                limit >> 20
+            ));
+        }
+        buf.extend_from_slice(&bytes);
+    }
+    Ok(String::from_utf8_lossy(&buf).to_string())
+}
+
+/// Схема Base URL: ключ уезжает в заголовке (Authorization/x-api-key),
+/// поэтому открытый http допустим только для локальных адресов. Раньше
+/// проверки не было вовсе — `http://` на удалённый хост отправлял ключ
+/// открытым текстом, и ошибку никто не видел (аудит chat 68/85)
+fn ensure_key_transport_is_safe(base_url: &str) -> Result<(), String> {
+    let Ok(parsed) = url::Url::parse(base_url) else {
+        // Не парсится — запрос всё равно не уйдёт, проверять нечего
+        return Ok(());
+    };
+    if parsed.scheme() == "https" {
+        return Ok(());
+    }
+    if parsed.scheme() != "http" {
+        return Err(format!(
+            "Base URL scheme '{}' is not supported — use https://",
+            parsed.scheme()
+        ));
+    }
+    let local = match parsed.host() {
+        Some(url::Host::Domain(d)) => {
+            let d = d.to_ascii_lowercase();
+            d == "localhost" || d.ends_with(".localhost") || d.ends_with(".local")
+        }
+        Some(url::Host::Ipv4(ip)) => is_local_ipv4(ip),
+        Some(url::Host::Ipv6(ip)) => {
+            let seg = ip.segments();
+            ip.is_loopback()
+                || ip.is_unspecified()
+                // ULA fc00::/7 и link-local fe80::/10 — домашняя/локальная сеть
+                || (seg[0] & 0xfe00) == 0xfc00
+                || (seg[0] & 0xffc0) == 0xfe80
+        }
+        None => false,
+    };
+    if local {
+        return Ok(());
+    }
+    Err(format!(
+        "Base URL {base_url} uses plain http:// — the API key would be sent unencrypted. \
+         Use https:// (http:// is allowed only for local addresses)."
+    ))
+}
+
+/// Локальный/приватный IPv4: для таких адресов http не выдаёт ключ в интернет
+/// (Ollama/LM Studio и LAN-инференс штатно работают по http)
+fn is_local_ipv4(ip: std::net::Ipv4Addr) -> bool {
+    let o = ip.octets();
+    ip.is_loopback()
+        || ip.is_unspecified()
+        || o[0] == 10
+        || (o[0] == 172 && (16..=31).contains(&o[1]))
+        || (o[0] == 192 && o[1] == 168)
+        || (o[0] == 169 && o[1] == 254)
+}
+
+/// Тело 400-ответа — про незнакомое поле stream_options? Известные
+/// формулировки шлюзов называют поле (vLLM: «Unrecognized request argument
+/// supplied: stream_options», pydantic: «Extra inputs are not permitted» вместе
+/// с именем поля, llama.cpp: «unknown field»); встречается и запись через
+/// пробел. Решение вынесено в именованную функцию с тестами — инлайн-подстрока
+/// без покрытия тихо ломалась при правке текстов (аудит chat 70)
+fn is_stream_options_rejection(body: &str) -> bool {
+    let lower = body.to_ascii_lowercase();
+    lower.contains("stream_options") || lower.contains("stream options")
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -369,7 +491,11 @@ pub async fn chat_stream(
     // request_id поднимает флаг старого стрима: иначе AbortGuard старого
     // при выходе вычищал запись нового, и отмена нового становилась no-op
     let flag: Arc<AtomicBool> = {
-        let mut map = registry.0.lock().map_err(|e| e.to_string())?;
+        // Отравленный лок (паника под ним) разбирается через into_inner, как
+        // в chat_abort: паника соседнего стрима не должна отключать запуск
+        // нового — раньше map_err отдавал ошибку, а snapshot в том же
+        // состоянии молча терял Stop (аудит chat 67/79)
+        let mut map = registry.0.lock().unwrap_or_else(|p| p.into_inner());
         let f = Arc::new(AtomicBool::new(false));
         if let Some(old) = map.insert(request_id.clone(), f.clone()) {
             old.store(true, Ordering::Relaxed);
@@ -425,11 +551,10 @@ async fn chat_stream_impl(
     provider: Option<String>,
     flag: Arc<AtomicBool>,
 ) -> Result<(), String> {
-    use futures_util::StreamExt;
-
     // Адаптер протокола: явный провайдер с фронта, при отсутствии — эвристика
     // по Base URL (старое поведение для совместимости)
     let base_url = normalize_base_url(&base_url);
+    ensure_key_transport_is_safe(&base_url)?;
     let anthropic = match provider.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
         Some("anthropic") => true,
         Some(_) => false,
@@ -465,7 +590,8 @@ async fn chat_stream_impl(
             &messages,
             tools.as_ref().filter(|t| !t.is_null()),
             reasoning_effort.as_deref(),
-        );
+        )
+        .unwrap();
         // Оценка промпта раньше была только у OpenAI-пути: у Anthropic
         // она молча уезжала нулём
         let payload = serde_json::to_string(&body)
@@ -539,8 +665,10 @@ async fn chat_stream_impl(
     let retry_without_stream_options =
         !anthropic && body_json.is_some() && resp.status() == reqwest::StatusCode::BAD_REQUEST;
     if retry_without_stream_options {
-        let err_body = resp.text().await.unwrap_or_default();
-        if err_body.contains("stream_options") {
+        let err_body = read_body_capped(resp, ERROR_BODY_LIMIT)
+            .await
+            .unwrap_or_default();
+        if is_stream_options_rejection(&err_body) {
             if let Some(obj) = body_json.as_mut().and_then(|b| b.as_object_mut()) {
                 obj.remove("stream_options");
             }
@@ -565,7 +693,9 @@ async fn chat_stream_impl(
 
     let status = resp.status();
     if !status.is_success() {
-        let err_body = resp.text().await.unwrap_or_default();
+        let err_body = read_body_capped(resp, ERROR_BODY_LIMIT)
+            .await
+            .unwrap_or_default();
         return Err(provider_error(status, &err_body));
     }
 
@@ -674,12 +804,11 @@ async fn chat_stream_impl(
                 // Естественное завершение: хвост ниже дочитает usage/tool_calls
                 break 'outer;
             }
-            // Soft-дедлайн продлевает только настоящая data-строка и только
-            // пока нет семантического конца; hard не продлевается никогда
-            if saw_usage && hard_deadline.is_none() {
-                soft_deadline = Some(std::time::Instant::now() + POST_USAGE_IDLE);
-            }
-            for event in acc.feed(data) {
+            // События строки обрабатываем ДО продления soft-дедлайна: продлевает
+            // только строка с полезной нагрузкой (аудит chat 64)
+            let fed = acc.feed(data);
+            let has_payload = fed.iter().any(|e| !matches!(e, FeedEvent::Usage { .. }));
+            for event in fed {
                 match &event {
                     FeedEvent::Usage { .. } => {
                         if !saw_usage && hard_deadline.is_none() {
@@ -691,9 +820,27 @@ async fn chat_stream_impl(
                     FeedEvent::Content { delta } | FeedEvent::Thought { delta } => {
                         completion_chars += delta.chars().count();
                     }
+                    FeedEvent::ToolCallsFinished { calls } => {
+                        // Аргументы вызовов — тоже сгенерированный вывод: без
+                        // них ответ «из одних вызовов» давал нулевую оценку
+                        // usage, и Hard Limit/статистика молчали (аудит chat 66)
+                        completion_chars += calls
+                            .iter()
+                            .map(|c| c.arguments.chars().count())
+                            .sum::<usize>();
+                    }
                     _ => {}
                 }
                 batch.push(event)?;
+            }
+            // Soft-дедлайн продлевает только настоящая data-строка с ПОЛЕЗНОЙ
+            // нагрузкой и только пока нет семантического конца; hard не
+            // продлевается никогда. Раньше продлевала любая data-строка:
+            // провайдер, шлющий после usage одни keep-alive (data: {},
+            // data: ), не давал наступить тишине, и стрим висел вечно — до
+            // Stop пользователя (аудит chat 64)
+            if saw_usage && hard_deadline.is_none() && has_payload {
+                soft_deadline = Some(std::time::Instant::now() + POST_USAGE_IDLE);
             }
             // Семантический конец: абсолютный grace на хвост протокола
             // (usage-чанк OpenAI, message_stop Anthropic), потом разрыв
@@ -723,6 +870,13 @@ async fn chat_stream_impl(
             FeedEvent::Content { delta } | FeedEvent::Thought { delta } => {
                 completion_chars += delta.chars().count();
             }
+            FeedEvent::ToolCallsFinished { calls } => {
+                // См. основной цикл: аргументы вызовов тоже идут в оценку (66)
+                completion_chars += calls
+                    .iter()
+                    .map(|c| c.arguments.chars().count())
+                    .sum::<usize>();
+            }
             _ => {}
         }
         batch.push(event)?;
@@ -744,6 +898,7 @@ async fn chat_stream_impl(
                 total: (prompt_est + completion_est) as u64,
                 stop_reason: None,
                 cache_read: None,
+                cache_creation: None,
             })?;
         }
     }
@@ -878,14 +1033,14 @@ mod batcher_tests {
     fn standalone_events_flush_pending_in_order() {
         let out = merged(vec![
             FeedEvent::Content { delta: "a".into() },
-            FeedEvent::Usage { prompt: 1, completion: 2, total: 3, stop_reason: None, cache_read: None },
+            FeedEvent::Usage { prompt: 1, completion: 2, total: 3, stop_reason: None, cache_read: None, cache_creation: None },
             FeedEvent::Content { delta: "b".into() },
             FeedEvent::ToolCallsFinished { calls: vec![] },
         ]);
         // Usage/ToolCalls между дельтами не переместились — порядок как на входе
         assert_eq!(out.len(), 4);
         assert!(matches!(out[0], FeedEvent::Content { ref delta } if delta == "a"));
-        assert!(matches!(out[1], FeedEvent::Usage { prompt: 1, completion: 2, total: 3, stop_reason: None, cache_read: None }));
+        assert!(matches!(out[1], FeedEvent::Usage { prompt: 1, completion: 2, total: 3, stop_reason: None, cache_read: None, cache_creation: None }));
         assert!(matches!(out[2], FeedEvent::Content { ref delta } if delta == "b"));
         assert!(matches!(out[3], FeedEvent::ToolCallsFinished { .. }));
     }
@@ -926,7 +1081,7 @@ fn emit_feed_event(
                 serde_json::json!({ "requestId": request_id, "thought": delta, "seq": next_feed_seq() }),
             )
             .map_err(|e| e.to_string()),
-        FeedEvent::Usage { prompt, completion, total, stop_reason, cache_read } => app
+        FeedEvent::Usage { prompt, completion, total, stop_reason, cache_read, cache_creation } => app
             .emit_to(
                 "main",
                 "chat-usage",
@@ -937,6 +1092,7 @@ fn emit_feed_event(
                     "totalTokens": total,
                     "stopReason": stop_reason,
                     "cacheRead": cache_read,
+                    "cacheCreation": cache_creation,
                     // Барьер: финальный факт сообщения — фронт обязан
                     // дренировать буфер дельт ДО обработки
                     "seq": next_feed_seq(),
@@ -962,6 +1118,13 @@ fn emit_feed_event(
                     "redacted": redacted,
                     "seq": next_feed_seq()
                 }),
+            )
+            .map_err(|e| e.to_string()),
+        FeedEvent::ReasoningItems { items } => app
+            .emit_to(
+                "main",
+                "chat-reasoning-items",
+                serde_json::json!({ "requestId": request_id, "items": items, "seq": next_feed_seq(), "barrier": true }),
             )
             .map_err(|e| e.to_string()),
     }
@@ -1026,6 +1189,10 @@ pub enum FeedEvent {
         /// ([P2]) по обнулению этого поля между раундами ловит разрыв
         /// общего префикса (system/тулы) — BYOK платит полный прайс
         cache_read: Option<u64>,
+        /// Токены, записанные в промпт-кэш (Anthropic:
+        /// cache_creation_input_tokens). Запись в кэш тарифицируется дороже
+        /// обычных токенов, и поле раньше не читалось вовсе (аудит chat 76)
+        cache_creation: Option<u64>,
     },
     ToolCallsFinished { calls: Vec<StreamToolCall> },
     /// Закрытый thinking-блок Anthropic: текст + подпись (нужна для возврата
@@ -1035,6 +1202,11 @@ pub enum FeedEvent {
         signature: String,
         redacted: Vec<String>,
     },
+    /// Reasoning-элементы Responses API (items с type:"reasoning"): при
+    /// store:false API отдаёт их с encrypted_content, и их нужно вернуть в
+    /// следующий запрос, иначе reasoning-модель теряет контекст рассуждений
+    /// между шагами инструментов (аудит chat 80)
+    ReasoningItems { items: Vec<serde_json::Value> },
 }
 
 /// Накапливает разобранные data-чанки стрима
@@ -1050,7 +1222,7 @@ pub struct SseAccumulator {
     /// кладущие usage в КАЖДЫЙ чанк (Gemini на OpenAI-слое, прокси),
     /// раньше накручивали prompt-токены кратно числу чанков — фронт
     /// суммирует каждое событие (контракт как у Anthropic: финал стрима)
-    pending_usage: Option<(u64, u64, u64, Option<u64>)>,
+    pending_usage: Option<PendingUsage>,
     /// Часть контента внутри `<think>…</think>` — рассуждения, приходящие
     /// инлайном в content (OpenAI-совместимые прокси, DeepSeek-R1 и др.).
     /// Маршрутизируются в Thought, иначе react-markdown без rehype-raw
@@ -1059,6 +1231,27 @@ pub struct SseAccumulator {
     /// Хвост дельты, который может оказаться началом тега, разрезанного
     /// сетевым чанком (держим до следующей порции)
     tag_tail: String,
+    /// Уже отдан НЕпустой (не пробельный) content вне think: с этого момента
+    /// `<think>` в тексте — литерал, а не тег (аудит chat 72)
+    saw_visible_content: bool,
+    /// `<think>` встретился в середине ответа — интерпретация тегов в этом
+    /// стриме выключена до конца (модель пишет про XML/HTML, а не рассуждает)
+    think_disabled: bool,
+    /// Вызов с невалидным JSON аргументов отброшен как оборванный: flush
+    /// отдаст Usage со stop_reason "length", фронт продолжит генерацию
+    /// вместо исполнения обрывка (аудит chat 73)
+    truncated_calls_dropped: bool,
+}
+
+/// Последний увиденный usage-чанк. Отдельная структура вместо кортежа:
+/// пять полей в позиционном кортеже нечитаемы
+#[derive(Debug, Clone, Copy)]
+struct PendingUsage {
+    prompt: u64,
+    completion: u64,
+    total: u64,
+    cache_read: Option<u64>,
+    cache_creation: Option<u64>,
 }
 
 /// Длина хвоста buf, совпадающего с началом tag (частичный тег на границе чанка)
@@ -1071,6 +1264,12 @@ impl SseAccumulator {
     /// Пропускает content-дельту через фильтр `<think>`: текст внутри тега
     /// уходит в Thought, снаружи — в Content. Тег, разрезанный между чанками,
     /// собирается через tag_tail.
+    ///
+    /// Тегом считается только `<think>` В НАЧАЛЕ ответа (до него — лишь
+    /// пробелы, видимого контента ещё не было): тег в середине текста —
+    /// литерал (модель пишет про XML/HTML), раньше он переводил весь остаток
+    /// ответа в «рассуждения» и прятал его (аудит chat 72). После первого
+    /// такого литерала интерпретация тегов в стриме выключается до конца.
     fn route_content(&mut self, piece: String, events: &mut Vec<FeedEvent>) {
         let mut buf = std::mem::take(&mut self.tag_tail);
         buf.push_str(&piece);
@@ -1098,9 +1297,24 @@ impl SseAccumulator {
                         return;
                     }
                 }
+            } else if self.think_disabled {
+                // Тег уже встречался в тексте — дальше не интерпретируем ничего
+                if !buf.is_empty() {
+                    self.note_visible(&buf);
+                    events.push(FeedEvent::Content { delta: buf });
+                }
+                return;
             } else {
                 match buf.find("<think>") {
                     Some(pos) => {
+                        if self.saw_visible_content || !buf[..pos].trim().is_empty() {
+                            // Тег не в начале ответа — литерал: отдаём как текст
+                            // и выключаем интерпретацию (аудит chat 72)
+                            self.think_disabled = true;
+                            self.note_visible(&buf);
+                            events.push(FeedEvent::Content { delta: buf });
+                            return;
+                        }
                         let outer = buf[..pos].to_string();
                         buf.drain(..pos + "<think>".len());
                         if !outer.is_empty() {
@@ -1112,9 +1326,9 @@ impl SseAccumulator {
                         let keep = partial_tag_len(&buf, "<think>");
                         let emit = buf.len() - keep;
                         if emit > 0 {
-                            events.push(FeedEvent::Content {
-                                delta: buf[..emit].to_string(),
-                            });
+                            let delta = buf[..emit].to_string();
+                            self.note_visible(&delta);
+                            events.push(FeedEvent::Content { delta });
                             buf.drain(..emit);
                         }
                         self.tag_tail = buf;
@@ -1122,6 +1336,13 @@ impl SseAccumulator {
                     }
                 }
             }
+        }
+    }
+
+    /// Отметить появление видимого (не пробельного) контента вне think
+    fn note_visible(&mut self, s: &str) {
+        if !self.saw_visible_content && s.chars().any(|c| !c.is_whitespace()) {
+            self.saw_visible_content = true;
         }
     }
 }
@@ -1154,7 +1375,14 @@ impl SseAccumulator {
                 .get("prompt_tokens_details")
                 .and_then(|d| d.get("cached_tokens"))
                 .and_then(|v| v.as_u64());
-            self.pending_usage = Some((prompt, completion, prompt + completion, cache_read));
+            self.pending_usage = Some(PendingUsage {
+                prompt,
+                completion,
+                total: prompt + completion,
+                cache_read,
+                // OpenAI-провод не знает cache-creation (это поле Anthropic)
+                cache_creation: None,
+            });
         }
 
         let choice = &value["choices"][0];
@@ -1184,12 +1412,16 @@ impl SseAccumulator {
         if let Some(calls) = delta.get("tool_calls").and_then(|v| v.as_array()) {
             self.saw_tool_call = true;
             for call in calls {
-                let index = call.get("index").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
-                // FIX [OOM]: index ничем не ограничен со стороны провайдера —
-                // добивание вектора до гигантского индекса = исчерпание памяти
-                if index >= MAX_TOOL_CALLS {
-                    continue;
-                }
+                let index = match call.get("index").and_then(|v| v.as_u64()) {
+                    // FIX [OOM]: index ничем не ограничен со стороны провайдера —
+                    // добивание вектора до гигантского индекса = исчерпание памяти
+                    Some(i) if (i as usize) < MAX_TOOL_CALLS => i as usize,
+                    Some(_) => continue,
+                    // Провайдер без index: новый id/имя открывает новый слот
+                    // (раньше все вызовы падали в слот 0 и склеивались в
+                    // мусорный JSON — аудит chat 75)
+                    None => self.slot_without_index(call),
+                };
                 // Добиваем вектор до нужного индекса
                 while self.tool_calls.len() <= index {
                     self.tool_calls.push(StreamToolCall { index: self.tool_calls.len(), ..Default::default() });
@@ -1217,22 +1449,63 @@ impl SseAccumulator {
             && !self.tool_calls_emitted
         {
             self.tool_calls_emitted = true;
-            let mut calls = self.tool_calls.clone();
-            for c in &mut calls {
-                if c.arguments.trim().is_empty() {
-                    c.arguments = "{}".to_string();
-                }
-            }
-            // Пустые слоты (провайдер начал нумерацию не с 0) раньше уезжали
-            // в агентный цикл как вызов с пустым именем → мусорный шаг
-            // «unknown tool:»; не выдаём их вовсе
-            calls.retain(|c| !c.name.is_empty());
+            let calls = self.take_ready_calls();
             if !calls.is_empty() {
                 events.push(FeedEvent::ToolCallsFinished { calls });
             }
         }
 
         events
+    }
+
+    /// Слот для фрагмента БЕЗ index (прокси, не шлющие index). Фрагмент без
+    /// id/имени продолжает текущий слот; новый id или новое имя при занятом
+    /// слоте открывают следующий — иначе разные вызовы склеивались в один и
+    /// аргументы образовывали невалидный JSON (аудит chat 75)
+    fn slot_without_index(&mut self, call: &serde_json::Value) -> usize {
+        let incoming_id = call.get("id").and_then(|v| v.as_str()).unwrap_or("");
+        let incoming_name = call["function"]
+            .get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let Some(last) = self.tool_calls.len().checked_sub(1) else {
+            return 0; // первый фрагмент — слот 0 (создаст цикл добивания)
+        };
+        let slot = &self.tool_calls[last];
+        let same_id = incoming_id.is_empty() || slot.id.is_empty() || slot.id == incoming_id;
+        let same_name =
+            incoming_name.is_empty() || slot.name.is_empty() || slot.name == incoming_name;
+        if same_id && same_name {
+            last
+        } else if self.tool_calls.len() < MAX_TOOL_CALLS {
+            self.tool_calls.len() // новый вызов — новый слот
+        } else {
+            last
+        }
+    }
+
+    /// Вызовы к отправке в агентный цикл: пустые аргументы → "{}", вызовы без
+    /// имени и с ОБОРВАННЫМ JSON отбрасываются. Раньше оборванный по
+    /// max_tokens/сети вызов уезжал «готовым» и tool-слой отвечал ошибкой
+    /// разбора; теперь flush отдаёт stop_reason "length", и фронт продолжает
+    /// генерацию (аудит chat 73)
+    fn take_ready_calls(&mut self) -> Vec<StreamToolCall> {
+        let mut calls = self.tool_calls.clone();
+        for c in &mut calls {
+            if c.arguments.trim().is_empty() {
+                c.arguments = "{}".to_string();
+            }
+        }
+        // Пустые слоты (провайдер начал нумерацию не с 0) раньше уезжали
+        // в агентный цикл как вызов с пустым именем → мусорный шаг
+        // «unknown tool:»; не выдаём их вовсе
+        calls.retain(|c| !c.name.is_empty());
+        let before = calls.len();
+        calls.retain(|c| serde_json::from_str::<serde_json::Value>(&c.arguments).is_ok());
+        if calls.len() < before {
+            self.truncated_calls_dropped = true;
+        }
+        calls
     }
 }
 
@@ -1287,33 +1560,37 @@ impl StreamFeed for SseAccumulator {
 
     fn flush(&mut self) -> Vec<FeedEvent> {
         let mut events = Vec::new();
-        // Usage — один раз на стрим (последнее увиденное значение)
-        if let Some((prompt, completion, total, cache_read)) = self.pending_usage.take() {
-            events.push(FeedEvent::Usage {
-                prompt,
-                completion,
-                total,
-                // finish_reason финального чанка уже накоплен (1016): "length"
-                // — оборванный вывод, фронт делает авто-продолжение (волна G)
-                stop_reason: self.finish_reason.clone(),
-                cache_read,
-            });
-        }
+        // Вызовы готовим ДО usage: отброшенный оборванный вызов влияет на
+        // stop_reason (length → фронт продолжит генерацию) (аудит chat 73).
         // Страховка OpenAI-пути (у Anthropic она в его flush): соединение
         // оборвалось после вызовов, но до finish_reason — tool_calls не
         // теряем молча, агентный цикл получает их как обычно
-        if self.saw_tool_call && !self.tool_calls_emitted && !self.tool_calls.is_empty() {
+        let calls = if self.saw_tool_call && !self.tool_calls_emitted && !self.tool_calls.is_empty()
+        {
             self.tool_calls_emitted = true;
-            let mut calls = self.tool_calls.clone();
-            for c in &mut calls {
-                if c.arguments.trim().is_empty() {
-                    c.arguments = "{}".to_string();
-                }
-            }
-            // Пустые слоты (провайдер начал нумерацию не с 0) раньше уезжали
-            // в агентный цикл как вызов с пустым именем → мусорный шаг
-            // «unknown tool:»; не выдаём их вовсе
-            calls.retain(|c| !c.name.is_empty());
+            Some(self.take_ready_calls())
+        } else {
+            None
+        };
+        // Usage — один раз на стрим (последнее увиденное значение)
+        if let Some(u) = self.pending_usage.take() {
+            events.push(FeedEvent::Usage {
+                prompt: u.prompt,
+                completion: u.completion,
+                total: u.total,
+                // finish_reason финального чанка уже накоплен (1016): "length"
+                // — оборванный вывод, фронт делает авто-продолжение (волна G).
+                // Отброшенный оборванный вызов — та же семантика (аудит chat 73)
+                stop_reason: if self.truncated_calls_dropped {
+                    Some("length".to_string())
+                } else {
+                    self.finish_reason.clone()
+                },
+                cache_read: u.cache_read,
+                cache_creation: u.cache_creation,
+            });
+        }
+        if let Some(calls) = calls {
             if !calls.is_empty() {
                 events.push(FeedEvent::ToolCallsFinished { calls });
             }
@@ -1416,6 +1693,19 @@ pub fn build_responses_body(
                 }));
             }
             "assistant" => {
+                // Reasoning-элементы предыдущего хода (encrypted_content при
+                // store:false) возвращаются ПЕРЕД function_call того же хода —
+                // так рекомендует документация Responses API; без них
+                // reasoning-модель теряет контекст рассуждений между шагами
+                // инструментов, а некоторые шлюзы отвечают 400 (аудит chat 80)
+                if let Some(items) = m
+                    .thinking
+                    .as_ref()
+                    .and_then(|t| t.get("reasoning_items"))
+                    .and_then(|r| r.as_array())
+                {
+                    input.extend(items.iter().cloned());
+                }
                 let text = content_to_plain_text(&m.content);
                 if !text.is_empty() {
                     input.push(serde_json::json!({
@@ -1489,9 +1779,12 @@ pub fn build_responses_body(
 struct ResponsesAccumulator {
     tool_calls: Vec<StreamToolCall>,
     tool_calls_emitted: bool,
-    pending_usage: Option<(u64, u64, u64, Option<u64>)>,
+    pending_usage: Option<PendingUsage>,
     finish_reason: Option<String>,
     complete: bool,
+    /// Reasoning-элементы ответа (type:"reasoning"): возвращаются в историю
+    /// следующего запроса вместе с function_call-итемами (аудит chat 80)
+    reasoning_items: Vec<serde_json::Value>,
 }
 
 impl ResponsesAccumulator {
@@ -1521,25 +1814,32 @@ impl ResponsesAccumulator {
             }
             "response.output_item.done" => {
                 let item = &value["item"];
-                if item.get("type").and_then(|t| t.as_str()) == Some("function_call") {
-                    self.tool_calls.push(StreamToolCall {
-                        index: self.tool_calls.len(),
-                        id: item
-                            .get("call_id")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or_default()
-                            .to_string(),
-                        name: item
-                            .get("name")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or_default()
-                            .to_string(),
-                        arguments: item
-                            .get("arguments")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("{}")
-                            .to_string(),
-                    });
+                match item.get("type").and_then(|t| t.as_str()) {
+                    Some("function_call") => {
+                        self.tool_calls.push(StreamToolCall {
+                            index: self.tool_calls.len(),
+                            id: item
+                                .get("call_id")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or_default()
+                                .to_string(),
+                            name: item
+                                .get("name")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or_default()
+                                .to_string(),
+                            arguments: item
+                                .get("arguments")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("{}")
+                                .to_string(),
+                        });
+                    }
+                    // Reasoning-элемент (encrypted_content при store:false) —
+                    // сохраняем ВЕРБАТИМ для возврата в следующий запрос
+                    // (аудит chat 80)
+                    Some("reasoning") => self.reasoning_items.push(item.clone()),
+                    _ => {}
                 }
             }
             "response.completed" | "response.incomplete" => {
@@ -1557,8 +1857,13 @@ impl ResponsesAccumulator {
                         .get("input_tokens_details")
                         .and_then(|d| d.get("cached_tokens"))
                         .and_then(|v| v.as_u64());
-                    self.pending_usage =
-                        Some((prompt, completion, prompt + completion, cache_read));
+                    self.pending_usage = Some(PendingUsage {
+                        prompt,
+                        completion,
+                        total: prompt + completion,
+                        cache_read,
+                        cache_creation: None,
+                    });
                 }
                 if value.get("type").and_then(|t| t.as_str()) == Some("response.incomplete") {
                     // max_output_tokens → "length": фронт делает авто-продолжение
@@ -1601,6 +1906,13 @@ impl StreamFeed for ResponsesAccumulator {
 
     fn flush(&mut self) -> Vec<FeedEvent> {
         let mut events = Vec::new();
+        // Reasoning-элементы — раньше вызовов: в следующем запросе они идут
+        // ПЕРЕД function_call того же хода (аудит chat 80)
+        if !self.reasoning_items.is_empty() {
+            events.push(FeedEvent::ReasoningItems {
+                items: std::mem::take(&mut self.reasoning_items),
+            });
+        }
         // Вызовы — после завершения ответа (item.done копит, completed
         // закрывает); страховой эмит на обрыв соединения до completed
         if !self.tool_calls.is_empty() && !self.tool_calls_emitted {
@@ -1613,13 +1925,14 @@ impl StreamFeed for ResponsesAccumulator {
             }
             events.push(FeedEvent::ToolCallsFinished { calls });
         }
-        if let Some((p, c, t, cache_read)) = self.pending_usage.take() {
+        if let Some(u) = self.pending_usage.take() {
             events.push(FeedEvent::Usage {
-                prompt: p,
-                completion: c,
-                total: t,
+                prompt: u.prompt,
+                completion: u.completion,
+                total: u.total,
                 stop_reason: self.finish_reason.clone(),
-                cache_read,
+                cache_read: u.cache_read,
+                cache_creation: u.cache_creation,
             });
         }
         events
@@ -1629,12 +1942,15 @@ impl StreamFeed for ResponsesAccumulator {
 /// Тело запроса для нативного Messages API: system — отдельным полем,
 /// tool-история конвертируется в content-блоки tool_use / tool_result,
 /// изображения из data-URL — в блоки {"type":"image","source":{...}}.
+/// Result: неподдерживаемое изображение — это ОШИБКА с внятным текстом
+/// (провайдер отклонил бы запрос целиком с 400), а не тихая потеря
+/// (аудит chat 77)
 pub fn build_anthropic_body(
     model: &str,
     messages: &[ChatMessage],
     tools: Option<&serde_json::Value>,
     reasoning_effort: Option<&str>,
-) -> serde_json::Value {
+) -> Result<serde_json::Value, String> {
     let mut system_parts: Vec<String> = Vec::new();
     let mut msgs: Vec<serde_json::Value> = Vec::new();
     // Результаты инструментов за один ход группируются в ОДНО user-сообщение
@@ -1644,9 +1960,14 @@ pub fn build_anthropic_body(
 
     for m in messages {
         match m.role.as_str() {
-            "system" => {
-                if let Some(text) = m.content.as_str() {
-                    system_parts.push(text.to_string());
+            // developer (OpenAI-роль) маппится в system: Messages API знает
+            // только system/user/assistant, голая роль developer давала 400
+            // (аудит chat 82). content-массив разбираем общим хелпером —
+            // as_str() молча терял system, пришедший массивом (аудит chat 81)
+            "system" | "developer" => {
+                let text = content_to_plain_text(&m.content);
+                if !text.is_empty() {
+                    system_parts.push(text);
                 }
                 last_is_tool_result = false;
             }
@@ -1702,8 +2023,13 @@ pub fn build_anthropic_body(
                         let id = c.get("id").and_then(|v| v.as_str()).unwrap_or("");
                         let name = c["function"]["name"].as_str().unwrap_or("");
                         let args_raw = c["function"]["arguments"].as_str().unwrap_or("{}");
-                        let input: serde_json::Value =
-                            serde_json::from_str(args_raw).unwrap_or(serde_json::json!({}));
+                        // Обрезанные аргументы не подменяем пустым {}: модель
+                        // принимала бы вызов без параметров за чистую монету.
+                        // Явная пометка с сырым хвостом (аудит chat 83)
+                        let input: serde_json::Value = match serde_json::from_str(args_raw) {
+                            Ok(v) => v,
+                            Err(_) => serde_json::json!({ "_invalid_arguments_json": args_raw }),
+                        };
                         blocks.push(serde_json::json!({
                             "type": "tool_use", "id": id, "name": name, "input": input
                         }));
@@ -1716,30 +2042,40 @@ pub fn build_anthropic_body(
                 last_is_tool_result = false;
             }
             _ => {
-                // user: строка или массив с картинками — конвертируем vision-формат
+                // user: строка или массив с картинками — конвертируем vision-формат.
+                // Роли без явного маппинга раньше уходили как есть — голая
+                // developer/function дала бы 400 (аудит chat 82)
+                let role = match m.role.as_str() {
+                    "user" => "user",
+                    _ => "user", // неизвестное — в user (безопасный фолбэк)
+                };
                 let content = if let Some(arr) = m.content.as_array() {
-                    let blocks: Vec<serde_json::Value> = arr
-                        .iter()
-                        .filter_map(|part| {
-                            let ptype = part.get("type").and_then(|v| v.as_str())?;
-                            if ptype == "text" {
-                                Some(serde_json::json!({
-                                    "type": "text",
-                                    "text": part.get("text").cloned().unwrap_or(serde_json::json!(""))
-                                }))
-                            } else if ptype == "image_url" {
-                                let url = part["image_url"]["url"].as_str()?;
-                                anthropic_image_block(url)
-                            } else {
-                                None
-                            }
-                        })
-                        .collect();
+                    let mut blocks: Vec<serde_json::Value> = Vec::new();
+                    for part in arr {
+                        let Some(ptype) = part.get("type").and_then(|v| v.as_str()) else {
+                            continue;
+                        };
+                        if ptype == "text" {
+                            blocks.push(serde_json::json!({
+                                "type": "text",
+                                "text": part.get("text").cloned().unwrap_or(serde_json::json!(""))
+                            }));
+                        } else if ptype == "image_url" {
+                            // Неподдерживаемая картинка — не тихая потеря: MIME
+                            // вне whitelist API отклонил бы ЗАПРОС ЦЕЛИКОМ с 400
+                            // (аудит chat 77); внешняя http-ссылка API тоже не
+                            // принимает — раньше блок просто пропадал
+                            let Some(url) = part["image_url"]["url"].as_str() else {
+                                continue;
+                            };
+                            blocks.push(anthropic_image_block(url)?);
+                        }
+                    }
                     serde_json::Value::Array(blocks)
                 } else {
                     m.content.clone()
                 };
-                msgs.push(serde_json::json!({ "role": m.role, "content": content }));
+                msgs.push(serde_json::json!({ "role": role, "content": content }));
                 last_is_tool_result = false;
             }
         }
@@ -1778,14 +2114,34 @@ pub fn build_anthropic_body(
             body["tools"] = serde_json::Value::Array(converted);
         }
     }
-    body
+    Ok(body)
 }
 
-/// data-URL (data:image/png;base64,…) → Anthropic-блок изображения
-pub fn anthropic_image_block(data_url: &str) -> Option<serde_json::Value> {
-    let rest = data_url.strip_prefix("data:")?;
-    let (mime, data) = rest.split_once(";base64,")?;
-    Some(serde_json::json!({
+/// MIME-типы изображений, которые принимает Messages API (аудит chat 77).
+/// Всё остальное (svg, bmp, …) API отклоняет ЗАПРОСОМ ЦЕЛИКОМ с 400
+const ANTHROPIC_IMAGE_MIMES: &[&str] = &["image/jpeg", "image/png", "image/gif", "image/webp"];
+
+/// data-URL (data:image/png;base64,…) → Anthropic-блок изображения.
+/// Err с внятным текстом вместо None: неподдерживаемый MIME или внешняя
+/// http-ссылка раньше ПРОПАДАЛИ молча — блок не попадал в запрос, модель
+/// отвечала «какой картинки?» (аудит chat 77)
+pub fn anthropic_image_block(data_url: &str) -> Result<serde_json::Value, String> {
+    let Some(rest) = data_url.strip_prefix("data:") else {
+        return Err(
+            "unsupported image reference: Anthropic accepts base64 data URLs only \
+             (external http(s) image links are not supported by the API)"
+                .to_string(),
+        );
+    };
+    let Some((mime, data)) = rest.split_once(";base64,") else {
+        return Err("unsupported image encoding: expected a base64 data URL".to_string());
+    };
+    if !ANTHROPIC_IMAGE_MIMES.contains(&mime) {
+        return Err(format!(
+            "unsupported image type {mime}: Anthropic accepts jpeg, png, gif and webp"
+        ));
+    }
+    Ok(serde_json::json!({
         "type": "image",
         "source": { "type": "base64", "media_type": mime, "data": data }
     }))
@@ -1805,6 +2161,10 @@ pub struct AnthropicAccumulator {
     /// Промпт-кэш-попадания из message_start (cache_read_input_tokens) —
     /// для кэш-детектора [P2]; доезжают в Usage на message_delta
     cache_read: Option<u64>,
+    /// Запись в промпт-кэш из message_start (cache_creation_input_tokens):
+    /// тарифицируется дороже обычных токенов и раньше не читалась вовсе —
+    /// prompt/Hard Limit занижались (аудит chat 76)
+    cache_creation: Option<u64>,
     /// Все tool_use текущего ответа. Параллельные вызовы приходят отдельными
     /// блоками со своим content_block_stop, а фронт перезаписывает holder
     /// на каждое событие — поэтому эмитим ОДНО ToolCallsFinished со всеми
@@ -1850,6 +2210,13 @@ impl StreamFeed for AnthropicAccumulator {
                 // message_start без поля не затирает предыдущее значение
                 if let Some(cr) = value["message"]["usage"]["cache_read_input_tokens"].as_u64() {
                     self.cache_read = Some(cr);
+                }
+                // Запись в кэш — отдельное поле (и отдельный, дорогой тариф);
+                // раньше не читалось, prompt занижался (аудит chat 76)
+                if let Some(cc) =
+                    value["message"]["usage"]["cache_creation_input_tokens"].as_u64()
+                {
+                    self.cache_creation = Some(cc);
                 }
             }
             "content_block_start" => {
@@ -1924,12 +2291,21 @@ impl StreamFeed for AnthropicAccumulator {
             "message_delta" => {
                 let output = value["usage"]["output_tokens"].as_u64().unwrap_or(0);
                 self.stop_reason = value["delta"]["stop_reason"].as_str().map(String::from);
+                // Anthropic: input_tokens НЕ включает кэш-токены — сумма
+                // (input + read + creation) и есть полный промпт, как
+                // prompt_tokens у OpenAI. Раньше prompt = input_tokens, и на
+                // запросах с промпт-кэшем Hard Limit/статистика занижались
+                // (аудит chat 76)
+                let prompt_total = self.input_tokens
+                    + self.cache_read.unwrap_or(0)
+                    + self.cache_creation.unwrap_or(0);
                 events.push(FeedEvent::Usage {
-                    prompt: self.input_tokens,
+                    prompt: prompt_total,
                     completion: output,
-                    total: self.input_tokens + output,
+                    total: prompt_total + output,
                     stop_reason: self.stop_reason.clone(),
                     cache_read: self.cache_read,
+                    cache_creation: self.cache_creation,
                 });
                 self.emit_thinking_block(&mut events);
                 if !self.pending_calls.is_empty() {
@@ -1947,6 +2323,26 @@ impl StreamFeed for AnthropicAccumulator {
     /// но если соединение оборвалось раньше — не теряем накопленные вызовы
     fn flush(&mut self) -> Vec<FeedEvent> {
         let mut events = Vec::new();
+        // Стрим оборвался ВНУТРИ tool_use (content_block_stop не пришёл):
+        // блок раньше исчезал бесследно — отдаём ЧАСТИЧНЫЙ вызов, tool-слой
+        // вернёт модели внятную ошибку аргументов вместо тихой потери
+        // (аудит chat 74)
+        if self.in_tool {
+            self.in_tool = false;
+            let mut arguments = std::mem::take(&mut self.tool_json);
+            if arguments.trim().is_empty() {
+                arguments = "{}".to_string();
+            }
+            let name = std::mem::take(&mut self.tool_name);
+            if !name.is_empty() {
+                self.pending_calls.push(StreamToolCall {
+                    index: self.pending_calls.len(),
+                    id: std::mem::take(&mut self.tool_id),
+                    name,
+                    arguments,
+                });
+            }
+        }
         self.emit_thinking_block(&mut events);
         if !self.pending_calls.is_empty() {
             events.push(FeedEvent::ToolCallsFinished {
@@ -2162,7 +2558,8 @@ mod anthropic_tests {
             ],
             None,
             None,
-        );
+        )
+        .unwrap();
         let blocks = body["messages"][1]["content"].as_array().unwrap();
         assert_eq!(blocks[0]["type"], "thinking");
         assert_eq!(blocks[0]["signature"], "sig-abc");
@@ -2271,7 +2668,7 @@ mod anthropic_tests {
                 thinking: None,
             },
         ];
-        let body = build_anthropic_body("claude-x", &messages, None, None);
+        let body = build_anthropic_body("claude-x", &messages, None, None).unwrap();
         let msgs = body["messages"].as_array().unwrap();
         // user → assistant(tool_use) → один user с двумя tool_result
         assert_eq!(msgs.len(), 3);
@@ -2312,7 +2709,7 @@ mod anthropic_tests {
         let tools = serde_json::json!([
             {"type":"function","function":{"name":"fs_read","description":"read","parameters":{"type":"object"}}}
         ]);
-        let body = build_anthropic_body("claude-x", &messages, Some(&tools), None);
+        let body = build_anthropic_body("claude-x", &messages, Some(&tools), None).unwrap();
         assert_eq!(body["system"], "Ты помощник");
         assert_eq!(body["max_tokens"], 8192);
         // tool-история сконвертирована в tool_use/tool_result
@@ -2332,16 +2729,16 @@ mod anthropic_tests {
             thinking: None,
         }];
         // "max" → бюджет 16000, max_tokens покрывает бюджет (8192 + 16000)
-        let body = build_anthropic_body("claude-x", &messages, None, Some("max"));
+        let body = build_anthropic_body("claude-x", &messages, None, Some("max")).unwrap();
         assert_eq!(body["thinking"]["type"], "enabled");
         assert_eq!(body["thinking"]["budget_tokens"], 16000);
         assert_eq!(body["max_tokens"], 24192);
         // "low" → бюджет 2048
-        let body = build_anthropic_body("claude-x", &messages, None, Some("low"));
+        let body = build_anthropic_body("claude-x", &messages, None, Some("low")).unwrap();
         assert_eq!(body["thinking"]["budget_tokens"], 2048);
         assert_eq!(body["max_tokens"], 10240);
         // "off" — thinking не включается
-        let body = build_anthropic_body("claude-x", &messages, None, Some("off"));
+        let body = build_anthropic_body("claude-x", &messages, None, Some("off")).unwrap();
         assert!(body.get("thinking").is_none());
         assert_eq!(body["max_tokens"], 8192);
     }
@@ -2610,13 +3007,14 @@ mod tests {
 
     #[test]
     fn think_tag_split_across_chunks() {
-        // Тег разрезан посреди сетевых чанков — не должен протечь в Content
-        // ни частично, ни целиком
+        // Тег В НАЧАЛЕ ответа, разрезанный посреди сетевых чанков, — не должен
+        // протечь в Content ни частично, ни целиком (аудит chat 72: тегом он
+        // считается только до первого видимого контента)
         let mut acc = SseAccumulator::default();
         let events = feed_lines(
             &mut acc,
             &[
-                r#"{"choices":[{"delta":{"content":"Привет <thi"}}]}"#,
+                r#"{"choices":[{"delta":{"content":"<thi"}}]}"#,
                 r#"{"choices":[{"delta":{"content":"nk>секрет"}}]}"#,
                 r#"{"choices":[{"delta":{"content":"ы</th"}}]}"#,
                 r#"{"choices":[{"delta":{"content":"ink>Хвост"}}]}"#,
@@ -2631,13 +3029,15 @@ mod tests {
             _ => None,
         });
         assert_eq!(thought, "секреты");
-        assert_eq!(content, "Привет Хвост");
+        assert_eq!(content, "Хвост");
         assert!(!content.contains("<"), "тег протёк в content: {content:?}");
     }
 
     #[test]
-    fn unclosed_think_is_all_thought() {
-        // Стрим оборвался без </think> — всё после тега не попадает в ответ
+    fn mid_text_think_is_literal_even_unclosed() {
+        // Аудит chat 72: литеральный <think> в середине ответа (модель пишет
+        // про XML) не прячет весь хвост в рассуждения, даже если </think>
+        // не пришёл — стрим оборвался на max_tokens
         let mut acc = SseAccumulator::default();
         let events = feed_lines(
             &mut acc,
@@ -2650,12 +3050,36 @@ mod tests {
             FeedEvent::Content { delta } => Some(delta.clone()),
             _ => None,
         });
-        assert_eq!(content, "Ответ. ");
         let thought = joined(&events, |e| match e {
             FeedEvent::Thought { delta } => Some(delta.clone()),
             _ => None,
         });
-        assert!(thought.contains("о хвосте"), "{thought:?}");
+        assert_eq!(content, "Ответ. <think>о хвосте");
+        assert!(thought.is_empty(), "{thought:?}");
+    }
+
+    #[test]
+    fn unclosed_start_think_is_all_thought() {
+        // Тег в начале ответа без закрытия (кроме </think> ничего нет):
+        // весь внутренний текст остаётся в Thought, ничего не теряется
+        let mut acc = SseAccumulator::default();
+        let events = feed_lines(
+            &mut acc,
+            &[
+                r#"{"choices":[{"delta":{"content":"<think>раз"}}]}"#,
+                r#"{"choices":[{"delta":{"content":"мышление"}}]}"#,
+            ],
+        );
+        let content = joined(&events, |e| match e {
+            FeedEvent::Content { delta } => Some(delta.clone()),
+            _ => None,
+        });
+        let thought = joined(&events, |e| match e {
+            FeedEvent::Thought { delta } => Some(delta.clone()),
+            _ => None,
+        });
+        assert_eq!(content, "");
+        assert_eq!(thought, "размышление");
     }
 
     #[test]
@@ -2759,6 +3183,51 @@ mod tests {
             })
             .collect();
         assert_eq!(cached, vec![Some(96)]);
+    }
+
+    #[test]
+    fn anthropic_cache_creation_reaches_usage() {
+        // Аудит chat 76: cache_creation_input_tokens тарифицируется дороже
+        // обычных, но в Usage не попадал — Hard Limit занижался
+        let mut acc = AnthropicAccumulator::default();
+        let mut events = Vec::new();
+        for line in [
+            r#"{"type":"message_start","message":{"usage":{"input_tokens":120,"cache_creation_input_tokens":2048,"cache_read_input_tokens":96}}}"#,
+            r#"{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":7}}"#,
+        ] {
+            events.extend(acc.feed(line));
+        }
+        let created: Vec<_> = events
+            .iter()
+            .filter_map(|e| match e {
+                FeedEvent::Usage { cache_creation, .. } => Some(*cache_creation),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(created, vec![Some(2048)]);
+    }
+
+    #[test]
+    fn anthropic_image_mime_whitelist() {
+        // Аудит chat 77: неподдерживаемый MIME отклоняется текстом, а не
+        // 400 от API; внешние http-ссылки не молча пропадают
+        assert!(anthropic_image_block("data:image/svg+xml;base64,PHN2Zz4=").is_err());
+        assert!(anthropic_image_block("data:image/bmp;base64,AAAA").is_err());
+        assert!(anthropic_image_block("https://example.com/cat.png").is_err());
+        let ok = anthropic_image_block("data:image/png;base64,aGVsbG8=").unwrap();
+        assert_eq!(ok["source"]["media_type"], "image/png");
+    }
+
+    #[test]
+    fn key_transport_blocks_plain_http_for_remote() {
+        // Аудит chat 68/85: ключ по открытому http уходит только локальным
+        // адресам; https и parse-отказ не блокируются
+        assert!(ensure_key_transport_is_safe("https://api.openai.com/v1").is_ok());
+        assert!(ensure_key_transport_is_safe("http://127.0.0.1:11434/v1").is_ok());
+        assert!(ensure_key_transport_is_safe("http://localhost:1234/v1").is_ok());
+        assert!(ensure_key_transport_is_safe("http://192.168.1.10/v1").is_ok());
+        assert!(ensure_key_transport_is_safe("http://api.openai.com/v1").is_err());
+        assert!(ensure_key_transport_is_safe("ftp://api.openai.com/v1").is_err());
     }
 
     #[test]
@@ -3082,7 +3551,7 @@ mod responses_wire_tests {
         assert!(matches!(&flushed[0], FeedEvent::ToolCallsFinished { calls } if calls.len() == 1 && calls[0].id == "c1" && calls[0].name == "fs_read"));
         assert!(matches!(
             &flushed[1],
-            FeedEvent::Usage { prompt: 10, completion: 5, total: 15, stop_reason: None, cache_read: None }
+            FeedEvent::Usage { prompt: 10, completion: 5, total: 15, stop_reason: None, cache_read: None, cache_creation: None }
         ));
         // повторный flush — пусто (usage не накручивается)
         assert!(acc.flush().is_empty());
