@@ -77,7 +77,7 @@ export default function Onboarding({
     setChecking(true);
     setCheckMsg(null);
     try {
-      const list = await testConnection(baseUrl.trim(), apiKey.trim());
+      const list = await testConnection(baseUrl.trim(), apiKey.trim(), provider);
       setModels(list.map((m) => m.id));
       setCheckMsg({ ok: true, text: t("onb.checkOk", { n: list.length }) });
     } catch (e) {

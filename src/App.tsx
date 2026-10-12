@@ -2411,7 +2411,7 @@ export default function App() {
       await saveSettings(merged);
       if (merged.api_key && merged.base_url) {
         setApiStatus({ kind: "checking" });
-        testConnection(merged.base_url, merged.api_key)
+        testConnection(merged.base_url, merged.api_key, merged.provider)
           .then((models) =>
             setApiStatus({
               kind: "ok",
