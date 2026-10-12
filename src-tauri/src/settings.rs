@@ -369,21 +369,33 @@ pub async fn crypto_unlock(app: tauri::AppHandle, password: String) -> Result<()
     let migrated = tauri::async_runtime::spawn_blocking(move || {
         let new_salt = crypto::new_salt();
         let new_key = crypto::derive_key_argon2(&password2, &new_salt)?;
-        rekey_all(&app2, &key, &new_key)?;
         let new_check = crypto::make_check(&new_key)?;
-        Ok::<_, String>((new_salt, new_key, new_check))
+        // Мета-файл в той же транзакции, что и файлы (426/427)
+        let meta_path = crypto_meta_path(&app2)?;
+        let meta_json = serde_json::to_string_pretty(&serde_json::json!({
+            "salt": crypto::hex_encode(&new_salt),
+            "check": new_check,
+            "kdf": "argon2id",
+        }))
+        .map_err(|e| e.to_string())?;
+        rekey_tx(
+            &app2,
+            &key,
+            &new_key,
+            Some((meta_path, meta_json.into_bytes())),
+        )?;
+        Ok::<_, String>((new_salt, new_key))
     })
     .await
     .map_err(|e| e.to_string())??;
     crypto::set_key(migrated.1);
-    let meta = crypto_write_meta(&app, &migrated.0, &migrated.2, "argon2id");
     // Та же причина, что и в argon2-ветке выше: после разблокировки поллер
     // с enc-токеном снова может ходить в Telegram
     crate::telegram::apply_runtime(app);
-    meta
+    Ok(())
 }
 
-/// Файлы с enc-полями, которые переносит rekey_all. imagegen/websearch/
+/// Файлы с enc-полями, которые переносит rekey_tx. imagegen/websearch/
 /// telegram — та же волна, что чистит crypto_reset (см. ниже): без переноса
 /// миграция PBKDF2→Argon2id делала эти ключи невосстановимыми (расшифровка-
 /// на-использовании честно отвечала «vault is locked» при разблокированном
@@ -394,7 +406,7 @@ const REKEY_SECRET_FIELDS: &[(&str, &str)] = &[
     ("telegram.json", "bot_token"),
 ];
 
-/// Полный список файлов rekey_all: имя → в каком виде лежат enc-поля
+/// Полный список файлов rekey_tx: имя → в каком виде лежат enc-поля
 fn rekey_targets() -> Vec<&'static str> {
     let mut names = vec!["settings.json", "profiles.json"];
     names.extend(REKEY_SECRET_FIELDS.iter().map(|(f, _)| *f));
@@ -464,10 +476,16 @@ fn rekey_staged_bytes(
 /// pbkdf2 со старой солью (потеря всех ключей на следующем анлоке).
 /// Оригиналы сохраняются в *.bak до перезаписи; сбой любой записи
 /// откатывает уже перезаписанные файлы.
-pub(crate) fn rekey_all(
+/// Аудит settings 426/427: мета-файл входит в ОДНУ транзакцию с файлами и
+/// пишется последним. Раньше rekey_all перешифровывал файлы, а crypto.json
+/// обновлялся отдельным шагом после — провал записи меты (или выход между
+/// шагами) оставлял файлы на новом ключе при старой мете, и следующий
+/// анлок не проходил никогда. Провал записи меты теперь откатывает файлы
+fn rekey_tx(
     app: &tauri::AppHandle,
     old_key: &[u8],
     new_key: &[u8],
+    meta: Option<(std::path::PathBuf, Vec<u8>)>,
 ) -> Result<(), String> {
     let mut staged: Vec<(std::path::PathBuf, Vec<u8>)> = Vec::new();
     for name in rekey_targets() {
@@ -482,6 +500,10 @@ pub(crate) fn rekey_all(
             )
         })?;
         staged.push((path, bytes));
+    }
+    // Мета — строго последняя запись транзакции
+    if let Some(m) = meta {
+        staged.push(m);
     }
     // Фаза записи: .bak → swap; сбой откатывает уже перезаписанные файлы
     let mut done: Vec<std::path::PathBuf> = Vec::new();
@@ -504,7 +526,7 @@ pub(crate) fn rekey_all(
     Ok(())
 }
 
-/// Откат rekey_all: вернуть содержимое из *.bak (если бэкап есть)
+/// Откат rekey_tx: вернуть содержимое из *.bak (если бэкап есть)
 fn restore_rekey_backups(paths: &[std::path::PathBuf]) {
     for path in paths {
         let bak = path.with_extension("json.bak");
@@ -806,22 +828,68 @@ fn settings_write_all_blocking(
     }
     let dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let mut written = 0usize;
+    // Аудит settings 428: crypto.json из чужого бэкапа подменял соль и
+    // маркер — все ЛОКАЛЬНЫЕ зашифрованные ключи становились
+    // нерасшифровываемыми. Импорт crypto.json — только при ещё не
+    // настроенном хранилище (первичная установка из бэкапа)
+    if files.contains_key("crypto.json") && crypto_read_meta(app)?.is_some() {
+        return Err(
+            "import contains crypto.json but a local vault already exists — reset it first if you really want to replace it"
+                .to_string(),
+        );
+    }
+    // Аудит settings 431: структура файлов валидируется ДО записи — битый
+    // импорт не должен ломать загрузку настроек после перезапуска
     for name in EXPORT_FILES {
         let Some(value) = files.get(*name) else {
             continue;
         };
-        crate::fsutil::atomic_write(
-            &dir.join(name),
-            serde_json::to_string_pretty(value)
-                .map_err(|e| e.to_string())?
-                .as_bytes(),
-        )?;
-        written += 1;
+        if !value.is_object() {
+            return Err(format!("import file {name} is not a JSON object"));
+        }
+        if *name == "settings.json" {
+            serde_json::from_value::<ApiSettings>(value.clone())
+                .map_err(|e| format!("imported settings.json is not valid: {e}"))?;
+        }
+        if *name == "profiles.json"
+            && value.get("profiles").and_then(|p| p.as_array()).is_none()
+        {
+            return Err("imported profiles.json must contain a profiles array".into());
+        }
+    }
+    // Аудит settings 429/430: всё стейджится в памяти, пишется с .bak-копией
+    // и общим откатом — сбой на третьем файле больше не оставляет смесь
+    // нового и старого конфигов, а прежнее состояние восстанавливается
+    let mut staged: Vec<(std::path::PathBuf, Vec<u8>)> = Vec::new();
+    for name in EXPORT_FILES {
+        let Some(value) = files.get(*name) else {
+            continue;
+        };
+        let bytes = serde_json::to_string_pretty(value)
+            .map_err(|e| format!("cannot serialize {name}: {e}"))?
+            .into_bytes();
+        staged.push((dir.join(name), bytes));
+    }
+    let mut done: Vec<std::path::PathBuf> = Vec::new();
+    for (path, bytes) in &staged {
+        if path.exists() {
+            let bak = path.with_extension("json.bak");
+            if fs::copy(path, &bak).is_err() {
+                restore_rekey_backups(&done);
+                return Err(format!("cannot back up {} — import aborted", path.display()));
+            }
+        }
+        match crate::fsutil::atomic_write(path, bytes) {
+            Ok(()) => done.push(path.clone()),
+            Err(e) => {
+                restore_rekey_backups(&done);
+                return Err(e);
+            }
+        }
     }
     // Импорт мог перезаписать settings.json — кэш под него не годится
     invalidate_settings_cache();
-    Ok(written)
+    Ok(done.len())
 }
 
 #[tauri::command(async)]
