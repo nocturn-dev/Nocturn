@@ -65,6 +65,14 @@ pub(crate) fn run_command_opts(
         .map_err(|e| format!("failed to spawn command: {e}"))?;
 
     if let (Some(payload), Some(mut stdin)) = (stdin_payload, child.stdin.take()) {
+        // Аудит proc 395: безлимитный payload целиком в памяти у зависшего
+        // читателя. Потолок — хвост отбрасывается
+        const STDIN_CAP: usize = 16 * 1024 * 1024;
+        let payload = if payload.len() > STDIN_CAP {
+            payload[..STDIN_CAP].to_vec()
+        } else {
+            payload
+        };
         // Отсоединённый поток-писатель: join() здесь нельзя — он ждал бы до
         // цикла таймаута, а хук вида `echo ok` stdin никогда не прочитает.
         std::thread::spawn(move || {
@@ -281,7 +289,15 @@ fn read_capped<R: Read>(r: &mut R) -> Vec<u8> {
 /// Один recv с grace-периодом: второй порции не ждём, внучатые процессы
 /// могут держать пайп открытым неограниченно долго.
 fn drain(rx: mpsc::Receiver<Vec<u8>>) -> Vec<u8> {
-    rx.recv_timeout(DRAIN_GRACE).unwrap_or_default()
+    match rx.recv_timeout(DRAIN_GRACE) {
+        Ok(v) => v,
+        Err(mpsc::RecvTimeoutError::Timeout) => {
+            // Аудит proc 397: таймаут grace возвращал ПУСТОЙ вывод без
+            // пометки — модель считала команду пустой. Явный маркер
+            b"...[output lost: pipe drain timed out]".to_vec()
+        }
+        Err(_) => Vec::new(),
+    }
 }
 
 /// Байты в строку без паники (потеря UTF-8 допустима); слишком длинный вывод
