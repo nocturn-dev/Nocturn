@@ -46,7 +46,7 @@ pub struct OAuthMeta {
     pub revocation_endpoint: Option<String>,
 }
 
-const TOKENS_FILE: &str = "mcp-oauth.json";
+pub(crate) const TOKENS_FILE: &str = "mcp-oauth.json";
 /// Заметка владельца: юзер закрыл вкладку авторизации → ничего не висит вечно
 const LOOPBACK_TIMEOUT_SECS: u64 = 180;
 const HTTP_TIMEOUT: Duration = Duration::from_secs(10);
