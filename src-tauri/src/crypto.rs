@@ -120,6 +120,10 @@ pub fn clear_key() {
 /// Легаси-KDF: нужен только для чтения старых crypto.json (до Argon2id);
 /// 200k итераций — ниже текущей рекомендации OWASP (600k), для НОВЫХ
 /// хранилищ не использовать. Ключ в Zeroizing с момента выделения
+/// Легаси-KDF (PBKDF2) — ТОЛЬКО для чтения старых хранилищ и миграции
+/// на Argon2id (crypto_unlock). Новые хранилища создаются исключительно
+/// через derive_key_argon2 (аудит crypto 131)
+#[doc(hidden)]
 pub fn derive_key(password: &str, salt: &[u8]) -> Zeroizing<Vec<u8>> {
     let mut out = Zeroizing::new(vec![0u8; KEY_LEN]);
     pbkdf2::pbkdf2_hmac::<sha2::Sha256>(password.as_bytes(), salt, PBKDF2_ITERS, &mut out);
@@ -230,7 +234,14 @@ pub fn is_encrypted(s: &str) -> bool {
 }
 
 pub fn hex_encode(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
+    // Аудит crypto 133: одна аллокация вместо format!-строки на байт
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for b in bytes {
+        out.push(HEX[(b >> 4) as usize] as char);
+        out.push(HEX[(b & 0xF) as usize] as char);
+    }
+    out
 }
 
 pub fn hex_decode(s: &str) -> Option<Vec<u8>> {
@@ -326,6 +337,30 @@ mod tests {
         // «по умолчанию» крейт — повод осознанно решить, нужна ли миграция
         let explicit = argon2::Params::new(19 * 1024, 2, 1, None).unwrap();
         assert_eq!(explicit, argon2::Params::default());
+    }
+
+    #[test]
+    fn corrupted_ciphertext_returns_none() {
+        // Аудит crypto 128: переворот бита шифротекста/nonce — None (GCM-таг),
+        // невалидный UTF-8 в plaintext затирается и не уходит наружу
+        let key = [0x42u8; KEY_LEN];
+        // encrypt_with возвращает строку УЖЕ с префиксом
+        let stored = encrypt_with(&key, "secret").unwrap();
+        assert_eq!(decrypt_with(&key, &stored).unwrap().as_str(), "secret");
+        // Переворот бита в ciphertext-части
+        let mut raw = B64.decode(stored.strip_prefix(PREFIX).unwrap()).unwrap();
+        let last = raw.len() - 1;
+        raw[last] ^= 0x01;
+        assert!(decrypt_with(&key, &format!("{PREFIX}{}", B64.encode(&raw))).is_none());
+        // Невалидный UTF-8 в plaintext: шифруем байты напрямую
+        let cipher = Aes256Gcm::new_from_slice(&key).unwrap();
+        let nonce = [0u8; NONCE_LEN];
+        let ct = cipher
+            .encrypt(Nonce::from_slice(&nonce), [0xFFu8, 0xFE, 0xC0, 0x80].as_slice())
+            .unwrap();
+        let mut blob2 = nonce.to_vec();
+        blob2.extend(ct);
+        assert!(decrypt_with(&key, &format!("{PREFIX}{}", B64.encode(&blob2))).is_none());
     }
 
     #[test]
