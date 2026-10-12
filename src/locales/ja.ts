@@ -1659,6 +1659,7 @@ export const ja = {
     "chat.workedUnit": "秒",
     "chat.thought": "思考",
     "chat.removeImage": "削除",
+    "chat.fileLines": "{n} 行",
     "chat.reuseImage": "入力欄に戻す",
     "sidebar.showAll": "すべてのタスクを表示",
     "sidebar.showProject": "プロジェクト「{name}」のタスクを表示",

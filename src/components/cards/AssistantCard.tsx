@@ -241,6 +241,16 @@ function AssistantCardBase({
       setOpenThought(true);
     }
   }, [showReasoning, message.thought]);
+  // Автоскрытие: пришёл финальный ответ — раздумия сворачиваются сами
+  // (требование владельца). Один раз, и только если блок был раскрыт
+  // авто-защёлкой: вручную открытый пользователь не теряет
+  const answerSeen = useRef(false);
+  useEffect(() => {
+    if (!answerSeen.current && message.content && message.thought && reasoningLatched.current) {
+      answerSeen.current = true;
+      setOpenThought(false);
+    }
+  }, [message.content, message.thought]);
   const [collapsed, setCollapsed] = useState(false);
 
   const preview =

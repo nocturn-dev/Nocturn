@@ -4,7 +4,8 @@
  * пользователь занят другим приложением.
  */
 
-import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
+import { isPermissionGranted, requestPermission } from "@tauri-apps/plugin-notification";
+import { invoke } from "@tauri-apps/api/core";
 import type { MsgKey } from "./locales";
 
 export type NotifySound = "chime" | "ping" | "soft" | "custom";
@@ -134,7 +135,10 @@ export async function notifyTaskDone(
       granted = perm === "granted";
     }
     if (granted) {
-      await sendNotification({ title, body: [meta, task].filter((x) => x).join("\n") });
+      // Свой тост (notify.rs): атрибуция Nocturn вместо PowerShell и клик,
+      // который разворачивает окно. plugin-путь не даёт ни того, ни другого
+      const body = [meta, task].filter((x) => x).join("\n");
+      await invoke("notify_toast", { title, body });
     }
   } catch {
     // нет разрешения/плагина — звук уже прозвучал

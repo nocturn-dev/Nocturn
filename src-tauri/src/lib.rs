@@ -43,6 +43,7 @@ pub mod lsp;
 pub mod mcp;
 pub mod mcp_oauth;
 mod perm;
+mod notify;
 #[cfg(target_os = "linux")]
 mod portal;
 mod proc;
@@ -244,6 +245,7 @@ pub fn run() {
         )
         .invoke_handler(tauri::generate_handler![
             clipboard::clipboard_write,
+            notify::notify_toast,
             settings::load_settings,
             settings::save_settings,
             settings::load_profiles,

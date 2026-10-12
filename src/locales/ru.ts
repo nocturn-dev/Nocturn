@@ -1649,6 +1649,7 @@ export const ru = {
     "chat.workedUnit": "сек",
     "chat.thought": "Размышления",
     "chat.removeImage": "Убрать",
+    "chat.fileLines": "{n} стр.",
     "chat.reuseImage": "Вернуть в поле ввода",
     "sidebar.showAll": "Показать все задачи",
     "sidebar.showProject": "Показать задачи проекта «{name}»",

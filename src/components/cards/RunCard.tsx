@@ -274,6 +274,25 @@ function RunCardBase({
       setOpenThoughts((s) => new Set(s).add(target.id));
     }
   }, [showReasoning, rounds, streamingMsgId]);
+  // Автоскрытие: у авто-раскрытого раунда появился финальный текст — его
+  // раздумия сворачиваются сами (требование владельца). Защёлка по переходу
+  // content «пусто → непусто»: ручное открытие и история не трогаются
+  const prevContentLen = useRef(new Map<string, number>());
+  useEffect(() => {
+    setOpenThoughts((prev) => {
+      let changed = false;
+      const next = new Set(prev);
+      for (const a of rounds) {
+        const before = prevContentLen.current.get(a.id) ?? 0;
+        if (a.content && before === 0 && prev.has(a.id) && autoOpened.current.has(a.id)) {
+          next.delete(a.id);
+          changed = true;
+        }
+        prevContentLen.current.set(a.id, a.content.length);
+      }
+      return changed ? next : prev;
+    });
+  }, [rounds]);
   const toggleThought = (id: string) =>
     setOpenThoughts((prev) => {
       const next = new Set(prev);

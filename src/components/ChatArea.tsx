@@ -4,6 +4,7 @@ import type { AskQuestion, Attachment, ChangedFile, Message, PermissionMode, Pla
 import type { MediaPrefs, MediaLyricsSnapshot } from "../mediaPrefs";
 import { MediaBar } from "./MediaBar";
 import { Nok } from "./mascot/Nok";
+import { FileCard } from "./FileCard";
 import { matchNokTrigger } from "./mascot/nokTriggers";
 import { isPathLikeDraft, pickPostRunQuip, type PostRunQuip, type NokQuipKind } from "./mascot/nokMood";
 import { NOK_ROWS } from "./mascot/nokSprites";
@@ -33,13 +34,12 @@ import { BUILTIN_SKILLS, type Skill } from "../skills";
 import type { SubRunState } from "../subagents";
 import type { UserCommand } from "../api";
 import { BUILTIN_COMMANDS } from "../commands";
-import { AskClosedCard, AskPanel } from "./cards/AskUserCard";
+import { AskClosedCard, AskPanel, askClosedFromTool } from "./cards/AskUserCard";
 import { AssistantCard } from "./cards/AssistantCard";
 import { RunCard } from "./cards/RunCard";
 import { ChangedFilesCard } from "./cards/ChangedFilesCard";
 import { ConfirmCard } from "./cards/ConfirmCard";
 import { ContextRing } from "./cards/ContextRing";
-import { MessageNav } from "./cards/MessageNav";
 import { PlanPanel } from "./cards/PlanPanel";
 import { SubagentCard } from "./cards/SubagentCard";
 import { buildStepRows, type StepRow } from "../agent/steps";
@@ -47,7 +47,7 @@ import { ToolStepCard } from "./cards/ToolStepCard";
 import { TypingBubble } from "./cards/TypingBubble";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { UserCard } from "./cards/UserCard";
-import { ArrowUpIcon, BookIcon, ChevronDownIcon, CorrectIcon, FileIcon, FolderIcon, GitBranchIcon, MicIcon, PaperclipIcon, PermModeIcon, QueueIcon, QuoteIcon, RobotIcon, ScalesIcon, ShieldIcon, SlidersIcon, SparkIcon, StopIcon, SystemPromptIcon, TerminalIcon, TrashIcon, WarnIcon, WrenchIcon, XSmallIcon } from "./cards/icons";
+import { ArrowUpIcon, BookIcon, ChevronDownIcon, CorrectIcon, FolderIcon, GitBranchIcon, MicIcon, PaperclipIcon, PermModeIcon, QueueIcon, QuoteIcon, RobotIcon, ScalesIcon, ShieldIcon, SlidersIcon, SparkIcon, StopIcon, SystemPromptIcon, TerminalIcon, TrashIcon, WarnIcon, WrenchIcon, XSmallIcon } from "./cards/icons";
 import { fmtInt, fmtK } from "./cards/util";
 import { CHART_COLORS } from "../chartColors";
 
@@ -2006,7 +2006,19 @@ export default function ChatArea({
                     if (isHidden(m)) continue;
                     nodes.push(
                       m.role === "tool" ? (
-                        m.toolName === "subagent_run" ? (
+                        m.toolName === "ask_user" ? (
+                          // Ответ на вопрос — не сырой текст, а карточка
+                          // в стиле остальных закрывшихся вопросов
+                          <AskClosedCard
+                            key={m.id}
+                            ask={askClosedFromTool(
+                              m.content,
+                              m.toolCallId
+                                ? callById.get(m.toolCallId)
+                                : undefined,
+                            )}
+                          />
+                        ) : m.toolName === "subagent_run" ? (
                           // Субагент: своя карточка вместо серой tool-строки
                           <SubagentCard
                             key={m.id}
@@ -2167,7 +2179,7 @@ export default function ChatArea({
       )}
       {/* Шапка: название задачи и очистки; вся полоса — drag-регион окна.
           transition-[padding] на header — сознательный layout-переход
-          (засечка MessageNav переведена на transform): шапка плавно
+          (transition-[padding] осознанный): шапка плавно
           уезжает/возвращается при смене headerInset (сайдбар скрывается);
           200 мс reflow только шапки, событие редкое (тоггл сайдбара).
           Второй сознательный — коллапс сайдбара (Sidebar
@@ -2378,11 +2390,6 @@ export default function ChatArea({
         )}
       </div>
 
-      {/* Боковая навигация по сообщениям (чёрточки справа).
-          Вне скролл-контейнера: иначе весь блок уезжает при прокрутке */}
-      {visible.length > 1 && (
-        <MessageNav messages={visible} model={model} scrollRef={scrollRef} />
-      )}
       </div>
 
       {/* Терминальный режим: панель снизу, подтверждения [y/n/a] прямо в ней.
@@ -2747,15 +2754,14 @@ export default function ChatArea({
                         className="size-20 rounded-xl border border-halo-line object-cover"
                       />
                     ) : (
-                      <div
-                        title={img.name}
-                        className="flex size-20 flex-col items-center justify-center gap-1 rounded-xl border border-halo-line bg-halo-surface/60 p-1.5"
-                      >
-                        <span className="text-halo-muted"><FileIcon /></span>
-                        <span className="w-full truncate text-center text-[0.625rem] text-halo-muted">
-                          {img.name}
-                        </span>
-                      </div>
+                      <FileCard
+                        a={img}
+                        linesLabel={
+                          img.text != null
+                            ? t("chat.fileLines", { n: img.text.split("\n").length })
+                            : undefined
+                        }
+                      />
                     )}
                     <button
                       onClick={() =>
@@ -2801,7 +2807,7 @@ export default function ChatArea({
                 }}
                 onKeyDown={handleKeyDown}
                 placeholder={t("composer.placeholder")}
-                className="max-h-44 flex-1 resize-none bg-transparent px-2 py-1.5 text-sm leading-relaxed text-halo-text outline-none placeholder:text-halo-muted"
+                className="scroll-slim max-h-44 flex-1 resize-none bg-transparent px-2 py-1.5 text-sm leading-relaxed text-halo-text outline-none placeholder:text-halo-muted"
               />
               <button
                 onClick={() => {

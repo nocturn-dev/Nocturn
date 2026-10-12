@@ -1659,6 +1659,7 @@ export const zh = {
     "chat.workedUnit": "秒",
     "chat.thought": "思考",
     "chat.removeImage": "移除",
+    "chat.fileLines": "{n} 行",
     "chat.reuseImage": "放回输入框",
     "sidebar.showAll": "显示所有任务",
     "sidebar.showProject": "显示项目「{name}」的任务",

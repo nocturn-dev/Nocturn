@@ -241,7 +241,7 @@ exports[`chat cards snapshots > AssistantCard: с thinking-блоком 1`] = `
         class="flex items-center gap-1 text-[0.6875rem] font-medium text-halo-muted transition-colors hover:text-halo-text"
       >
         <svg
-          class="transition-transform duration-200 "
+          class="transition-transform duration-200 -rotate-90"
           fill="none"
           height="12"
           stroke="currentColor"
@@ -257,11 +257,6 @@ exports[`chat cards snapshots > AssistantCard: с thinking-блоком 1`] = `
         </svg>
         Thought
       </button>
-    </div>
-    <div
-      class="anim-fade-up mt-1.5 whitespace-pre-wrap rounded-lg border border-halo-line/60 bg-halo-raised/40 px-3 py-2 text-xs italic leading-relaxed text-halo-muted"
-    >
-      Пользователь просит короткий ответ.
     </div>
   </div>
   <div
