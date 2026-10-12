@@ -18,7 +18,11 @@ const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 /// недоступен), признак таймаута и собранный stdout/stderr.
 pub(crate) struct ProcOutput {
     pub status: Option<i32>,
+    /// Истёк таймаут ИЛИ пользователь нажал Stop — различает финализации:
+    /// раньше Stop показывался хукам как «timed out» (аудит proc 394)
     pub timed_out: bool,
+    /// Прерывание пользователем (abort-флаг), не таймаут
+    pub aborted: bool,
     pub stdout: String,
     pub stderr: String,
 }
@@ -82,14 +86,54 @@ pub(crate) fn kill_tree(pid: u32) {
     {
         use std::os::windows::process::CommandExt;
         // CREATE_NO_WINDOW: taskkill из GUI-приложения иначе мигнёт консолью
-        let _ = Command::new("taskkill")
+        // Аудит proc 393: результат taskkill проверяется и логируется —
+        // молчаливый провал оставлял дерево живым при уверенности в обратном
+        match Command::new("taskkill")
             .args(["/PID", &pid.to_string(), "/T", "/F"])
             .creation_flags(CREATE_NO_WINDOW)
-            .output();
+            .output()
+        {
+            Ok(o) if o.status.success() => {}
+            Ok(o) => eprintln!(
+                "kill_tree: taskkill failed for pid {pid}: {}",
+                String::from_utf8_lossy(&o.stderr).trim()
+            ),
+            Err(e) => eprintln!("kill_tree: taskkill spawn failed for pid {pid}: {e}"),
+        }
     }
     #[cfg(not(windows))]
     {
-        // Отрицательный pid = вся процесс-группа; SIGKILL неперехватываем
+        // Отрицательный pid = вся процесс-группа; SIGKILL неперехватываем.
+        // Аудит proc 391: Linux проверяет принадлежность группы — pid мог
+        // быть переиспользован чужим процессом-лидером, kill(-pid) убивал бы
+        // чужую группу. /proc/<pid>/stat поле 5 = pgrp; лидер своей группы
+        // (наша конвенция spawn: process_group(0)) подтверждает принадлежность
+        #[cfg(target_os = "linux")]
+        {
+            if let Ok(stat) = std::fs::read_to_string(format!("/proc/{pid}/stat")) {
+                // Формат: pid (comm) state ppid pgrp ... — comm может содержать
+                // пробелы и скобки, парсим от ПОСЛЕДНЕЙ ')'
+                let owned = stat.clone();
+                let after = match owned.rfind(") ") {
+                    Some(i) => &owned[i + 2..],
+                    None => "",
+                };
+                let fields: Vec<&str> = after.split_whitespace().collect();
+                // fields: state ppid pgrp ... → pgrp = fields[2]
+                let pgrp = fields.get(2).and_then(|f| f.parse::<i32>().ok());
+                match pgrp {
+                    Some(g) if g == pid as i32 => {}
+                    _ => {
+                        // Не лидер своей группы (или /proc не прочитался) —
+                        // гасим только сам процесс, не группу
+                        unsafe {
+                            libc::kill(pid as i32, libc::SIGKILL);
+                        }
+                        return;
+                    }
+                }
+            }
+        }
         unsafe {
             libc::kill(-(pid as i32), libc::SIGKILL);
         }
@@ -154,24 +198,24 @@ fn finish(mut child: Child, timeout: Duration, abort: Option<&std::sync::atomic:
     // Ожидание с таймаутом: poll try_wait, по истечении — kill
     let started = Instant::now();
     let mut timed_out = false;
+    let mut aborted = false;
     let status = loop {
         match child.try_wait() {
             Ok(Some(st)) => break Some(st),
             Ok(None) => {
                 // Stop: гасим процесс немедленно, не дожидаясь таймаута.
                 // Дерево, а не только ребёнок: иначе внуки живут с пайпами
-                if abort.is_some_and(|f| f.load(std::sync::atomic::Ordering::Relaxed)) {
+                let user_abort =
+                    abort.is_some_and(|f| f.load(std::sync::atomic::Ordering::Relaxed));
+                if user_abort || started.elapsed() > timeout {
+                    // kill_tree по pid ребёнка безопасен от переиспользования:
+                    // Child ещё не reaped (try_wait вернул None в этой же
+                    // итерации), ОС не выдаёт занятый pid (аудит proc 392)
                     kill_tree(child.id());
                     let _ = child.kill();
                     let _ = child.wait();
                     timed_out = true;
-                    break None;
-                }
-                if started.elapsed() > timeout {
-                    kill_tree(child.id());
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    timed_out = true;
+                    aborted = user_abort;
                     break None;
                 }
                 std::thread::sleep(Duration::from_millis(50));
@@ -187,6 +231,7 @@ fn finish(mut child: Child, timeout: Duration, abort: Option<&std::sync::atomic:
                 return ProcOutput {
                     status: None,
                     timed_out: false,
+                    aborted: false,
                     stdout: String::new(),
                     stderr: format!("command failed: {e}"),
                 };
@@ -201,6 +246,7 @@ fn finish(mut child: Child, timeout: Duration, abort: Option<&std::sync::atomic:
     ProcOutput {
         status: status.and_then(|s| s.code()),
         timed_out,
+        aborted,
         stdout,
         stderr,
     }
