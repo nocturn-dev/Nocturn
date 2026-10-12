@@ -102,13 +102,26 @@ pub async fn run_tool(
         } else {
             None
         };
+        // Аудит perm 470: cwd шелла не проверялся — команда могла исполниться
+        // где угодно, включая ~/.ssh или корень диска. Гейт тот же, что у
+        // fs_read: корни + sensitive-класс + самозащита конфига
+        let cwd_arg = if name == "shell_run" {
+            args.get("cwd").and_then(|v| v.as_str()).map(str::to_string)
+        } else {
+            None
+        };
         let state = perm::current();
         let tool = name.clone();
         // Канонизация пути в perm ходит по ФС (вплоть до сетевых корней): в
         // blocking-пул, иначе на tokio-воркере это вставало поперёк всех
         // SSE-стримов (класс бага, уже починенный для load_settings/CA_PEM)
         tauri::async_runtime::spawn_blocking(move || {
-            perm::decide(&state, &tool, perm_arg.as_deref())
+            perm::decide(&state, &tool, perm_arg.as_deref())?;
+            if let Some(cwd) = &cwd_arg {
+                perm::decide(&state, "fs_read", Some(cwd))
+                    .map_err(|e| format!("cwd rejected by path guard: {e}"))?;
+            }
+            Ok::<(), String>(())
         })
         .await
         .map_err(|e| format!("perm task failed: {e}"))??;
