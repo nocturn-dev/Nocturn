@@ -18,8 +18,10 @@ use tauri::{Emitter, Manager};
 const MODEL_URL: &str =
     "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base-q5_1.bin";
 const MODEL_FILE: &str = "ggml-base-q5_1.bin";
-/// ~6,5 минуты звука 16 кГц int16 (12 МБ / 2 байта / 16000 Гц) — потолок
-/// на один запрос диктовки
+/// ~6,6 минуты звука 16 кГц int16 (12 МиБ / 2 байта / 16000 Гц) — потолок
+/// на один запрос диктовки. Цифра в recording_too_long_error считается от
+/// того же значения (аудит dictation 144: комментарий говорил 6,5,
+/// сообщение округляло до 6)
 const MAX_AUDIO_BYTES: usize = 12 * 1024 * 1024;
 const CLI_TIMEOUT: Duration = Duration::from_secs(180);
 
@@ -162,17 +164,23 @@ pub async fn dictation_download_model(app: tauri::AppHandle) -> Result<(), Strin
     if DOWNLOADING.swap(true, Ordering::Relaxed) {
         return Err("model download already in progress".into());
     }
-    let result = match tokio::time::timeout(std::time::Duration::from_secs(600), do_download(&app))
+    // Аудит dictation 137: store(false) обычным кодом после await — паника
+    // внутри do_download оставляла флаг взведённым до рестарта. RAII-гардал
+    struct FlagGuard;
+    impl Drop for FlagGuard {
+        fn drop(&mut self) {
+            DOWNLOADING.store(false, Ordering::Relaxed);
+        }
+    }
+    let _guard = FlagGuard;
+    match tokio::time::timeout(std::time::Duration::from_secs(600), do_download(&app))
         .await
     {
         Ok(r) => r,
         // Total-таймаут: shared_client ставит только connect_timeout —
-        // stalled-соединение висело вечно, а DOWNLOADING сбрасывался только
-        // по возврату do_download, т.е. флаг залипал до рестарта приложения
+        // stalled-соединение висело вечно
         Err(_) => Err("model download timed out after 600s".into()),
-    };
-    DOWNLOADING.store(false, Ordering::Relaxed);
-    result
+    }
 }
 
 async fn do_download(app: &tauri::AppHandle) -> Result<(), String> {
@@ -210,6 +218,15 @@ async fn do_download(app: &tauri::AppHandle) -> Result<(), String> {
     let mut file = tokio::fs::File::create(&tmp)
         .await
         .map_err(|e| e.to_string())?;
+    // Аудит dictation 139: .tmp оставался на любом выходе из загрузки —
+    // до ~57 МБ мусора. Guard удаляет при любом исходе до rename
+    struct TmpGuard<'a>(&'a std::path::Path);
+    impl Drop for TmpGuard<'_> {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_file(self.0);
+        }
+    }
+    let tmp_guard = TmpGuard(&tmp);
     let mut received: u64 = 0;
     let mut last_emit: u64 = 0;
     let mut stream = resp;
@@ -223,7 +240,10 @@ async fn do_download(app: &tauri::AppHandle) -> Result<(), String> {
         // Прогресс не чаще ~1 МБ — IPC-канал не спамим
         if received - last_emit >= 1024 * 1024 {
             last_emit = received;
-            let _ = app.emit(
+            // Аудит dictation 142: emit доставлял прогресс всем окнам,
+            // включая quickentry — только main, как в chat/colibri
+            let _ = app.emit_to(
+                "main",
                 "dictation-progress",
                 json!({ "received": received, "total": total }),
             );
@@ -232,11 +252,19 @@ async fn do_download(app: &tauri::AppHandle) -> Result<(), String> {
     file.flush().await.map_err(|e| e.to_string())?;
     drop(file);
     if received == 0 {
-        let _ = std::fs::remove_file(&tmp);
         return Err("model download: empty response".into());
     }
+    // Аудит dictation 135: обрезанный ответ (сервер закрыл соединение раньше
+    // content_length) переименовывался в готовую модель
+    if total > 0 && received != total {
+        return Err(format!(
+            "model download incomplete: {received} of {total} bytes"
+        ));
+    }
+    std::mem::forget(tmp_guard); // успех: tmp переименован, guard не удаляет
     std::fs::rename(&tmp, &final_path).map_err(|e| e.to_string())?;
-    let _ = app.emit(
+    let _ = app.emit_to(
+        "main",
         "dictation-progress",
         json!({ "received": received, "total": received }),
     );
@@ -260,10 +288,9 @@ pub async fn dictation_transcribe(
 /// 16 кГц), а не захардкожен: текст «max ~3 minutes» уже расходился с
 /// фактическим лимитом
 fn recording_too_long_error() -> String {
-    format!(
-        "recording too long (max ~{} minutes)",
-        MAX_AUDIO_BYTES / 32000 / 60
-    )
+    // От МиБ: (12*1024*1024)/(2*16000)/60 = 6.55 → 6.6 (формат .1), а не 6 (аудит 144)
+    let minutes = MAX_AUDIO_BYTES as f64 / 32000.0 / 60.0;
+    format!("recording too long (max ~{minutes:.1} minutes)")
 }
 
 /// RIFF-заголовок + int16 LE PCM (16 кГц, моно) — руками, без зависимостей.
@@ -298,11 +325,17 @@ fn transcribe_impl(app: &tauri::AppHandle, audio_base64: String) -> Result<Strin
     if audio_base64.len() > MAX_AUDIO_BYTES / 3 * 4 {
         return Err(recording_too_long_error());
     }
+    // PCM проверяется в caller после декодирования (нечётная длина — 145)
     let pcm = base64::engine::general_purpose::STANDARD
         .decode(audio_base64.as_bytes())
         .map_err(|e| format!("bad audio payload: {e}"))?;
     if pcm.len() < 3200 {
         return Err("recording is too short".into());
+    }
+    // Аудит dictation 145: int16 требует чётного числа байт — нечётный хвост
+    // отбрасывал бы последний сэмпл или отвергался whisper
+    if pcm.len() % 2 != 0 {
+        return Err("audio payload has odd PCM length".into());
     }
     let wav = build_wav(&pcm);
 
@@ -324,8 +357,10 @@ fn transcribe_impl(app: &tauri::AppHandle, audio_base64: String) -> Result<Strin
     if out.timed_out {
         return Err(format!("whisper-cli timed out after {}s", CLI_TIMEOUT.as_secs()));
     }
-    if let Some(code) = out.status {
-        if code != 0 {
+    match out.status {
+        // Аудит dictation 141: None (убит сигналом) принимался за успех и
+        // возвращал частичный stdout как готовый текст
+        Some(code) if code != 0 => {
             let err = out.stderr.trim().to_string();
             return Err(if err.is_empty() {
                 format!("whisper-cli exited with {code}")
@@ -333,16 +368,22 @@ fn transcribe_impl(app: &tauri::AppHandle, audio_base64: String) -> Result<Strin
                 err
             });
         }
+        None => return Err("whisper-cli terminated without an exit status".into()),
+        Some(_) => {}
     }
     // Страховка от таймстампов (если у CLI нет -nt): строки с [.. --> ..] срезаем
     let text: String = out
         .stdout
         .lines()
         .map(|l| {
-            // "[00:00:00.000 --> 00:00:05.000]  текст" → текст
-            l.find("] ")
-                .and_then(|i| l.strip_prefix('[').map(|_| &l[i + 2..]))
-                .unwrap_or(l)
+            // Аудит dictation 140: срез "[..] " снимал ЛЮБОЙ префикс
+            // вида [..], теряя «[MUSIC] текст» и «[1] пункт». Точный
+            // паттерн таймстампов whisper
+            if l.starts_with('[') && l.contains(" --> ") {
+                l.find("] ").map(|i| &l[i + 2..]).unwrap_or(l)
+            } else {
+                l
+            }
         })
         .filter(|l| !l.trim().is_empty())
         .collect::<Vec<_>>()
@@ -384,13 +425,11 @@ mod tests {
     fn too_long_error_matches_constants() {
         // Сообщение считается из констант: захардкоженное «~3 minutes»
         // расходилось с фактическим лимитом (аудит 2026-10-04)
-        assert_eq!(
-            recording_too_long_error(),
-            format!(
-                "recording too long (max ~{} minutes)",
-                MAX_AUDIO_BYTES / 32000 / 60
-            )
-        );
-        assert!(recording_too_long_error().contains("~6 minutes"));
+        let expect = {
+            let m = MAX_AUDIO_BYTES as f64 / 32000.0 / 60.0;
+            format!("recording too long (max ~{m:.1} minutes)")
+        };
+        assert_eq!(recording_too_long_error(), expect);
+        assert!(recording_too_long_error().contains("~6.6 minutes"));
     }
 }

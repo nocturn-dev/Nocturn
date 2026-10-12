@@ -107,9 +107,16 @@ pub async fn voice_download_models(
     if DOWNLOADING.swap(true, Ordering::Relaxed) {
         return Err("model download already in progress".into());
     }
-    let result = do_download(&app, &wake_model).await;
-    DOWNLOADING.store(false, Ordering::Relaxed);
-    result
+    // Аудит voice 503: store(false) обычным кодом после await — паника
+    // внутри do_download оставляла флаг взведённым до рестарта. RAII
+    struct FlagGuard;
+    impl Drop for FlagGuard {
+        fn drop(&mut self) {
+            DOWNLOADING.store(false, Ordering::Relaxed);
+        }
+    }
+    let _guard = FlagGuard;
+    do_download(&app, &wake_model).await
 }
 
 async fn do_download(app: &tauri::AppHandle, wake_model: &str) -> Result<(), String> {
@@ -171,7 +178,9 @@ async fn do_download(app: &tauri::AppHandle, wake_model: &str) -> Result<(), Str
                 // Файлы ~1 МБ: прогресс шлём дважды — начало и конец
                 if received - last_emit >= 512 * 1024 {
                     last_emit = received;
-                    let _ = app.emit(
+                    // Аудит voice 504: только main, не все окна
+                    let _ = app.emit_to(
+                        "main",
                         "voice-progress",
                         json!({ "file": name, "received": received, "total": total }),
                     );
@@ -179,12 +188,21 @@ async fn do_download(app: &tauri::AppHandle, wake_model: &str) -> Result<(), Str
             }
             file.flush().await.map_err(|e| e.to_string())?;
             drop(file);
+            // Аудит voice 501/502: обрезанный ответ переименовывался в
+            // «скачанную» модель; .tmp оставался на любом пути ошибки
             if received == 0 {
                 let _ = std::fs::remove_file(&tmp);
                 return Err(format!("model download {name}: empty response"));
             }
+            if total > 0 && received != total {
+                let _ = std::fs::remove_file(&tmp);
+                return Err(format!(
+                    "model download {name} incomplete: {received} of {total} bytes"
+                ));
+            }
             std::fs::rename(&tmp, &final_path).map_err(|e| e.to_string())?;
-            let _ = app.emit(
+            let _ = app.emit_to(
+                "main",
                 "voice-progress",
                 json!({ "file": name, "received": received, "total": received }),
             );
