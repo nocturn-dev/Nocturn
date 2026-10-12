@@ -10,10 +10,10 @@ use std::time::Duration;
 const MAX_BODY: usize = 32 * 1024 * 1024;
 
 /// GitHub API отклоняет запросы без User-Agent (документированное требование;
-/// на части IP-адресов — 403 сразу). reqwest дефолтного UA не ставит —
-/// шлём браузерный по ТЗ владельца
-const FETCH_USER_AGENT: &str =
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
+/// на части IP-адресов — 403 сразу). Осмысленный UA приложения вместо
+/// подделки браузера — это и честнее, и соответствует правилам API
+/// (аудит importer 207)
+const FETCH_USER_AGENT: &str = concat!("Nocturn/", env!("CARGO_PKG_VERSION"));
 
 /// Синхронный гардал URL: только публичный http/https (SSRF-фильтр browser.rs).
 pub(crate) fn validate_import_url(url: &str) -> Result<(), String> {
@@ -52,6 +52,14 @@ pub async fn import_fetch_url(url: String) -> Result<String, String> {
     }
     let mut body: Vec<u8> = Vec::new();
     let mut stream = response;
+    // Аудит importer 208: HTML-заглушка прокси уходила в парсер CSV/JSON
+    // с невнятной ошибкой парсера. Первый байт '<' — отклоняем сразу
+    if let Some(first) = stream.chunk().await.map_err(|e| format!("fetch failed: {e}"))? {
+        if first.first() == Some(&b'<') {
+            return Err("fetch failed: response is HTML, expected a raw file".into());
+        }
+        body.extend_from_slice(&first);
+    }
     while let Some(chunk) = stream
         .chunk()
         .await
