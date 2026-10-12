@@ -28,12 +28,22 @@ pub struct MemoryStore {
     pub facts: Vec<MemoryFact>,
 }
 
+/// Сериализация load-модифицируй-save: память зовётся и из агентного цикла,
+/// и из UI — параллельные вызовы перезаписывали изменения друг друга (314)
+static MEMORY_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 fn load(path: &Path) -> Result<MemoryStore, String> {
     if !path.exists() {
         return Ok(MemoryStore::default());
     }
     let data = crate::fsutil::read_capped_string(path, 0)?;
-    serde_json::from_str(&data).map_err(|e| format!("memory file corrupted: {e}"))
+    // Аудит memory 315: битый файл блокировал и add, и list навсегда.
+    // Сохраняем как .bak и стартуем с пустого — новые факты живут
+    serde_json::from_str(&data).map_err(|e| {
+        let bak = path.with_extension("json.bak");
+        let _ = fs::copy(path, &bak);
+        format!("memory file corrupted (saved as {}): {e}", bak.display())
+    })
 }
 
 fn save(path: &Path, store: &MemoryStore) -> Result<(), String> {
@@ -46,12 +56,43 @@ fn save(path: &Path, store: &MemoryStore) -> Result<(), String> {
 
 /// Новый факт: дедуп по тексту (обновляем время), потолок длины и количества.
 /// Возвращает текст для модели (было ли обновление, сколько фактов всего).
+/// Похоже ли на секрет: известные префиксы ключей и плотные 24+ символы
+/// base64-алфавита (аудит memory 307)
+fn looks_like_secret(text: &str) -> bool {
+    const PREFIXES: &[&str] = &[
+        "sk-", "ghp_", "gho_", "github_pat", "AKIA", "xoxb-", "xoxp-",
+        "glpat-", "sk-ant-", "AIza", "ya29.", "Bearer ", "eyJ",
+    ];
+    if PREFIXES.iter().any(|p| text.contains(p)) {
+        return true;
+    }
+    text.split_whitespace().any(|w| {
+        w.len() >= 24
+            && w.chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '=')
+    })
+}
+
 pub(crate) fn add_fact(path: &Path, raw_text: &str) -> Result<String, String> {
+    let _serial = MEMORY_LOCK.lock().unwrap_or_else(|p| p.into_inner());
     let mut text = raw_text.trim().to_string();
     if text.is_empty() {
         return Err("empty fact text".to_string());
     }
-    crate::truncate_at_char_boundary(&mut text, MAX_TEXT_LEN);
+    // Аудит memory 307: инструкция модели «NEVER save secrets» — не граница.
+    // Типичные форматы ключей в факте — отказ: memory_recall вернул бы секрет
+    // в контекст любого последующего запроса
+    if looks_like_secret(&text) {
+        return Err(
+            "refused: the fact looks like a secret (API key / token pattern); memory never stores secrets"
+                .to_string(),
+        );
+    }
+    let mut truncated = false;
+    if text.len() > MAX_TEXT_LEN {
+        crate::truncate_at_char_boundary(&mut text, MAX_TEXT_LEN);
+        truncated = true;
+    }
     let mut store = load(path)?;
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -68,57 +109,80 @@ pub(crate) fn add_fact(path: &Path, raw_text: &str) -> Result<String, String> {
         true
     } else {
         store.facts.push(MemoryFact {
-            id: format!("m-{}", crate::fsutil::rand_hex8()),
+            // 64 бита энтропии: коллизия hex8 удаляла бы НЕ ТОТ факт (317)
+            id: format!("m-{}{}", crate::fsutil::rand_hex8(), crate::fsutil::rand_hex8()),
             text,
             ts: now,
         });
         if store.facts.len() > MAX_FACTS {
-            store.facts.remove(0);
+            // Аудит memory 309: remove(0) вытеснял первый элемент вектора,
+            // а не старейший — дедуп обновляет ts, но не позицию
+            if let Some(oldest) = store.facts.iter().min_by_key(|f| f.ts).cloned() {
+                store.facts.retain(|f| f.id != oldest.id);
+            }
         }
         false
     };
     save(path, &store)?;
     Ok(format!(
-        "{} Total facts: {}.",
+        "{}{} Total facts: {}.",
         if updated { "Fact updated." } else { "Fact saved." },
+        if truncated { " (truncated to limit)." } else { "" },
         store.facts.len()
     ))
 }
 
 pub(crate) fn recall_facts(path: &Path, query: &str) -> Result<String, String> {
+    let _serial = MEMORY_LOCK.lock().unwrap_or_else(|p| p.into_inner());
     let store = load(path)?;
     if store.facts.is_empty() {
         return Ok("Memory is empty.".to_string());
     }
-    let q = query.trim().to_lowercase();
+    // Аудит memory 312: подстрока целиком не матчит «dark themes» против
+    // «prefers dark themes» в другом порядке — требуем все слова запроса
     let mut facts: Vec<&MemoryFact> = store.facts.iter().collect();
+    let q = query.trim().to_lowercase();
     if !q.is_empty() {
-        facts.retain(|f| f.text.to_lowercase().contains(&q));
+        let words: Vec<&str> = q.split_whitespace().collect();
+        facts.retain(|f| {
+            let t = f.text.to_lowercase();
+            words.iter().all(|w| t.contains(w))
+        });
         if facts.is_empty() {
             return Ok("No matching facts.".to_string());
         }
     }
     // Новейшие первыми — модель видит актуальные формулировки
     facts.sort_by_key(|f| std::cmp::Reverse(f.ts));
-    let lines: Vec<String> = facts
+    // Аудит memory 313: модель должна знать, что выдача урезана
+    let hidden = facts.len().saturating_sub(40);
+    let mut out = facts
         .iter()
         .take(40)
         .map(|f| format!("- {}", f.text))
-        .collect();
-    Ok(lines.join("\n"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    if hidden > 0 {
+        out.push_str(&format!("\n(+{hidden} older facts not shown)"));
+    }
+    Ok(out)
 }
 
 pub(crate) fn delete_fact(path: &Path, id: &str) -> Result<(), String> {
+    let _serial = MEMORY_LOCK.lock().unwrap_or_else(|p| p.into_inner());
     let mut store = load(path)?;
     let before = store.facts.len();
     store.facts.retain(|f| f.id != id);
+    // Аудит memory 316: двойной клик «удалить» отдавал ошибку как сбой.
+    // Идемпотентно: отсутствие id — успешный no-op
     if store.facts.len() == before {
-        return Err(format!("unknown fact id: {id}"));
+        return Ok(());
     }
     save(path, &store)
 }
 
 pub(crate) fn clear_all(path: &Path) -> Result<(), String> {
+    let _serial = MEMORY_LOCK.lock().unwrap_or_else(|p| p.into_inner());
     save(path, &MemoryStore::default())
 }
 
@@ -297,7 +361,8 @@ mod tests {
         add_fact(&path, "второй").unwrap();
         let id = load(&path).unwrap().facts[0].id.clone();
         delete_fact(&path, &id).unwrap();
-        assert!(delete_fact(&path, &id).is_err());
+        // 316: удаление несуществующего — успешный no-op, а не ошибка
+    assert!(delete_fact(&path, &id).is_ok());
         clear_all(&path).unwrap();
         assert!(recall_facts(&path, "").unwrap().contains("empty"));
         let _ = fs::remove_file(&path);
