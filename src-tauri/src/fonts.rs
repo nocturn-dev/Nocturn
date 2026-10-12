@@ -42,13 +42,32 @@ fn manifest_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 }
 
 fn read_manifest(app: &tauri::AppHandle) -> Vec<CustomFont> {
-    let Ok(path) = manifest_path(app) else {
-        return Vec::new();
-    };
-    fs::read_to_string(path)
-        .ok()
-        .and_then(|data| serde_json::from_str(&data).ok())
-        .unwrap_or_default()
+    // Аудит fonts 163: битый манифест возвращал пустой список, и следующая
+    // запись затирала файл — все шрифты становились сиротами. Err хранится
+    // в Result (см. read_manifest_checked), .bak — рядом
+    match read_manifest_checked(app) {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("fonts: manifest unreadable: {e}");
+            Vec::new()
+        }
+    }
+}
+
+fn read_manifest_checked(app: &tauri::AppHandle) -> Result<Vec<CustomFont>, String> {
+    let path = manifest_path(app)?;
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+    let data = fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    match serde_json::from_str(&data) {
+        Ok(v) => Ok(v),
+        Err(e) => {
+            let bak = path.with_extension("json.bak");
+            let _ = fs::copy(&path, &bak);
+            Err(format!("manifest corrupted (saved as {}): {e}", bak.display()))
+        }
+    }
 }
 
 fn write_manifest(app: &tauri::AppHandle, fonts: &[CustomFont]) -> Result<(), String> {
@@ -109,18 +128,46 @@ fn font_import_impl(app: tauri::AppHandle, src: String) -> Result<CustomFont, St
     }
     // Лимит ДО чтения: иначе выбранный многогигабайтный файл тянулся в
     // память целиком (класс бага из sound_import, чиненый там же)
+    // Аудит fonts 168: источник может быть симлинком на произвольный файл
+    if let Ok(md) = fs::symlink_metadata(&src_path) {
+        if md.file_type().is_symlink() {
+            return Err("source path is a symlink".into());
+        }
+    }
     let meta = fs::metadata(&src_path).map_err(|e| e.to_string())?;
     if meta.len() > MAX_FONT_BYTES as u64 {
         return Err("font file is larger than 20 MB".into());
     }
-    let bytes = fs::read(&src_path).map_err(|e| e.to_string())?;
+    // Аудит fonts 167: файл мог вырасти между metadata и read — take дублирует
+    let src_file = fs::File::open(&src_path).map_err(|e| e.to_string())?;
+    let mut bytes = Vec::with_capacity(meta.len() as usize);
+    {
+        use std::io::Read;
+        src_file
+            .take(MAX_FONT_BYTES as u64 + 1)
+            .read_to_end(&mut bytes)
+            .map_err(|e| e.to_string())?;
+    }
+    if bytes.len() > MAX_FONT_BYTES {
+        return Err("font file is larger than 20 MB".into());
+    }
+    // Аудит fonts 165: расширение не проверяет содержимое — произвольный
+    // файл раздавался вебвью через asset-протокол. Магические байты
+    let ok_sig = bytes.starts_with(&[0x00, 0x01, 0x00, 0x00]) // TTF
+        || bytes.starts_with(b"OTTO") // OTF
+        || bytes.starts_with(b"wOFF") // WOFF
+        || bytes.starts_with(b"wOF2"); // WOFF2
+    if !ok_sig {
+        return Err("file content is not a recognized font (ttf/otf/woff/woff2)".into());
+    }
     let dir = fonts_dir(&app)?;
     // fsutil::rand_hex8 — единственный источник коротких id: дубль здесь
     // жил своей жизнью и расползался независимо от канонического
     let id = crate::fsutil::rand_hex8();
     let family = format!("NocturnFont-{id}");
     let file_name = format!("font-{id}.{ext}");
-    fs::write(dir.join(&file_name), &bytes).map_err(|e| e.to_string())?;
+    let font_path = dir.join(&file_name);
+    crate::fsutil::atomic_write(&font_path, &bytes).map_err(|e| e.to_string())?;
     let name = sanitize_name(
         &src_path
             .file_stem()
@@ -135,7 +182,12 @@ fn font_import_impl(app: tauri::AppHandle, src: String) -> Result<CustomFont, St
     };
     let mut fonts = read_manifest(&app);
     fonts.push(font.clone());
-    write_manifest(&app, &fonts)?;
+    // Аудит fonts 166: файл уже на диске — при провале записи манифеста
+    // удаляем, чтобы не плодить сирот
+    if let Err(e) = write_manifest(&app, &fonts) {
+        let _ = fs::remove_file(&font_path);
+        return Err(e);
+    }
     Ok(font)
 }
 
@@ -160,7 +212,23 @@ pub async fn font_delete(app: tauri::AppHandle, id: String) -> Result<(), String
         let mut fonts = read_manifest(&app);
         if let Some(pos) = fonts.iter().position(|f| f.id == id) {
             let f = fonts.remove(pos);
-            let _ = fs::remove_file(&f.path);
+            // Аудит fonts 162: путь из подменённого манифеста удалял
+            // произвольный файл. Разрешаем только наш шаблон внутри fonts_dir
+            let target = std::path::PathBuf::from(&f.path);
+            let inside = fonts_dir(&app)
+                .ok()
+                .and_then(|dir| target.canonicalize().ok().map(|c| (dir, c)))
+                .map(|(dir, c)| c.starts_with(&dir))
+                .unwrap_or(false);
+            let named = target
+                .file_name()
+                .map(|n| n.to_string_lossy().starts_with("font-"))
+                .unwrap_or(false);
+            if inside && named {
+                let _ = fs::remove_file(&target);
+            } else {
+                eprintln!("font_delete: refusing suspicious path {}", f.path);
+            }
             write_manifest(&app, &fonts)?;
         }
         Ok(())

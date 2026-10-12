@@ -170,7 +170,18 @@ pub async fn plugin_read(path: String) -> Result<serde_json::Value, String> {
     rejects_sensitive_path(&path)?;
     tauri::async_runtime::spawn_blocking(move || {
         let p = std::path::PathBuf::from(&path);
-        let manifest = if p.is_dir() { p.join("plugin.json") } else { p };
+        // Аудит plugins 368/369: симлинк внутри разрешённой папки вёл на
+        // произвольный файл, а команда работала как общий читатель с
+        // лимитом 32 МБ. Канонизация + только plugin.json по имени
+        let canon = p.canonicalize().map_err(|e| format!("cannot resolve path: {e}"))?;
+        let manifest = if canon.is_dir() {
+            canon.join("plugin.json")
+        } else if canon.file_name().map(|n| n == "plugin.json").unwrap_or(false) {
+            canon
+        } else {
+            return Err("only plugin.json files can be read".into());
+        };
+        rejects_sensitive_path(&manifest.to_string_lossy())?;
         let data = crate::fsutil::read_capped_string(&manifest, 0)?;
         serde_json::from_str(&data).map_err(|e| format!("plugin.json corrupted: {e}"))
     })
@@ -325,11 +336,13 @@ mod tests {
         let ok_dir = tauri::async_runtime::block_on(plugin_read(dir.display().to_string())).unwrap();
         assert_eq!(ok_dir.get("name").and_then(|v| v.as_str()), Some("demo"));
 
+        // Аудит plugins 369: читается ТОЛЬКО plugin.json — произвольный файл
+        // (в т.ч. broken.json) отвергается по имени
         let broken = dir.join("broken.json");
         std::fs::write(&broken, "{ not json").unwrap();
         let err = tauri::async_runtime::block_on(plugin_read(broken.display().to_string()))
-            .expect_err("broken manifest must fail");
-        assert!(err.contains("plugin.json corrupted"), "неожиданная ошибка: {err}");
+            .expect_err("non-plugin.json must fail");
+        assert!(err.contains("only plugin.json"), "неожиданная ошибка: {err}");
 
         let _ = std::fs::remove_dir_all(&dir);
     }
