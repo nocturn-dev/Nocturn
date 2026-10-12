@@ -31,9 +31,15 @@ pub(crate) fn sanitize_note_file(file: &str) -> Result<String, String> {
 }
 
 pub(crate) fn note_title_from_content(file: &str, content: &str) -> String {
-    for line in content.lines() {
+    // Аудит notes 341: «# comment» внутри кода в середине документа
+    // засчитывался заголовком. Заголовок ищем только в начале (до первого
+    // абзаца); таб после # тоже засчитываем (аудит notes 342)
+    for line in content.lines().take(25) {
         let t = line.trim();
-        if let Some(h) = t.strip_prefix("# ") {
+        let h = t
+            .strip_prefix("# ")
+            .or_else(|| t.strip_prefix("#	"));
+        if let Some(h) = h {
             let title = h.trim();
             if !title.is_empty() {
                 return title.to_string();
@@ -62,10 +68,9 @@ pub async fn notes_list(app: tauri::AppHandle) -> Result<Vec<NoteInfo>, String> 
                 .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
                 .map(|d| d.as_secs())
                 .unwrap_or(0);
-            // Для заголовка читаем максимум 1 МБ: раньше каждый .md читался
-            // ЦЕЛИКОМ при каждом открытии списка (vault на сотни больших заметок
-            // давал фризы и пики памяти). Фолбэк — имя файла
-            let title = crate::fsutil::read_capped_string(&entry.path(), 1024 * 1024)
+            // Для заголовка достаточно первых 4 КБ (аудит notes 340: 1 МБ на
+            // заметку на каждое открытие списка — сотни МБ чтения на vault)
+            let title = crate::fsutil::read_capped_string(&entry.path(), 4 * 1024)
                 .map(|c| note_title_from_content(&name, &c))
                 .unwrap_or_else(|_| note_title_from_content(&name, ""));
             out.push(NoteInfo { title, file: name, updated });
@@ -82,6 +87,13 @@ pub async fn notes_read(app: tauri::AppHandle, file: String) -> Result<String, S
     tauri::async_runtime::spawn_blocking(move || {
         let file = sanitize_note_file(&file)?;
         let path = notes_dir(&app)?.join(file);
+        // Аудит notes 337: симлинк внутри папки заметок вёл на произвольный
+        // файл (синхронизация/импорт vault) — читаем только регулярные файлы
+        if let Ok(md) = fs::symlink_metadata(&path) {
+            if md.file_type().is_symlink() {
+                return Err("note path is a symlink".into());
+            }
+        }
         // Потолок размера: агентный vault_read лимитирован, прямая команда
         // раньше возвращала файл любого размера (OOM на многогигабайтном пути)
         crate::fsutil::read_capped_string(&path, 0)

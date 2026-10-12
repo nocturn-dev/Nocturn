@@ -159,8 +159,14 @@ pub fn matches(hook: &Hook, event: &str, tool: &str) -> bool {
     if !hook.enabled || hook.event != event {
         return false;
     }
-    if hook.matcher.is_empty() || tool.is_empty() {
+    // Аудит hooks 192: пустое имя инструмента запускало ВСЕ хуки с
+    // матчером. Для событий с инструментом пустое имя совпадает только
+    // с хуками без матчера
+    if hook.matcher.is_empty() {
         return true;
+    }
+    if tool.is_empty() {
+        return false;
     }
     tool.to_lowercase()
         .contains(&hook.matcher.to_lowercase())
@@ -261,7 +267,14 @@ fn exec_with_abort(
                 .to_string();
         }
         if let Some(ctx) = v.get("additionalContext").and_then(|c| c.as_str()) {
-            out.additional_context = ctx.to_string();
+            // Аудит hooks 187: безлимитный вывод хука переполнял контекст
+            // модели. Потолок как у HOOK_STRING_LIMIT, с пометкой
+            let mut ctx = ctx.to_string();
+            if ctx.len() > HOOK_STRING_LIMIT {
+                crate::truncate_at_char_boundary(&mut ctx, HOOK_STRING_LIMIT);
+                ctx.push_str("\n...[additionalContext truncated]");
+            }
+            out.additional_context = ctx;
         }
     }
     out
@@ -273,13 +286,28 @@ const HOOK_STRING_LIMIT: usize = 64 * 1024;
 /// Рекурсивно обрезает строки длиннее HOOK_STRING_LIMIT в JSON-значении,
 /// добавляя суффикс "\n...[truncated]". Хук не должен получать мегабайты.
 fn truncate_long_strings(v: &mut serde_json::Value) {
+    // Аудит hooks 188: тысячи строк по 64 КБ давали сотни мегабайт на stdin
+    // хука. Общий бюджет payload: тратится — хвост режется до 1 КБ
+    let mut budget: u64 = 256 * 1024;
+    truncate_long_strings_budget(v, &mut budget);
+}
+
+fn truncate_long_strings_budget(v: &mut serde_json::Value, budget: &mut u64) {
     match v {
         serde_json::Value::String(s) => {
             if s.len() > HOOK_STRING_LIMIT {
                 crate::truncate_at_char_boundary(s, HOOK_STRING_LIMIT);
                 s.push_str("\n...[truncated]");
             }
+            if *budget > 0 {
+                let spent = (s.len() as u64).min(*budget);
+                *budget -= spent;
+            } else if s.len() > 1024 {
+                crate::truncate_at_char_boundary(s, 1024);
+                s.push_str("\n...[payload budget exhausted]");
+            }
         }
+
         serde_json::Value::Array(items) => {
             for item in items.iter_mut() {
                 truncate_long_strings(item);
