@@ -67,6 +67,10 @@ arboard = "3"
 libc = "0.2"
 
 [target.'cfg(windows)'.dependencies]
+# Тосты со своей атрибуцией (AUMID com.haloui.app) и кликом-активацией окна:
+# plugin-notification на Windows шлёт от PowerShell и не даёт on_activated
+tauri-winrt-notification = "0.7"
+winreg = "0.55"
 # Проигрывание SAPI-WAV в выбранное устройство вывода (TTS): SAPI сам
 # умеет только дефолтное устройство. rodio = cpal + декодер; wav —
 # единственный нужный формат (наш собственный рендер)

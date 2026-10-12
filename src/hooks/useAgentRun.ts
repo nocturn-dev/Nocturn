@@ -523,6 +523,23 @@ export function useAgentRun(deps: AgentRunDeps) {
         return;
       }
       const kept = src.messages.slice(0, src.messages.indexOf(orig));
+      const tail = src.messages.slice(src.messages.indexOf(orig) + 1);
+      // Правка ПОСЛЕДНЕЙ попытки (хвост пуст или состоит из одних карточек
+      // ошибок: «Request failed» и т.п.) — правим на месте, без форка.
+      // Раньше каждый повтор после падения/стопа плодил новую сессию-дубль
+      // (багрепорт владельца), хотя хранить здесь нечего
+      const tailIsFailedAttempt = tail.every(
+        (m) => m.role === "assistant" && m.error != null,
+      );
+      if (tail.length === 0 || tailIsFailedAttempt) {
+        setSessions((prev) =>
+          prev.map((s) =>
+            s.id === targetId ? { ...s, messages: kept } : s,
+          ),
+        );
+        currentOverride = src;
+        editAttachments = orig.attachments;
+      } else {
       const branch: Session = {
         id: uid(),
         title: src.title,
@@ -545,6 +562,7 @@ export function useAgentRun(deps: AgentRunDeps) {
       currentOverride = branch;
       editAttachments = orig.attachments;
       addToast(t("branch.created"));
+      }
     }
 
     const userMsg: Message =
@@ -1220,6 +1238,10 @@ export function useAgentRun(deps: AgentRunDeps) {
     // ---------- Одиночный режим: один стрим, без инструментов ----------
     if (!isAgent) {
       const assistantId = uid();
+      // Таймер «Worked for N сек» — от старта ЭТОГО ответа, а не от старта
+      // прогона: дефолт fromMs=startedAt копил всю длину чата, и карточка
+      // показала 316s на втором-третьем ответе (багрепорт владельца)
+      const singleStartedAt = Date.now();
       streamingRef.current.set(requestId, assistantId);
       setStreamingAssistantId(assistantId);
       pushMessage({ id: assistantId, role: "assistant", content: "", thought: "", model: apiSettings.model });
@@ -1296,7 +1318,7 @@ export function useAgentRun(deps: AgentRunDeps) {
           t("err.emptyResponse"),
         );
       }
-      markWorked(assistantId);
+      markWorked(assistantId, singleStartedAt);
       finalize();
       return;
     }

@@ -181,6 +181,32 @@ export function AskPanel({
   );
 }
 
+/** Развёрнутый ask_user (split-режим, старые сессии): результат тулa —
+ *  просто текст ответа, вопрос достаём из аргументов вызова */
+export function askClosedFromTool(
+  answer: string,
+  call?: { arguments: string },
+): AskQuestion {
+  let question = "";
+  let header: string | undefined;
+  if (call) {
+    try {
+      const a = JSON.parse(call.arguments) as { question?: string; header?: string };
+      question = a.question ?? "";
+      header = a.header;
+    } catch {
+      // аргументы не распарсились — карточка покажет только ответ
+    }
+  }
+  return {
+    question,
+    header,
+    options: [],
+    answer: answer ? { answers: [answer], custom: undefined } : null,
+    cancelled: !answer,
+  };
+}
+
 /** Закрытый вопрос в истории: одна компактная строка-карточка */
 export function AskClosedCard({ ask }: { ask: AskQuestion }) {
   const { t } = useLang();

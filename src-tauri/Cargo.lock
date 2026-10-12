@@ -3119,11 +3119,13 @@ dependencies = [
  "tauri-plugin-opener",
  "tauri-plugin-single-instance",
  "tauri-plugin-updater",
+ "tauri-winrt-notification",
  "tokio",
  "toml 0.9.12+spec-1.1.0",
  "tungstenite",
  "url",
  "windows 0.61.3",
+ "winreg 0.55.0",
  "xcap",
  "zeroize",
 ]

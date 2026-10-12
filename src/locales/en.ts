@@ -1631,6 +1631,7 @@ export const en = {
     "chat.workedUnit": "s",
     "chat.thought": "Thought",
     "chat.removeImage": "Remove",
+    "chat.fileLines": "{n} lines",
     "chat.reuseImage": "Reuse in composer",
     "sidebar.showAll": "Show all tasks",
     "sidebar.showProject": "Show tasks of project “{name}”",

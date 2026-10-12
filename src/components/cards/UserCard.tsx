@@ -1,4 +1,5 @@
 import { useLang } from "../../locales";
+import { FileCard } from "../FileCard";
 import { type Attachment } from "../../types";
 import {
   CheckIcon,
@@ -11,7 +12,6 @@ import {
 import { memo, useState } from "react";
 import { getUserAvatar } from "../../userProfile";
 import { copyText } from "../../clipboard";
-import { FileIcon } from "./icons";
 
 function UserCardBase({
   mid,
@@ -212,13 +212,14 @@ function UserCardBase({
                 className="max-h-44 rounded-lg border border-halo-line/60 object-cover"
               />
               ) : (
-              <div
-                title={a.name}
-                className="flex max-w-52 items-center gap-1.5 rounded-lg border border-halo-line/60 bg-halo-surface/60 px-2.5 py-2 text-left"
-              >
-                <span className="shrink-0 text-halo-muted"><FileIcon /></span>
-                <span className="min-w-0 truncate text-xs text-halo-text">{a.name}</span>
-              </div>
+              <FileCard
+                a={a}
+                linesLabel={
+                  a.text != null
+                    ? t("chat.fileLines", { n: a.text.split("\n").length })
+                    : undefined
+                }
+              />
               )}
               {/* Вернуть изображение в композер: оверлей при наведении,
                   клик не стартует выделение (см. data-reuse-img-btn выше) */}
