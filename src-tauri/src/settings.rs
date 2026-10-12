@@ -528,6 +528,14 @@ pub async fn crypto_reset(app: tauri::AppHandle, confirm: String) -> Result<(), 
         if meta.exists() {
             fs::remove_file(&meta).map_err(|e| e.to_string())?;
         }
+        // Аудит settings 441: OAuth-токены MCP персистятся зашифрованными
+        // (mcp-oauth.json) — после RESET старый шифротекст новым ключом не
+        // берётся и load_persisted его молча пропускал. Файл целиком под
+        // удаление: все его поля секретные
+        let oauth = config_file(&app, crate::mcp_oauth::TOKENS_FILE)?;
+        if oauth.exists() {
+            fs::remove_file(&oauth).map_err(|e| e.to_string())?;
+        }
         // Чистим зашифрованные поля — восстановить их без пароля невозможно
         // (какое поле чистит каждая ветка — в if/else ниже)
         for path in [
@@ -557,10 +565,9 @@ pub async fn crypto_reset(app: tauri::AppHandle, confirm: String) -> Result<(), 
                     .as_bytes(),
             )?;
         }
-        // Секретные конфиги с.enc-полями: без чистки после RESET и нового
-        // пароля владелец получал «vault is locked» при РАЗБЛОКИРОВАННОМ
-        // vault — старый шифротекст новым ключом не расшифровывается.
-        // Plaintext-ключи не трогаем: они от сброса не утеряны
+        // Секретные конфиги: без чистки после RESET и нового пароля владелец
+        // получал «vault is locked» при РАЗБЛОКИРОВАННОМ vault — старый
+        // шифротекст новым ключом не расшифровывается
         for (file, field) in [
             ("imagegen.json", "api_key"),
             ("websearch.json", "brave_key"),
@@ -573,12 +580,15 @@ pub async fn crypto_reset(app: tauri::AppHandle, confirm: String) -> Result<(), 
             let data = fs::read_to_string(&path).map_err(|e| e.to_string())?;
             let mut v: serde_json::Value = serde_json::from_str(&data)
                 .map_err(|e| format!("cannot parse {file} — reset aborted: {e}"))?;
-            let encrypted = v
+            // Аудит settings 442: раньше чистились только зашифрованные
+            // значения, plaintext-ключи переживали RESET — правило одно:
+            // RESET стирает ВСЕ ключи (settings/profiles так и делали)
+            let has_value = v
                 .get(field)
                 .and_then(|x| x.as_str())
-                .map(crypto::is_encrypted)
+                .map(|x| !x.is_empty())
                 .unwrap_or(false);
-            if encrypted {
+            if has_value {
                 v[field] = serde_json::Value::String(String::new());
                 crate::fsutil::atomic_write(
                     &path,

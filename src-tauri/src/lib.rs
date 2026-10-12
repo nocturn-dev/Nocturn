@@ -549,6 +549,7 @@ async fn open_file_external(
     mode: Option<String>,
 ) -> Result<(), String> {
     let owned;
+    let root_for_check = root.clone();
     let target: &std::path::Path = {
         let p = std::path::Path::new(&path);
         if p.is_absolute() {
@@ -563,6 +564,25 @@ async fn open_file_external(
     };
     crate::settings::rejects_sensitive_path(&target.to_string_lossy())?;
     let mode = mode.as_deref().unwrap_or("open").to_string();
+    // Канонический корень для проверки принадлежности (аудит lib 226);
+    // отсутствие корня не запрещает открытие абсолютных путей — их отсекает
+    // rejects_sensitive_path, а принадлежность проверить нечему
+    let root_canon: Option<std::path::PathBuf> = match (
+        std::path::Path::new(&path).is_absolute(),
+        root_for_check.as_deref(),
+    ) {
+        (false, Some(r)) => Some(
+            std::path::Path::new(r.trim())
+                .canonicalize()
+                .map_err(|e| format!("cannot resolve project root: {e}"))?,
+        ),
+        (true, Some(r)) if !r.trim().is_empty() => Some(
+            std::path::Path::new(r.trim())
+                .canonicalize()
+                .map_err(|e| format!("cannot resolve project root: {e}"))?,
+        ),
+        _ => None,
+    };
     let target_str = target.to_string_lossy().to_string();
     let app2 = app.clone();
     // is_file + запуск процесса/открытие — блокирующие вызовы (до 20 с на
@@ -573,6 +593,35 @@ async fn open_file_external(
         // существования только для open/explorer
         if mode != "vscode" && !std::path::Path::new(&target_str).is_file() {
             return Err(format!("file does not exist: {target_str}"));
+        }
+        // Аудит lib 226: путь обязан лежать внутри корня проекта, если корень
+        // известен — раньше "../../x.exe" от корня и абсолютные пути куда
+        // угодно проходили мимо (кроме системных локаций)
+        if let Some(root) = &root_canon {
+            let canon = std::path::Path::new(&target_str)
+                .canonicalize()
+                .map_err(|e| format!("cannot resolve path: {e}"))?;
+            if !canon.starts_with(root) {
+                return Err("path is outside the project root".into());
+            }
+        }
+        // Аудит lib 225: системная ассоциация запускает .bat/.exe/.ps1 —
+        // агент мог создать такой файл через fs_write, а пользователь нажал
+        // «Открыть». Исполняемые расширения открываются только «показать в
+        // папке» (explorer/folder reveal)
+        let mut mode = mode;
+        if mode == "open" {
+            let exe = std::path::Path::new(&target_str)
+                .extension()
+                .map(|e| e.to_string_lossy().to_ascii_lowercase())
+                .unwrap_or_default();
+            if matches!(
+                exe.as_str(),
+                "bat" | "cmd" | "ps1" | "exe" | "com" | "pif" | "scr" | "vbs" | "msi" | "lnk"
+                    | "jar" | "sh" | "app" | "gadget"
+            ) {
+                mode = "explorer".to_string();
+            }
         }
         match mode.as_str() {
             "explorer" => {
@@ -610,6 +659,11 @@ async fn open_file_external(
                 }
             }
             "vscode" => {
+                // Аудит lib 227: внутри двойных кавычек cmd продолжает
+                // раскрывать %VAR% — пути с % в vscode-режим не пускаем
+                if target_str.contains('%') {
+                    return Err("path must not contain '%'".into());
+                }
                 // `code` — .cmd-шим на Windows: только через cmd /C с raw_arg
                 // (конвенция проекта). Не установлен — честная ошибка наружу
                 #[cfg(windows)]
@@ -1099,6 +1153,25 @@ fn build_tray(app: &tauri::AppHandle) -> Result<(), String> {
 async fn factory_reset(app: tauri::AppHandle, confirm: Option<String>) -> Result<(), String> {
     if confirm.as_deref() != Some("RESET") {
         return Err("confirmation required: pass confirm=\"RESET\" to wipe all local data".into());
+    }
+    // Аудит lib 224: строка "RESET" известна любому скрипту в webview —
+    // компрометация вебвью стирала все данные одним invoke. Серверный барьер
+    // — нативный диалог ОС, который webview показать не может
+    {
+        use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
+        let confirmed = app
+            .dialog()
+            .message("This will permanently delete ALL local Nocturn data: chats, API keys, settings. Continue?")
+            .title("Factory reset")
+            .kind(MessageDialogKind::Warning)
+            .buttons(MessageDialogButtons::OkCancelCustom(
+                "Delete everything".into(),
+                "Cancel".into(),
+            ))
+            .blocking_show();
+        if !confirmed {
+            return Err("factory reset cancelled".into());
+        }
     }
     use tauri::Manager;
     let app2 = app.clone();
