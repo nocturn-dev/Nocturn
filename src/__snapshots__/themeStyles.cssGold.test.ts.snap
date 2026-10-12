@@ -48,10 +48,6 @@ exports[`css generator goldens > fullClaudeCss — important-блок и оled/c
   --halo-content-width: 48rem !important;
   color-scheme: dark;
 }
-html.full-claude .markdown {
-  font-family: Georgia, Charter, "Iowan Old Style", "Palatino Linotype", serif;
-  line-height: 1.7;
-}
 html.full-claude .markdown code:not(pre code) {
   background: rgba(255, 255, 255, 0.05);
   border: 0.5px solid rgba(255, 255, 255, 0.2);

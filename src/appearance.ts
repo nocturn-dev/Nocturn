@@ -164,7 +164,7 @@ export const DEFAULT_APPEARANCE: Appearance = {
   officialContrast: false,
   officialMonoCode: false,
   fullClaude: false,
-  fullClaudeSerif: true,
+  fullClaudeSerif: false, // claude.ai — sans-serif; serif остаётся опцией
   fullClaudeGlass: false,
   fullClaudeRadius: 1,
   fullClaudeUiFont: "",

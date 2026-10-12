@@ -92,9 +92,11 @@ function artifactTitleFromHtml(html: string): string | null {
  *  иконки; референсы — Claude Desktop и референс). Обводка — hairline 1px:
  *  активный акцент/25, неактивный прозрачный (толстые рамки — фидбек 01.10) */
 const COMPOSER_CHIP =
-  "flex h-7 shrink-0 items-center gap-1.5 rounded-lg border px-2 text-[0.6875rem] font-medium transition duration-150 disabled:cursor-not-allowed disabled:opacity-40";
+  "flex h-7 shrink-0 items-center gap-1.5 rounded-lg border px-2 text-[0.6875rem] transition duration-150 disabled:cursor-not-allowed disabled:opacity-40";
+/* Строгий стиль: активный чип нейтральный (фон 6% белого, граница line),
+   акцент живёт только на кнопке отправки */
 const COMPOSER_CHIP_ON =
-  "border-halo-accent/25 bg-halo-accent/10 text-halo-accent";
+  "border-halo-line/70 bg-halo-hover text-halo-text";
 const COMPOSER_CHIP_OFF =
   "border-transparent text-halo-muted hover:bg-halo-hover hover:text-halo-text";
 
@@ -2294,7 +2296,7 @@ export default function ChatArea({
       </header>
 
       {/* Лента сообщений (relative-обёртка держит MessageNav вне скролла) */}
-      <div ref={feedWrapRef} className="relative min-h-0 flex-1">
+      <div ref={feedWrapRef} className="relative flex min-h-0 flex-1 flex-col">
       {/* Кнопка «задать вопрос по теме» у выделенного фрагмента */}
       {selBtn && (
         <button
@@ -2326,7 +2328,7 @@ export default function ChatArea({
       />
       <div
         ref={scrollRef}
-        className="scroll-slim relative z-10 h-full overflow-y-auto"
+        className="feed-scroll relative z-10 min-h-0 flex-1 overflow-y-auto"
       >
         {visible.length === 0 && !typing ? (
           <div
@@ -2490,7 +2492,7 @@ export default function ChatArea({
                         }}
                         className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs transition-colors ${
                           activeProjectId === null
-                            ? "bg-halo-accent/10 text-halo-text"
+                            ? "bg-halo-hover text-halo-text"
                             : "text-halo-muted hover:bg-halo-hover hover:text-halo-text"
                         }`}
                       >
@@ -2505,7 +2507,7 @@ export default function ChatArea({
                           }}
                           className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors ${
                             activeProjectId === p.id
-                              ? "bg-halo-accent/10 text-halo-text"
+                              ? "bg-halo-hover text-halo-text"
                               : "text-halo-muted hover:bg-halo-hover hover:text-halo-text"
                           }`}
                         >
@@ -2548,7 +2550,8 @@ export default function ChatArea({
             {/* Нок: сидит на углу шелла (сторона — преф, переносится драгом);
                 в Hard Mode шелл не рендерится — маскот скрыт вместе с ним.
                 Спрятанный через ПКМ-меню не рендерится до рестарта */}
-            {mascot && !mascotShooed && (
+            {/* Строгий стиль: маскот — только в пустом чате (тумблер в «Темах») */}
+            {mascot && !mascotShooed && visible.length === 0 && (
               // Посадка масштабо-зависима: лапы всегда на кромке шелла,
               // крупный Нок не наезжает на текст поля ввода
               <div
@@ -2614,13 +2617,13 @@ export default function ChatArea({
                     onClick={() => setDraft(`&${s.id}: `)}
                     className={`flex w-full items-baseline gap-2 rounded-lg px-2 py-1.5 text-left transition-colors ${
                       i === skillIndex
-                        ? "bg-halo-accent/15"
+                        ? "bg-halo-hover"
                         : "hover:bg-halo-hover"
                     }`}
                   >
                     <span
                       className={`shrink-0 font-mono text-xs font-semibold ${
-                        i === skillIndex ? "text-halo-accent" : "text-halo-muted"
+                        i === skillIndex ? "text-halo-text" : "text-halo-muted"
                       }`}
                     >
                       &{s.id}:
@@ -2646,7 +2649,7 @@ export default function ChatArea({
                         onClick={() => setDraft(`/${slash.command ? slash.command.name : ""} ${sug}`)}
                         className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs transition-colors ${
                           i === slashIndex
-                            ? "bg-halo-accent/15 text-halo-accent"
+                            ? "bg-halo-hover text-halo-text"
                             : "text-halo-muted hover:bg-halo-hover hover:text-halo-text"
                         }`}
                       >
@@ -2661,7 +2664,7 @@ export default function ChatArea({
                         key={c.name}
                         onClick={() => setDraft(`/${c.name} `)}
                         className={`flex w-full items-baseline gap-2 rounded-lg px-2 py-1.5 text-left transition-colors ${
-                          i === slashIndex ? "bg-halo-accent/15" : "hover:bg-halo-hover"
+                          i === slashIndex ? "bg-halo-hover" : "hover:bg-halo-hover"
                         }`}
                       >
                         <span
@@ -2819,11 +2822,11 @@ export default function ChatArea({
                 }}
                 disabled={dictBusy}
                 title={t("dictation.button")}
-                className={`flex size-9 shrink-0 items-center justify-center rounded-xl transition duration-150 hover:bg-halo-hover ${
+                className={`flex size-9 shrink-0 items-center justify-center rounded-lg transition duration-150 hover:bg-halo-hover ${
                   recording
                     ? "bg-red-400/15 text-red-400"
                     : dictBusy
-                      ? "animate-pulse text-halo-accent"
+                      ? "animate-pulse text-halo-text"
                       : "text-halo-muted hover:text-halo-text"
                 }`}
               >
@@ -2834,7 +2837,7 @@ export default function ChatArea({
                 <button
                   onClick={submit}
                   title={t("composer.correct")}
-                  className="flex size-9 shrink-0 items-center justify-center rounded-xl border border-halo-line text-halo-text transition duration-150 hover:border-halo-accent/60 hover:text-halo-accent active:scale-95"
+                  className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-halo-line text-halo-text transition duration-150 hover:border-halo-line hover:text-halo-text active:scale-95"
                 >
                   <CorrectIcon />
                 </button>
@@ -2847,7 +2850,7 @@ export default function ChatArea({
                 disabled={!streamingMsgId && !draft.trim() && pendingImages.length === 0}
                 title={t(streamingMsgId ? "composer.stop" : "composer.send")}
                 aria-label={t(streamingMsgId ? "composer.stop" : "composer.send")}
-                className={`relative flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-xl border shadow-sm transition-[background-color,border-color,color] duration-200 active:scale-95 ${
+                className={`relative flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-lg border transition-[background-color,border-color,color] duration-200 active:scale-95 ${
                   streamingMsgId
                     ? "border-halo-line bg-transparent text-halo-text hover:border-red-400/60 hover:text-red-400"
                     : "border-transparent bg-halo-accent text-halo-on-accent hover:bg-halo-accent-deep disabled:cursor-not-allowed disabled:opacity-40"
@@ -2942,14 +2945,14 @@ export default function ChatArea({
                           }}
                           className={`flex w-full items-start gap-2.5 rounded-lg px-2 py-1.5 text-left transition-colors ${
                             permissionMode === m
-                              ? "bg-halo-accent/15"
+                              ? "bg-halo-hover"
                               : "hover:bg-halo-hover"
                           }`}
                         >
                           <span
                             className={`mt-0.5 shrink-0 ${
                               permissionMode === m
-                                ? "text-halo-accent"
+                                ? "text-halo-text"
                                 : "text-halo-muted"
                             }`}
                           >
@@ -3012,14 +3015,14 @@ export default function ChatArea({
                               onClick={() => onToggleDisabledTool(name)}
                               className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs transition-colors ${
                                 off
-                                  ? "bg-halo-accent/10 text-halo-text"
+                                  ? "bg-halo-hover text-halo-text"
                                   : "text-halo-muted hover:bg-halo-hover hover:text-halo-text"
                               }`}
                             >
                               <span
                                 className={`flex size-3.5 shrink-0 items-center justify-center rounded border transition-colors ${
                                   off
-                                    ? "border-halo-accent bg-halo-accent"
+                                    ? "border-halo-text/60 bg-halo-text/60"
                                     : "border-halo-muted/50"
                                 }`}
                               >

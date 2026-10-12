@@ -348,7 +348,7 @@ function RunCardBase({
   }, [stepsOf]);
 
   return (
-    <div data-mid={runKey} className="anim-fade-up mr-auto w-full max-w-[85%]">
+    <div data-mid={runKey} className="anim-fade-up group/run mr-auto w-full max-w-[85%]">
       {/* Шапка хода: модель + живой таймер, hairline снизу — как в референсе */}
       <div className="flex items-center gap-2.5 border-b border-halo-line/40 pb-1.5">
         <span className="flex shrink-0 items-center gap-1.5">
@@ -415,9 +415,10 @@ function RunCardBase({
         />
       ))}
 
-      {/* Один футер на ход: сумма токенов + дисклеймер */}
+      {/* Один футер на ход: сумма токенов + дисклеймер. Строгий стиль:
+          служебные строки — за наведением на карточку, не шумят в ленте */}
       {(usage || hasContent) && (
-        <div className="mt-2.5 border-t border-halo-line/40 pt-1.5">
+        <div className="mt-2.5 border-t border-halo-line/40 pt-1.5 opacity-0 transition-opacity duration-150 group-hover/run:opacity-100">
           {usage && (
             <div className="flex items-center gap-3 text-[0.625rem] text-halo-muted/70">
               <span title={t("tokens.up")}>↑ {fmtInt(usage.prompt, lang)}</span>

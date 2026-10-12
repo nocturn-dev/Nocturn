@@ -2,7 +2,7 @@
 
 exports[`chat cards snapshots > AssistantCard: markdown + usage, вне стрима 1`] = `
 <div
-  class="anim-fade-up group relative mr-auto w-fit max-w-[85%] rounded-xl border border-halo-line/70 px-4 py-3 shadow-sm ai-card-solid"
+  class="anim-fade-up group relative mr-auto w-fit max-w-[85%] rounded-xl border border-transparent px-4 py-3 ai-card-solid"
   data-mid="a1"
 >
   <button
@@ -61,7 +61,7 @@ exports[`chat cards snapshots > AssistantCard: markdown + usage, вне стри
         </svg>
       </span>
       <span
-        class="max-w-44 truncate text-[0.6875rem] font-semibold text-halo-text/90"
+        class="max-w-44 truncate text-[0.6875rem] text-halo-muted"
       >
         glm-5.3-flash
       </span>
@@ -116,7 +116,7 @@ exports[`chat cards snapshots > AssistantCard: markdown + usage, вне стри
     </div>
   </div>
   <div
-    class="mt-2 flex items-center gap-3 border-t border-halo-line/50 pt-2 text-[0.625rem] text-halo-muted/70"
+    class="mt-2 flex items-center gap-3 border-t border-halo-line/50 pt-2 text-[0.625rem] text-halo-muted/70 opacity-0 transition-opacity duration-150 group-hover:opacity-100"
   >
     <span
       title="Prompt tokens"
@@ -138,7 +138,7 @@ exports[`chat cards snapshots > AssistantCard: markdown + usage, вне стри
     </span>
   </div>
   <p
-    class="mt-1.5 text-[0.625rem] italic text-halo-muted/50"
+    class="mt-1.5 text-[0.625rem] italic text-halo-muted/50 opacity-0 transition-opacity duration-150 group-hover:opacity-100"
   >
     This response is AI-generated, for reference only.
   </p>
@@ -147,7 +147,7 @@ exports[`chat cards snapshots > AssistantCard: markdown + usage, вне стри
 
 exports[`chat cards snapshots > AssistantCard: с thinking-блоком 1`] = `
 <div
-  class="anim-fade-up group relative mr-auto w-fit max-w-[85%] rounded-xl border border-halo-line/70 px-4 py-3 shadow-sm ai-card-solid"
+  class="anim-fade-up group relative mr-auto w-fit max-w-[85%] rounded-xl border border-transparent px-4 py-3 ai-card-solid"
   data-mid="a2"
 >
   <button
@@ -194,7 +194,7 @@ exports[`chat cards snapshots > AssistantCard: с thinking-блоком 1`] = `
         </svg>
       </span>
       <span
-        class="max-w-44 truncate text-[0.6875rem] font-semibold text-halo-text/90"
+        class="max-w-44 truncate text-[0.6875rem] text-halo-muted"
       >
         claude-sonnet
       </span>
@@ -269,7 +269,7 @@ exports[`chat cards snapshots > AssistantCard: с thinking-блоком 1`] = `
     </div>
   </div>
   <p
-    class="mt-1.5 text-[0.625rem] italic text-halo-muted/50"
+    class="mt-1.5 text-[0.625rem] italic text-halo-muted/50 opacity-0 transition-opacity duration-150 group-hover:opacity-100"
   >
     This response is AI-generated, for reference only.
   </p>

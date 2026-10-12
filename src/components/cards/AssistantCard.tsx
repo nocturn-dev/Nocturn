@@ -271,10 +271,12 @@ function AssistantCardBase({
     );
   }
 
+  // Строгий стиль: ответ идёт прямо по фону ленты — без рамки и тени
+  // (референс Claude); фон ai-card-solid мягко отличим от фона чата
   return (
     <div
       data-mid={mid}
-      className={`anim-fade-up group relative mr-auto w-fit max-w-[85%] rounded-xl border border-halo-line/70 px-4 py-3 shadow-sm ${
+      className={`anim-fade-up group relative mr-auto w-fit max-w-[85%] rounded-xl border border-transparent px-4 py-3 ${
         glassEffect ? "glass-pane msg-glass bg-halo-surface/40" : "ai-card-solid"
       }`}
     >
@@ -283,7 +285,7 @@ function AssistantCardBase({
       <div className="mb-1 flex items-center gap-2.5 pr-6">
         <span className="flex items-center gap-1.5">
           <ProviderIcon modelId={model} size={16} />
-          <span className="max-w-44 truncate text-[0.6875rem] font-semibold text-halo-text/90">
+          <span className="max-w-44 truncate text-[0.6875rem] text-halo-muted">
             {shortModelName(model)}
           </span>
         </span>
@@ -461,7 +463,7 @@ function AssistantCardBase({
       )}
 
       {message.usage && (
-        <div className="mt-2 flex items-center gap-3 border-t border-halo-line/50 pt-2 text-[0.625rem] text-halo-muted/70">
+        <div className="mt-2 flex items-center gap-3 border-t border-halo-line/50 pt-2 text-[0.625rem] text-halo-muted/70 opacity-0 transition-opacity duration-150 group-hover:opacity-100">
           <span title={t("tokens.up")}>
             ↑ {fmtInt(message.usage.prompt, lang)}
           </span>
@@ -476,7 +478,7 @@ function AssistantCardBase({
 
       {/* Дисклеймер: ответ сгенерирован моделью */}
       {message.role === "assistant" && message.content.trim() !== "" && (
-        <p className="mt-1.5 text-[0.625rem] italic text-halo-muted/50">
+        <p className="mt-1.5 text-[0.625rem] italic text-halo-muted/50 opacity-0 transition-opacity duration-150 group-hover:opacity-100">
           {t("chat.aiDisclaimer")}
         </p>
       )}
