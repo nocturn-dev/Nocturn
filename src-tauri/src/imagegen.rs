@@ -169,6 +169,7 @@ pub async fn generate(
         return Err("Image generation is disabled in Settings".into());
     }
     let (base, model, api_key_raw) = resolve_target(&cfg, chat)?;
+    ensure_https_or_local(&base)?;
     // Ключ мог быть сохранён зашифрованным (vault): расшифровка на месте
     // использования — при заблокированном хранилище модель получит понятную
     // ошибку, а не молча уйдёт на провайдера без ключа
@@ -272,7 +273,9 @@ pub async fn generate(
     } else if bytes.starts_with(b"GIF8") {
         "gif"
     } else {
-        "png"
+        // Аудит imagegen 199: неизвестный формат (HTML-заглушка, JSON
+        // ошибки) раньше сохранялся как .png с "ok". Отказ вместо мусора
+        return Err("response is not a recognized image format (jpeg/png/webp/gif)".into());
     };
     // Запись до 32 МБ (каталог может быть на сетевом профиле) — в
     // blocking-пул: sync fs::create_dir_all/fs::write на воркере tokio
@@ -305,6 +308,41 @@ pub async fn generate(
 /// POST {base}/images/generations -> байты картинки. Ошибка несёт флаг
 /// «стоит пробовать chat/completions» (404 или HTML-ответ: у провайдера
 /// нет этой ручки — не тащим HTML-простыню в текст ошибки).
+/// Аудит imagegen 201: ключ в заголовках по открытому http — утечка.
+/// http:// допустим только локальным адресам (localhost/LAN), как в
+/// ensure_key_transport_is_safe в chat.rs
+fn ensure_https_or_local(base: &str) -> Result<(), String> {
+    let b = base.trim();
+    if b.starts_with("https://") || !b.starts_with("http://") {
+        return Ok(());
+    }
+    let rest = b.strip_prefix("http://").unwrap_or(b);
+    let host = rest
+        .split(['/', ':', '?'])
+        .next()
+        .unwrap_or("")
+        .trim_end_matches('.')
+        .to_ascii_lowercase();
+    let local = host == "localhost"
+        || host.ends_with(".localhost")
+        || host.ends_with(".local")
+        || host.parse::<std::net::Ipv4Addr>().map(|ip| {
+            let o = ip.octets();
+            ip.is_loopback()
+                || o[0] == 10
+                || (o[0] == 172 && (16..=31).contains(&o[1]))
+                || (o[0] == 192 && o[1] == 168)
+                || (o[0] == 169 && o[1] == 254)
+        }).unwrap_or(false);
+    if local {
+        Ok(())
+    } else {
+        Err(format!(
+            "base URL {b} uses plain http:// — the API key would be sent unencrypted. Use https:// (http is allowed only for local addresses)"
+        ))
+    }
+}
+
 async fn post_images_endpoint(
     client: &reqwest::Client,
     url: &str,
@@ -373,6 +411,7 @@ async fn chat_image_bytes(
     api_key: &str,
     prompt: &str,
 ) -> Result<Vec<u8>, String> {
+    ensure_https_or_local(base)?;
     let url = format!("{base}/chat/completions");
     let body = json!({
         "model": model,
@@ -497,6 +536,10 @@ async fn download_image(img_url: &str) -> Result<Vec<u8>, String> {
     }
     let dl = crate::network::shared_client(std::time::Duration::from_secs(15))
         .map_err(|e| format!("http client: {e}"))?;
+    // Аудит imagegen 197: редиректы на приватные адреса закрывает
+    // ssrf_redirect_policy из network::apply (общий клиент): origin публичный,
+    // любой переход на непубличный адрес — ошибка; входной URL отфильтрован
+    // url_is_public_http выше
     let r = dl
         .get(img_url)
         .timeout(DOWNLOAD_TIMEOUT)
