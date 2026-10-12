@@ -496,9 +496,26 @@ fn spawn_handle(entry: &LspServerEntry, root: &str) -> Result<Arc<ServerHandle>,
             let reader = std::io::BufReader::new(stderr);
             for line in reader.lines().map_while(|l| l.ok()) {
                 let mut t = tail.lock().unwrap_or_else(|p| p.into_inner());
-                // Хвост 8 КБ: старые строки вытесняем
-                if t.len() + line.len() > 8 * 1024 {
-                    t.clear();
+                // Аудит lsp 244: сервер, пишущий без перевода строки, раздувал
+                // память без предела — потолок длины строки
+                let mut line = line;
+                if line.len() > 4096 {
+                    line.truncate(4096);
+                    line.push_str("...[truncated]");
+                }
+                // Аудит lsp 243: t.clear() удалял ВСЕ накопленное, теряя
+                // причину падения, записанную раньше. Вытесняем старые
+                // строки по одной до влезания новой
+                while t.len() + line.len() > 8 * 1024 {
+                    match t.find("\n") {
+                        Some(i) => {
+                            *t = t[i + 1..].to_string();
+                        }
+                        None => {
+                            t.clear();
+                            break;
+                        }
+                    }
                 }
                 t.push_str(&line);
                 t.push('\n');

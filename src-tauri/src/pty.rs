@@ -203,6 +203,8 @@ pub fn spawn_pty(
                     pending.extend_from_slice(&buf[..n]);
                     if pending.len() > PTY_OUTPUT_LIMIT {
                         // Аномалия: не собирается валидный UTF-8 — сбрасываем
+                        // с видимой пометкой (аудит pty 413: пропуск молча)
+                        on_output("...[terminal stream reset]".to_string());
                         pending.clear();
                         continue;
                     }
@@ -303,11 +305,14 @@ pub async fn pty_create(
                     if !acc.is_empty() {
                         // emit_to, не broadcast: вывод шелла — приватный, слушает
                         // только главное окно (quickentry своего терминала не имеет)
-                        let _ = app_out.emit_to(
+                        let emit_err = app_out.emit_to(
                             "main",
                             "pty-output",
                             PtyEvent { id: out_id.clone(), data: acc.clone() },
                         );
+                        if let Err(e) = emit_err {
+                            eprintln!("pty: output emit failed (window gone?): {e}");
+                        }
                     }
                     acc.clear();
                     if eof {
