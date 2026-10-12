@@ -93,9 +93,12 @@ fn load_profiles_blocking(app: &tauri::AppHandle) -> Result<ProfilesStore, Strin
     let mut store: ProfilesStore =
         serde_json::from_str(&data).map_err(|e| format!("profiles file corrupted: {e}"))?;
     // Прозрачно расшифровываем ключи профилей
+    // Аудит settings 438: «?» на первом же профиле ронял загрузку всего
+    // файла — пользователь не видел ни одного профиля. Битый профиль
+    // отдаётся с пустым ключом, остальные живут
     for p in &mut store.profiles {
         if crypto::is_encrypted(&p.api_key) {
-            p.api_key = decrypt_stored_key(&p.api_key)?;
+            p.api_key = decrypt_stored_key(&p.api_key).unwrap_or_default();
         }
     }
     Ok(store)
@@ -117,6 +120,34 @@ fn save_profiles_blocking(
     active: String,
     encrypt: bool,
 ) -> Result<(), String> {
+    // Аудит settings 424: при запертом vault load_profiles отдаёт ключи
+    // пустыми — сохранение затирало enc:v1: на диске. Прежний шифротекст
+    // профиля сохраняется, если пришёл пустой и vault заперт
+    if !crypto::has_key() && !profiles.is_empty() {
+        let old_map: std::collections::HashMap<String, String> = fs::read_to_string(config_file(app, "profiles.json")?)
+            .ok()
+            .and_then(|d| serde_json::from_str::<serde_json::Value>(&d).ok())
+            .and_then(|v| v.get("profiles").and_then(|p| p.as_array().cloned()))
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|pr| {
+                        let id = pr.get("id").and_then(|x| x.as_str())?.to_string();
+                        let key = pr.get("api_key").and_then(|x| x.as_str())?.to_string();
+                        Some((id, key))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        for p in &mut profiles {
+            if p.api_key.is_empty() {
+                if let Some(old_key) = old_map.get(&p.id) {
+                    if crypto::is_encrypted(old_key) {
+                        p.api_key = old_key.clone();
+                    }
+                }
+            }
+        }
+    }
     if encrypt {
         for p in &mut profiles {
             if !p.api_key.is_empty() && !crypto::is_encrypted(&p.api_key) {
@@ -230,6 +261,13 @@ pub async fn crypto_status(app: tauri::AppHandle) -> Result<serde_json::Value, S
 /// Вывод ключа — тяжёлый (Argon2id, 19 MiB) — исполняется вне потока UI.
 #[tauri::command(async)]
 pub async fn crypto_setup(app: tauri::AppHandle, password: String) -> Result<(), String> {
+    // Аудит settings 425: повторный setup затирал соль и check-маркер, и
+    // все старые enc:v1:… становились нерасшифровываемыми навсегда.
+    // Пересоздание хранилища — только через crypto_reset (осознанный
+    // сброс с подтверждением на фронте)
+    if crypto_read_meta(&app)?.is_some() {
+        return Err("vault is already configured — unlock it or reset first".into());
+    }
     // Символы, не байты: 4 CJK-символа (12 байт) не должны проходить
     // политику «минимум 8»
     if password.chars().count() < 8 {
@@ -250,11 +288,40 @@ pub async fn crypto_setup(app: tauri::AppHandle, password: String) -> Result<(),
     crypto_write_meta(&app, &salt, &check, "argon2id")
 }
 
+/// Счётчик неудачных разблокировок: (неудачи, момент последней). Гейт
+/// отпирается сам по истечении задержки — без перезапуска приложения
+static UNLOCK_FAILS: std::sync::Mutex<(u32, Option<std::time::Instant>)> =
+    std::sync::Mutex::new((0, None));
+
+/// Аудит settings 443: перебор пароля не ограничивался — webview мог
+/// чесать unlock со скоростью CPU. Нарастающая задержка с 3-й неудачи:
+/// 2/4/8… секунд, кап 60. Вызывается ДО тяжёлого Argon2id-вывода
+fn unlock_rate_limit() -> Result<(), String> {
+    let (fails, last) = {
+        // Poisoned-лок не портит кортеж — into_inner и считаем
+        let g = UNLOCK_FAILS
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        (g.0, g.1)
+    };
+    if fails >= 3 {
+        let delay = 2u64.saturating_pow((fails - 3).min(6)).min(60);
+        if let Some(t) = last {
+            let passed = std::time::Instant::now().duration_since(t).as_secs();
+            if passed < delay {
+                return Err(format!("too many failed attempts — retry in {}s", delay - passed));
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Разблокировка существующим паролем. Легаси-хранилище (PBKDF2) после
 /// успешной проверки тихо мигрирует на Argon2id: ключ перегенерируется,
 /// все зашифрованные поля перезаписываются новым ключом.
 #[tauri::command(async)]
 pub async fn crypto_unlock(app: tauri::AppHandle, password: String) -> Result<(), String> {
+    unlock_rate_limit()?;
     let (salt, check, kdf) =
         crypto_read_meta(&app)?.ok_or("encryption is not set up")?;
     let is_argon2 = kdf == "argon2id";
@@ -279,8 +346,17 @@ pub async fn crypto_unlock(app: tauri::AppHandle, password: String) -> Result<()
     .await
     .map_err(|e| e.to_string())??;
     let Some(key) = verified else {
+        // Неудача: инкремент и метка момента — для нарастающей задержки
+        if let Ok(mut g) = UNLOCK_FAILS.lock() {
+            g.0 = g.0.saturating_add(1);
+            g.1 = Some(std::time::Instant::now());
+        }
         return Err("wrong password".into());
     };
+    // Успех: счётчик перебора в ноль
+    if let Ok(mut g) = UNLOCK_FAILS.lock() {
+        *g = (0, None);
+    }
     if is_argon2 {
         crypto::set_key(key);
         // Ключ появился: поллер Telegram мог честно погаситься при старте
@@ -761,6 +837,24 @@ pub async fn settings_write_all(
 /// нормализует), подъём `..`. На Windows блокируются системные топ-уровневые
 /// каталоги диска, на Unix — системные префиксы и ~/.ssh.
 pub(crate) fn rejects_sensitive_path(path: &str) -> Result<(), String> {
+    // Аудит settings 434: каталоги секретов гейтились только в Unix-ветке,
+    // и C:\Users\me\.ssh\id_rsa проходил импорт/экспорт целиком.
+    // Единая проверка по компонентам, до платформенных веток
+    {
+        let comps: Vec<String> = path
+            .split(['\\', '/'])
+            .filter(|c| !c.is_empty())
+            .map(|c| c.to_ascii_lowercase())
+            .collect();
+        if comps.iter().any(|c| {
+            matches!(
+                c.as_str(),
+                ".ssh" | ".aws" | ".gnupg" | ".gcloud" | ".kube" | ".docker" | ".azure"
+            )
+        }) {
+            return Err("path points to a protected location (credentials)".into());
+        }
+    }
     // Хвостовые точки/пробелы/разделители Win32 отбрасывает при нормализации
     let trimmed = path.trim_end_matches(['.', ' ', '\\', '/']);
     #[cfg(windows)]
@@ -1387,6 +1481,23 @@ fn save_settings_blocking(app: &tauri::AppHandle, settings: ApiSettings) -> Resu
         fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
     let mut s = settings;
+    // Аудит settings 423: при запертом vault load отдаёт api_key пустым,
+    // и сохранение любого другого поля затирало enc:v1:\u2026 на диске
+    // пустой строкой — после разблокировки ключа уже не было (потеря
+    // невосстановима). Пустое входное поле при запертом хранилище и
+    // зашифрованном значении на диске сохраняет прежний шифротекст;
+    // при разблокированном vault пустое поле = осознанная очистка
+    if s.api_key.is_empty() && !crypto::has_key() {
+        let old_key = fs::read_to_string(&path)
+            .ok()
+            .and_then(|d| serde_json::from_str::<serde_json::Value>(&d).ok())
+            .and_then(|v| v.get("api_key").and_then(|x| x.as_str()).map(str::to_string));
+        if let Some(old_key) = old_key {
+            if crypto::is_encrypted(&old_key) {
+                s.api_key = old_key;
+            }
+        }
+    }
     if s.encrypt_keys && !s.api_key.is_empty() && !crypto::is_encrypted(&s.api_key) {
         s.api_key = crypto::encrypt(&s.api_key)?;
     }
