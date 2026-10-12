@@ -195,13 +195,28 @@ fn fts_query(query: &str) -> String {
 /// Чтение текстового документа с потолком: не-UTF8 не роняет команду
 fn read_text_capped(path: &std::path::Path) -> Result<String, String> {
     let md = std::fs::metadata(path).map_err(|e| format!("cannot stat: {e}"))?;
+    // Аудит kb 211: FIFO/устройство через симлинк проходили проверку и
+    // блокировались на read; файл мог вырасти между stat и read
+    if !md.is_file() {
+        return Err("not a regular file".into());
+    }
     if md.len() > MAX_DOC_BYTES {
         return Err(format!(
             "file too large: {} bytes (limit {MAX_DOC_BYTES})",
             md.len()
         ));
     }
-    let bytes = std::fs::read(path).map_err(|e| format!("cannot read: {e}"))?;
+    let f = std::fs::File::open(path).map_err(|e| format!("cannot read: {e}"))?;
+    let mut bytes = Vec::with_capacity(md.len() as usize);
+    {
+        use std::io::Read;
+        f.take(MAX_DOC_BYTES + 1)
+            .read_to_end(&mut bytes)
+            .map_err(|e| format!("cannot read: {e}"))?;
+    }
+    if bytes.len() > MAX_DOC_BYTES as usize {
+        return Err(format!("file too large (limit {MAX_DOC_BYTES} bytes)"));
+    }
     Ok(String::from_utf8_lossy(&bytes).to_string())
 }
 
@@ -222,11 +237,14 @@ pub async fn kb_create(app: tauri::AppHandle, name: String) -> Result<String, St
             created: now_ms(),
         };
         let meta = dir.join("meta.json");
-        std::fs::write(
+        // Аудит kb 218: не-атомарная запись оставляла обрезанный meta.json,
+        // и kb_list молча пропускал базу
+        crate::fsutil::atomic_write(
             &meta,
-            serde_json::to_string_pretty(&car).map_err(|e| e.to_string())?,
-        )
-        .map_err(|e| e.to_string())?;
+            serde_json::to_string_pretty(&car)
+                .map_err(|e| e.to_string())?
+                .as_bytes(),
+        )?;
         drop(open_db(&dir)?);
         Ok(id)
     })
