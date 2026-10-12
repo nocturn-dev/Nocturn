@@ -29,6 +29,44 @@ pub async fn hooks_save(app: tauri::AppHandle, file: hooks::HookFile) -> Result<
             return Err(format!("unknown hook event: {}", h.event));
         }
     }
+    // Аудит hooks 181: сохранённый хук исполняется на КАЖДОМ вызове
+    // инструмента с правами пользователя. Скомпрометированный webview
+    // записывал хук с произвольной командой — подтверждаем запись
+    // нативным диалогом с перечнем команд
+    {
+        use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
+        let list: Vec<String> = file
+            .hooks
+            .iter()
+            .filter(|h| h.enabled)
+            .map(|h| format!("[{}] {}", h.event, h.command.trim()))
+            .collect();
+        let confirmed = app
+            .dialog()
+            .message(if list.is_empty() {
+                "Save hooks configuration?".to_string()
+            } else {
+                format!(
+                    "These hook commands will run on every matching tool call:
+
+{}
+
+Save?",
+                    list.join("
+")
+                )
+            })
+            .title("Hooks configuration")
+            .kind(MessageDialogKind::Warning)
+            .buttons(MessageDialogButtons::OkCancelCustom(
+                "Save".into(),
+                "Cancel".into(),
+            ))
+            .blocking_show();
+        if !confirmed {
+            return Err("hooks save cancelled".into());
+        }
+    }
     // Запись hooks.json — sync-диск, в blocking-пул (№4 аудита v5)
     tauri::async_runtime::spawn_blocking(move || hooks::save(&hooks_dir(&app)?, &file))
         .await
@@ -38,10 +76,35 @@ pub async fn hooks_save(app: tauri::AppHandle, file: hooks::HookFile) -> Result<
 /// Прогнать один хук на пробном payload (кнопка «Тест» в настройках)
 #[tauri::command(async)]
 pub async fn hooks_test(
-    _app: tauri::AppHandle,
+    app: tauri::AppHandle,
     hook: hooks::Hook,
     payload: serde_json::Value,
 ) -> Result<hooks::HookOutcome, String> {
+    // Аудит plugins 370: тест исполнял ЛЮБУЮ команду из IPC без сохранения
+    // и без следа на диске — один invoke из компрометированного webview
+    // давал исполнение shell-команды. Нативное подтверждение с текстом
+    // команды — барьер, недоступный вебвью
+    {
+        use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
+        let confirmed = app
+            .dialog()
+            .message(format!(
+                "Run this hook command now?
+
+{}",
+                hook.command.trim()
+            ))
+            .title("Hook test")
+            .kind(MessageDialogKind::Warning)
+            .buttons(MessageDialogButtons::OkCancelCustom(
+                "Run once".into(),
+                "Cancel".into(),
+            ))
+            .blocking_show();
+        if !confirmed {
+            return Err("hook test cancelled".into());
+        }
+    }
     tauri::async_runtime::spawn_blocking(move || {
         let mut h = hook;
         h.enabled = true;

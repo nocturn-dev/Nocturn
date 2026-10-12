@@ -1248,6 +1248,38 @@ pub async fn mcp_save_servers(
         .map_err(|e| format!("mcp save task failed: {e}"))?
 }
 
+/// Локальный http-адрес: localhost (*.localhost, .local), loopback IPv4/IPv6,
+/// частные LAN-подсети (доверенные пользователем, как и в
+/// ensure_key_transport_is_safe в chat.rs)
+fn is_local_http_url(url: &str) -> bool {
+    // Ipv6-литерал приходит в скобках и не режется по ':'
+    let lower = url.to_ascii_lowercase();
+    if lower.starts_with("http://[::1]") {
+        return true;
+    }
+    let rest = url.strip_prefix("http://").unwrap_or(url);
+    let host = rest
+        .split(['/', ':', '?'])
+        .next()
+        .unwrap_or("")
+        .trim_end_matches('.')
+        .to_ascii_lowercase();
+    if host == "localhost" || host.ends_with(".localhost") || host.ends_with(".local") {
+        return true;
+    }
+    if let Ok(ip) = host.parse::<std::net::Ipv4Addr>() {
+        let o = ip.octets();
+        return ip.is_loopback()
+            || ip.is_unspecified()
+            || o[0] == 10
+            || o[0] == 127
+            || (o[0] == 172 && (16..=31).contains(&o[1]))
+            || (o[0] == 192 && o[1] == 168)
+            || (o[0] == 169 && o[1] == 254);
+    }
+    false
+}
+
 fn mcp_save_servers_impl(
     app: &tauri::AppHandle,
     servers: Vec<McpServerConfig>,
@@ -1270,6 +1302,15 @@ fn mcp_save_servers_impl(
                     s.name
                 ));
             }
+            // Аудит mcp 264: заголовки Authorization и OAuth-токены по
+            // открытому http уходят в открытом виде. http:// — только
+            // локальным адресам (localhost, 127.0.0.1, [::1], *.localhost)
+            if url.starts_with("http://") && !is_local_http_url(url) {
+                return Err(format!(
+                    "server \"{}\": plain http:// is allowed only for local addresses — use https://",
+                    s.name
+                ));
+            }
             // Заголовки валидируем на СОХРАНЕНИИ: post_rpc молча выбрасывал
             // невалидные (не-ASCII токен, кривое имя) — сервер отвечал 401
             // без всякой причины, а источник не был виден нигде
@@ -1289,6 +1330,64 @@ fn mcp_save_servers_impl(
             }
         } else if s.command.trim().is_empty() {
             return Err(format!("server \"{}\": command is empty", s.name));
+        }
+    }
+    // Аудит mcp 263: конфиг сохраняется через IPC с произвольной командой —
+    // скомпрометированный webview получал исполнение любого бинаря при
+    // следующем mcp_connect. Изменённые/новые команды и URL подтверждаются
+    // нативным диалогом; неизменённый конфиг сохраняется без вопросов
+    let old_cfg = load_servers(app).unwrap_or_default();
+    let mut changed: Vec<String> = Vec::new();
+    for s in &servers {
+        let prev = old_cfg.iter().find(|p| p.name == s.name);
+        let differs = match prev {
+            None => true,
+            Some(p) => {
+                let same = if is_remote(s) {
+                    p.url.trim() == s.url.trim()
+                } else {
+                    p.command.trim() == s.command.trim()
+                        && p.args == s.args
+                        && p.env == s.env
+                };
+                !same
+            }
+        };
+        if differs {
+            if is_remote(s) {
+                changed.push(format!("{}: remote URL {}", s.name, s.url.trim()));
+            } else {
+                changed.push(format!(
+                    "{}: command {} {}",
+                    s.name,
+                    s.command.trim(),
+                    s.args.join(" ")
+                ));
+            }
+        }
+    }
+    if !changed.is_empty() {
+        use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
+        let confirmed = app
+            .dialog()
+            .message(format!(
+                "MCP servers will run these commands on this machine:
+
+{}
+
+Save and allow?",
+                changed.join("
+")
+            ))
+            .title("MCP server configuration")
+            .kind(MessageDialogKind::Warning)
+            .buttons(MessageDialogButtons::OkCancelCustom(
+                "Save and allow".into(),
+                "Cancel".into(),
+            ))
+            .blocking_show();
+        if !confirmed {
+            return Err("mcp config save cancelled".into());
         }
     }
     save_servers(app, &servers)
