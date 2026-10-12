@@ -18,6 +18,10 @@ const PREFIX: &str = "enc:v1:";
 const KEY_LEN: usize = 32; // AES-256
 const PBKDF2_ITERS: u32 = 200_000;
 const KEY_CHECK_MARKER: &str = "nocturn-key-check";
+/// GCM-nonce (12 байт) + тег аутентификации (16 байт): блоб короче —
+/// заведомо не наш формат
+const NONCE_LEN: usize = 12;
+const MIN_BLOB: usize = NONCE_LEN + 16;
 
 /// Авто-запирание: 15 минут без операций шифрования/расшифровки —
 /// ключ стирается из памяти. Окно времени фикс: настройки на этот счёт
@@ -171,7 +175,7 @@ pub fn encrypt(plain: &str) -> Result<String, String> {
 /// То же с явным ключом (миграция PBKDF2 → Argon2id)
 pub fn encrypt_with(key: &[u8], plain: &str) -> Result<String, String> {
     let cipher = Aes256Gcm::new_from_slice(key).map_err(|e| e.to_string())?;
-    let mut nonce = [0u8; 12];
+    let mut nonce = [0u8; NONCE_LEN];
     rand::thread_rng().fill_bytes(&mut nonce);
     let ct = cipher
         .encrypt(Nonce::from_slice(&nonce), plain.as_bytes())
@@ -200,12 +204,12 @@ pub fn decrypt(stored: &str) -> Option<Zeroizing<String>> {
 /// То же с явным ключом (миграция PBKDF2 → Argon2id)
 pub fn decrypt_with(key: &[u8], stored: &str) -> Option<Zeroizing<String>> {
     let blob = B64.decode(stored.strip_prefix(PREFIX)?).ok()?;
-    if blob.len() <= 12 {
+    if blob.len() < MIN_BLOB {
         return None;
     }
     let cipher = Aes256Gcm::new_from_slice(key).ok()?;
     let pt = cipher
-        .decrypt(Nonce::from_slice(&blob[..12]), &blob[12..])
+        .decrypt(Nonce::from_slice(&blob[..NONCE_LEN]), &blob[NONCE_LEN..])
         .ok()?;
     // Zeroizing: расшифрованный plaintext — секрет, затираем при drop, а не
     // оставляем в освободившейся heap-памяти
@@ -322,6 +326,20 @@ mod tests {
         // «по умолчанию» крейт — повод осознанно решить, нужна ли миграция
         let explicit = argon2::Params::new(19 * 1024, 2, 1, None).unwrap();
         assert_eq!(explicit, argon2::Params::default());
+    }
+
+    #[test]
+    fn decrypt_short_blob_lengths_rejected() {
+        // Аудит crypto 128: граничные длины блоба (nonce 12 + тег 16) не
+        // паникуют на срезах — всё короче MIN_BLOB отбрасывается до split
+        let key = [7u8; 32];
+        for n in [0usize, 12, 13, 27] {
+            let blob = B64.encode(vec![0u8; n]);
+            assert!(
+                decrypt_with(&key, &format!("{PREFIX}{blob}")).is_none(),
+                "len={n} должен отбрасываться"
+            );
+        }
     }
 
     #[test]
