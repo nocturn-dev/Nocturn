@@ -258,12 +258,28 @@ pub fn atomic_write(path: &Path, data: &[u8]) -> Result<(), String> {
         rand::random::<u32>()
     ));
     {
-        let mut f = fs::File::create(&tmp)
+        // Аудит fsutil 170: temp создаётся сразу с 600 на Unix — файл с
+        // ключами под umask 022 жил как 0644 до chmod после записи
+        let mut f = fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode_if_unix(0o600)
+            .open(&tmp)
             .map_err(|e| format!("cannot create {}: {e}", tmp.display()))?;
-        f.write_all(data)
-            .map_err(|e| format!("cannot write {}: {e}", tmp.display()))?;
-        // Flush перед rename; ошибка sync не критична для целостности
-        f.sync_all().ok();
+        // Аудит fsutil 171: temp не оставляется на любом пути ошибки
+        (|| -> Result<(), String> {
+            f.write_all(data)
+                .map_err(|e| format!("cannot write {}: {e}", tmp.display()))?;
+            // Аудит fsutil 173: сбой sync раньше глотался, и файл
+            // переименовывался без гарантии долговечности
+            f.sync_all()
+                .map_err(|e| format!("cannot sync {}: {e}", tmp.display()))?;
+            Ok(())
+        })()
+        .inspect_err(|_| {
+            let _ = fs::remove_file(&tmp);
+        })?;
     }
     #[cfg(unix)]
     {
@@ -288,11 +304,39 @@ pub fn atomic_write(path: &Path, data: &[u8]) -> Result<(), String> {
 /// СОЗДАНИЯ: fs::write создаёт файл под umask, и на общем /tmp это
 /// world-readable окно до отдельного chmod. На Windows — обычная запись
 /// (ACL пер-юзерного %TEMP% уже приватный).
+/// Расширение OpenOptions: mode(600) на Unix, no-op на Windows/макрос-нейтрально
+trait OpenOptionsMode {
+    fn mode_if_unix(&mut self, mode: u32) -> &mut Self;
+}
+impl OpenOptionsMode for fs::OpenOptions {
+    fn mode_if_unix(&mut self, mode: u32) -> &mut Self {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            self.mode(mode)
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = mode;
+            self
+        }
+    }
+}
+
 pub fn write_private(path: &Path, data: &[u8]) -> Result<(), String> {
     #[cfg(unix)]
     {
         use std::io::Write;
         use std::os::unix::fs::OpenOptionsExt;
+        // Аудит fsutil 174: mode(600) действует только при создании —
+        // существующий 0644-файл оставался доступным группе/всем. Права
+        // выставляются явно и при перезаписи существующего
+        if let Ok(md) = fs::symlink_metadata(path) {
+            if md.file_type().is_symlink() {
+                return Err(format!("refusing to write through symlink: {}", path.display()));
+            }
+            let _ = fs::set_permissions(path, fs::Permissions::from_mode(0o600));
+        }
         let mut f = fs::OpenOptions::new()
             .write(true)
             .create(true)
@@ -317,6 +361,11 @@ pub fn read_capped_string(path: &Path, limit: usize) -> Result<String, String> {
     const DEFAULT_LIMIT: usize = 32 * 1024 * 1024;
     let limit = if limit == 0 { DEFAULT_LIMIT } else { limit };
     let md = fs::metadata(path).map_err(|e| format!("cannot stat {}: {e}", path.display()))?;
+    // Аудит fsutil 175: FIFO/устройство проходят metadata-проверку (len 0)
+    // и висят на read_to_string навсегда
+    if !md.is_file() {
+        return Err(format!("not a regular file: {}", path.display()));
+    }
     if md.len() > limit as u64 {
         return Err(format!(
             "file too large: {} bytes (limit {} bytes)",
@@ -324,7 +373,21 @@ pub fn read_capped_string(path: &Path, limit: usize) -> Result<String, String> {
             limit
         ));
     }
-    let mut data = fs::read_to_string(path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
+    // Аудит fsutil 176: файл мог вырасти между metadata и чтением — лимит
+    // дублируется take() на самом чтении
+    let file = fs::File::open(path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
+    let mut capped = Vec::with_capacity(md.len() as usize);
+    {
+        use std::io::Read;
+        file.take(limit as u64 + 1)
+            .read_to_end(&mut capped)
+            .map_err(|e| format!("cannot read {}: {e}", path.display()))?;
+    }
+    if capped.len() > limit {
+        return Err(format!("file too large (limit {} bytes)", limit));
+    }
+    let mut data = String::from_utf8(capped)
+        .map_err(|_| format!("file is not valid UTF-8: {}", path.display()))?;
     // BOM-толерантность: файлы, пересохранённые редакторами «UTF-8 с BOM»
     // (частый кейс на Windows), раньше отваливались в serde_json как
     // «corrupted» без причины — срезаем префикс один раз
