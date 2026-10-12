@@ -52,14 +52,23 @@ fn read_ca_file(path: &str) -> Result<Vec<u8>, String> {
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_else(|_| path.to_string());
     crate::settings::rejects_sensitive_path(&canon)?;
+    // Аудит network 325: metadata следует симлинку — FIFO/устройство
+    // проходили проверку размера и блокировали read навсегда
     let meta = std::fs::metadata(path).map_err(|e| format!("cannot read CA file: {e}"))?;
+    if !meta.is_file() {
+        return Err("CA path is not a regular file".into());
+    }
     if meta.len() > CA_MAX_BYTES {
         return Err(format!(
             "CA file too large: {} bytes (limit {CA_MAX_BYTES})",
             meta.len()
         ));
     }
-    std::fs::read(path).map_err(|e| format!("cannot read CA file: {e}"))
+    // Аудит network 324: читаем по канонической форме — между проверкой и
+    // чтением симлинк мог быть подменён
+    std::fs::read(canon.trim_start_matches(r"\?\"))
+        .or_else(|_| std::fs::read(path))
+        .map_err(|e| format!("cannot read CA file: {e}"))
 }
 
 pub fn set_config(cfg: NetworkConfig) {
@@ -108,9 +117,15 @@ pub fn apply(builder: reqwest::ClientBuilder) -> Result<reqwest::ClientBuilder, 
     if !cfg.proxy.trim().is_empty() {
         let mut proxy = reqwest::Proxy::all(cfg.proxy.trim())
             .map_err(|e| format!("invalid proxy URL: {e}"))?;
-        if !cfg.no_proxy.trim().is_empty() {
-            proxy = proxy.no_proxy(reqwest::NoProxy::from_string(cfg.no_proxy.trim()));
-        }
+        // Аудит network 327: без no_proxy запросы к Ollama/LM Studio/
+        // llama-server на 127.0.0.1 уходили через корпоративный прокси и
+        // не работали. Локальные адреса обходят прокси по умолчанию
+        let no_proxy = if cfg.no_proxy.trim().is_empty() {
+            "localhost,127.0.0.1,::1".to_string()
+        } else {
+            cfg.no_proxy.trim().to_string()
+        };
+        proxy = proxy.no_proxy(reqwest::NoProxy::from_string(&no_proxy));
         b = b.proxy(proxy);
     }
     let ca = CA_PEM
