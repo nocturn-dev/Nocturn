@@ -134,8 +134,9 @@ async fn http_get(url: &str, headers: Vec<(String, String)>) -> Result<String, S
         body.extend_from_slice(&chunk);
     }
     if !status.is_success() {
-        let snippet: String = String::from_utf8_lossy(&body).chars().take(200).collect();
-        return Err(format!("HTTP {}: {}", status.as_u16(), snippet));
+        // Аудит websearch 518: первые 200 символов тела могли вернуть
+        // echo запроса/заголовков прокси. Только статус, без содержимого
+        return Err(format!("HTTP {}", status.as_u16()));
     }
     Ok(String::from_utf8_lossy(&body).to_string())
 }
@@ -256,9 +257,14 @@ pub async fn execute(query: &str, count: Option<u64>) -> Result<String, String> 
         Zeroizing::new(cfg.brave_key.clone())
     };
     let count = count.unwrap_or(5).clamp(1, 10) as usize;
+    // Аудит websearch 525: опечатка в провайдере («braev») молча уходила
+    // в SearXNG с непонятной ошибкой подключения
     match cfg.provider.as_str() {
         "brave" => brave(&brave_key, query, count).await,
-        _ => searxng(&cfg.searxng_url, query, count).await,
+        "searxng" => searxng(&cfg.searxng_url, query, count).await,
+        other => Err(format!(
+            "unknown search provider \"{other}\" (expected brave or searxng)"
+        )),
     }
 }
 

@@ -97,8 +97,6 @@ pub async fn lyrics_fetch(
 #[cfg(windows)]
 mod windows_impl {
     use super::MediaStateDto;
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
     use std::sync::mpsc;
     use std::sync::{Mutex, Once, OnceLock};
     use std::time::Duration;
@@ -183,10 +181,15 @@ mod windows_impl {
     }
 
     fn track_hash(title: &str, artist: &str) -> String {
-        let mut h = DefaultHasher::new();
-        title.hash(&mut h);
-        artist.hash(&mut h);
-        format!("{:016x}", h.finish())
+        // Аудит media 300: DefaultHasher не гарантирует стабильность между
+        // версиями rustc, а ключ используется дедупом и лирикой на фронте.
+        // FNV-1a 64 — фиксированный результат
+        let mut h: u64 = 0xcbf29ce484222325;
+        for b in (title.as_bytes()).iter().chain(artist.as_bytes()) {
+            h ^= *b as u64;
+            h = h.wrapping_mul(0x100000001b3);
+        }
+        format!("{h:016x}")
     }
 
     fn run_observer() {
@@ -1025,11 +1028,19 @@ mod lyrics {
             .and_then(|it| it.get("syncedLyrics").and_then(|v| v.as_str()).map(String::from));
         let plain = pick_lyrics(arr, target, "plainLyrics")
             .and_then(|it| it.get("plainLyrics").and_then(|v| v.as_str()).map(String::from));
+        // Аудит media 297: found: true даже при пустом ответе — фронт не
+        // отличал «текста нет» от «текст есть»
+        let found = synced.is_some() || plain.is_some();
         let dto = LyricsDto {
             plain,
             synced,
-            found: true,
+            found,
         };
+        // Аудит media 298: пустой результат не кэшируется на весь сеанс —
+        // текст мог появиться у lrclib позже
+        if !found {
+            return Ok(dto);
+        }
         {
             let mut guard = CACHE.lock().map_err(|e| e.to_string())?;
             let map = guard.get_or_insert_with(HashMap::new);
