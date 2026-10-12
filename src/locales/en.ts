@@ -249,7 +249,7 @@ export const en = {
     "card.collapse": "Collapse",
     "card.expand": "Expand",
     "card.switchedTo": "Switched to {model}",
-    "card.stoppedByUser": "⟂ stopped by user",
+    "card.stoppedByUser": "Stopped by user",
     "card.imageOf": "Image",
     "card.thinking": "Thinking…",
     "card.answer": "Answer",

@@ -8,6 +8,7 @@ import type { Appearance } from "../appearance";
 import type { Theme } from "../types";
 import ProviderIcon from "./ProviderIcon";
 import { useLang } from "../locales";
+import { reasoningLevels } from "../reasoning";
 
 /**
  * Быстрые настройки (поповер из композера): модель, роль, тема,
@@ -142,13 +143,17 @@ export default function QuickSettings({
                 </p>
               )}
 
-              {/* Reasoning effort: усилие размышлений поддерживающих моделей */}
+              {/* Reasoning effort: только уровни, которые поддерживает
+                  выбранная модель (reasoning.ts). У моделей без
+                  регулируемого размышления селектор не показываем —
+                  ручка без эффекта хуже, чем её отсутствие */}
+              {reasoningLevels(model).length > 1 && (
               <div className="pt-2">
                 <p className="mb-1.5 px-0.5 text-[0.625rem] uppercase tracking-wider text-halo-muted/60">
                   {t("qs.effort")}
                 </p>
                 <div className="flex rounded-lg border border-halo-line p-0.5">
-                  {efforts.map((ef) => (
+                  {efforts.filter((ef) => reasoningLevels(model).includes(ef.id)).map((ef) => (
                     <button
                       key={ef.id}
                       onClick={() => onEffortChange(ef.id)}
@@ -163,6 +168,7 @@ export default function QuickSettings({
                   ))}
                 </div>
               </div>
+              )}
             </div>
           )}
 

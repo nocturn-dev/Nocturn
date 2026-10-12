@@ -8,6 +8,7 @@ import {
   type ComponentPropsWithoutRef,
   type ReactNode,
 } from "react";
+import { StopIcon } from "./icons";
 import { type Message, type ToolCallInfo } from "../../types";
 import type { StepRow } from "../../agent/steps";
 import { useLang } from "../../locales";
@@ -414,6 +415,15 @@ function RunCardBase({
           mdComponents={mdComponents}
         />
       ))}
+
+      {/* Прогон остановлен пользователем: компактная пометка вместо
+          текстового маркера в контенте последнего раунда */}
+      {rounds.some((a) => a.stopped) && (
+        <p className="mt-1.5 flex items-center gap-1.5 text-[0.6875rem] text-halo-muted/70">
+          <StopIcon />
+          <span>{t("card.stoppedByUser")}</span>
+        </p>
+      )}
 
       {/* Один футер на ход: сумма токенов + дисклеймер. Строгий стиль:
           служебные строки — за наведением на карточку, не шумят в ленте */}

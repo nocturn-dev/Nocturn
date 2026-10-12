@@ -838,16 +838,15 @@ export function useAgentRun(deps: AgentRunDeps) {
       const stoppedMsgId = stoppedRef.current.get(requestId);
       if (stoppedMsgId !== undefined) {
         stoppedRef.current.delete(requestId);
-        const stopped = t("card.stoppedByUser");
+        // Флаг вместо текстовой вставки «*\u27C2 stopped*»: текст-маркер
+        // жил в контенте и рендерился абзацем-карточкой внутри ответа
         setSessions((prev) =>
           prev.map((s) =>
             s.messages.some((m) => m.id === stoppedMsgId)
               ? {
                   ...s,
                   messages: s.messages.map((m) =>
-                    m.id === stoppedMsgId
-                      ? { ...m, content: m.content + `\n\n*${stopped}*` }
-                      : m,
+                    m.id === stoppedMsgId ? { ...m, stopped: true } : m,
                   ),
                 }
               : s,
@@ -3027,6 +3026,9 @@ ${report}`;
     setStreamingId(null);
     setStreamingAssistantId(null);
     setTyping(false);
+    // Плашка активности («Размышляет…», «Terminal…») гасится сразу: раньше
+    // она жила до finalize уходящего прогона и висела поверх пустой ленты
+    setActivity(null);
     // activeRunRef НЕ обнуляем: движок освободит finalize уходящего прогона.
     // Синхронное обнуление открывало окно, в котором автоматизация/очередь
     // стартовали новый прогон, а поздний finalize старого гасил его

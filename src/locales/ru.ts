@@ -253,7 +253,7 @@ export const ru = {
     "card.collapse": "Свернуть",
     "card.expand": "Развернуть",
     "card.switchedTo": "Переключено на {model}",
-    "card.stoppedByUser": "⟂ остановлено пользователем",
+    "card.stoppedByUser": "Остановлено пользователем",
     "card.imageOf": "Изображение",
     "card.thinking": "Думает…",
     "card.answer": "Ответ",

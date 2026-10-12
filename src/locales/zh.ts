@@ -270,7 +270,7 @@ export const zh = {
     "card.collapse": "折叠",
     "card.expand": "展开",
     "card.switchedTo": "已切换到 {model}",
-    "card.stoppedByUser": "⟂ 已被用户停止",
+    "card.stoppedByUser": "已被用户停止",
     "card.imageOf": "图片",
     "card.thinking": "思考中…",
     "card.answer": "回答",
