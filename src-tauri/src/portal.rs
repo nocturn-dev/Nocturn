@@ -99,7 +99,6 @@ async fn run(app: AppHandle, trigger: &str) -> Result<(), String> {
     request
         .response()
         .map_err(|e| format!("portal bind rejected: {e}"))?;
-    crate::QUICKENTRY_REGISTERED.store(true, Ordering::Relaxed);
     // Запоминаем сессию: без этого ремап закрывал None, а прежний поток run()
     // продолжал слушать receive_activated — каждое нажатие дёргало
     // toggle_quickentry дважды, и старое комбо оставалось живым
@@ -115,6 +114,10 @@ async fn run(app: AppHandle, trigger: &str) -> Result<(), String> {
         .receive_activated()
         .await
         .map_err(|e| format!("portal stream: {e}"))?;
+    // Аудит portal 381: флаг «зарегистрировано» ставится ПОСЛЕ успешного
+    // создания стрима — раньше между bind и стримом фронт считал комбо
+    // рабочим, а нажатия не приходили, и ошибка стрима оставляла флаг
+    crate::QUICKENTRY_REGISTERED.store(true, Ordering::Relaxed);
     while let Some(activated) = stream.next().await {
         if activated.shortcut_id() == "quickentry" {
             crate::toggle_quickentry(&app);

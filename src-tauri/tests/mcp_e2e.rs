@@ -1,3 +1,4 @@
+#![cfg(feature = "mcp-echo-helper")]
 //! E2E-тест MCP-клиента против настоящего процесса:
 //! спавн → рукопожатие initialize → tools/list → tools/call → таймаут.
 
