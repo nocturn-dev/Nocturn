@@ -183,26 +183,22 @@ fn render_wavs(text: &str) -> Result<Vec<std::path::PathBuf>, String> {
     Ok(paths)
 }
 
-/// SAPI: текст → WAV-файл. Скрипт статический, наружу подставляется только
-/// наш путь (апостроф удваивается — правило PS-литерала); EncodedCommand —
-/// ни кавычек, ни метасимволов шелла
+/// SAPI: текст → WAV-файл. Скрипт статический: текст и путь приходят через
+/// переменные окружения, в скрипте их литералов нет вообще. Удвоение
+/// апострофа не спасало — Windows PowerShell считает типографские
+/// кавычки (U+2018/2019/201A/201B) вариантами одинарной, и текст ответа
+/// модели вида «…’; Start-Process calc; ‘…» исполнял команду (аудит tts 488)
 #[cfg(windows)]
 fn render_wav(text: &str) -> Result<std::path::PathBuf, String> {
     let path = std::env::temp_dir().join(format!(
         "nocturn-tts-{}.wav",
         crate::fsutil::rand_hex8()
     ));
-    let path_lit = path.display().to_string().replace('\'', "''");
-    let text_lit = text.replace('\'', "''");
-    let script = format!(
-        "Add-Type -AssemblyName System.Speech; \
+    let script = "Add-Type -AssemblyName System.Speech; \
          $s = New-Object System.Speech.Synthesis.SpeechSynthesizer; \
-         $s.SetOutputToWaveFile('{path}', [System.Speech.AudioFormat.SpeechAudioFormatInfo]::new(16000, [System.Speech.AudioFormat.AudioBitsPerSample]::Sixteen, [System.Speech.AudioFormat.AudioChannel]::Mono)); \
-         $s.Speak('{text}'); \
-         $s.Dispose()",
-        path = path_lit,
-        text = text_lit
-    );
+         $s.SetOutputToWaveFile($env:NOCTURN_TTS_WAV, [System.Speech.AudioFormat.SpeechAudioFormatInfo]::new(16000, [System.Speech.AudioFormat.AudioBitsPerSample]::Sixteen, [System.Speech.AudioFormat.AudioChannel]::Mono)); \
+         $s.Speak($env:NOCTURN_TTS_TEXT); \
+         $s.Dispose()";
     use base64::Engine;
     let utf16: Vec<u8> = script
         .encode_utf16()
@@ -211,6 +207,8 @@ fn render_wav(text: &str) -> Result<std::path::PathBuf, String> {
     let encoded = base64::engine::general_purpose::STANDARD.encode(utf16);
     let mut cmd = Command::new("powershell");
     cmd.args(["-NoProfile", "-NonInteractive", "-EncodedCommand", &encoded])
+        .env("NOCTURN_TTS_TEXT", text)
+        .env("NOCTURN_TTS_WAV", &path)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());

@@ -273,14 +273,33 @@ pub(crate) fn decide(state: &PermState, name: &str, path: Option<&str>) -> Resul
     }
     match state.mode {
         // План: любые мутации блокируются (включая мышь/клавиатуру и MCP),
-        // fs-чтение — с path-контролем, остальное чтение (browser_read,
-        // computer_screenshot) — свободно
+        // fs-чтение — с path-контролем, остальное чтение — только из явного
+        // read-only списка. Раньше «неизвестный инструмент» классифицировался
+        // как чтение и проходил Plan целиком (аудит perm 349)
         PermMode::Plan => {
             if mutating {
                 return Err(format!("blocked by permission mode: plan (tool {name})"));
             }
             if fs_tool {
                 check_fs_path(state, name, path)?;
+                return Ok(());
+            }
+            const PLAN_READ_ONLY: &[&str] = &[
+                "browser_read",
+                "browser_screenshot",
+                "computer_screenshot",
+                "vault_search",
+                "vault_read",
+                "memory_recall",
+                "web_search",
+                "mcp_tool_discover",
+                "ask_user",
+                "sleep",
+            ];
+            if !PLAN_READ_ONLY.contains(&name) {
+                return Err(format!(
+                    "blocked by permission mode: plan (tool {name} is not a known read-only tool)"
+                ));
             }
             Ok(())
         }
@@ -407,6 +426,12 @@ pub(crate) fn is_sensitive_path(canon: &str) -> bool {
         if w[0] == ".git" && w[1] == "config" {
             return true;
         }
+    }
+    // .git/hooks/*: pre-commit и прочие хуки исполняются при любом git
+    // commit (в т.ч. git_autocommit в files.rs) — запись в Edit-режиме даёт
+    // выполнение кода с правами пользователя (аудит perm 355)
+    if comps.contains(&".git") && comps.contains(&"hooks") {
+        return true;
     }
     name == ".env"
         || name.starts_with(".env.")

@@ -187,7 +187,15 @@ pub fn execute_tool_with_abort(
         }
         "fs_delete" => {
             let path = arg_str(&args, "path")?;
-            fs_delete(Path::new(&path))
+            // Аудит tools 467: как в fs_write — recheck по каноническому
+            // адресу: decide() видел сырой путь, симлинк-подмена между
+            // проверкой и удалением задевала бы файл вне корней
+            let target = Path::new(&path);
+            let canon = target
+                .canonicalize()
+                .map_err(|e| format!("cannot resolve {}: {e}", target.display()))?;
+            crate::perm::recheck_location("fs_delete", &canon)?;
+            fs_delete(&canon)
         }
         "shell_run" => {
             let command = arg_str(&args, "command")?;
@@ -703,6 +711,12 @@ fn fs_grep(dir: &Path, query: &str, max_results: usize) -> Result<String, String
         for e in rd.flatten() {
             let Ok(ft) = e.file_type() else { continue };
             let p = e.path();
+            // Аудит tools 465: e.file_type() НЕ следует симлинку — readdir-
+            // запись-ссылка на ~/.ssh/config или /etc/shadow читалась бы
+            // fs::read ниже. Ссылки не заходим вовсе (ни в файлы, ни в каталоги)
+            if ft.is_symlink() {
+                continue;
+            }
             if ft.is_dir() {
                 let name = e.file_name().to_string_lossy().to_string();
                 if !SKIP_DIRS.contains(&name.as_str()) {
@@ -715,6 +729,11 @@ fn fs_grep(dir: &Path, query: &str, max_results: usize) -> Result<String, String
                 break;
             }
             scanned += 1;
+            // Аудит tools 464: рекурсия заходит в .env/id_rsa/*.pem внутри
+            // проекта — совпадения уходили модели мимо sensitive-класса perm
+            if crate::perm::is_sensitive_path(&p.to_string_lossy()) {
+                continue;
+            }
             let Ok(md) = e.metadata() else { continue };
             if md.len() == 0 || md.len() > FILE_CAP {
                 continue;
