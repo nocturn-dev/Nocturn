@@ -147,12 +147,15 @@ pub fn colibri_start(
     }
 
     let mut cmd = Command::new(exe);
+    // Аудит colibri 91: дефолт «nocturn-local» известен из исходников — при
+    // наружном bind шлюза любой в сети получал доступ. Случайный ключ на
+    // каждый старт, когда пользователь не задал свой
     cmd.arg("serve").env(
         "COLI_API_KEY",
         launch
             .api_key
             .filter(|k| !k.trim().is_empty())
-            .unwrap_or_else(|| "nocturn-local".into()),
+            .unwrap_or_else(|| crate::fsutil::rand_hex8() + &crate::fsutil::rand_hex8()),
     );
     if let Some(m) = launch.model.as_deref().map(str::trim).filter(|m| !m.is_empty()) {
         cmd.env("COLI_MODEL", m);

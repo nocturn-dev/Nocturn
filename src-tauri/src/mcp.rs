@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::fs;
-use std::io::{BufRead, BufReader, Read, Write};
+use std::io::{BufReader, Read, Write};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Sender};
@@ -1728,7 +1728,9 @@ async fn mcp_autoconnect_impl(
 // гоняет настоящий клиент против настоящего процесса, без внешних зависимостей.
 // ---------------------------------------------------------------------------
 
+#[cfg(feature = "mcp-echo-helper")]
 pub fn run_echo_helper() {
+    use std::io::BufRead;
     let stdin = std::io::stdin();
     let stdout = std::io::stdout();
     for line in stdin.lock().lines() {

@@ -15,6 +15,17 @@ default-run = "nocturn"
 name = "nocturn"
 path = "src/main.rs"
 
+# Аудит mcp 262/283: тестовый echo-сервер собирается в каждой сборке и
+# раздаётся с релизом. Бинарь под feature (не default), e2e-тесты — под
+# тем же feature: cargo test --features mcp-echo-helper --test mcp_e2e
+[[bin]]
+name = "mcp_echo_helper"
+path = "src/bin/mcp_echo_helper.rs"
+required-features = ["mcp-echo-helper"]
+
+[features]
+mcp-echo-helper = []
+
 [lib]
 name = "nocturn_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
