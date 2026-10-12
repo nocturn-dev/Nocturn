@@ -14,7 +14,7 @@ import { CollapseButton } from "./CollapseButton";
 import { ErrorNote } from "./ErrorNote";
 import { MermaidBlock } from "./MermaidBlock";
 import { ToolStepCard } from "./ToolStepCard";
-import { CheckIcon, ChevronDownIcon, CopyIcon, PlusIcon, SpeakerIcon, SubagentIcon, ToolIcon } from "./icons";
+import { CheckIcon, ChevronDownIcon, CopyIcon, PlusIcon, SpeakerIcon, StopIcon, SubagentIcon, ToolIcon } from "./icons";
 import { speak, stopSpeaking } from "../../tts";
 import {
   memo,
@@ -253,6 +253,26 @@ function AssistantCardBase({
   }, [message.content, message.thought]);
   const [collapsed, setCollapsed] = useState(false);
 
+
+  // Остановка ДО первого контента: вместо пустой карточки — компактная
+  // пометка (раньше висел целый пустой блок с «stopped by user» внутри)
+  if (
+    message.stopped &&
+    !message.content.trim() &&
+    !message.thought &&
+    !(message.toolCalls && message.toolCalls.length > 0) &&
+    !message.error
+  ) {
+    return (
+      <div
+        data-mid={mid}
+        className="anim-fade-up mr-auto flex items-center gap-1.5 py-0.5 text-[0.6875rem] text-halo-muted/70"
+      >
+        <StopIcon />
+        <span>{t("card.stoppedByUser")}</span>
+      </div>
+    );
+  }
   const preview =
     message.content.replace(/[#*`>\n]+/g, " ").trim().slice(0, 70) ||
     (message.thought ? t("card.thinking") : t("card.answer"));
@@ -474,6 +494,13 @@ function AssistantCardBase({
             Σ {fmtInt(message.usage.total, lang)}
           </span>
         </div>
+      )}
+
+      {message.stopped && (
+        <p className="mt-1 flex items-center gap-1.5 text-[0.6875rem] text-halo-muted/70">
+          <StopIcon />
+          <span>{t("card.stoppedByUser")}</span>
+        </p>
       )}
 
       {/* Дисклеймер: ответ сгенерирован моделью */}

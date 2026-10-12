@@ -270,7 +270,7 @@ export const ja = {
     "card.collapse": "折りたたむ",
     "card.expand": "展開",
     "card.switchedTo": "{model} に切り替えました",
-    "card.stoppedByUser": "⟂ ユーザーが停止しました",
+    "card.stoppedByUser": "ユーザーが停止しました",
     "card.imageOf": "画像",
     "card.thinking": "考えています…",
     "card.answer": "回答",

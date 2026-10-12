@@ -1,4 +1,5 @@
 import { STORAGE_KEYS } from "./storageKeys";
+import { reasoningLevels } from "./reasoning";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { isSeqGap } from "./hooks/streamBuffer";
@@ -497,8 +498,13 @@ export async function chatStream(opts: {
       provider: opts.provider ?? null,
       // Ключ аргумента должен быть camelCase: Tauri 2 ищет параметры команды
       // по to_lower_camel_case(rust_name), snake_case молча превращался в null
+      // Гардал: effort уходит только моделям, которые его регулируют
+      // (reasoning.ts) — перенесённый с reasoning-модели «max» на
+      // обычную давал бы 400 от провайдера
       reasoningEffort:
-        opts.reasoningEffort && opts.reasoningEffort !== "off"
+        opts.reasoningEffort &&
+        opts.reasoningEffort !== "off" &&
+        reasoningLevels(opts.model).includes(opts.reasoningEffort)
           ? opts.reasoningEffort
           : null,
     });

@@ -498,27 +498,6 @@ export function ThemeSection({
         />
       )}
 
-      {/* Тема из профиля и акцент проекта: оба opt-in */}
-      <div className="mt-2.5 rounded-xl border border-halo-line px-3.5 py-3">
-        <p className="text-sm text-halo-text">{t("themes.integration")}</p>
-        <div className="mt-2">
-          <ToggleRow
-            label={t("themes.profileTheme")}
-            desc={t("themes.profileThemeHint")}
-            on={appearance.profileTheme ?? false}
-            onChange={(v) => onAppearanceChange({ ...appearance, profileTheme: v })}
-          />
-        </div>
-        <div className="mt-1.5">
-          <ToggleRow
-            label={t("themes.projectAccent")}
-            desc={t("themes.projectAccentHint")}
-            on={appearance.projectAccent ?? false}
-            onChange={(v) => onAppearanceChange({ ...appearance, projectAccent: v })}
-          />
-        </div>
-      </div>
-
       {/* Тема Official: строгий монохром одним тумблером. Включённой теме
           принадлежат только её настройки ниже; обычные контролы темы скрыты */}
       <div className="mt-2.5 flex items-center justify-between rounded-xl border border-halo-line px-3.5 py-3">
