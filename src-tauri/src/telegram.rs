@@ -41,6 +41,10 @@ pub struct TelegramConfig {
     pub notify_finish: bool,
     pub notify_error: bool,
     pub notify_confirm: bool,
+    /// Аудит telegram 454: персистентный offset getUpdates — переживает
+    /// сохранение из UI (иначе после рестарта команды исполнялись повторно)
+    #[serde(default)]
+    pub offset: Option<u64>,
 }
 
 impl Default for TelegramConfig {
@@ -53,6 +57,7 @@ impl Default for TelegramConfig {
             notify_finish: true,
             notify_error: true,
             notify_confirm: true,
+                    offset: None,
         }
     }
 }
@@ -217,9 +222,18 @@ async fn send_message(
         // Inline-клавиатура: callback_data вернётся в callback_query и
         // уйдёт на фронт как решение
         body["reply_markup"] = serde_json::json!({
+            // Аудит telegram 457: Telegram ограничивает callback_data
+            // 64 БАЙТАМИ — более длинное значение молча убивало ВСЮ
+            // клавиатуру, и уведомление уходило без кнопок
             "inline_keyboard": [buttons
                 .iter()
-                .map(|b| serde_json::json!({"text": b.label, "callback_data": b.data}))
+                .map(|b| {
+                    let mut data = b.data.as_str();
+                    while data.len() > 64 {
+                        data = &data[..data.len() - 1];
+                    }
+                    serde_json::json!({"text": b.label, "callback_data": data})
+                })
                 .collect::<Vec<_>>()],
         });
     }
@@ -602,6 +616,28 @@ pub async fn telegram_set_config(
     tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
         let _guard = DISK_WRITE_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let mut for_disk = for_disk_input;
+        // Аудит telegram 454: сохранение из UI перезаписывало telegram.json
+        // без offset — после рестарта пачка getUpdates приходила заново и
+        // команды исполнялись повторно. Дисковый offset сохраняется
+        if let Ok(disk) = crate::settings::read_json_config(&app_for_disk, "telegram.json") {
+            for_disk.offset = disk.get("offset").and_then(|x| x.as_u64());
+            // Аудит telegram 451: новый бот не может писать чату, привязанному
+            // к старому токену (403), и уведомления пропадали молча. Смена
+            // токена сбрасывает привязку
+            if !for_disk.bot_token.is_empty() {
+                let old_enc = disk.get("bot_token").and_then(|x| x.as_str()).unwrap_or("");
+                let changed = if crate::crypto::is_encrypted(old_enc) {
+                    crate::crypto::decrypt(old_enc)
+                        .map(|p| p.as_str() != for_disk.bot_token)
+                        .unwrap_or(false)
+                } else {
+                    !old_enc.is_empty() && old_enc != for_disk.bot_token
+                };
+                if changed {
+                    for_disk.chat_id = String::new();
+                }
+            }
+        }
         if crate::crypto::has_key()
             && !for_disk.bot_token.is_empty()
             && !crate::crypto::is_encrypted(&for_disk.bot_token)
