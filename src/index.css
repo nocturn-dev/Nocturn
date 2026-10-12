@@ -45,7 +45,6 @@ html[data-mark="classic"] .nocturn-mark .mark-bold {
   --halo-on-accent: #ffffff; /* цвет контента ПОВЕРХ акцента (в Official — тёмный) */
   --halo-hover: rgba(255, 255, 255, 0.055);
   --halo-hover-strong: rgba(255, 255, 255, 0.085);
-  --halo-focus: rgba(255, 255, 255, 0.35);
   --halo-scrollbar-thumb: rgba(255, 255, 255, 0.12);
   --halo-scrollbar-thumb-hover: rgba(255, 255, 255, 0.2);
   --halo-code-bg: #1a1918;
@@ -79,7 +78,6 @@ html.light {
   --halo-accent-deep: #b26247; /* = darken(accent, 0.82), см. :root */
   --halo-hover: rgba(0, 0, 0, 0.05);
   --halo-hover-strong: rgba(0, 0, 0, 0.085);
-  --halo-focus: rgba(0, 0, 0, 0.35);
   --halo-scrollbar-thumb: rgba(0, 0, 0, 0.14);
   --halo-scrollbar-thumb-hover: rgba(0, 0, 0, 0.24);
   --halo-code-bg: #1a1918;
@@ -370,11 +368,11 @@ html.motion-reduced .snake-preview-seg {
   }
 }
 
-/* Фокус-кольцо: строгое 2px-кольцо с низкой непрозрачностью (WCAG-навигация
-   с клавиатуры). Срабатывает только на Tab (focus-visible), клик не рисует */
+/* Фокус-кольца выключены (решение владельца, подтверждено дважды):
+   подсветка по Tab/клику — визуальный мусор. Активный элемент виден по
+   каретке ввода и ховер-стилям; клавиатурная навигация работает как раньше */
 :focus-visible {
-  outline: 2px solid var(--halo-focus);
-  outline-offset: 1px;
+  outline: none;
 }
 
 /* ---------- Voice Wake: индикатор всегда слушающего микрофона ----------
