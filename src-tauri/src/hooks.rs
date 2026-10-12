@@ -239,7 +239,12 @@ fn exec_with_abort(
     out.stdout = proc_out.stdout;
     out.stderr = proc_out.stderr;
     if out.timed_out {
-        out.stderr = format!("hook timed out after {}s", timeout.as_secs());
+        // Аудит proc 394: Stop пользователя раньше выглядел как «timed out»
+        out.stderr = if proc_out.aborted {
+            "hook stopped by user".to_string()
+        } else {
+            format!("hook timed out after {}s", timeout.as_secs())
+        };
     }
 
     // Разбор ответа: блокировка — ТОЛЬКО явный JSON { "decision": "block" }.
