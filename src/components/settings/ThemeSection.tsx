@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useLang, MsgKey } from "../../locales";
 import type { Theme } from "../../types";
-import { ACCENT_PRESETS, ambientGradientDefaults, appearanceTitleStyle, Appearance, FULL_CLAUDE_PALETTE } from "../../appearance";
+import { ACCENT_PRESETS, ambientGradientDefaults, appearanceTitleStyle, Appearance, FULL_CLAUDE_PALETTE, withStyleAccent } from "../../appearance";
 import { STYLE_PALETTES } from "../../themeStyles";
 import type { ThemeProfile } from "../../themeProfiles";
 import { dayPeriod } from "../../time";
@@ -170,9 +170,10 @@ export function ThemeSection({
     const list = customStyles.filter((s) => s.id !== id);
     setCustomStyles(list);
     saveCustomStyles(list);
-    // Удалён применённый — откат на базу (иначе data-style без палитры)
+    // Удалён применённый — откат на базу (иначе data-style без палитры);
+    // вместе со стилем возвращается его фирменный акцент
     if (appearance.style === id) {
-      onAppearanceChange({ ...appearance, style: "claude" });
+      onAppearanceChange(withStyleAccent(appearance, "claude"));
     }
   };
   // Стандартное приветствие по времени суток — подсказка в поле «своё
@@ -890,7 +891,7 @@ export function ThemeSection({
               ...darkStyles.map((s) => ({ value: s.id, label: t(s.key as MsgKey) })),
               ...customStyles.map((s) => ({ value: s.id, label: s.name })),
             ]}
-            onSelect={(v) => onAppearanceChange({ ...appearance, style: v as Appearance["style"] })}
+            onSelect={(v) => onAppearanceChange(withStyleAccent(appearance, v as Appearance["style"]))}
             className="w-44"
           />
         </div>
