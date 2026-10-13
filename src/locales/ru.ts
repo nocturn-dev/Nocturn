@@ -193,6 +193,7 @@ export const ru = {
     "cp.stateModified": "изменён",
     "cp.stateDeleted": "удалён",
     "cp.stateUnchanged": "не менялся",
+    "cp.stateTooLarge": "крупный файл",
     "cp.moreFiles": "… и ещё {n}",
     // Терминальный режим
     "terminal.toggle": "Terminal",

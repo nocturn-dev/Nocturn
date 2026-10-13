@@ -31,6 +31,11 @@ export default function HardTerminal({ cwd, combo }: { cwd?: string; combo: stri
       return "auto";
     }
   })();
+  // В pty_create уходит только то, что бекенд различает; остальное — auto
+  const shellArg =
+    termShell === "cmd" || termShell === "gitbash" || termShell === "powershell"
+      ? termShell
+      : undefined;
 
   useEffect(() => {
     const t0 = window.setTimeout(() => setHintVisible(false), 4000);
@@ -128,7 +133,7 @@ export default function HardTerminal({ cwd, combo }: { cwd?: string; combo: stri
             cwd ?? null,
             dims?.cols ?? 120,
             dims?.rows ?? 34,
-            termShell === "auto" ? undefined : termShell,
+            shellArg,
           );
           createdRef.current = true;
         }
@@ -173,14 +178,14 @@ export default function HardTerminal({ cwd, combo }: { cwd?: string; combo: stri
               cwd ?? null,
               fitRef.current?.proposeDimensions()?.cols ?? 120,
               fitRef.current?.proposeDimensions()?.rows ?? 34,
-              termShell === "auto" ? undefined : termShell,
+              shellArg,
             ),
           );
       }
     };
     host.addEventListener("keydown", onKey);
     return () => host.removeEventListener("keydown", onKey);
-  }, [exited, cwd, termShell]);
+  }, [exited, cwd, shellArg]);
 
   return (
     <div

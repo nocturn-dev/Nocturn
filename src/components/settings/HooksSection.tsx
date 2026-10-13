@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useLang } from "../../locales";
-import { type Hook, type HookOutcome, HOOK_EVENTS, hooksLoad, hooksSave, hooksTest } from "../../api";
+import { type Hook, type HookEvent, type HookOutcome, HOOK_EVENTS, hooksLoad, hooksSave, hooksTest } from "../../api";
 import { Dropdown, MiniTrashIcon } from "./parts";
 
 const HOOK_EVENT_KEYS = {
@@ -93,7 +93,7 @@ export function HooksSection() {
   const hooksRef = useRef<Hook[]>([]);
   const [error, setError] = useState<string | null>(null);
   // Форма добавления
-  const [event, setEvent] = useState<string>("PreToolUse");
+  const [event, setEvent] = useState<HookEvent>("PreToolUse");
   const [matcher, setMatcher] = useState("");
   const [command, setCommand] = useState("");
   const [timeoutSec, setTimeoutSec] = useState(30);
@@ -348,8 +348,8 @@ export function HooksSection() {
               </label>
               <Dropdown
                 value={event}
-                options={HOOK_EVENTS.map((ev: string) => ({ value: ev, label: eventLabel(ev) }))}
-                onSelect={setEvent}
+                options={HOOK_EVENTS.map((ev) => ({ value: ev, label: eventLabel(ev) }))}
+                onSelect={(v) => setEvent(v as HookEvent)}
                 className="w-full"
               />
             </div>

@@ -1523,7 +1523,7 @@ export default function App() {
           const states = await checkpointFiles(cp.root, cp.id);
           for (const st of states) {
             const before = decode(st.before);
-            const after = st.current ? decode(st.current) : "";
+            const after = st.current.kind === "present" ? decode(st.current.data) : "";
             if (before == null || after == null) continue;
             // Чекпоинт приоритетнее fs_write: он видит итог всего прогона
             push(st.rel, before, after, false);

@@ -196,6 +196,7 @@ export const zh = {
     "cp.stateModified": "已修改",
     "cp.stateDeleted": "已删除",
     "cp.stateUnchanged": "未改动",
+    "cp.stateTooLarge": "文件过大",
     "cp.moreFiles": "……还有 {n} 个",
     // Терминальный режим
     "terminal.toggle": "终端",

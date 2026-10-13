@@ -183,6 +183,11 @@ export default function TerminalPanel({
   onConfirmDecision,
   onClose,
 }: TerminalPanelProps) {
+  // В pty_create уходит только то, что бекенд различает; остальное — auto
+  const shellArg =
+    termShell === "cmd" || termShell === "gitbash" || termShell === "powershell"
+      ? termShell
+      : undefined;
   const { t } = useLang();
   const [mode, setMode] = useState<PanelMode>("agent");
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -576,7 +581,7 @@ export default function TerminalPanel({
             projectRoot,
             PTY_COLS,
             PTY_ROWS,
-            termShell === "auto" ? undefined : termShell,
+            shellArg,
           );
           createdRef.current = true;
         }
@@ -727,7 +732,7 @@ export default function TerminalPanel({
               projectRoot,
               PTY_COLS,
               PTY_ROWS,
-              termShell === "auto" ? undefined : termShell,
+              shellArg,
             ),
           )
           .then(() => {

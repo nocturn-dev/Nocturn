@@ -194,6 +194,7 @@ export const en = {
     "cp.stateModified": "modified",
     "cp.stateDeleted": "deleted",
     "cp.stateUnchanged": "unchanged",
+    "cp.stateTooLarge": "large file",
     "cp.moreFiles": "… and {n} more",
     // Terminal mode
     "terminal.toggle": "Terminal",

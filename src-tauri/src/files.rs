@@ -848,6 +848,17 @@ fn checkpoint_restore_impl(
     Ok(restored)
 }
 
+/// Текущее состояние файла снимка. Дискриминированный union вместо
+/// Option<String>: крупный файл (капа чтения) рисовался в диффе как
+/// полностью удалённый — случаи «удалён» и «крупнее капы» разведены
+#[derive(Debug, Serialize)]
+#[serde(tag = "kind", content = "data", rename_all = "snake_case")]
+pub enum CheckpointCurrent {
+    Present(String),
+    Deleted,
+    TooLarge,
+}
+
 /// Состояние одного файла снимка: «до» из чекпоинта + текущее с диска.
 /// Источник живого диффа для Review: правки мимо fs_write (shell и т.п.)
 /// в результатах инструментов не видны, чекпоинт покрывает их все.
@@ -856,8 +867,7 @@ pub struct CheckpointFileState {
     pub rel: String,
     /// base64 содержимого из снимка
     pub before: String,
-    /// base64 текущего файла; None — удалён после снимка либо крупнее капа
-    pub current: Option<String>,
+    pub current: CheckpointCurrent,
 }
 
 const CP_CURRENT_CAP: u64 = 2 * 1024 * 1024;
@@ -906,10 +916,13 @@ pub async fn checkpoint_files(
                 continue;
             }
             let dest = parts.iter().fold(root.clone(), |acc, p| acc.join(p));
-            let current = fs::read(&dest)
-                .ok()
-                .filter(|b| (b.len() as u64) <= CP_CURRENT_CAP)
-                .map(|b| B64.encode(b));
+            let current = match fs::read(&dest) {
+                Ok(bytes) if (bytes.len() as u64) <= CP_CURRENT_CAP => {
+                    CheckpointCurrent::Present(B64.encode(bytes))
+                }
+                Ok(_) => CheckpointCurrent::TooLarge,
+                Err(_) => CheckpointCurrent::Deleted,
+            };
             out.push(CheckpointFileState {
                 rel: f.rel.clone(),
                 before: f.data.clone(),

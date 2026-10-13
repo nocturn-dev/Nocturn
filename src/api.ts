@@ -203,7 +203,8 @@ export function providerFromBaseUrl(baseUrl: string): string {
 }
 
 export interface ChatMsgParam {
-  role: string;
+  /** system — служебные блоки (план, профиль, память); Role — реплика диалога */
+  role: Role | "system";
   // Строка ИЛИ массив [{type:"text"|"image_url", ...}] для vision-моделей
   content: unknown;
   // Агентные поля: assistant с tool_calls, tool с tool_call_id
@@ -273,7 +274,8 @@ export async function permSet(
 
 // FIX: ToolCallInfo определялся здесь И в types.ts (дублирующие контракты —
 // рассинхрон не ловил компилятор). Единый контракт — в types.ts
-import type { ToolCallInfo } from "./types";
+import type { Role, ToolCallInfo } from "./types";
+import type { CustomShortcut } from "./shortcuts";
 export type { ToolCallInfo };
 
 /** В браузерном превью (npm run dev) Tauri недоступен — храним в localStorage */
@@ -1046,10 +1048,18 @@ export async function checkpointDelete(path: string, id: string): Promise<void> 
 
 /** Состояние файла снимка: «до» (base64) + текущее с диска (base64, null =
  *  удалён после снимка либо крупнее капа). Источник живого диффа для Review */
+/** Текущее состояние файла снимка: содержимое, удалён или крупнее капы
+ *  чтения. Дискриминированный union: раньше оба особых случая приходили
+ *  как null и крупный файл рисовался в диффе как полностью удалённый */
+export type CheckpointCurrent =
+  | { kind: "present"; data: string }
+  | { kind: "deleted" }
+  | { kind: "too_large" };
+
 export interface CheckpointFileState {
   rel: string;
   before: string;
-  current: string | null;
+  current: CheckpointCurrent;
 }
 
 export async function checkpointFiles(
@@ -1091,8 +1101,10 @@ export async function storageStats(): Promise<StorageStats | null> {
   return invoke<StorageStats>("storage_stats");
 }
 
-/** kind: "checkpoints" | "images" | "gguf" — возвращает число удалённых записей */
-export async function storageCleanup(kind: string): Promise<number> {
+export type StorageCleanupKind = "checkpoints" | "images" | "gguf";
+
+/** Возвращает число удалённых записей */
+export async function storageCleanup(kind: StorageCleanupKind): Promise<number> {
   if (!inTauri) {
     throw new Error("Очистка хранилища работает в нативном приложении (npm run tauri dev)");
   }
@@ -1242,8 +1254,9 @@ export async function ptyCreate(
   cwd: string | null,
   cols: number,
   rows: number,
-  /** "cmd" | "gitbash"; undefined — PowerShell (auto) */
-  shell?: string,
+  /** "cmd" — cmd.exe, "gitbash" — Git Bash, "powershell" — явный PowerShell;
+   *  undefined — auto (PowerShell на Windows, $SHELL на Unix) */
+  shell?: "cmd" | "gitbash" | "powershell",
 ): Promise<void> {
   if (!inTauri) {
     throw new Error("Консоль работает в нативном приложении (npm run tauri dev)");
@@ -1849,9 +1862,11 @@ export function saveColibriLocal(c: ColibriLocal): void {
 
 // ---------- Хуки (пользовательские команды на событиях агента) ----------
 
+export type HookEvent = (typeof HOOK_EVENTS)[number];
+
 export interface Hook {
   id: string;
-  event: string; // PreToolUse | PostToolUse | UserPromptSubmit | Stop | SessionStart
+  event: HookEvent;
   /** Подстрока имени инструмента; пусто = все */
   matcher: string;
   command: string;
@@ -1903,21 +1918,31 @@ export async function hooksTest(hook: Hook, payload: unknown): Promise<HookOutco
 }
 
 /** Событие из фронтенда: UserPromptSubmit / Stop / SessionStart */
-export async function hooksRunEvent(event: string, payload: unknown): Promise<HookOutcome[]> {
+export async function hooksRunEvent(
+  event: HookEvent,
+  payload: unknown,
+): Promise<HookOutcome[]> {
   if (!inTauri) return [];
   return invoke<HookOutcome[]>("hooks_run_event", { event, payload });
 }
 
 // ---------- Пользовательские горячие клавиши ----------
 
-export async function shortcutsLoad(): Promise<Record<string, string>> {
-  if (!inTauri) return {};
-  return invoke<Record<string, string>>("shortcuts_load");
+/** Формат shortcuts.json: бинды действий + кастомные команды. Плоская
+ *  карта строк — легаси-версия, распознаётся по отсутствию поля custom */
+export interface ShortcutsFile {
+  binds?: Record<string, string>;
+  custom?: CustomShortcut[];
 }
 
-export async function shortcutsSave(binds: unknown): Promise<void> {
+export async function shortcutsLoad(): Promise<ShortcutsFile | null> {
+  if (!inTauri) return null;
+  return invoke<ShortcutsFile | null>("shortcuts_load");
+}
+
+export async function shortcutsSave(file: ShortcutsFile): Promise<void> {
   if (!inTauri) throw nativeOnly("Сохранение горячих клавиш");
-  return invoke("shortcuts_save", { binds });
+  return invoke("shortcuts_save", { binds: file });
 }
 
 // ---------- Цвета моделей в статистике ----------

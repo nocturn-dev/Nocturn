@@ -945,17 +945,24 @@ function Checkpoints({ root }: { root: string }) {
     setBusy(null);
   };
 
-  /** Статус файла снимка: before/current — base64 из checkpoint_files;
-   *  current null = файла больше нет (или он больше капы чтения) */
+  /** Статус файла снимка: before/current — base64 из checkpoint_files.
+   *  deleted и too_large различаются честно: крупный файл — не удалённый */
   const fileStateChip = (f: CheckpointFileState) => {
-    if (f.current === null) {
+    if (f.current.kind === "too_large") {
+      return (
+        <span className="shrink-0 text-[0.5625rem] text-halo-muted">
+          {t("cp.stateTooLarge")}
+        </span>
+      );
+    }
+    if (f.current.kind === "deleted") {
       return (
         <span className="shrink-0 text-[0.5625rem] text-red-400">
           {t("cp.stateDeleted")}
         </span>
       );
     }
-    if (f.current === f.before) {
+    if (f.current.data === f.before) {
       return (
         <span className="shrink-0 text-[0.5625rem] text-halo-muted/50">
           {t("cp.stateUnchanged")}

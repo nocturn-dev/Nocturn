@@ -196,6 +196,7 @@ export const ja = {
     "cp.stateModified": "変更あり",
     "cp.stateDeleted": "削除済み",
     "cp.stateUnchanged": "変更なし",
+    "cp.stateTooLarge": "大きなファイル",
     "cp.moreFiles": "……他 {n} 件",
     // Терминальный режим
     "terminal.toggle": "ターミナル",
