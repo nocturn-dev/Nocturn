@@ -190,7 +190,7 @@ export default function NotesModal({
                         </button>
                       );
                     }
-                    // D4: обычный <a> уводил вебвью приложения на внешний URL (фишинг
+                    // Обычный <a> уводил вебвью приложения на внешний URL (фишинг
                     // в доверенном окне) — как в AssistantCard, через системный браузер
                     return <MarkdownLink href={href}>{children}</MarkdownLink>;
                   },

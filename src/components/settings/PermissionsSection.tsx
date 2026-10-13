@@ -38,7 +38,7 @@ const KINDS: {
 ];
 
 /**
- * Раздел «Права» (волна E1): персистентные правила прав агента.
+ * Раздел «Права»: персистентные правила прав агента.
  * deny — серверный блок во всех режимах (perm.rs); always_ask — спрашивать
  * даже в Full; allow — не спрашивать в Ask/Edit. Валидация на добавление —
  * против живого реестра схем; финальная инстанция — perm_set (fail-closed).
@@ -57,7 +57,7 @@ export function PermissionsSection() {
     always_ask: "",
     allow: "",
   });
-  // Волна GUI-fix: какой список подсказок открыт (кастомный дропдаун)
+  // какой список подсказок открыт (кастомный дропдаун)
   const [openKind, setOpenKind] = useState<RuleKind | null>(null);
 
   useEffect(() => {
@@ -106,7 +106,7 @@ export function PermissionsSection() {
       <h3 className="mb-1 text-sm font-semibold text-halo-text">{t("settings.permissions")}</h3>
       <p className="mb-3 text-xs leading-relaxed text-halo-muted">{t("perm.desc")}</p>
 
-      {/* Волна GUI-fix: кастомный выпадающий список вместо нативного
+      {/* Кастомный выпадающий список вместо нативного
           datalist — ширина по полю ввода, тема через halo-токены.
           Нативный datalist удалён целиком, а не спрятан: display:none
           на элементе не глушит нативный попап WebView2 (input с list=

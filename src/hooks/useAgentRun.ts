@@ -108,7 +108,7 @@ export interface AgentRunDeps {
   activeSessionRef: { current: Session | null };
   setBrowserPanelOpen: (v: boolean) => void;
   addToast: (text: string) => void;
-  /** RAG-трасса (PLAN §24 ш.3): последний поиск по базе — для панели
+  /** RAG-трасса: последний поиск по базе — для панели
    *  Knowledge. Не передан — запись не ведётся */
   onKbTrace?: (trace: import("../api").KbTrace) => void;
   setUsageLog: React.Dispatch<React.SetStateAction<UsageEvent[]>>;
@@ -123,7 +123,7 @@ export interface AgentRunDeps {
   setActiveId: React.Dispatch<React.SetStateAction<string | null>>;
   limitsRef: { current: HardLimits };
   memoryEnabled: boolean;
-  /** Волна E1: персистентные правила прав (allow/always_ask — политика
+  /** персистентные правила прав (allow/always_ask — политика
    *  подтверждений фронта; deny авторитетен на бекенде) */
   permRulesRef: { current: PermRules | undefined };
 }
@@ -167,7 +167,7 @@ export function useAgentRun(deps: AgentRunDeps) {
   useEffect(() => {
     queuedMsgsRef.current = queuedMsgs;
   }, [queuedMsgs]);
-  // Волна KB-H2: базы знаний, чей сбой уже озвучен тостом (один раз на базу
+  // базы знаний, чей сбой уже озвучен тостом (один раз на базу
   // за жизнь процесса — шторм тостов на каждую отправку не нужен)
   const kbWarnedRef = useRef(new Set<string>());
   // Корректирующие запросы агента: текст, отправленный пользователем ВО ВРЕМЯ
@@ -185,7 +185,7 @@ export function useAgentRun(deps: AgentRunDeps) {
 
   // Стрим с авто-ретраем: мгновенные 429/5xx/сетевые сбои до первого токена
   // повторяем дважды с растущей паузой; частичный ответ не трогаем.
-  // Волна 5: ретраи кончились, сервер всё ещё отвечает 429/5xx — второй
+  // ретраи кончились, сервер всё ещё отвечает 429/5xx — второй
   // прогон на fallback-модели (если задана и отличается от основной)
   const chatWithRetry = useCallback(
     (
@@ -194,7 +194,7 @@ export function useAgentRun(deps: AgentRunDeps) {
         onFallback?: (model: string) => void;
       },
     ) =>
-      // Ретрай/фолбэк — chatWithRetry (agent/chatRetry, §24 ш.4г): политика
+      // Ретрай/фолбэк — chatWithRetry (agent/chatRetry): политика
       // здесь, транспорт там. Барьеры Stop/Hard Limit — isAborted
       chatWithRetryEngine(
         {
@@ -330,7 +330,7 @@ export function useAgentRun(deps: AgentRunDeps) {
   // Метаданные последнего снимка: root + id — источник диффа для Review
   const lastCheckpointRef = useRef<{ root: string; id: string } | null>(null);
 
-  // Живые прогоны субагентов (M2): ключ — tool call id
+  // Живые прогоны субагентов: ключ — tool call id
   const [subRuns, setSubRuns] = useState<Record<string, SubRunState>>({});
   /** id таймеров очистки монитора субагентов: гасятся в cleanup хука,
    *  иначе тикают зря после размонтирования */
@@ -438,7 +438,7 @@ export function useAgentRun(deps: AgentRunDeps) {
       // создания карточки (очередь поправок, отказ на полпути). Раньше
       // оставалась пара streamingId=null + assistantId≠null, при которой
       // handleStop уходил в ранний return — кнопка Stop горела вечно
-      // и «не реагировала» (багрепорт владельца)
+      // и «не реагировала»
       // Значение захвачено ДО set: updater обязан быть чистым. Чтение
       // мутабельного ref внутри апдейтера гонко с delete ниже — React вправе
       // вызвать апдейтер отложенно (на рендере, пакетно с прочими setState
@@ -527,7 +527,7 @@ export function useAgentRun(deps: AgentRunDeps) {
       // Правка ПОСЛЕДНЕЙ попытки (хвост пуст или состоит из одних карточек
       // ошибок: «Request failed» и т.п.) — правим на месте, без форка.
       // Раньше каждый повтор после падения/стопа плодил новую сессию-дубль
-      // (багрепорт владельца), хотя хранить здесь нечего
+      // (так плодились сессии-дубли), хотя хранить здесь нечего
       const tailIsFailedAttempt = tail.every(
         (m) => m.role === "assistant" && m.error != null,
       );
@@ -941,7 +941,7 @@ export function useAgentRun(deps: AgentRunDeps) {
         playRunSound("complete");
         telegramNotify("finish", t("tg.finished", { task: text.slice(0, 200) }));
       } else {
-        // Остановка/лимит — тоже «конец работы» (требование владельца)
+        // Остановка/лимит — тоже «конец работы»
         telegramNotify("finish", t("tg.stopped", { task: text.slice(0, 200) }));
       }
       // Тост + звук: пользователь мог уйти в другое приложение
@@ -1153,7 +1153,7 @@ export function useAgentRun(deps: AgentRunDeps) {
     if (current?.kbId && text.trim() !== "") {
       // Холдер: TS не сужает current.kbId внутри колбэка catch
       const kbId: string = current.kbId;
-      // Волна KB-H2: раньше сбои поиска глотались молча (.catch(() => [])) —
+      // раньше сбои поиска глотались молча (.catch(() => [])) —
       // битая/занятая база означала чат без контекста документов и без
       // единого сигнала. Теперь: диагностика в консоль всегда, тост один
       // раз на базу; пустые хиты (нет совпадений) — не сбой
@@ -1167,7 +1167,7 @@ export function useAgentRun(deps: AgentRunDeps) {
         kbFailed = true;
         return [];
       });
-      // RAG-трасса (PLAN §24 ш.3): снапшот для панели Knowledge. Запись
+      // RAG-трасса: снапшот для панели Knowledge. Запись
       // рядом с инъекцией — сама инъекция ниже не тронута
       onKbTrace?.({
         kbId,
@@ -1239,7 +1239,7 @@ export function useAgentRun(deps: AgentRunDeps) {
       const assistantId = uid();
       // Таймер «Worked for N сек» — от старта ЭТОГО ответа, а не от старта
       // прогона: дефолт fromMs=startedAt копил всю длину чата, и карточка
-      // показала 316s на втором-третьем ответе (багрепорт владельца)
+      // показала 316s на втором-третьем ответе
       const singleStartedAt = Date.now();
       streamingRef.current.set(requestId, assistantId);
       setStreamingAssistantId(assistantId);
@@ -1324,10 +1324,10 @@ export function useAgentRun(deps: AgentRunDeps) {
 
     // ---------- Агентный цикл: модель → инструменты → модель → … ----------
     const MAX_STEPS = 25;
-    // Волна C: кап параллельных read-only вызовов в батче (подряд идущие
+    // кап параллельных read-only вызовов в батче (подряд идущие
     // safe-чтения гоняются Promise.all, мутирующие — строго последовательно)
     const MAX_PARALLEL_TOOLS = 5;
-    // Волна G: мета-сообщение продолжения после max_output_tokens (CC-паттерн
+    // мета-сообщение продолжения после max_output_tokens (CC-паттерн
     // «Resume directly»). EN — текст для модели, не UI
     const RECOVERY_PROMPT =
       "Your previous response was cut off by the output token limit. Continue EXACTLY where it stopped — do not repeat, summarize or re-introduce anything already written. Resume directly.";
@@ -1389,13 +1389,13 @@ export function useAgentRun(deps: AgentRunDeps) {
         );
       });
 
-    // ---- Autocompact (волна B2): персистентная суммаризация головы ----
+    // ---- Autocompact: персистентная суммаризация головы ----
     let compactCount = 0;
     let lastCompactStep = 0;
     let reactiveCompacted = false;
-    // Волна G: авто-продолжения после обрыва вывода — не больше 3 на прогон
+    // авто-продолжения после обрыва вывода — не больше 3 на прогон
     let recoveryCount = 0;
-    // Волна D: отчёты завершившихся фоновых субагентов для ЖИВОГО прогона —
+    // отчёты завершившихся фоновых субагентов для ЖИВОГО прогона —
     // «будят» модель следующим шагом (task-notification, CC-паттерн своими
     // словами). Простой движок идёт путём авто-подхвата (wakeWithBgReport)
     const bgNotifications: string[] = [];
@@ -1453,7 +1453,7 @@ export function useAgentRun(deps: AgentRunDeps) {
       if (abortedRef.current.has(requestId)) return finalize();
       // Поправки, накопившиеся за прошлый шаг, попадают модели до нового запроса
       injectCorrections();
-      // Волна D: завершившиеся фоновые субагенты «будят» модель — отчёт
+      // завершившиеся фоновые субагенты «будят» модель — отчёт
       // приходит user-сообщением; UI не дублируется (отчёт уже виден в
       // патчнутой tool-карточке)
       for (const note of bgNotifications.splice(0)) {
@@ -1478,7 +1478,7 @@ export function useAgentRun(deps: AgentRunDeps) {
           persistCompact(compacted.summary);
         }
       }
-      // Волна G: напоминание о плане каждые 5 шагов — план живёт в UI-виджете,
+      // напоминание о плане каждые 5 шагов — план живёт в UI-виджете,
       // без напоминания модель забывает его к глубоким шагам прогона
       if (step % 5 === 0) {
         const plan = sessionsRef.current.find((s) => s.id === targetId)?.plan;
@@ -1503,7 +1503,7 @@ export function useAgentRun(deps: AgentRunDeps) {
       setTyping(true);
       setActivity(t("activity.thinking"));
 
-      // Волна G: причина остановки текущего раунда (доезжает в usage)
+      // причина остановки текущего раунда (доезжает в usage)
       let roundStopReason: string | null = null;
       const toolCallsHolder: { calls: ToolCallInfo[] | null } = { calls: null };
       // Текст, отстрименный до вызова инструментов, — попадёт в историю
@@ -1696,7 +1696,7 @@ export function useAgentRun(deps: AgentRunDeps) {
       // Нет вызовов инструментов — обычный ответ, цикл завершён
       const toolCalls = toolCallsHolder.calls;
       if (failed || !toolCalls || toolCalls.length === 0) {
-        // Волна G: ответ оборван лимитом вывода (length/max_tokens) —
+        // ответ оборван лимитом вывода (length/max_tokens) —
         // частичный текст уходит в историю, модель получает «продолжи с места
         // обрыва» без recap. До 3 раз за прогон; шаг расходуется (MAX_STEPS)
         if (
@@ -1842,7 +1842,7 @@ export function useAgentRun(deps: AgentRunDeps) {
         try {
           const parsed = JSON.parse(call.arguments) as { tasks?: unknown };
           const raw = parsed.tasks;
-          // Валидация — parsePlanTasks (agent/planUpdate, §24 ш.4б): массив
+          // Валидация — parsePlanTasks (agent/planUpdate): массив
           // объектов; элемент пропускается, если title не непустая строка
           // или status вне enum
           const tasks: PlanTask[] = parsePlanTasks(raw);
@@ -1894,7 +1894,7 @@ export function useAgentRun(deps: AgentRunDeps) {
           });
         };
 
-        // Валидация — parseAskSpec (agent/askSpec, §24 ш.4в): вопрос +
+        // Валидация — parseAskSpec (agent/askSpec): вопрос +
         // 2–4 опции с label, иначе — ошибка модели
         const parsedSpec: AskUserSpec | null = parseAskSpec(call.arguments);
         if (!parsedSpec) {
@@ -2198,7 +2198,7 @@ export function useAgentRun(deps: AgentRunDeps) {
             task?: string;
             background?: boolean;
           };
-          // Роль — resolveSubagentRole (subagents.ts, §24 ш.4в): цепочка
+          // Роль — resolveSubagentRole (subagents.ts): цепочка
           // сохранена дословно, литеральный фолбэк больше не дублируется
           const role: SubagentRole = resolveSubagentRole(
             parsed.role,
@@ -2364,8 +2364,8 @@ export function useAgentRun(deps: AgentRunDeps) {
                         : s,
                     ),
                   );
-                  // Волна D: живой прогон заберёт отчёт следующим шагом;
-                  // простой движок — авто-подхват (вердикт владельца: ДА)
+                  // Живой прогон заберёт отчёт следующим шагом;
+                  // простой движок — авто-подхват
                   if (!wasCancelled && entry?.status === "done") {
                     const note = `[Background subagent ${bgId} (${role.name}) completed. Report:\n${report}\n]`;
                     if (!runFinished) {
@@ -2545,7 +2545,7 @@ ${report}`;
               name: `workflow:${step.id} ${i + 1}/${def.steps.length}`,
             }),
           );
-          // Роль шага — resolveWorkflowRole (subagents.ts, §24 ш.4в):
+          // Роль шага — resolveWorkflowRole (subagents.ts):
           // шаговая → coder → первая → фолбэк, как было
           const role: SubagentRole = resolveWorkflowRole(step.role, roles);
           const task = interpolate(step.prompt, vars);
@@ -2641,7 +2641,7 @@ ${report}`;
       // карточку (не base64!), картинки копятся и уходят модели ОДНИМ
       // user-сообщением после всех tool-результатов (user-ход между
       // tool-ходами рвёт их последовательность → 400). Единая точка для
-      // последовательного пути и параллельных батчей (волна C)
+      // последовательного пути и параллельных батчей
       const finishTool = (
         call: ToolCallInfo,
         result: string,
@@ -2690,7 +2690,7 @@ ${report}`;
         });
         if (screenshot) shots.push(screenshot.dataUrl);
       };
-      // Волна C: подряд идущие безопасные чтения (isConcurrencySafe) —
+      // подряд идущие безопасные чтения (isConcurrencySafe) —
       // параллельными батчами с капом; мутирующие строго последовательно.
       // Результаты подшиваются в порядке ВЫЗОВОВ, не завершения
       const safeRun: ToolCallInfo[] = [];
@@ -2741,8 +2741,8 @@ ${report}`;
         const grantKey = allowKey(call);
         const allowed =
           mutating && (session?.allowedCommands?.includes(grantKey) ?? false);
-        // Волна E1: правила прав — предчек вынесен в evaluateToolRules
-        // (agent/toolRules, §24 ш.4г); бекенд всё равно авторитетен.
+        // Правила прав — предчек вынесен в evaluateToolRules
+        // (agent/toolRules); бекенд всё равно авторитетен.
         // [P9] Сессионные префикс-правила мержатся после перманентных
         const rules = mergePermRules(
           permRulesRef.current,
@@ -2916,7 +2916,7 @@ ${report}`;
       }
     }
 
-    // TG: «начало работы» (opt-in, fire-and-forget) — по требованию владельца
+    // TG: «начало работы» (opt-in, fire-and-forget)
     telegramNotify("start", raw.trim().slice(0, 200));
 
     try {
@@ -2968,8 +2968,8 @@ ${report}`;
     }
   };
 
-  // ---- Волна D: авто-подхват завершившихся фоновых субагентов ----
-  // Вердикт владельца (PLAN §19): ДА. Гарды: свободный движок, сессия жива
+  // ---- Авто-подхват завершившихся фоновых субагентов ----
+  // Гарды: свободный движок, сессия жива
   // и агентная, не больше 3 авто-продолжений на сессию за жизнь процесса
   // (анти-спираль «бг → прогон → бг»; счётчик в памяти, снимается рестартом)
   const autoWakeCountsRef = useRef(new Map<string, number>());

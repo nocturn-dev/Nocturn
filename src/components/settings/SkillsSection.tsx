@@ -60,7 +60,8 @@ export function SkillsSection({
             >
               <code className="shrink-0 rounded bg-halo-muted/10 px-1.5 py-0.5 font-mono text-[0.6875rem] font-semibold text-halo-muted">
                 {/* Короткая форма с двоеточием — единая на всех поверхностях:
-                    раскрытие при отправке требует «&id:» (аудит A5-2) */}
+                    раскрытие при отправке требует «&id:» */}
+
                 &{s.id}:
               </code>
               <span className="shrink-0 text-sm font-medium text-halo-text">

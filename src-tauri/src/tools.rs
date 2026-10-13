@@ -1,4 +1,4 @@
-//! M2: Реестр инструментов агента.
+//! Реестр инструментов агента.
 //! Каждый инструмент: OpenAI JSON Schema (для запроса к модели) + execute().
 
 use serde_json::{json, Value};
@@ -222,7 +222,7 @@ fn arg_str(args: &Value, key: &str) -> Result<String, String> {
 
 const VAULT_READ_LIMIT: usize = 64 * 1024;
 /// Потолок записи заметки: без лимита модель могла положить в notes/
-/// сотни МБ, которые vault_read потом тянул в память (аудит А1-2).
+/// сотни МБ, которые vault_read потом тянул в память.
 /// 2 МБ — на порядки больше любой разумной заметки
 const VAULT_WRITE_LIMIT: usize = 2 * 1024 * 1024;
 const VAULT_RESULTS_LIMIT: usize = 12;
@@ -590,7 +590,7 @@ const FS_WRITE_DIFF_LIMIT: u64 = 512 * 1024;
 /// Зарезервированные имена устройств Win32 (CON, NUL, COM1…, без учёта
 /// регистра; file_stem отрезает «NUL.txt» → «NUL»). Запись в такое имя
 /// «успешна», но содержимое выбрасывается драйвером: модель получала
-/// «ok», а данные терялись (аудит А3-2, живая проба CreateFileW)
+/// «ok», а данные терялись
 #[cfg(windows)]
 fn is_windows_device_name(path: &Path) -> bool {
     const DEVICES: [&str; 22] = [
@@ -604,7 +604,7 @@ fn is_windows_device_name(path: &Path) -> bool {
 }
 
 fn fs_write(path: &Path, content: &str) -> Result<String, String> {
-    // Аудит А3-2: молчаливая потеря данных в device-имя — сначала гард
+ // молчаливая потеря данных в device-имя — сначала гард
     #[cfg(windows)]
     if is_windows_device_name(path) {
         return Err(format!(
@@ -687,7 +687,7 @@ fn fs_delete(path: &Path) -> Result<String, String> {
     Ok(json!({ "ok": true, "deleted": path.display().to_string() }).to_string())
 }
 
-/// Поиск по содержимому файлов (FTS-lite, Волна RAG-lite): рекурсивный обход
+/// Поиск по содержимому файлов (FTS-lite): рекурсивный обход
 /// с потолками — без них агент мог бы замерить весь диск одной командой.
 /// Бинарность — по нулевому байту в первой порции; зависимости скипаем по именам
 fn fs_grep(dir: &Path, query: &str, max_results: usize) -> Result<String, String> {

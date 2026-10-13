@@ -40,7 +40,7 @@ function UserCardBase({
   const [collapsed, setCollapsed] = useState(false);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(content);
-  // Волна GUI-fix: ряд действий под сообщением (копировать / править /
+  // ряд действий под сообщением (копировать / править /
   // свернуть) — появление по ховеру, раньше кнопки висели по краям и резались
   const [copied, setCopied] = useState(false);
   const copyMessage = async () => {
@@ -89,7 +89,7 @@ function UserCardBase({
           correction ? "border-l-2 border-amber-400/50 " : ""
         }${glassEffect ? "glass-pane msg-glass bg-halo-surface/40" : "bg-halo-raised"}`}
       >
-      {/* Волна GUI-fix: ряд действий под пузырём (копировать / править /
+      {/* Ряд действий под пузырём (копировать / править /
           свернуть), как в референсе. Мост ховера: -mt-1 поднимает невидимую
           зону контейнера НА нижний край пузыря — курсор не покидает группу
           на пути к кнопкам, ряд не успевает погаснуть. Скрытое состояние —
@@ -202,7 +202,7 @@ function UserCardBase({
           className={`flex flex-wrap gap-2 ${content ? "mb-2" : ""}`}
         >
           {attachments.map((a, i) => (
-            // D17: ключ по имени+индексу — base64 data-URL в сотни КБ–МБ
+            // Ключ по имени+индексу — base64 data-URL в сотни КБ–МБ
             // сравнивался строково на каждой сверке списка
             <div key={`${a.name}-${i}`} className="group/img relative">
               {a.dataUrl ? (

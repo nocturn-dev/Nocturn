@@ -19,7 +19,8 @@ const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 pub(crate) struct ProcOutput {
     pub status: Option<i32>,
     /// Истёк таймаут ИЛИ пользователь нажал Stop — различает финализации:
-    /// раньше Stop показывался хукам как «timed out» (аудит proc 394)
+    /// раньше Stop показывался хукам как «timed out»
+
     pub timed_out: bool,
     /// Прерывание пользователем (abort-флаг), не таймаут
     pub aborted: bool,
@@ -218,7 +219,8 @@ fn finish(mut child: Child, timeout: Duration, abort: Option<&std::sync::atomic:
                 if user_abort || started.elapsed() > timeout {
                     // kill_tree по pid ребёнка безопасен от переиспользования:
                     // Child ещё не reaped (try_wait вернул None в этой же
-                    // итерации), ОС не выдаёт занятый pid (аудит proc 392)
+                    // итерации), ОС не выдаёт занятый pid
+
                     kill_tree(child.id());
                     let _ = child.kill();
                     let _ = child.wait();

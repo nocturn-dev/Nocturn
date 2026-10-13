@@ -1,5 +1,5 @@
 /**
- * GGUF Lab (волна §28, PLAN.md): хирургия локальных GGUF-моделей.
+ * GGUF Lab: хирургия локальных GGUF-моделей.
  * Конвейер: pull (Ollama) → export (блоб → appdata/gguf) → inspect →
  * cut (post-flight внутри бекенда) → тест (llama-server) / импорт обратно
  * в Ollama. Прогресс — событие gguf-progress; все тяжёлые шаги под
@@ -88,7 +88,8 @@ export default function GgufLabModal({
     setFiles(fs);
     setLlama(llamaStatus);
     setOllama(await detectLocalRuntimes().then((r) => r.ollama));
-    // A4-10 (аудит 07.10): бекенд-сессия жива, а локальный serve-стейт пуст
+ // бекенд-сессия жива, а локальный serve-стейт пуст
+
     // (reload/ремаунт фронтенда, агентный gguf_test с keep_running) —
     // восстанавливаем управление из статуса, иначе кнопки Стоп/Подключить
     // недоступны и сервер не остановить до рестарта приложения
@@ -215,8 +216,8 @@ export default function GgufLabModal({
     });
 
   // Своё место llama-server (CUDA/Vulkan-сборка): путь в gguf.json через
-  // set_path — резолв «PATH → конфиг → скачать» из плана §28.1. Раньше
-  // IPC-команда и api-обёртка существовали без единого потребителя (A7-14)
+  // set_path — резолв «PATH → конфиг → скачать». Раньше
+ // IPC-команда и api-обёртка существовали без единого потребителя 
   const doSetLlamaPath = () =>
     run(async () => {
       const p = await pickBinaryFile();

@@ -7,7 +7,7 @@ import { DiffView } from "./cards/DiffView";
 import { ChevronDownIcon, XSmallIcon } from "./cards/icons";
 
 /**
- * Правая панель Review (фидбек 26.09, по образцу Codex): все изменённые
+ * Правая панель Review (по образцу Codex): все изменённые
  * файлы прогона с живым диффом — добавленное зелёным, удалённое красным,
  * контекст без подсветки. Данные собирает App: fs_write-диффы мгновенно +
  * чекпоинт прогона (покрывает правки мимо fs_write).
@@ -61,7 +61,7 @@ export function DiffPanel({
   files: DiffPanelFile[];
   /** Файл, на котором сфокусироваться при открытии (кнопка Review на строке) */
   focusPath?: string;
-  /** Клик по строке диффа → цитата «file:line» в композер (Волна 6) */
+  /** Клик по строке диффа → цитата «file:line» в композер */
   onQuote?: (path: string, line: number, text: string) => void;
   onClose: () => void;
 }) {

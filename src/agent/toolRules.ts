@@ -1,5 +1,5 @@
 /**
- * Предчек правил прав в диспетчере инструментов (PLAN §24 шаг 4г) —
+ * Предчек правил прав в диспетчере инструментов —
  * вынесен из useAgentRun без изменения поведения. Фронтовый предчек
  * сберегает бессмысленное подтверждение; бекенд (perm.rs) всё равно
  * авторитетен — матч здесь best-effort.
@@ -25,7 +25,7 @@ export function evaluateToolRules(
   let allowRule = false;
   if (!denyHit && rules) {
     if (name === "shell_run" && ruleArg) {
-      // Волна E2: allow не пробивает complex/dangerous (→ обычный
+      // allow не пробивает complex/dangerous (→ обычный
       // mutating-флоу); always_ask на shell спрашивает как обычно
       alwaysAsk = ruleMatches(rules.always_ask, name, ruleArg, false);
       allowRule = !alwaysAsk && classifyShellRun(ruleArg, rules) === "allow";
@@ -59,7 +59,8 @@ export function mergePermRules(
 /** [P9] Добавить сессионное allow-правило (кнопка «Разрешить «{p} *» до
  *  конца задачи» в карточке подтверждения). Чистая функция: золотые векторы
  *  в toolRules.test закрепляют дедуп по строке и сохранность deny/always_ask
- *  (аудит A7-12: inline-сборка в useAgentRun была без юнит-теста) */
+ *  (inline-сборка в useAgentRun была без юнит-теста) */
+
 export function withSessionAllowRule(
   prev: PermRules | null | undefined,
   rule: string,

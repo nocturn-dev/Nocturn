@@ -47,7 +47,7 @@ pub struct McpServerConfig {
     /// hosted-серверов, рефреш-токены — отдельная история
     #[serde(default)]
     pub headers: HashMap<String, String>,
-    /// Волна F5: "oauth" — браузерная авторизация (mcp_oauth.rs); такой
+    /// "oauth" — браузерная авторизация (mcp_oauth.rs); такой
     /// сервер исключён из автоконнекта — никаких запросов без кнопки юзера
     #[serde(default)]
     pub auth: Option<String>,
@@ -79,7 +79,7 @@ pub struct McpToolInfo {
     pub input_schema: Value,
 }
 
-/// Состояние сервера для фронтового статуса (волна F1): Failed/NeedsAuth
+/// Состояние сервера для фронтового статуса: Failed/NeedsAuth
 /// несут причину. Idle — включён, но ещё ни одной попытки в этом процессе
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
@@ -102,7 +102,7 @@ pub struct McpServerStatus {
     pub tools: Vec<McpToolInfo>,
 }
 
-/// Последний статус каждого сервера (волна F1): единая точка записи —
+/// Последний статус каждого сервера: единая точка записи —
 /// ensure_connected (успех/сбой), process-global — реестр хранит только
 /// живые соединения, а статус переживает disconnect
 type ServerStateMap = HashMap<String, (McpServerState, Option<String>)>;
@@ -135,7 +135,7 @@ pub fn is_transport_err(e: &str) -> bool {
     e.starts_with("mcp transport:")
 }
 
-/// Сессия удалённого сервера истекла (волна F2): 404 с jsonrpc -32001.
+/// Сессия удалённого сервера истекла: 404 с jsonrpc -32001.
 /// Соединение дропается и переподключается невидимо; повтор вызова
 /// инициирует сама модель (аннотаций readOnlyHint нет — авто-повтор
 /// задвоил бы побочные эффекты)
@@ -169,7 +169,7 @@ fn in_reconnect_backoff(server: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// Волна F3: ${VAR} / ${VAR:-default} в строке конфига. Missing без default →
+/// ${VAR} / ${VAR:-default} в строке конфига. Missing без default →
 /// пустая строка + имя в missing (диагностика в консоль; предупреждение при
 /// сохранении показывает их и в UI). Незакрытый ${ и ${} — литерал
 fn expand_env_str(s: &str) -> (String, Vec<String>) {
@@ -433,8 +433,7 @@ impl McpConnection {
             }
         });
 
-        // Читатель stderr: кольцевой хвост последних 8 КБ (заметка владельца,
-        // волна F1) — бесконечно спамящий ошибками MCP-скрипт не съедает
+        // Читатель stderr: кольцевой хвост последних 8 КБ — бесконечно спамящий ошибками MCP-скрипт не съедает
         // оперативку, а причина падения видна целиком. Строки с потолком
         // 2 КБ (окно последних байт, срез по границе символа): гигабайтная
         // строка без '\n' не растёт буфер бесконечно
@@ -842,7 +841,7 @@ impl RemoteConnection {
             // streamable HTTP: сервер сам выбирает формат ответа
             .header("Accept", "application/json, text/event-stream")
             .json(body);
-        // Волна F5: oauth-сервер получает Bearer из хранилища токенов
+        // oauth-сервер получает Bearer из хранилища токенов
         // (статические headers не задеваются)
         if let Some(tok) = crate::mcp_oauth::access_token(&self.server) {
             req = req.header("Authorization", format!("Bearer {tok}"));
@@ -1007,7 +1006,7 @@ impl McpHandle {
     }
 
     /// Мёртв ли сервер. Stdio — процесс мог выйти между коннектом и опросом
-    /// (аудит A2-3: статус рисовал Connected по факту записи в реестре);
+    /// (статус рисовал Connected по факту записи в реестре);
     /// у Remote процесса нет — живость проверяется лениво на каждом запросе
     pub fn is_dead(&self) -> bool {
         match self {
@@ -1059,7 +1058,7 @@ impl McpRegistry {
             .cloned()
             .unwrap_or_default();
         let registry = self.0.lock().unwrap_or_else(|p| p.into_inner());
-        // Волна F4: deferred-режим (вердикт владельца — ON по умолчанию).
+        // Deferred-режим — ON по умолчанию.
         // Сверх порога MCP-схемы сворачиваются в индекс: имя + короткое
         // описание; полная схема — через mcp_tool_discover. Встроенные
         // инструменты всегда развёрнуты
@@ -1104,7 +1103,7 @@ impl McpRegistry {
         Value::Array(list)
     }
 
-    /// Волна F4: поиск отложенных MCP-инструментов по ключевым словам
+    /// поиск отложенных MCP-инструментов по ключевым словам
     /// (все токены должны встретиться в имени/описании). Возвращает ПОЛНЫЕ
     /// схемы найденных (лимит 10) — модель подставит их перед вызовом
     pub fn discover_tools(&self, query: &str) -> Vec<Value> {
@@ -1146,7 +1145,7 @@ impl McpRegistry {
     }
 }
 
-/// Порог deferred-схем (волна F4): сверх этого числа MCP-инструментов
+/// Порог deferred-схем: сверх этого числа MCP-инструментов
 /// схемы сворачиваются в индекс
 pub const MCP_DEFERRED_THRESHOLD: usize = 40;
 
@@ -1177,7 +1176,7 @@ fn mcp_config_file(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String>
 
 /// Имя сервера — ключ реестра соединений и префикс инструмента
 /// (mcp__<name>__tool): только безопасные символы. Единая проверка save- и
-/// load-путей (аудит A2-8: hand-правка mcp.json с именем «a__b» объявляла
+/// load-путей (hand-правка mcp.json с именем «a__b» объявляла
 /// модели инструменты несуществующего сервера — split_prefixed_name режет
 /// по ПЕРВОМУ «__»)
 fn valid_server_name(name: &str) -> bool {
@@ -1230,7 +1229,7 @@ fn save_servers(
 #[tauri::command(async)]
 pub async fn mcp_list_servers(app: tauri::AppHandle) -> Result<Vec<McpServerConfig>, String> {
     // Чтение mcp.json — в blocking-пул (класс mcp_save_servers): sync-диск
-    // на tokio-воркере морозил его под SSE-стримами (№4 аудита v5)
+    // на tokio-воркере морозил его под SSE-стримами
     tauri::async_runtime::spawn_blocking(move || load_servers(&app))
         .await
         .map_err(|e| format!("mcp list task failed: {e}"))?
@@ -1433,7 +1432,8 @@ pub async fn ensure_connected(
 
     // Конфиг с диска — в blocking-пуле: ensure_connected живёт на async-пути
     // (сетевой профиль AppData морозил бы tokio-воркер; паттерн siblings —
-    // mcp_save_servers в spawn_blocking, аудит А2-9)
+    // mcp_save_servers в spawn_blocking)
+
     let cfg = tauri::async_runtime::spawn_blocking({
         let app = app.clone();
         move || load_servers(&app)
@@ -1450,7 +1450,7 @@ pub async fn ensure_connected(
         set_server_state(&name, McpServerState::Disabled, None);
         return Err(format!("MCP server \"{name}\" is disabled"));
     }
-    // Волна F5 (оговорка владельца): oauth-сервер без токенов НЕ отправляет
+    // OAuth-сервер без токенов НЕ отправляет
     // ни одного запроса — жёсткий отказ до кнопки Authorize
     if cfg.auth.as_deref() == Some("oauth") && !crate::mcp_oauth::has_tokens(&name) {
         set_server_state(
@@ -1462,7 +1462,7 @@ pub async fn ensure_connected(
             "OAuth server not authorized — click Authorize in Settings → MCP".to_string(),
         );
     }
-    // Волна F3: ${VAR}/${VAR:-default} в command/args/env/url/headers.
+    // ${VAR}/${VAR:-default} в command/args/env/url/headers.
     // Missing → пустая строка + диагностика в консоль (сервер обычно упадёт
     // при старте → Failed с реальной ошибкой)
     let (cfg, missing) = expand_config_env(&cfg);
@@ -1542,7 +1542,7 @@ pub async fn mcp_disconnect(
 }
 
 /// Живые соединения, статусы и инструменты (для вкладки MCP в настройках).
-/// Волна F1: возвращает ВСЕ серверы конфига — упавший виден красным с
+/// возвращает ВСЕ серверы конфига — упавший виден красным с
 /// причиной до первого вызова инструмента; «отключён» больше не выражается
 /// отсутствием записи
 #[tauri::command(async)]
@@ -1580,7 +1580,8 @@ pub async fn mcp_status(
                 Some(_) => {
                     // Процесс в реестре, но мёртв (вышел между коннектом и
                     // опросом): честный Failed вместо ложного зелёного до
-                    // первого тулл-колла (аудит A2-3); хендл вычистит вызов
+                    // первого тулл-колла; хендл вычистит вызов
+
                     McpServerStatus {
                         name: cfg.name.clone(),
                         state: McpServerState::Failed,
@@ -1625,8 +1626,8 @@ async fn mcp_autoconnect_impl(
     registry: Arc<Mutex<HashMap<String, Arc<McpHandle>>>>,
 ) -> Result<usize, String> {
     // Персистнутые oauth-токены (только чтение локального файла, никаких
-    // запросов — оговорка владельца) и чтение mcp.json — sync-диск, оба в
-    // blocking-пул: на сетевом AppData морозили tokio-воркер под SSE (№4 v5)
+    // запросов) и чтение mcp.json — sync-диск, оба в
+    // blocking-пул: на сетевом AppData морозили tokio-воркер под SSE
     let configs = tauri::async_runtime::spawn_blocking(move || {
         crate::mcp_oauth::load_persisted(&app);
         load_servers(&app)
@@ -1640,7 +1641,7 @@ async fn mcp_autoconnect_impl(
         if !cfg.enabled {
             continue;
         }
-        // Волна F5 (оговорка владельца): oauth-сервер не инициирует запросы
+        // OAuth-сервер не инициирует запросы
         // сам — автоконнекта нет, статус NeedsAuth виден в UI до кнопки
         if cfg.auth.as_deref() == Some("oauth") {
             set_server_state(
@@ -1684,7 +1685,7 @@ async fn mcp_autoconnect_impl(
                 if map.contains_key(&name) {
                     // Параллельный коннект успел вставить первым: наш дубль
                     // гасим и НЕ считаем подключённым (зеркало remote-ветки
-                    // ниже; аудит A2-4 — убитый дубль завышал счётчик)
+                    // ниже; завышал счётчик)
                     handle.kill();
                     continue;
                 }

@@ -69,7 +69,7 @@ export interface Appearance {
   fullClaudeSerif: boolean;
   /** Стекло внутри темы (глобальный тумблер стекла игнорируется) — off */
   fullClaudeGlass: boolean;
-  /** Масштаб скруглений внутри темы (дефолт 1 = 6–8px по ТЗ) */
+  /** Масштаб скруглений внутри темы (дефолт 1 = 6–8px) */
   fullClaudeRadius: number;
   /** Шрифт UI внутри темы (пусто = системный гротеск) */
   fullClaudeUiFont: string;
@@ -246,7 +246,7 @@ export function loadAppearance(): Appearance {
       official: p.official ?? DEFAULT_APPEARANCE.official,
       reduceMotion: p.reduceMotion ?? DEFAULT_APPEARANCE.reduceMotion,
       // clamp: шкала слайдера ThemeSection 0.7/1/1.4; кривое значение с
-      // диска/профиля иначе уходило в --motion-scale сырым (аудит 07.10 A6-11)
+      // диска/профиля иначе уходило в --motion-scale сырым
       motionScale: clamp(p.motionScale ?? 1, 0.7, 1.4),
       officialOled: p.officialOled ?? DEFAULT_APPEARANCE.officialOled,
       officialContrast: p.officialContrast ?? DEFAULT_APPEARANCE.officialContrast,
@@ -333,7 +333,7 @@ export function saveAppearance(a: Appearance) {
 
 /** Фирменные акценты стилей: смена стиля увозит акцент с собой — иначе
  *  поверхности новой темы ездят со старым акцентом (синие заголовки
- *  «PROJECTS/FILES» на нейтральном кварце, скрин владельца). Тон выведен
+ *  «PROJECTS/FILES» на нейтральном кварце выглядят чужо). Тон выведен
  *  из оттенка каждой палитры; кастомные стили из конструктора акцент
  *  пользователя не трогают никогда */
 const STYLE_ACCENTS: Partial<Record<DarkStyle, string>> = {
@@ -437,7 +437,7 @@ export function hslToRgb(h: number, s: number, l: number): Rgb {
  * (deep/bg), насыщенность форсируется — «Шторм» даёт холодный синий рендер,
  * espresso тёплый, carbon остаётся нейтральным. Акцент сознательно не
  * участвует в окрашивании: дефолтный терракотовый акцент на синем стиле
- * давал коричневый рендер (фидбек 29.09). Фолбэк для нейтральных
+ * давал коричневый рендер. Фолбэк для нейтральных
  * поверхностей — hue акцента, если он сам не нейтральный.
  */
 export function sceneTint(deep: Rgb, bg: Rgb, accent: Rgb): Rgb {
@@ -479,7 +479,8 @@ export function ambientGradientDefaults(): { from: string; to: string } {
  * оставляя смесь чёрного/серого/синего/белого. Специфичности: палитры
  * стилей — html[data-style]:not(.light) = 0-2-1, :root.official — 0-2-0,
  * поэтому без !important палитра стиля закономерно била бы тег (урок
- * аудита каскада); !important + перенос тега в конец head — последняя
+ * каскада); !important + перенос тега в конец head — последняя
+
  * инстанция каскада.
  */
 export function officialCss(oled: boolean, contrast: boolean): string {
@@ -523,7 +524,7 @@ export function officialCss(oled: boolean, contrast: boolean): string {
 
 /**
  * Палитра Full Claude в одном месте: генератор CSS и витрина-превью читают
- * одни и те же значения. Роли цветов (решение владельца): #24150F — ГЛАВНЫЙ
+ * одни и те же значения. Роли цветов: #24150F — ГЛАВНЫЙ
  * акцент, заливает «всё» — тинты наведения, активные состояния, подложку
  * стекла; #D96B27 — дополнение, только мелкие текстовые акценты и детали.
  * Поверхности — нейтральный тёмный референс Claude (cds-gray): сайдбар
@@ -637,8 +638,8 @@ export function fullClaudeCss(a: Appearance): string {
     ],
     // Стекло внутри темы: «рабочий стол» html.glass раньше брал radial-пятна
     // из --halo-accent (22% в углу) — после ребрендинга насыщенный #D96B27
-    // просвечивал сквозь полупрозрачный сайдбар ржавым налётом (пипетка со
-    // скрина владельца: пик #2B150C у центра пятна 12%/18%). Главный цвет
+    // просвечивал сквозь полупрозрачный сайдбар ржавым налётом (пипеткой
+    // снят пик #2B150C у центра пятна 12%/18%). Главный цвет
     // темы #24150F даёт тёплый кофейный тон без рыжины; color-mix — под
     // @supports (конвенция C5: WebKitGTK < 2.40 отбрасывает декларацию)
     [
@@ -685,8 +686,8 @@ export function fullClaudeCss(a: Appearance): string {
       `  background: ${FULL_CLAUDE_PALETTE.surface};`,
       "}",
       // Blur под непрозрачным фоном невидим, но движок продолжает снапшотить
-      // (контракт D13 в index.css): гасим там же, где Official —
-      // html.official .glass-pane/.msg-glass (аудит A6-2)
+      // html.official .glass-pane/.msg-glass
+      // html.official .glass-pane/.msg-glass
       "html.full-claude:not(.glass) .glass-pane,",
       "html.full-claude:not(.glass) .msg-glass {",
       "  backdrop-filter: none;",
@@ -708,7 +709,8 @@ export function applyAppearance(a: Appearance) {
   // трансляцию фона body на canvas (CSS Backgrounds §3.11.2), и
   // непрозрачный body на шаге 3 отрисовки накрывал ВСЕ слои z-index:-1 —
   // ambient «за интерфейсом» и лента лирики были невидимы без стекла
-  // (аудит А6-1). В стекле canvas и так красит градиент html.glass (0,1,1),
+  //. В стекле canvas и так красит градиент html.glass (0,1,1),
+
   // zen — собственный !important; фолбэк нужен только до загрузки CSS
   document.getElementById("halo-boot-bg")?.remove();
   // Палитры стилей генерируются из данных (themeStyles.ts) и инжектируются
@@ -843,7 +845,7 @@ export function applyAppearance(a: Appearance) {
 
   // Ambient: при Full Claude не действует ВООБЩЕ (ни глобальный тумблер,
   // ни сцены, ни канвас-слой — тот загейчен в App) — чистые монолитные
-  // заливки. Звёздное небо из темы убрано по решению владельца
+  // заливки. Звёздное небо из темы убрано сознательно: монолитные
   const ambientOn = a.ambient && !a.fullClaude;
   root.classList.toggle("ambient", ambientOn);
   if (ambientOn && a.ambientScene !== "glow") {

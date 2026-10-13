@@ -101,7 +101,7 @@ export function useSessions(opts: {
   const { t } = useLang();
   // Зеркало t для вечного эффекта автосейва ниже (deps [] — C14-очередь):
   // замыкание держало t первого рендера, и тост сбоя печатался на прежнем
-  // языке после смены языка (аудит А4-3)
+  // языке после смены языка
   const tMirror = useRef(t);
   useEffect(() => {
     tMirror.current = t;
@@ -442,7 +442,7 @@ export function useSessions(opts: {
     );
   };
 
-  // Редактор allowlist (M5.2): правка списка «Всегда для задачи» активной задачи
+  // Редактор allowlist: правка списка «Всегда для задачи» активной задачи
   const handleSetAllowedCommands = (list: string[]) => {
     if (!activeId) return;
     setSessions((prev) =>

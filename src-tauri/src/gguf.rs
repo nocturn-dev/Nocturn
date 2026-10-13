@@ -1,7 +1,7 @@
 //! GGUF-контейнер (v2/v3): read-only разбор + валидация + inspect.
-//! Шаг 1 волны «GGUF Lab» (PLAN.md §28). Спека и инварианты —
-//! docs/internal/GGUF_LAB_RESEARCH.md §1 (первоисточники: ggml docs/gguf.md,
-//! gguf.cpp, gguf-py master на 10.2026); ссылки на § — туда.
+//! Спека и инварианты — по ggml docs/gguf.md, gguf.cpp и gguf-py
+//! (master на 10.2026); пометки §N.N — рабочая нумерация разделов
+//! конспекта по формату.
 //!
 //! Читается ТОЛЬКО header-регион (KV + таблица тензоров, единицы МиБ):
 //! данные тензоров не читаются вовсе — для inspect их размеры вычисляются
@@ -30,7 +30,7 @@ const MAGIC: [u8; 4] = *b"GGUF";
 /// Пишем только v3 (шаг 3); читаем v2/v3. v1 llama.cpp не читает (§1.2).
 const DEFAULT_ALIGNMENT: u32 = 32;
 /// Верхняя граница general.alignment: буфер паддинга в execute_surgery
-/// аллоцируется размером с alignment (аудит GGUF п.17)
+/// аллоцируется размером с alignment
 const MAX_ALIGNMENT: u32 = 1 << 20;
 /// GGML_TYPE_COUNT на master 10.2026: NVFP4=40, Q1_0=41, Q2_0=42 (§1.3).
 /// Старые билды llama.cpp эти типы не поймут — в отчёте будет предупреждение.
@@ -54,7 +54,7 @@ const RETAIN_STRING_CAP: u64 = 1 << 20;
 const RETAIN_ARRAY_CAP: usize = 4096;
 /// Реальные модели ≤ ~150 слоёв; кап для bool-массивов паттернов.
 const MAX_LAYERS_CAP: usize = 1024;
-/// Порог «дешёвого» пропуска (аудит GGUF п.3): до него skip читает через
+/// Порог «дешёвого» пропуска: до него skip читает через
 /// буфер BufReader'а, выше — seek (тянуть байты в память незачем).
 const SKIP_BUFFERED: u64 = 8 * 1024;
 
@@ -165,7 +165,7 @@ impl ValueType {
 
     /// Код типа в потоке GGUF (§1.1) — зеркало from_code. Именно метод, а не
     /// `as u32`: приведение держалось бы на порядке вариантов enum, и его
-    /// перестановка молча ломала бы запись пар (аудит GGUF п.11)
+    /// перестановка молча ломала бы запись пар
     fn code(self) -> u32 {
         match self {
             Self::UInt8 => 0,
@@ -380,7 +380,7 @@ impl GgufFile {
     pub fn layers(&self) -> LayerReport {
         let mut layers: Vec<LayerInfo> = Vec::new();
         // Индекс → позиция в vec: линейный find на каждый тензор квадратичен
-        // по слоям (аудит GGUF п.30)
+        // по слоям
         let mut by_index: HashMap<u64, usize> = HashMap::new();
         let mut global = Vec::new();
         for t in &self.tensors {
@@ -458,7 +458,7 @@ struct Parser {
     r: BufReader<File>,
     pos: u64,
     file_len: u64,
-    /// Переиспользуемый буфер коротких пропусков (аудит GGUF п.3)
+    /// Переиспользуемый буфер коротких пропусков
     scratch: Vec<u8>,
 }
 
@@ -502,7 +502,7 @@ impl Parser {
     /// Пропуск объявленных байтов (содержимое не нужно и не читается).
     /// Короткие пропуски — чтением в переиспользуемый scratch: seek на КАЖДЫЙ
     /// элемент строкового массива (токенайзер — сотни тысяч строк) сбрасывал
-    /// буфер BufReader'а и делал lseek на элемент (аудит GGUF п.3). Длинные —
+    /// буфер BufReader'а и делал lseek на элемент. Длинные —
     /// по-прежнему seek: тянуть их в память незачем.
     /// За EOF не пропускаем вовсе: объявленная длина мимо файла — усечение,
     /// и раньше это выяснялось лишь косвенно, по проверке размера (п.2).
@@ -537,7 +537,7 @@ impl Parser {
 
     /// Сырые байты строки. Проверки длины имени и дедуп идут по НИМ, а не по
     /// lossy-строке: невалидный байт превращается в U+FFFD (+2 байта) и
-    /// склеивает разные имена в ложный «дубликат» (аудит GGUF п.4).
+    /// склеивает разные имена в ложный «дубликат».
     fn read_string_raw(&mut self, cap: u64, what: &str) -> Result<Vec<u8>, String> {
         let len = self.read_u64()?;
         if len > cap {
@@ -584,7 +584,8 @@ impl Parser {
         // с внятной ошибкой вместо тихого мусора.
         if version == 0 {
             // Не BE-эвристика: BE-файл v3 на LE-хосте читается как 0x03000000,
-            // а не 0 — у нуля своя причина и своё сообщение (аудит GGUF п.6)
+            // а не 0 — у нуля своя причина и своё сообщение
+
             return Err("gguf: unsupported version 0".into());
         }
         if version & 0xFFFF == 0 {
@@ -671,7 +672,7 @@ impl Parser {
                     }
                     // Верхняя граница: execute_surgery держит буфер паддинга
                     // размером с alignment — 2^31 от враждебного файла были бы
-                    // 2 ГиБ впустую (аудит GGUF п.17); реальным файлам хватает
+                    // 2 ГиБ впустую; реальным файлам хватает
                     // порядков меньше
                     if a > MAX_ALIGNMENT {
                         return Err(format!(
@@ -700,7 +701,7 @@ impl Parser {
         let meta = resolve_meta(version, &retained, kv_keys, alignment);
         // Конец KV = начало таблицы тензоров — граница вербатим-копии (шаг 3a).
         // Хвост региона проверяется отдельно: граничный кап в цикле не видит
-        // последнюю пару (аудит GGUF п.18)
+        // последнюю пару
         if self.pos - kv_region_start > MAX_KV_REGION_BYTES {
             return Err(format!(
                 "gguf: kv region ends at {} bytes, exceeding the {MAX_KV_REGION_BYTES} limit (hostile or corrupt)",
@@ -861,7 +862,8 @@ impl Parser {
                 // u64 > i64::MAX не удерживается: сатурация в i64::MAX писала
                 // бы подменённое значение в план/пару, а постфлайт сверяет
                 // байты с планом и не заметил бы подмены — отказ вместо тихой
-                // порчи (аудит GGUF п.21)
+                // порчи
+
                 let v = self.read_u64()?;
                 Some(Retained::Int(i64::try_from(v).map_err(|_| {
                     format!("gguf: kv '{key}' u64 value {v} exceeds i64::MAX")
@@ -921,7 +923,8 @@ impl Parser {
                 // Токенайзер: массив строк, валидируем каждую длину,
                 // содержимое не удерживаем (§1.4 ресёрча). Бюджет региона
                 // проверяется И ВНУТРИ массива: кап на границе пар не ловит
-                // одну гигантскую пару (аудит GGUF п.3)
+                // одну гигантскую пару
+
                 for _ in 0..len {
                     if self.pos - kv_region_start > MAX_KV_REGION_BYTES {
                         return Err(format!(
@@ -937,7 +940,7 @@ impl Parser {
             }
             ValueType::Bool => {
                 if len as usize > MAX_LAYERS_CAP {
-                    // Skip-путь тоже под бюджетом региона (аудит GGUF п.18)
+                    // Skip-путь тоже под бюджетом региона
                     if self.pos - kv_region_start + len > MAX_KV_REGION_BYTES {
                         return Err(format!(
                             "gguf: kv '{key}' bool array pushes the region past {MAX_KV_REGION_BYTES} bytes (hostile or corrupt)"
@@ -975,7 +978,7 @@ impl Parser {
                     // сквозняком; переполнение длины ловит checked_mul.
                     // Бюджет региона — и на skip-пути: seek не растит память,
                     // но инвариант «регион ≤ капа» обязан держаться для
-                    // ЛЮБОЙ пары, а не только строковых (аудит GGUF п.18)
+                    // ЛЮБОЙ пары, а не только строковых
                     let total = step
                         .checked_mul(len)
                         .ok_or_else(|| format!("gguf: kv '{key}' array size overflows"))?;
@@ -1020,7 +1023,7 @@ fn tensor_nbytes(ty: &GgmlType, dims: &[u64]) -> Option<u64> {
 
 /// Размер записи тензора в таблице TI (§1.1): n_dims(4), имя, dims(8×n),
 /// type(4), offset(8). Единственная точка формулы — раньше она
-/// дублировалась в оценке плана и в писателе (аудит GGUF п.29).
+/// дублировалась в оценке плана и в писателе.
 fn tensor_record_size(name_len: usize, n_dims: usize) -> u64 {
     8 + name_len as u64 + 4 + 8 * n_dims as u64 + 4 + 8
 }
@@ -1091,7 +1094,6 @@ fn resolve_meta(
 /// ключ в файле ЕСТЬ, а значение не удержано (массив длиннее капа, не-целый
 /// тип) — семантика теряется молча. Например, потерянный
 /// attention.sliding_window_pattern оставлял бы swa=false без единого слова
-/// (аудит GGUF п.5/12).
 fn lost_kv_warnings(meta: &GgufMeta) -> Vec<String> {
     let arch = meta.architecture.clone().unwrap_or_default();
     let checks = [
@@ -1160,8 +1162,8 @@ fn detect_flags(meta: &GgufMeta, tensors: &[TensorInfo]) -> ArchFlags {
 }
 
 // ---------------------------------------------------------------------------
-// Конвейер Ollama: скачивание (pull) и экспорт блоба (шаг 2 волны §28.2).
-// Детали API — GGUF_LAB_RESEARCH.md §4 (api.md/openapi.yaml на 10.2026).
+// Конвейер Ollama: скачивание (pull) и экспорт блоба.
+// Детали API — api.md/openapi.yaml Ollama на 10.2026.
 // ---------------------------------------------------------------------------
 
 /// Ollama-сервер живёт на фиксированном порту; как detect_local_runtimes
@@ -1172,13 +1174,13 @@ const OLLAMA_URL: &str = "http://127.0.0.1:11434";
 /// легитимно идёт десятки минут, а «замерло навсегда» — это 60 с без единого
 /// байта (§4.6: соединение с Ollama — долгоживущий NDJSON-поток).
 const PULL_STALL_SECS: u64 = 60;
-/// Общий дедлайн pull (аудит GGUF п.3): stall-детект ловит только тишину,
+/// Общий дедлайн pull: stall-детект ловит только тишину,
 /// а сервер, шлющий прогресс без success, держал операцию вечно. Сутки —
 /// заведомо больше любого легитимного локального pull.
 const PULL_MAX_SECS: u64 = 24 * 3600;
 /// Кап буфера NDJSON-строки /api/pull и /api/create: класс входа тот же, что
 /// SSE в chat.rs (там SSE_BUF_LIMIT 1 МиБ) — «вечная строка» не должна расти
-/// в памяти (аудит 07.10 A1-14)
+/// в памяти
 const NDJSON_LINE_CAP: usize = 1024 * 1024;
 /// Буфер копирования блоба: 8 МиБ — в 2–4 раза больше alignment-паддинга
 /// любых тензоров, при этом буфер не раздувает RSS (§3.3 ресёрча).
@@ -1187,13 +1189,13 @@ const COPY_CHUNK: usize = 8 << 20;
 /// 57 МБ; тут файлы на порядки больше).
 const EMIT_CHUNK: u64 = 32 << 20;
 
-/// Одна операция GGUF Lab за раз (§28.3): pull/export/surgery —
+/// Одна операция GGUF Lab за раз: pull/export/surgery —
 /// мульти-гигабайтный диск-IO, параллелить — гарантированный трэшинг.
 static GGUF_BUSY: AtomicBool = AtomicBool::new(false);
 
 /// Держит GGUF_BUSY на время операции: сбрасывается и при возврате, и при
 /// панике внутри неё. Без этого паника оставляла модуль заблокированным
-/// до перезапуска приложения (аудит GGUF пункт 7).
+/// до перезапуска приложения.
 struct BusyGuard;
 
 impl BusyGuard {
@@ -1214,7 +1216,7 @@ impl Drop for BusyGuard {
 
 /// Сериализация read-modify-write gguf.json: atomic_write не рвёт файл, но
 /// две параллельные RMW (set_path и download) теряли обновление целиком
-/// (аудит GGUF п.26). Poison восстанавливается, как у lock_server.
+/// Poison восстанавливается, как у lock_server.
 static GGUF_CONFIG_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 fn config_write_lock() -> std::sync::MutexGuard<'static, ()> {
@@ -1251,7 +1253,7 @@ pub enum PullEvent {
 
 /// User-Agent HTTP-вызовов лаборатории: префикс совпадает с каталогами
 /// временных файлов тестов (haloui-gguf) — раньше UA и префикс тестов
-/// расходились (аудит GGUF п.42)
+/// расходились
 const HTTP_USER_AGENT: &str = "haloui-gguf-lab";
 
 /// Чистая функция — под golden-тесты формата строк (как parse_ollama_tags
@@ -1300,7 +1302,8 @@ pub fn parse_show_body(body: &str) -> Result<ShowInfo, String> {
         for line in mf.lines() {
             let line = line.trim();
             // FROM регистронезависим и допускает кавычки вокруг пути
-            // (аудит GGUF п.27): раньше «from X» давал пустой from_paths и
+            //: раньше «from X» давал пустой from_paths и
+
             // невнятный отказ «no FROM path», «FROM "X"» — путь с кавычками.
             // Сравнение по байтам: срез &[..5] мог расщепить UTF-8 символ
             if line.len() < 5 || !line.as_bytes()[..5].eq_ignore_ascii_case(b"from ") {
@@ -1320,7 +1323,7 @@ pub fn parse_show_body(body: &str) -> Result<ShowInfo, String> {
 /// Корень хранилища Ollama: OLLAMA_MODELS → дефолт по ОС (§4.2: envconfig).
 /// env_value/home — параметры (не чтение env) — под тесты. Без домашнего
 /// каталога — ошибка, а не относительный путь: free_bytes по «.ollama/models»
-/// от CWD проверял бы чужой том (аудит GGUF п.13/33).
+/// от CWD проверял бы чужой том.
 pub fn models_root_from(env_value: Option<&str>, home: Option<&Path>) -> Result<PathBuf, String> {
     if let Some(v) = env_value.map(str::trim).filter(|s| !s.is_empty()) {
         return Ok(PathBuf::from(v));
@@ -1373,7 +1376,7 @@ fn slug_for(model: &str) -> String {
 /// Имя файла экспорта. slug_for не инъективен («a:b» и «a_b» дают одно имя),
 /// поэтому при потере символов добавляется 8 hex от sha256 ПОЛНОГО имени:
 /// повторный экспорт той же модели стабилен, а разные модели больше не
-/// перезаписывают файл друг друга (аудит GGUF п.14)
+/// перезаписывают файл друг друга
 fn export_slug(model: &str) -> String {
     let slug = slug_for(model);
     if slug == model {
@@ -1492,7 +1495,7 @@ pub async fn gguf_pull(app: tauri::AppHandle, model: String) -> Result<(), Strin
 }
 
 /// Ядро pull: base_url и emit-колбэк — параметры (под mock-тест HTTP-пути,
-/// аудит GGUF п.40). UI-обёртка вешает на колбэк событие gguf-progress.
+/// ). UI-обёртка вешает на колбэк событие gguf-progress.
 async fn do_pull_stream(
     base_url: &str,
     model: &str,
@@ -1517,11 +1520,12 @@ async fn do_pull_stream(
     let mut last_emit_received: Option<u64> = None;
     let mut last_emit_status = String::new();
     // Общий дедлайн: даже бесконечный поток прогрессов не держит операцию
-    // вечно (аудит GGUF п.3)
+    // вечно
+
     let pull_deadline =
         std::time::Instant::now() + std::time::Duration::from_secs(PULL_MAX_SECS);
     loop {
-        // Отмена — через select! (аудит GGUF п.3): флаг читался только между
+        // Отмена — через select!: флаг читался только между
         // чанками, и при тишине отмена имела латентность до PULL_STALL_SECS
         // Stall-детект (§4.6): 60 с без байтов — соединение замерло
         let chunk = tokio::select! {
@@ -1542,13 +1546,14 @@ async fn do_pull_stream(
         };
         buf.extend_from_slice(&chunk);
         // Общий дедлайн поверх stall-детекта: поток прогрессов без success
-        // не держит операцию вечно (аудит GGUF п.3)
+        // не держит операцию вечно
         if std::time::Instant::now() > pull_deadline {
             return Err(format!(
                 "gguf pull: exceeded {PULL_MAX_SECS}s total without completion"
             ));
         }
-        // Кап буфера строк (аудит 07.10 A1-14): SSE-путь chat.rs ставит
+        // Кап буфера строк: SSE-путь chat.rs ставит
+
         // SSE_BUF_LIMIT 1 МиБ на тот же класс входа — «вечная строка без \n»
         // из некорректного/скомпрометированного прокси не должна расти в
         // памяти, пока stall-детект видит живой поток байтов
@@ -1560,7 +1565,6 @@ async fn do_pull_stream(
         // Разбор строк — общий с chat.rs (lossy UTF-8 + один drain на чанк):
         // своя копия молча теряла строку с невалидным UTF-8, включая финальный
         // {"status":"success"}, и отдавала ложное «stream ended without success»
-        // (аудит GGUF п.8/30)
         for line in crate::chat::take_complete_lines(&mut buf) {
             let line = line.trim();
             if line.is_empty() {
@@ -1576,7 +1580,7 @@ async fn do_pull_stream(
                     // Pre-flight места (§4.6): оценка приходит с каждым
                     // прогресс-слоем; проверяем при РОСТЕ оценки — следующий
                     // слой может требовать больше, чем первый
-                    // (аудит GGUF п.13: раньше проверялся только один слой)
+                    // (раньше проверялся только один слой)
                     if let (Some(total), Some(_)) = (p.total, p.digest.as_deref()) {
                         if total > space_checked_total {
                             // digest borrowing (не move): p живёт дальше в emit
@@ -1689,7 +1693,8 @@ async fn do_export(
             "gguf export: unexpected blob name '{file_name}' (expected sha256-<hex>)"
         ));
     }
-    // Путь из /api/show не доверяем целиком (аудит GGUF п.13): блоб Ollama
+    // Путь из /api/show не доверяем целиком: блоб Ollama
+
     // живёт в <models_root>/blobs. Привязку к models_root сознательно НЕ
     // делаем — OLLAMA_MODELS может быть не виден нашему процессу (Ollama
     // службой), и легальный экспорт получал бы ложный отказ; содержимое всё
@@ -1710,7 +1715,8 @@ async fn do_export(
         .len();
 
     let dir = gguf_dir(app)?;
-    // Диск-IO в blocking-пул (№4 аудита v5), место — по ЦЕЛЕВОМУ тому:
+    // Диск-IO в blocking-пул, место — по ЦЕЛЕВОМУ тому:
+
     // хранилище Ollama и appdata могут быть на разных дисках
     let dst_dir = dir.clone();
     tauri::async_runtime::spawn_blocking(move || fs::create_dir_all(&dst_dir))
@@ -1736,7 +1742,7 @@ async fn do_export(
     let emit_app = app.clone();
     let model_owned = model.to_string();
     let copied = tauri::async_runtime::spawn_blocking(move || {
-        // Гард живёт в blocking-задаче (аудит GGUF п.14): дроп future не
+        // Гард живёт в blocking-задаче: дроп future не
         // должен освобождать busy под идущей мульти-ГБ копией
         let _busy = busy;
         copy_blob_verified(
@@ -1765,10 +1771,10 @@ async fn do_export(
             // Один rename: на Windows MoveFileExW(MOVEFILE_REPLACE_EXISTING)
             // заменяет существующий файл, поэтому remove_file перед ним не
             // нужен — он открывал окно, когда целевого файла нет вовсе
-            // (аудит GGUF п.19). Перезапись сознательна: повторный экспорт.
+            //. Перезапись сознательна: повторный экспорт.
             // Ошибка rename обязана убрать tmp: проверенный мульти-гигабайтный
             // файл оставался на диске невидимкой — lab_files_in скрывает
-            // *.tmp (аудит GGUF п.8)
+            // *.tmp
             if let Err(e) = fs::rename(&tmp_path, &final_path) {
                 let _ = fs::remove_file(&tmp_path);
                 return Err(format!("gguf export: rename: {e}"));
@@ -1820,7 +1826,8 @@ async fn do_cut(
         ));
     }
     // Срез суффикса без учёта регистра: «X.GGUF» раньше оставался целиком
-    // в stem и давал «X.GGUF_cut.gguf» (аудит GGUF п.32). Срез безопасен:
+    // в stem и давал «X.GGUF_cut.gguf». Срез безопасен:
+
     // ветка берётся только при ASCII-совпадении последних 5 байт
     let stem = if src_name.len() >= 5
         && src_name[src_name.len() - 5..].eq_ignore_ascii_case(".gguf")
@@ -1835,7 +1842,7 @@ async fn do_cut(
     let emit_app = app.clone();
     let emit_name = out_name.clone();
     let report = tauri::async_runtime::spawn_blocking(move || {
-        // Гард живёт в blocking-задаче (аудит GGUF п.14): дроп future
+        // Гард живёт в blocking-задаче: дроп future
         // освобождал busy под ещё идущей резкой, и следующая операция
         // сбрасывала GGUF_CANCEL — идущая задача становилась неотменяемой
         let _busy = busy;
@@ -1877,9 +1884,9 @@ async fn do_cut(
 }
 
 // ---------------------------------------------------------------------------
-// Хирургия: план + streaming-writer (шаг 3a волны §28.2).
-// Алгоритм — GGUF_LAB_RESEARCH.md §1.4 (канонический порядок записи),
-// §1.9 (чеклист инвариантов), §2.2 (канонический алгоритм резки), §6.2.
+// Хирургия: план + streaming-writer.
+// Алгоритм: канонический порядок записи (§1.4), чеклист инвариантов
+// (§1.9), каноническая резка (§2.2), пост-гейт (§6.2).
 // ---------------------------------------------------------------------------
 
 /// Выживший тензор плана: info — с НОВЫМ именем и НОВЫМ offset (так пишется
@@ -2006,8 +2013,7 @@ fn renumber_of(sorted_remove: &[u64], old: u64) -> u64 {
     old - sorted_remove.partition_point(|&r| r < old) as u64
 }
 
-/// `blk.{N}…` → `blk.{new}…`. Грамматика ЕДИНАЯ с layer_index (аудит GGUF
-/// п.20): «blk.5» без хвостовой точки валиден в обеих функциях (раньше здесь
+/// `blk.{N}…` → `blk.{new}…`. Грамматика ЕДИНАЯ с layer_index: «blk.5» без хвостовой точки валиден в обеих функциях (раньше здесь
 /// давал «internal: unrenumberable»), хвост после индекса переносится как есть.
 /// Вызывается только для имён, прошедших layer_index — None здесь внутренняя
 /// ошибка, не формат файла.
@@ -2024,7 +2030,7 @@ fn with_layer_index(name: &str, new_idx: u64) -> Option<String> {
 /// писатель льёт value как u32/u64 LE (copy_kv_range), постфлайт перечитывает
 /// так же. Узкая ширина (u8/u16/bool у неканоничного файла) через get_int
 /// дала бы Some и панику copy_from_slice уже ПОСЛЕ начала записи —
-/// многогигабайтный tmp остался бы на диске (аудит 07.10 A1-9). Единая точка
+/// многогигабайтный tmp остался бы на диске. Единая точка
 /// гарда для всех трёх InPlace-правок: block_count, nextn, leading_dense.
 fn in_place_edit(key: &str, off: u64, width: u32, value: u64) -> Result<KvEdit, String> {
     if width != 4 && width != 8 {
@@ -2042,7 +2048,7 @@ fn in_place_edit(key: &str, off: u64, width: u32, value: u64) -> Result<KvEdit, 
 
 /// Построить план резки (3a: dense-архитектуры без per-layer семантики).
 /// Всё, что требует консистентности per-layer массивов/паттернов, — отказ
-/// с внятной ошибкой до 3b (§28.1: гибриды — deny-list v1).
+/// с внятной ошибкой до 3b (гибриды — deny-list v1).
 pub fn build_surgery_plan(src: &GgufFile, remove: &[u64]) -> Result<SurgeryPlan, String> {
     let arch = src
         .meta
@@ -2050,7 +2056,7 @@ pub fn build_surgery_plan(src: &GgufFile, remove: &[u64]) -> Result<SurgeryPlan,
         .clone()
         .ok_or_else(|| "gguf surgery: general.architecture is missing".to_string())?;
     // Различаем «ключа нет» и «ключ не целое число» — диагностике помогает
-    // и владелец, и агент-инструмент (шаг 6)
+    // и пользователю, и агент-инструменту (шаг 6)
     let bc_key = format!("{arch}.block_count");
     let bc_present = src.kv_spans.iter().any(|(k, _)| *k == bc_key);
     let block_count = match src.meta.block_count {
@@ -2067,7 +2073,8 @@ pub fn build_surgery_plan(src: &GgufFile, remove: &[u64]) -> Result<SurgeryPlan,
     // Счётчик берётся ТОЛЬКО по точному ключу {arch}.block_count: побочные
     // *.block_count (clip.vision у мультимодальных файлов) не мешают выбору.
     // Старый гард «несколько *.block_count → отказ» ложно отклонял валидные
-    // мультимодальные модели (аудит GGUF п.15)
+    // мультимодальные модели
+
     // Гибриды в практике сообщества не грузятся после хирургии (§2.4-6)
     if src.flags.hybrid_ssm || src.flags.hybrid_conv {
         return Err(
@@ -2077,7 +2084,7 @@ pub fn build_surgery_plan(src: &GgufFile, remove: &[u64]) -> Result<SurgeryPlan,
 
     // Тензор blk.N с N >= block_count в remove не попадёт, и ренумерация
     // оставит его вне нового block_count — «сиротские» offsets, файл не
-    // загрузится (аудит GGUF п.9). Битый/самодельный файл — отказ до записи.
+    // загрузится. Битый/самодельный файл — отказ до записи.
     for t in &src.tensors {
         if let Some(idx) = layer_index(&t.name) {
             if idx >= block_count {
@@ -2115,10 +2122,10 @@ pub fn build_surgery_plan(src: &GgufFile, remove: &[u64]) -> Result<SurgeryPlan,
     let mut renumber: Vec<(u64, u64)> = Vec::new();
     // Дубликаты имён ПОСЛЕ ренумерации: «blk.01.x» и «blk.1.x» — один слой в
     // layer_index, и без проверки получили бы одинаковые имена в выходе
-    // (аудит GGUF п.20)
     let mut new_names: HashSet<String> = HashSet::new();
     // Членство в renumber — через HashSet: линейный contains на каждый тензор
-    // квадратичен по слоям (аудит GGUF п.30), а Vec в момент вставки ещё
+    // квадратичен по слоям, а Vec в момент вставки ещё
+
     // не отсортирован
     let mut renumber_seen: HashSet<(u64, u64)> = HashSet::new();
     let mut running: u64 = 0;
@@ -2226,7 +2233,8 @@ pub fn build_surgery_plan(src: &GgufFile, remove: &[u64]) -> Result<SurgeryPlan,
             // Скаляр — вербатим (§1.6: Mistral/Qwen2). А вот «массив есть в
             // файле, но не удержан парсером» молча пропускать нельзя:
             // block_count уменьшится, а байты массива останутся полной длины —
-            // отказ вместо порчи (аудит GGUF п.16)
+            // отказ вместо порчи
+
             if let Some((_, len, _)) = span_of(&format!("{arch}.{suffix}")).and_then(|s| s.arr) {
                 if len == block_count {
                     return Err(format!(
@@ -2306,7 +2314,7 @@ pub fn build_surgery_plan(src: &GgufFile, remove: &[u64]) -> Result<SurgeryPlan,
         }
         Some(SwaPattern::Period(p)) => {
             // Период 0 — битые метаданные: раньше проходил парсер и «случайно»
-            // отказывал делением на ноль в фазовой проверке (аудит GGUF п.19)
+            // отказывал делением на ноль в фазовой проверке
             if *p == 0 {
                 return Err(format!(
                     "gguf surgery: {pattern_key} is 0 — the period must be a positive integer"
@@ -2420,7 +2428,8 @@ pub fn build_surgery_plan(src: &GgufFile, remove: &[u64]) -> Result<SurgeryPlan,
     // === Предупреждения плана (качество — на совести исследователя,
     // механику не ломаем; §2.3/§2.4). Предупреждения парсера о потерянных
     // KV переносятся сюда — иначе пользователь не узнает, что per-layer
-    // семантика ключа недоступна (аудит GGUF п.16) ===
+    // семантика ключа недоступна ===
+
     let mut warnings = lost_kv_warnings(&src.meta);
     if sorted_remove.contains(&(block_count - 1)) {
         warnings.push(
@@ -2480,7 +2489,7 @@ pub fn execute_surgery(
         }
         // SAFETY: файл открыт только на чтение нашим процессом; усечение
         // третьей стороной во время операции — вне модели угроз (локальный
-        // файл владельца, операция под Busy-гардом GGUF Lab)
+        // файл пользователя, операция под Busy-гардом GGUF Lab)
         let mmap = unsafe { memmap2::Mmap::map(&file) }
             .map_err(|e| format!("gguf surgery: mmap failed: {e}"))?;
 
@@ -2555,7 +2564,7 @@ pub fn execute_surgery(
                     // Патч, начинающийся внутри чанка и вылезающий за его
                     // конец, иначе не применился бы НИ В ОДНОМ чанке (условие
                     // ниже требует полного попадания) — режем чанк по началу
-                    // патча (аудит GGUF п.18)
+                    // патча
                     for &(off, width, _) in self.patches {
                         if off >= pos && off < end && off + u64::from(width) > end {
                             end = off;
@@ -2565,7 +2574,8 @@ pub fn execute_surgery(
                     // вылезающий за границу диапазона, обнуляет end — раньше
                     // это был вечный цикл на повреждённом плане, а комментарий
                     // «end > pos гарантирован» верен только для клипа по
-                    // COPY_CHUNK, не по `to` (аудит GGUF п.2). Такой план
+                    // COPY_CHUNK, не по `to`. Такой план
+
                     // штатный планировщик не строит — отказ вместо зависания.
                     if end <= pos {
                         return Err(
@@ -2575,7 +2585,8 @@ pub fn execute_surgery(
                     }
                     // Буфер переиспользуется между чанками — как в копии
                     // блоба (COPY_CHUNK): новый 8 МиБ Vec на каждый чанк
-                    // был churn'ом аллокатора без пользы (аудит 07.10 A1-16)
+                    // был churn'ом аллокатора без пользы
+
                     self.buf.clear();
                     self.buf
                         .extend_from_slice(&self.mmap[pos as usize..end as usize]);
@@ -2685,7 +2696,7 @@ pub fn execute_surgery(
     // Решение об очистке — только по результату записи: отмену, выставленную
     // ПОСЛЕ успешной записи, решает пайплайн явными точками между этапами —
     // иначе готовый файл удалялся «из-под» постфлайта с невнятным
-    // «cannot open» (аудит GGUF п.20)
+    // «cannot open»
     if result.is_err() {
         let _ = fs::remove_file(dst_tmp);
     }
@@ -2698,7 +2709,7 @@ pub fn execute_surgery(
 pub struct PostflightSummary {
     pub tensors_checked: usize,
     pub bytes_compared: u64,
-    /// Нетронутые KV-пары, сверенные с исходником байт-в-байт (аудит п.21)
+    /// Нетронутые KV-пары, сверенные с исходником байт-в-байт
     pub kv_pairs_compared: usize,
 }
 
@@ -2735,7 +2746,8 @@ pub fn postflight_verify(
     }
     for (pt, ot) in plan.new_tensors.iter().zip(&out.tensors) {
         // Смещение сверяется ЯВНО: раньше расхождение ловилось только косвенно
-        // (инвариант непрерывности + сверка данных) (аудит GGUF п.22)
+        // (инвариант непрерывности + сверка данных)
+
         if ot.name != pt.info.name
             || ot.type_code != pt.info.type_code
             || ot.nbytes != pt.info.nbytes
@@ -2802,7 +2814,7 @@ pub fn postflight_verify(
     }
 
     // (2b) Нетронутые KV-пары — байт-в-байт против исходника: сплайс обязан
-    // переносить их verbatim, а не «примерно так же» (аудит GGUF п.21).
+    // переносить их verbatim, а не «примерно так же».
     // Смена набора ключей (порядок/потеря) ловится отдельной сверкой.
     let src = GgufFile::open(src_path)?;
     if src.meta.kv_keys != out.meta.kv_keys {
@@ -2899,7 +2911,6 @@ fn validate_lab_file_name(name: &str) -> Result<String, String> {
         || name.contains('\\')
         // ':' на Windows — альтернативный поток NTFS: x.gguf:y.gguf проходил
         // все проверки; на остальных платформах легальных таких имён нет
-        // (аудит GGUF п.22)
         || name.contains(':')
         || name.contains("..")
         || name != Path::new(name)
@@ -2919,7 +2930,7 @@ fn validate_lab_file_name(name: &str) -> Result<String, String> {
 
 /// Полный цикл резки (шаг 3c): план → pre-flight места → исполнение →
 /// post-flight гейт → rename → отчёт. Синхронная — под spawn_blocking
-/// команды. tmp не переживает ни ошибку, ни отмену (§28.3).
+/// команды. tmp не переживает ни ошибку, ни отмену.
 pub(crate) fn run_surgery_pipeline(
     src_path: &Path,
     dst_path: &Path,
@@ -2953,12 +2964,14 @@ pub(crate) fn run_surgery_pipeline(
         .unwrap_or_else(|| "out.gguf".into());
     let tmp_path = dst_path.with_file_name(format!("{out_name}.tmp"));
     on_progress("plan", 0, 0, 0, plan.out_size_estimate);
-    // Троттлинг прогресса (аудит 07.10 A4-15): на крупной модели тензоров
+    // Троттлинг прогресса: на крупной модели тензоров
+
     // сотни — каждый emit это IPC-событие и полный ре-рендер модалки.
     // Не чаще 100 мс; финальный (i == n) проходит всегда — потребитель
     // ждёт его как сигнал конца копии
     // checked_sub: Instant - Duration паникует на системе с крошечным
-    // uptime (аудит GGUF п.31); минута назад ≈ «сейчас» как фолбэк
+    // uptime; минута назад ≈ «сейчас» как фолбэк
+
     let mut last_emit = std::time::Instant::now()
         .checked_sub(std::time::Duration::from_secs(1))
         .unwrap_or_else(std::time::Instant::now);
@@ -2968,7 +2981,8 @@ pub(crate) fn run_surgery_pipeline(
             on_progress("surgery", i, n, b, t);
         }
     })?;
-    // Явная точка отмены между этапами (аудит GGUF п.20): успешная запись
+    // Явная точка отмены между этапами: успешная запись
+
     // не удаляется «задним числом», но и не публикуется после Stop
     if cancel.load(Ordering::Relaxed) {
         let _ = fs::remove_file(&tmp_path);
@@ -2987,10 +3001,10 @@ pub(crate) fn run_surgery_pipeline(
         return Err("gguf surgery: cancelled".into());
     }
     // Один rename (как в экспорте): remove_file перед ним не нужен и открывал
-    // окно, когда на диске нет ни старого, ни нового файла (аудит GGUF п.19);
+    // окно, когда на диске нет ни старого, ни нового файла;
     // перезапись сознательна — повторная резка той же модели. Ошибка rename
     // обязана убрать tmp: иначе проверенный мульти-гигабайтный файл остаётся
-    // на диске невидимкой — lab_files_in скрывает *.tmp (аудит GGUF п.8)
+    // на диске невидимкой — lab_files_in скрывает *.tmp
     if let Err(e) = fs::rename(&tmp_path, dst_path) {
         let _ = fs::remove_file(&tmp_path);
         return Err(format!("gguf surgery: rename: {e}"));
@@ -3040,7 +3054,6 @@ fn lab_files_in(dir: &Path) -> Vec<LabFile> {
                     // tmp пропускаем по ТОЧНЫМ паттернам наших временных файлов
                     // (`.gguf.tmp`, `.tmp-` от atomic_write), а не по contains:
                     // легитимный model.tmpx.gguf раньше исчезал из списка
-                    // (аудит GGUF п.33)
                     if !name.to_ascii_lowercase().ends_with(".gguf")
                         || name.to_ascii_lowercase().ends_with(".tmp")
                         || name.contains(".tmp-")
@@ -3127,8 +3140,8 @@ pub async fn gguf_inspect(app: tauri::AppHandle, src_name: String) -> Result<Ggu
 }
 
 // ---------------------------------------------------------------------------
-// Тестовый рантайм (шаг 4 волны §28.2): llama-server + Ollama create.
-// Детали — GGUF_LAB_RESEARCH.md §4.3/§4.4/§4.6 (api.md/server README 10.2026).
+// Тестовый рантайм: llama-server + Ollama create.
+// Детали — api.md / server README Ollama и llama.cpp на 10.2026.
 // ---------------------------------------------------------------------------
 
 /// /health llama-server: 200 — модель готова; 503 — грузится (порт слушается
@@ -3137,7 +3150,7 @@ const LLAMA_HEALTH_TIMEOUT_SECS: u64 = 300;
 const HEALTH_POLL_MS: u64 = 500;
 /// Дефолт -c и общий потолок контекста: llama.cpp выделяет KV-кэш
 /// пропорционально -c, поэтому «любое u32 до 4 млрд» — это OOM или зависший
-/// старт (аудит GGUF п.17). Объявленный контекст модели — граница точнее,
+/// старт. Объявленный контекст модели — граница точнее,
 /// но метаданные могут не прочитаться (п.28: там же и обрезка u64→u32).
 const DEFAULT_CTX_SIZE: u32 = 4096;
 const CTX_HARD_CAP: u32 = 262_144;
@@ -3154,7 +3167,7 @@ struct ServerSession {
 }
 
 /// Сессия или зарезервированный слот старта. Starting закрывает гонку двух
-/// почти одновременных gguf_serve_start (аудит GGUF п.16): раньше оба вызова
+/// почти одновременных gguf_serve_start: раньше оба вызова
 /// проходили проверку «сервера нет» ДО долгого health-поллинга, поднимали два
 /// процесса, второй перезаписывал сессию — и первый llama-server оставался
 /// без учёта (kill_session_on_exit гасил только один). token отличает свой
@@ -3162,7 +3175,8 @@ struct ServerSession {
 enum ServerState {
     /// Слот занят, процесс ещё не опубликован; pid появляется после spawn.
     /// Порт известен до spawn: kill_taken зондирует его, чтобы не убить
-    /// переиспользованный pid (аудит GGUF п.6)
+    /// переиспользованный pid
+
     Starting { token: u64, pid: Option<u32>, port: u16 },
     Running(ServerSession),
 }
@@ -3221,7 +3235,7 @@ fn serve_publish(token: u64, session: ServerSession) -> Result<bool, String> {
 }
 
 /// Забрать свой слот Starting (если он всё ещё наш): общая точка для
-/// дропа StartingGuard (аудит GGUF п.7)
+/// дропа StartingGuard
 fn take_start(token: u64) -> Option<ServerState> {
     let mut g = lock_server().ok()?;
     match g.as_ref() {
@@ -3230,7 +3244,7 @@ fn take_start(token: u64) -> Option<ServerState> {
     }
 }
 
-/// RAII-гард слота Starting (аудит GGUF п.7): слот снимался только явным
+/// RAII-гард слота Starting: слот снимался только явным
 /// release после .await — дроп future посреди старта оставлял слот занятым
 /// («already running» при running: false) до рестарта приложения. Дроп в
 /// любой точке снимает слот; на успехе слот уже Running/None — take_start
@@ -3250,7 +3264,7 @@ impl Drop for StartingGuard {
 }
 
 /// Жив ли порт: TCP-connect с коротким таймаутом. Локальный отказ приходит
-/// мгновенно, 300 мс — потолок на «зависший» порт (аудит GGUF п.23).
+/// мгновенно, 300 мс — потолок на «зависший» порт.
 fn port_alive(port: u16) -> bool {
     std::net::TcpStream::connect_timeout(
         &std::net::SocketAddr::from(([127, 0, 0, 1], port)),
@@ -3327,7 +3341,8 @@ fn interpret_health(status: u16, body: &str) -> HealthState {
 fn log_tail(path: &Path) -> String {
     // Байты, не read_to_string: один невалидный байт в логе отдавал
     // «(log unreadable)» ровно тогда, когда хвост нужен для диагностики
-    // падения (аудит GGUF п.24)
+    // падения
+
     let Ok(bytes) = fs::read(path) else {
         return "(log unreadable)".into();
     };
@@ -3339,7 +3354,7 @@ fn log_tail(path: &Path) -> String {
     format!("…{tail}")
 }
 
-/// Ротация логов llama-server (аудит 07.10 A1-12): файл на каждый старт
+/// Ротация логов llama-server: файл на каждый старт
 /// (порт эфемерный), без ротации каталог рос монотонно. Оставляем
 /// LOGS_KEEP новейших, старше — прочь (best-effort: ошибка одного файла
 /// не срывает старт)
@@ -3369,7 +3384,8 @@ fn prune_llama_logs(dir: &Path) {
 #[tauri::command(async)]
 pub async fn gguf_llama_status(app: tauri::AppHandle) -> Result<LlamaServerStatus, String> {
     // Конфиг-чтение и PATH-скан (is_file по сетевым путям может морозить) —
-    // блокирующая работа уходит в spawn_blocking (аудит GGUF п.23)
+    // блокирующая работа уходит в spawn_blocking
+
     let configured_resolved = tauri::async_runtime::spawn_blocking({
         let app = app.clone();
         move || {
@@ -3386,7 +3402,7 @@ pub async fn gguf_llama_status(app: tauri::AppHandle) -> Result<LlamaServerStatu
     .map_err(|e| format!("gguf status: task failed: {e}"))?;
     let (configured, resolved) = configured_resolved;
 
-    // Живость — порт-зондом (аудит GGUF п.23): без него упавший сервер вечно
+    // Живость — порт-зондом: без него упавший сервер вечно
     // показывался «running», а новый старт требовал «stop». Зонд — блокирующий
     // connect: делаем ВНЕ лока мьютекса и вне async-потока. Мёртвую запись
     // снимаем БЕЗ kill (pid мог быть переиспользован), и только если это всё
@@ -3433,14 +3449,15 @@ pub async fn gguf_llama_status(app: tauri::AppHandle) -> Result<LlamaServerStatu
 
 /// Путь к llama-server: Some — задать (перезаписать), None — оставить как есть.
 /// Хранится в gguf.json (паттерн dictation.json). Some проходит sensitive-гардал
-/// с канонизацией (как ca_path в network.rs — аудит A1-5) и проверку
+/// с канонизацией (как ca_path в network.rs) и проверку
 /// существования файла: исполняемый по природе конфиг не должен молча
-/// принимать произвольную строку (аудит 07.10, пакет реестров / A7-15).
+/// принимать произвольную строку.
 /// Resolve-time фолбэк в PATH при мёртвом конфиге сохранён.
 #[tauri::command(async)]
 pub async fn gguf_llama_set_path(app: tauri::AppHandle, path: Option<String>) -> Result<(), String> {
     // Канонизация и stat — блокирующие вызовы: валидация и запись целиком
-    // уходят в spawn_blocking (аудит GGUF п.23)
+    // уходят в spawn_blocking
+
     tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
         let mut to_store = path.clone();
         if let Some(p) = path.as_deref().map(str::trim).filter(|p| !p.is_empty()) {
@@ -3456,10 +3473,10 @@ pub async fn gguf_llama_set_path(app: tauri::AppHandle, path: Option<String>) ->
             }
             // Храним канонический путь: исходный мог быть относительным и при
             // следующем запуске резолвился бы от CWD приложения
-            // (аудит GGUF п.11)
             to_store = Some(canon);
         }
-        let _cfg = config_write_lock(); // RMW под локом (аудит GGUF п.26)
+        let _cfg = config_write_lock(); // RMW под локом
+
         let mut cur = crate::settings::read_json_config(&app, "gguf.json")
             .ok()
             .and_then(|v| v.as_object().cloned())
@@ -3486,7 +3503,6 @@ fn read_llama_config(app: &tauri::AppHandle) -> Option<String> {
 /// агент обязан узнать, что получил бы другой контекст, чем просил (п.17/28).
 /// Ноль тоже отказ: у llama.cpp 0 = «контекст из метаданных модели» (до 1M
 /// n_ctx_train) — раньше это обходило и кап модели, и CTX_HARD_CAP
-/// (аудит GGUF п.4).
 fn resolve_ctx_size(requested: Option<u32>, model_max: Option<u32>) -> Result<u32, String> {
     let cap = model_max
         .filter(|m| *m > 0)
@@ -3517,12 +3533,13 @@ pub async fn gguf_serve_start(
     // Сервер — та же тяжёлая дисковая активность (маппинг модели в RAM), а
     // распаковка архива поверх живого llama-server.exe падает посреди записи
     // на Windows: общий Busy-гард с pull/export/cut/download/import
-    // (аудит GGUF п.12) — тул-описание «те же Busy/Cancel-гарды» становится
+    // — тул-описание «те же Busy/Cancel-гарды» становится
+
     // правдой
     let Some(_busy) = BusyGuard::acquire() else {
         return Err("gguf lab: another operation is already running".into());
     };
-    // Слот резервируется ДО долгого health-поллинга (аудит GGUF п.16): иначе
+    // Слот резервируется ДО долгого health-поллинга: иначе
     // два параллельных вызова поднимали два сервера, второй перетирал сессию,
     // и первый процесс оставался без учёта (ни stop, ни выход его не гасили)
     let token = SERVE_TOKEN.fetch_add(1, Ordering::Relaxed);
@@ -3535,7 +3552,7 @@ pub async fn gguf_serve_start(
         }
         *g = Some(ServerState::Starting { token, pid: None, port });
     }
-    // RAII-гард (аудит GGUF п.7): дроп future на любом .await снимает слот и
+    // RAII-гард: дроп future на любом .await снимает слот и
     // гасит недозапущенный процесс. На успехе слот уже Running — Drop нейтрален
     let _slot = StartingGuard(token);
     serve_start_inner(&app, &src_name, ctx_size, token, port).await
@@ -3638,7 +3655,8 @@ async fn serve_start_inner(
         }
         if let Ok(Some(status)) = child.try_wait() {
             // Процесс уже завершён и reaped: kill по его pid мог попасть в
-            // переиспользованный PID (аудит GGUF п.6) — смерть фиксируем
+            // переиспользованный PID — смерть фиксируем
+
             // сообщением, без kill
             return Err(format!(
                 "llama-server exited during startup (code {status:?}) — log tail: {}",
@@ -3697,7 +3715,7 @@ async fn serve_start_inner(
 fn kill_taken(state: Option<ServerState>) {
     match state {
         Some(ServerState::Running(s)) => kill_session_tree(&s),
-        // Порт-зонд как у Running (аудит GGUF п.6 / A3-12): pid стартующего
+        // Порт-зонд как у Running: pid стартующего
         // процесса после его смерти тоже мог быть переиспользован. Порт ещё
         // не слушается на раннем старте — тогда гасит сам старт-future,
         // который заметит отмену на следующем poll (у него живой Child-хэндл)
@@ -3724,7 +3742,7 @@ pub fn gguf_serve_stop() -> Result<(), String> {
 
 /// Жив ли процесс сессии: порт-зонд. PID умершего процесса возвращается
 /// системе — вслепую kill_tree по переиспользованному pid гасит чужое
-/// дерево (аудит 07.10 A3-12). Отказывающий порт = сервер мёртв: чистим
+/// дерево. Отказывающий порт = сервер мёртв: чистим
 /// запись без kill. Живой, но не отвечающий сервер порт держит → гасится.
 fn kill_session_tree(s: &ServerSession) {
     if port_alive(s.port) {
@@ -3733,7 +3751,7 @@ fn kill_session_tree(s: &ServerSession) {
 }
 
 /// Гасит тестовый сервер при выходе приложения (RunEvent::Exit): сессия —
-/// static вне реестров, которые Exit обходит (аудит 07.10 A1-11: осиротевший
+/// static вне реестров, которые Exit обходит (осиротевший
 /// llama-server переживал приложение и держал модель в памяти; UI после
 /// рестарта его не видел и остановить не мог)
 pub fn kill_session_on_exit() {
@@ -3749,7 +3767,7 @@ struct ReleaseAsset {
     name: String,
     url: String,
     /// sha256 из ответа API (поле digest, без префикса "sha256:") — архив
-    /// сверяется ДО распаковки и запуска бинаря (аудит GGUF п.25)
+    /// сверяется ДО распаковки и запуска бинаря
     digest: Option<String>,
 }
 
@@ -3794,7 +3812,7 @@ fn is_binary_tag(tag: &str) -> bool {
 
 /// Ассет под платформу из ПЕРВОГО b-релиза, где он есть: у свежего релиза
 /// нужного CPU-ассета могло ещё не быть, и падать на нём, когда ассет лежит
-/// в предыдущем, нельзя (аудит GGUF п.27). Возвращает (тег, ассет).
+/// в предыдущем, нельзя. Возвращает (тег, ассет).
 fn pick_binary_asset<'a>(
     releases: &'a [(String, Vec<ReleaseAsset>)],
     os: &str,
@@ -3847,7 +3865,7 @@ fn current_os_arch() -> (&'static str, &'static str) {
 
 /// Best-effort удаление файлов при выходе из функции — в том числе по ошибке
 /// и отмене: tmp-загрузка не должна переживать сбой, а скачанный архив —
-/// провал распаковки (аудит GGUF п.26). disarm() снимает охрану.
+/// провал распаковки. disarm() снимает охрану.
 struct Cleanup(Vec<PathBuf>);
 
 impl Cleanup {
@@ -3928,13 +3946,15 @@ async fn do_llama_download(app: tauri::AppHandle, busy: BusyGuard) -> Result<Str
     .map_err(|e| format!("gguf download: task failed: {e}"))?
     .map_err(|e| format!("gguf download: create dir: {e}"))?;
     // Архив кладём в корень gguf_dir, а НЕ в bin: bin целиком сменяется при
-    // распаковке (аудит GGUF п.9), архив не должен попасть под смену
+    // распаковке, архив не должен попасть под смену
+
     let archive_path = dir.join(&asset_name);
     let tmp_path = dir.join(format!("{asset_name}.tmp"));
     let tmp_in_task = tmp_path.clone();
     // tmp и архив — под охраной до успешного конца: ошибка внутри
     // spawn_blocking уходила через ?? раньше уборки, и *.tmp переживал сбой,
-    // а при провале распаковки оставался и архив (аудит GGUF п.26)
+    // а при провале распаковки оставался и архив
+
     let mut cleanup = Cleanup::new(vec![tmp_path.clone(), archive_path.clone()]);
 
     let resp = client
@@ -3955,7 +3975,8 @@ async fn do_llama_download(app: tauri::AppHandle, busy: BusyGuard) -> Result<Str
         let app2 = app.clone();
         let emit_name = asset_name.clone();
     tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
-        // Гард живёт в blocking-задаче записи (аудит GGUF п.14): дроп future
+        // Гард живёт в blocking-задаче записи: дроп future
+
         // не освобождает busy под идущей мульти-ГБ загрузкой
         let _busy = busy;
         let rt = tokio::runtime::Handle::current();
@@ -3993,7 +4014,6 @@ async fn do_llama_download(app: tauri::AppHandle, busy: BusyGuard) -> Result<Str
                     .map_err(|e| format!("gguf download: flush: {e}"))?;
                 // sync_all как у copy_blob: rename/распаковка не должны
                 // увидеть недописанный архив после сбоя питания
-                // (аудит GGUF п.25)
                 file.sync_all()
                     .await
                     .map_err(|e| format!("gguf download: sync: {e}"))?;
@@ -4001,7 +4021,7 @@ async fn do_llama_download(app: tauri::AppHandle, busy: BusyGuard) -> Result<Str
                     return Err("gguf download: empty response".into());
                 }
                 // Сверка ДО rename: подменённый на стороне загрузки или прокси
-                // архив не должен стать «скачанным бинарём» (аудит GGUF п.25)
+                // архив не должен стать «скачанным бинарём»
                 let hex = hex_lower(&hasher.finalize());
                 if let Some(expected) = expected_digest.as_deref() {
                     if !hex.eq_ignore_ascii_case(expected) {
@@ -4011,7 +4031,7 @@ async fn do_llama_download(app: tauri::AppHandle, busy: BusyGuard) -> Result<Str
                     }
                 } else {
                     // Fail-open задокументирован, но пользователь обязан
-                    // видеть, что бинарник ставится БЕЗ сверки (аудит GGUF п.10)
+                    // видеть, что бинарник ставится БЕЗ сверки
                     let _ = app2.emit(
                         "gguf-progress",
                         json!({
@@ -4038,7 +4058,7 @@ async fn do_llama_download(app: tauri::AppHandle, busy: BusyGuard) -> Result<Str
     // CPU-ассет ~18.5 МиБ — распаковка секундная. Распаковываем в ОТДЕЛЬНЫЙ
     // incoming-каталог и меняем bin целиком: tar поверх старого дерева
     // оставлял файлы прошлых релизов, и поиск мог вернуть устаревший
-    // llama-server (аудит GGUF п.9)
+    // llama-server
     let flag = if archive_path.to_string_lossy().ends_with(".zip") {
         "-xf"
     } else {
@@ -4097,7 +4117,8 @@ async fn do_llama_download(app: tauri::AppHandle, busy: BusyGuard) -> Result<Str
     let found2 = found_str.clone();
     tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
         // RMW под общим локом конфига: параллельный set_path мог потерять
-        // обновление (аудит GGUF п.26)
+        // обновление
+
         let _cfg = config_write_lock();
         let mut cur = crate::settings::read_json_config(&app2, "gguf.json")
             .ok()
@@ -4116,7 +4137,7 @@ async fn do_llama_download(app: tauri::AppHandle, busy: BusyGuard) -> Result<Str
 /// Рекурсивный поиск llama-server(.exe) в каталоге (стек, не рекурсия —
 /// как dir_size в fsutil). Каталоги-симлинки не спускаем: p.is_dir()
 /// следует по ссылкам, симлинк на предка давал бесконечный обход до OOM
-/// (аудит GGUF п.1); глубина ограничена дополнительно — релиз пакует
+/// Глубина ограничена дополнительно — релиз пакует
 /// бинарь на глубине ≤ 3.
 fn find_llama_server(dir: &Path) -> Option<PathBuf> {
     const MAX_DEPTH: u8 = 6;
@@ -4242,7 +4263,7 @@ async fn do_ollama_import(
     let digest_path = src_path.clone();
     let mut busy = Some(busy);
     let digest = tauri::async_runtime::spawn_blocking(move || {
-        // Гард внутри blocking-задачи (аудит GGUF п.14): дроп future не
+        // Гард внутри blocking-задачи: дроп future не
         // освобождает busy под идущим мульти-ГБ чтением
         let _busy = busy.take();
         sha256_file(&digest_path)
@@ -4265,7 +4286,8 @@ async fn do_ollama_import(
         // Стрим чанками — файл не материализуется в памяти (§3.3)
         // Буфер живёт в состоянии unfold и переиспользуется: vec![0u8; 8 МиБ]
         // на каждый чанк — это лишнее зануление 8 МиБ вдобавок к копии
-        // (аудит GGUF п.29, тот же churn, что снят в execute_surgery).
+        // (, тот же churn, что снят в execute_surgery).
+
         // Одна копия остаётся: владение чанком уходит в тело запроса, а
         // `bytes` нет в зависимостях крейта.
         use tokio::io::AsyncReadExt as _;
@@ -4367,7 +4389,7 @@ async fn do_ollama_import(
 }
 
 // ---------------------------------------------------------------------------
-// Агентные инструменты (шаг 6 волны §28.2): inspect / cut / test.
+// Агентные инструменты: inspect / cut / test.
 // Регистрация по чек-листу AGENTS.md: схемы здесь, диспетчер в run_tool
 // (tooling.rs), зеркала perm.rs + toolFilter.ts (cut/test — mutating,
 // inspect — чтение). Ошибки бекенда агент видит как текст отказа.
@@ -4449,7 +4471,7 @@ pub async fn run_agent_tool(
                 .get("remove_layers")
                 .and_then(|v| v.as_array())
                 .ok_or_else(|| "missing required argument: remove_layers".to_string())?;
-            // Валидация с ошибкой, не тихий filter_map (аудит 07.10 A1-13):
+            // Валидация с ошибкой, не тихий filter_map:
             // [1, "2", -3] от модели усекался бы молча — резка не тех слоёв,
             // отчёт показывает фактически удалённые, расхождение с замыслом
             // агент не видит
@@ -4469,7 +4491,8 @@ pub async fn run_agent_tool(
         "gguf_test" => {
             let src = get_str("src_name")?;
             // u64 → u32 только с проверкой: `as` молча обрезал бы
-            // 4096 + 2^32 до 4096 (аудит GGUF п.28)
+            // 4096 + 2^32 до 4096
+
             let ctx = match args.get("ctx_size") {
                 None => None,
                 Some(v) => {
@@ -4547,7 +4570,8 @@ mod tests {
         S(String),
         U32(u32),
         /// Узкий int — hostile/неканоничный блок_count: гард ширины InPlace
-        /// обязан отказать ДО записи (аудит 07.10 A1-9)
+        /// обязан отказать ДО записи
+
         U16(u16),
         Bool(bool),
         ArrU32(Vec<u32>),
@@ -4848,7 +4872,7 @@ mod tests {
 
     /// Каталог временных файлов тестов — уникальный на прогон (pid + время):
     /// общий «haloui-gguf-{pid}» конфликтовал при переиспользовании pid и
-    /// копил мусор (аудит GGUF п.39)
+    /// копил мусор
     fn test_tmp_root() -> std::path::PathBuf {
         static ROOT: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
         ROOT.get_or_init(|| {
@@ -4938,7 +4962,7 @@ mod tests {
     #[test]
     fn value_type_codes_roundtrip() {
         // encode_array_pair пишет пару по code(), читатель разбирает по
-        // from_code: коды обязаны совпадать (аудит GGUF п.11 — `as u32`
+        // from_code: коды обязаны совпадать (
         // держался только на порядке вариантов enum)
         for code in 0u32..=12 {
             assert_eq!(ValueType::from_code(code).unwrap().code(), code);
@@ -5008,7 +5032,8 @@ mod tests {
     #[test]
     fn large_string_array_parses_through_buffered_skip() {
         // Токенайзер на 5000 строк: короткие пропуски идут через буфер
-        // BufReader'а, а не seek'ом на каждую строку (аудит GGUF п.3)
+        // BufReader'а, а не seek'ом на каждую строку
+
         let mut s = Synth::llama_dense(1);
         let vocab: Vec<String> = (0..5000).map(|i| format!("tok{i}")).collect();
         s.kv.push(("tokenizer.ggml.tokens".into(), Kv::ArrStr(vocab)));
@@ -5019,7 +5044,8 @@ mod tests {
     #[test]
     fn raw_tensor_names_are_not_merged_or_stretched_by_lossy() {
         // Два имени, различающиеся невалидным байтом: lossy-строки совпали бы
-        // → ложный «duplicate tensor name» (аудит GGUF п.4)
+        // → ложный «duplicate tensor name»
+
         let mut s = Synth::llama_dense(0);
         s.tensors.push(straw(b"blk.0.a\x80".to_vec(), &[128], 0, 0));
         s.tensors.push(straw(b"blk.0.a\x81".to_vec(), &[128], 0, 0));
@@ -5162,7 +5188,7 @@ mod tests {
     #[test]
     fn over_cap_arrays_warn_instead_of_silent_drop() {
         // bool-паттерн > MAX_LAYERS_CAP не удержан → флага swa нет, и об этом
-        // обязано быть сказано (аудит GGUF п.5/12)
+        // обязано быть сказано
         let mut s = Synth::llama_dense(2);
         s.kv.push((
             "llama.attention.sliding_window_pattern".into(),
@@ -5335,7 +5361,8 @@ mod tests {
     #[test]
     fn skip_past_eof_is_rejected_immediately() {
         // Объявленные 8 МиБ данных массива, которых в файле нет: skip обязан
-        // отказать на месте, а не «легально» уехать за EOF (аудит GGUF п.2/3)
+        // отказать на месте, а не «легально» уехать за EOF
+
         let mut s = Synth::llama_dense(1);
         s.kv.push(("evil.arr".into(), Kv::HugeArrU64(1 << 20)));
         let err = parse_bytes("skipeof.gguf", &s.build()).unwrap_err();
@@ -5346,7 +5373,7 @@ mod tests {
     fn rejects_tensor_size_that_overflows_padding() {
         // Q8_0 (блок 32, 34 байта) с dims=[32, (2^63)/17]: nbytes = 34*K =
         // 2^64−18 — pad_to обязан вернуть ошибку, а не паниковать в debug и
-        // не обернуться в release (аудит GGUF п.1). Файл собран вручную:
+        // не обернуться в release. Файл собран вручную:
         // builder тестов pad_raw на таком размере переполнился бы сам
         let k = (1u64 << 63) / 17;
         let mut b = Vec::new();
@@ -5371,7 +5398,7 @@ mod tests {
         let mut b = s.build();
         // Адрес значения считаем от КЛЮЧА, а не поиском 07 00 00 00 по всему
         // файлу: та же последовательность встречается в u64-длине 7 или в
-        // dims, и тест держался бы на везении (аудит GGUF п.35).
+        // dims, и тест держался бы на везении.
         // Раскладка пары: [длина ключа][ключ][тип 4 байта][значение 1 байт]
         let key = b"some.flag";
         let kpos = b
@@ -5530,7 +5557,8 @@ mod tests {
     #[test]
     fn export_slug_disambiguates_lossy_names() {
         // slug_for не инъективен: «a:b» и «a_b» дали бы ОДИН файл, и экспорт
-        // второй модели молча перезаписывал бы первую (аудит GGUF п.14)
+        // второй модели молча перезаписывал бы первую
+
         let a = export_slug("llama3:latest");
         let b = export_slug("llama3_latest");
         assert_ne!(a, b, "разные модели — разные файлы");
@@ -5614,7 +5642,8 @@ mod tests {
 
     #[test]
     fn surgery_rejects_narrow_block_count_before_write() {
-        // A1-9 (аудит 07.10): u16-block_count проходит get_int (Some) — раньше
+        // u16-block_count проходит get_int (Some) — раньше
+
         // паника copy_from_slice случалась уже ПОСЛЕ начала записи (вечный
         // tmp). Гард ширины обязан отказать с честной ошибкой до диска.
         let mut s = Synth::llama_dense(3);
@@ -5772,7 +5801,7 @@ mod tests {
     /// Гард-лист 3b: что по-прежнему запрещено (гибриды,
     /// нескалярный block_count, битые наборы, неявный/фазовый SWA, неизвестные
     /// per-layer массивы). Посторонний *.block_count больше не в списке —
-    /// мультимодальные файлы валидны (аудит GGUF п.15)
+    /// мультимодальные файлы валидны
     #[test]
     fn surgery_guards_still_deny() {
         let expect_denied = |s: &Synth, remove: &[u64], name: &str, needle: &str| {
@@ -5786,7 +5815,8 @@ mod tests {
         s.tensors.push(st("blk.1.shortconv.conv.weight", &[64], 0));
         expect_denied(&s, &[0], "guard-hybrid", "hybrid");
 
-        // Посторонний *.block_count больше НЕ отказ (аудит GGUF п.15):
+        // Посторонний *.block_count больше НЕ отказ:
+
         // счётчик берётся по точному {arch}.block_count, побочные ключи
         // (clip.vision у мультимодальных) игнорируются
         let mut s = Synth::llama_dense(2);
@@ -5847,7 +5877,7 @@ mod tests {
 
     #[test]
     fn surgery_patches_kv_value_on_chunk_boundary() {
-        // Значение block_count ровно на границе 8 МиБ-чанка (аудит GGUF п.18):
+        // Значение block_count ровно на границе 8 МиБ-чанка:
         // разрезанный границей патч не применялся НИ В ОДНОМ чанке, и
         // постфлайт валил резку такого файла навсегда.
         let target = 24 + COPY_CHUNK as u64 - 2; // [target, target+4) пересекает границу
@@ -6123,7 +6153,7 @@ mod tests {
         // Оценка out_size_estimate сверена с записанным файлом в
         // surgery_dense_middle_cut_byte_exact через file_len; здесь —
         // инварианты суммы и кумулятивных offset'ов (имя раньше обещало
-        // сверку с файлом, которой тут нет — аудит GGUF п.36)
+        // сверку с файлом, которой тут нет)
         let s = Synth::llama_dense(3);
         let src = GgufFile::open(&write_tmp("est.src.gguf", &s.build())).unwrap();
         let plan = build_surgery_plan(&src, &[1]).unwrap();
@@ -6180,7 +6210,8 @@ mod tests {
         // Порча: переворачиваем байт в середине данных выжившего тензора.
         // Координаты — ВЫХОДНЫЕ: out.data_start + info.offset из плана; раньше
         // порт исходника сдвигал порчу в чужой тензор, и тест проходил
-        // случайно (аудит GGUF п.35)
+        // случайно
+
         let out = GgufFile::open(&dst).unwrap();
         let mut bytes = fs::read(&dst).unwrap();
         let mid = (out.data_start + plan.new_tensors[3].info.offset) as usize + 100;
@@ -6305,7 +6336,7 @@ mod tests {
         assert_eq!(report.verified.tensors_checked, out.tensors.len());
         // bytes_compared = сумма НЕпадденных nbytes плана; равенство с
         // падденным размером выхода держится только на размерах, кратных
-        // выравниванию, — раньше тест закреплял именно это (аудит GGUF п.37)
+        // выравниванию, — раньше тест закреплял именно это
         let unpadded: u64 = out.tensors.iter().map(|t| t.nbytes).sum();
         assert_eq!(report.verified.bytes_compared, unpadded);
         assert!(report.output_size_bytes - out.data_start >= unpadded);
@@ -6373,7 +6404,7 @@ mod tests {
     #[test]
     fn ctx_size_is_bounded_by_model_and_hard_cap() {
         // llama.cpp выделяет KV-кэш пропорционально -c: без границы «любое
-        // u32» — это OOM или зависший старт (аудит GGUF п.17/28)
+        // u32» — это OOM или зависший старт
         assert_eq!(resolve_ctx_size(None, None).unwrap(), DEFAULT_CTX_SIZE);
         assert_eq!(
             resolve_ctx_size(None, Some(2048)).unwrap(),
@@ -6383,7 +6414,7 @@ mod tests {
         assert_eq!(resolve_ctx_size(None, Some(131_072)).unwrap(), DEFAULT_CTX_SIZE);
         assert!(
             resolve_ctx_size(Some(0), Some(2048)).is_err(),
-            "0 у llama.cpp = контекст из модели (до 1M) — кап обходился (аудит GGUF п.4)"
+            "0 у llama.cpp = контекст из модели (до 1M) — кап обходился"
         );
         assert_eq!(resolve_ctx_size(Some(2048), Some(4096)).unwrap(), 2048);
         assert!(resolve_ctx_size(Some(4096), Some(2048)).is_err());
@@ -6402,7 +6433,8 @@ mod tests {
     #[test]
     fn port_probe_tells_live_from_dead() {
         // На порт-зонде держатся и статус упавшего сервера, и kill по сессии
-        // (аудит GGUF п.23): слушающий порт жив, закрытый — мёртв
+        //: слушающий порт жив, закрытый — мёртв
+
         let l = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
         let port = l.local_addr().unwrap().port();
         assert!(port_alive(port), "слушающий порт обязан читаться живым");
@@ -6413,7 +6445,8 @@ mod tests {
     #[test]
     fn log_tail_survives_invalid_utf8() {
         // Хвост лога нужен ровно при падении: один битый байт не должен
-        // превращать его в «(log unreadable)» (аудит GGUF п.24)
+        // превращать его в «(log unreadable)»
+
         let p = write_tmp("llama-server-test.log", b"aaa \xff\xfe bbb");
         let tail = log_tail(&p);
         assert!(tail.contains("aaa") && tail.contains("bbb"), "got: {tail}");
@@ -6424,7 +6457,8 @@ mod tests {
     #[test]
     fn cleanup_guard_removes_files_on_drop() {
         // tmp загрузки и архив — под Cleanup: сбой распаковки/сверки не должен
-        // оставлять мусор на диске (аудит GGUF п.26)
+        // оставлять мусор на диске
+
         let a = write_tmp("cleanup-a.tmp", b"x");
         let b = write_tmp("cleanup-b.tmp", b"y");
         {
@@ -6525,11 +6559,12 @@ mod tests {
         }
     }
 
-    // === Покрытие пробелов аудита (GGUF п.40) ===
+    // === Дополнительно покрытые инварианты ===
+
 
     #[test]
     fn create_line_parses_status_done_error() {
-        // parse_create_line не был покрыт вовсе (аудит GGUF п.40)
+        // parse_create_line не был покрыт вовсе
         assert!(matches!(
             parse_create_line(r#"{"status":"success"}"#).unwrap(),
             CreateEvent::Done
@@ -6553,7 +6588,7 @@ mod tests {
 
     #[test]
     fn busy_guard_exclusive_and_panic_safe() {
-        // BusyGuard не был покрыт (аудит GGUF п.40): эксклюзивность и сброс
+        // BusyGuard не был покрыт: эксклюзивность и сброс
         // при панике — единственная защита от вечного «another operation»
         let g = BusyGuard::acquire().expect("первый acquire обязан пройти");
         assert!(BusyGuard::acquire().is_none(), "второй acquire обязан быть отклонён");
@@ -6571,7 +6606,7 @@ mod tests {
 
     #[test]
     fn serve_slot_transitions_guarded_by_token() {
-        // Переходы слота ServerState не были покрыты (аудит GGUF п.40):
+        // Переходы слота ServerState не были покрыты:
         // старт → pid → publish; чужой token не имеет доступа
         *TEST_SERVER.lock().unwrap() = None;
         let token = SERVE_TOKEN.fetch_add(1, Ordering::Relaxed);
@@ -6594,7 +6629,8 @@ mod tests {
         // take_start не трогает Running
         assert!(take_start(token).is_none(), "Running-слот не забирается как Starting");
         assert!(matches!(*TEST_SERVER.lock().unwrap(), Some(ServerState::Running(_))));
-        // Poison-восстановление (аудит GGUF п.24): паника под локом больше не
+        // Poison-восстановление: паника под локом больше не
+
         // хоронит serve-команды — lock_server восстанавливается
         let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let _g = TEST_SERVER.lock().unwrap();
@@ -6609,8 +6645,9 @@ mod tests {
 
     #[test]
     fn kill_taken_clears_dead_sessions_without_kill() {
-        // kill_taken не был покрыт (аудит GGUF п.40): мёртвый порт → запись
-        // снимается БЕЗ kill (pid мог быть переиспользован — аудит GGUF п.6)
+        // снимается БЕЗ kill (pid мог быть переиспользован)
+
+ // снимается БЕЗ kill (pid мог быть переиспользован)
         *TEST_SERVER.lock().unwrap() = None;
         // Мёртвый порт: слушаем и отпускаем
         let dead = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
@@ -6636,7 +6673,8 @@ mod tests {
 
     #[test]
     fn find_llama_server_finds_in_subdirs() {
-        // find_llama_server был покрыт только косвенно (аудит GGUF п.40)
+        // find_llama_server был покрыт только косвенно
+
         let dir = test_tmp_root().join("fls-basic");
         let nested = dir.join("build").join("bin");
         fs::create_dir_all(&nested).unwrap();
@@ -6649,7 +6687,8 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn find_llama_server_does_not_follow_dir_symlinks() {
-        // Симлинк-цикл не должен вешать обход (аудит GGUF п.1)
+        // Симлинк-цикл не должен вешать обход
+
         use std::os::unix::fs::symlink;
         let dir = test_tmp_root().join("fls-symlink");
         let inner = dir.join("a");
@@ -6666,8 +6705,8 @@ mod tests {
 
     #[test]
     fn lab_files_in_hides_only_own_tmp_files() {
-        // lab_files_in не был покрыт (аудит GGUF п.40); фильтр contains(".tmp")
-        // прятал легитимные имена (аудит GGUF п.33)
+        // прятал легитимные имена
+        // прятал легитимные имена
         let dir = test_tmp_root().join("labfiles");
         fs::create_dir_all(&dir).unwrap();
         fs::write(dir.join("model.gguf"), b"x").unwrap();
@@ -6684,7 +6723,7 @@ mod tests {
 
     #[test]
     fn prune_llama_logs_keeps_newest() {
-        // prune_llama_logs не был покрыт (аудит GGUF п.40)
+        // prune_llama_logs не был покрыт
         let dir = test_tmp_root().join("logprune");
         fs::create_dir_all(&dir).unwrap();
         for i in 0..(LOGS_KEEP + 2) {
@@ -6708,7 +6747,7 @@ mod tests {
 
     #[test]
     fn pick_free_port_is_bindable() {
-        // pick_free_port не был покрыт (аудит GGUF п.40)
+        // pick_free_port не был покрыт
         let port = pick_free_port().unwrap();
         // Порт реально свободен: слушается повторно
         let l = std::net::TcpListener::bind(("127.0.0.1", port)).unwrap();
@@ -6718,7 +6757,7 @@ mod tests {
     #[test]
     fn surgery_multichunk_copy_progress_and_bytes() {
         // Тензор > COPY_CHUNK (8 МиБ): многоблочное копирование и прогресс
-        // не были покрыты — старый payload был 513 КиБ (аудит GGUF п.40)
+        // не были покрыты — старый payload был 513 КиБ
         let mut s = Synth::llama_dense(2);
         // F32: 2_400_000 * 4 = 9.6 МиБ > COPY_CHUNK
         s.tensors.push(st("blk.0.big.weight", &[2_400_000], 0));
@@ -6748,7 +6787,8 @@ mod tests {
     #[test]
     fn surgery_cancel_mid_copy_removes_tmp() {
         // Отмена ПОСРЕДИ копии не была покрыта: раньше флаг ставился только
-        // до старта (аудит GGUF п.40)
+        // до старта
+
         let s = Synth::llama_dense(3);
         let src_path = write_tmp("cancel.src.gguf", &s.build());
         let src = GgufFile::open(&src_path).unwrap();
@@ -6767,7 +6807,8 @@ mod tests {
 
     #[tokio::test]
     async fn pull_stream_consumes_mock_ndjson_server() {
-        // HTTP-путь pull без mock не был покрыт вовсе (аудит GGUF п.40):
+        // HTTP-путь pull без mock не был покрыт вовсе:
+
         // минимальный NDJSON-сервер на chunked-кодировке.
         // Системный прокси (реестр Windows/env) перехватывал 127.0.0.1 и
         // отвечал 503 — локальные адреса исключаем для этого прогона

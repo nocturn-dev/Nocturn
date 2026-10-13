@@ -62,7 +62,7 @@ export function LspSection() {
       // команду; семейства без записи остаются на дефолте (пустое поле).
       // Резолв по ЛЮБОМУ расширению записи — бекенд lsp.rs резолвит так же:
       // матч по головому ext молча терял запись с неканоничной головой
-      // (["\.tsx",".ts"], hand-правка) и любой тоггл её затирал (A5-10)
+      // (["\.tsx",".ts"], hand-правка) и любой тоггл её затирал 
       const byAnyExt = new Map<string, LspServerEntry>();
       for (const s of loaded.servers) {
         for (const e of s.extensions) byAnyExt.set(e.toLowerCase(), s);
@@ -103,7 +103,7 @@ export function LspSection() {
   // переопределён только rust-analyzer — TS не должен молча остаться без
   // сервера. Пустое поле = встроенный дефолт той же строки.
   // Hand-записи lsp.json вне встроенных семейств доезжают до сохранения
-  // как есть — buildServers раньше стирал их на любом applyToggle (A5-10)
+ // как есть — buildServers раньше стирал их на любом applyToggle 
   const buildServers = (cmds: Record<string, string>): LspServerEntry[] => {
     const familyExts = new Set(
       FAMILIES.flatMap((f) => f.exts.map((e) => e.toLowerCase())),

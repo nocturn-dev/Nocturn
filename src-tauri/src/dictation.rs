@@ -20,7 +20,7 @@ const MODEL_URL: &str =
 const MODEL_FILE: &str = "ggml-base-q5_1.bin";
 /// ~6,6 минуты звука 16 кГц int16 (12 МиБ / 2 байта / 16000 Гц) — потолок
 /// на один запрос диктовки. Цифра в recording_too_long_error считается от
-/// того же значения (аудит dictation 144: комментарий говорил 6,5,
+/// того же значения (комментарий говорил 6,5,
 /// сообщение округляло до 6)
 const MAX_AUDIO_BYTES: usize = 12 * 1024 * 1024;
 const CLI_TIMEOUT: Duration = Duration::from_secs(180);
@@ -93,7 +93,7 @@ fn model_file(app: &tauri::AppHandle, configured: Option<&str>) -> PathBuf {
 /// camelCase обязателен: Tauri отдаёт payload как есть (serde), а фронт
 /// типизирован под cliFound/modelExists — без rename_all поля приходили
 /// snake_case, UI вечно показывал «whisper-cli не найден», даже когда путь
-/// был корректно указан через диалог (фидбек 29.09)
+/// был корректно указан через диалог
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DictationStatus {
@@ -144,7 +144,8 @@ pub async fn dictation_set_config(
     app: tauri::AppHandle,
     cli_path: Option<String>,
 ) -> Result<(), String> {
-    // read/save_json_config — sync-диск, в blocking-пул (№4 аудита v5)
+    // read/save_json_config — sync-диск, в blocking-пул
+
     tauri::async_runtime::spawn_blocking(move || {
         let mut cur = crate::settings::read_json_config(&app, "dictation.json")
             .ok()
@@ -190,7 +191,7 @@ async fn do_download(app: &tauri::AppHandle) -> Result<(), String> {
         .app_data_dir()
         .map_err(|e| e.to_string())?
         .join("whisper");
-    // create_dir_all + exists — sync-диск на async-пути, в blocking-пул (№4 v5)
+    // create_dir_all + exists — sync-диск на async-пути, в blocking-пул
     let exists = tauri::async_runtime::spawn_blocking({
         let dir = dir.clone();
         move || -> Result<bool, String> {
@@ -288,7 +289,8 @@ pub async fn dictation_transcribe(
 /// 16 кГц), а не захардкожен: текст «max ~3 minutes» уже расходился с
 /// фактическим лимитом
 fn recording_too_long_error() -> String {
-    // От МиБ: (12*1024*1024)/(2*16000)/60 = 6.55 → 6.6 (формат .1), а не 6 (аудит 144)
+    // От МиБ: (12*1024*1024)/(2*16000)/60 = 6.55 → 6.6 (формат .1), а не 6
+
     let minutes = MAX_AUDIO_BYTES as f64 / 32000.0 / 60.0;
     format!("recording too long (max ~{minutes:.1} minutes)")
 }
@@ -424,7 +426,7 @@ mod tests {
     #[test]
     fn too_long_error_matches_constants() {
         // Сообщение считается из констант: захардкоженное «~3 minutes»
-        // расходилось с фактическим лимитом (аудит 2026-10-04)
+        // расходилось с фактическим лимитом
         let expect = {
             let m = MAX_AUDIO_BYTES as f64 / 32000.0 / 60.0;
             format!("recording too long (max ~{m:.1} minutes)")

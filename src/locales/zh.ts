@@ -1326,7 +1326,7 @@ export const zh = {
     "ollama.noModels":
       "运行时已启动，但未找到模型。Ollama 可执行：ollama pull llama3.2",
     "ollama.badge": "本地 · 无限制",
-    // GGUF Lab（波次 §28）：本地模型手术
+    // GGUF Lab：本地模型手术
     "ggufLab.entry": "GGUF Lab",
     "ggufLab.entryDesc":
       "GGUF 手术：从 Ollama 下载、剪裁层、就地测试。适合研究与实验。",
@@ -1703,4 +1703,4 @@ export const zh = {
     "steps.kindExplore": "浏览",
     "steps.kindAsked": "提问",
     "composer.dropFiles": "松开以添加附件",
-} satisfies Record<MsgKey, string>; // D20: полный Record — пропущенный ключ = ошибка компиляции, а не молчаливый фолбэк
+} satisfies Record<MsgKey, string>; // Полный Record — пропущенный ключ = ошибка компиляции, а не молчаливый фолбэк

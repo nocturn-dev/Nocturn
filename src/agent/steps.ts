@@ -2,7 +2,7 @@ import type { Message } from "../types";
 import { diffStats, diffLines, parseWriteResult } from "../diff";
 
 /**
- * Шаги прогона для аккордеона в merged-карточке хода (фидбек 26.09):
+ * Шаги прогона для аккордеона в merged-карточке хода:
  * плоские ряды Edit/Terminal/Explore/Asked с живыми деталями (+N −N,
  * команды, пути). Чистая фаза без React — собирается из сообщений хода.
  *
@@ -22,7 +22,7 @@ export interface StepRow {
   label: string;
   /** вторая часть: путь/URL (Edit: путь, Explore: путь/URL) */
   detail: string;
-  /** секунды шага (workedMs владельца-сообщения) */
+  /** секунды шага (workedMs её сообщения) */
   secondsMs?: number;
   failed?: "denied" | "error" | "exit";
   exitCode?: number;

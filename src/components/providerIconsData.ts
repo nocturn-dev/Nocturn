@@ -1,6 +1,6 @@
 /**
  * Локальный бандл брендовых SVG (данные simple-icons, CC0).
- * D2: раньше иконки грузились с cdn.simpleicons.org, но CSP
+ * Раньше иконки грузились с cdn.simpleicons.org, но CSP
  * img-src была строгой — в проде все картинки блокировались (фича мертва),
  * а в dev модельные имена утекали стороннему CDN. Теперь — inline SVG.
  * Бренды, изъятые из simple-icons (xai, cohere, ai21, liquidai, zhipu),
@@ -14,7 +14,7 @@ export interface ProviderIconShape {
 export interface ProviderIconData {
   path?: string;
   hex?: string;
-  /** Волна иконок: многозаливочные марки (плитка + глиф) — рендерятся
+  /** Многозаливочные марки (плитка + глиф) — рендерятся
    *  как есть, без theme-подмены (бренд-плитка сама задаёт контраст) */
   shapes?: ProviderIconShape[];
 }

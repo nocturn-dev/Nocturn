@@ -22,7 +22,7 @@ import type { Appearance } from "../appearance";
 import { getToolSchemas, contextLimitFor, dictationTranscribe, gitBranchDiff, type ModelInfo } from "../api";
 import type { Theme } from "../types";
 import SystemPromptModal from "./SystemPromptModal";
-// Ленивый (волна 2): 945 строк терминала — вне стартового чанка
+// Ленивый: 945 строк терминала — вне стартового чанка
 const TerminalPanel = lazy(() => import("./TerminalPanel"));
 import { uid } from "../hooks/useAgentRun";
 import WindowControls from "./WindowControls";
@@ -54,7 +54,8 @@ import { CHART_COLORS } from "../chartColors";
 /** ЕДИНАЯ точка правды видимости сообщений в ленте. Потребители: лента
  *  (ChatArea) и якорь ленты лирики в App (composerCentered) — они обязаны
  *  считать «пустую ленту» одинаково, иначе активная строка лирики
- *  рисовалась в нижней полосе под центрированным композером (аудит А4-4).
+ *  рисовалась в нижней полосе под центрированным композером.
+
  *  Пустые ассистентские карточки — placeholders активного стрима;
  *  сообщения пользователя скрывает тумблер в «Основном»; карточка с
  *  ошибкой видима всегда — иначе ответ «исчезает» молча */
@@ -88,9 +89,9 @@ function artifactTitleFromHtml(html: string): string | null {
 
 /** Единая анатомия чипов нижней панели композера: одна высота, паддинги
  *  и кегль у всех контролов — раньше каждый чип жил со своими px/py/кеглем,
- *  и ряд «плясал» по вертикали (фидбек владельца про непропорциональные
- *  иконки; референсы — Claude Desktop и референс). Обводка — hairline 1px:
- *  активный акцент/25, неактивный прозрачный (толстые рамки — фидбек 01.10) */
+ *  и ряд «плясал» по вертикали при непропорциональных
+ *  иконках; референсы — Claude Desktop). Обводка — hairline 1px:
+ *  активный акцент/25, неактивный прозрачный (толстые рамки громоздки) */
 const COMPOSER_CHIP =
   "flex h-7 shrink-0 items-center gap-1.5 rounded-lg border px-2 text-[0.6875rem] transition duration-150 disabled:cursor-not-allowed disabled:opacity-40";
 /* Строгий стиль: активный чип нейтральный (фон 6% белого, граница line),
@@ -105,7 +106,7 @@ const COMPOSER_CHIP_OFF =
  *  сравнение memo AssistantCard — исторические карточки без инструментов
  *  ре-рендерились (с ре-парсом markdown) на каждый флеш стрима.
  *  Убрано вместе с per-round рендером: результаты теперь всегда есть
- *  у владельца (resultsOf), пустой фолбэк больше не нужен */
+ *  у владельца хода (resultsOf), пустой фолбэк больше не нужен */
 
 interface ChatAreaProps {
   session: Session | null;
@@ -202,10 +203,10 @@ interface ChatAreaProps {
   userCommands?: UserCommand[];
   /** Скилы из плагинов — в палитре «&» после встроенных */
   extraSkills?: Skill[];
-  /** Терминальный режим (M4.5): панель снизу */
+  /** Терминальный режим: панель снизу */
   terminalOpen: boolean;
   onToggleTerminal: () => void;
-  /** Корень проекта — рабочая папка консоли терминала (M6) */
+  /** Корень проекта — рабочая папка консоли терминала */
   projectRoot: string | null;
   /** Оболочка консоли: auto | powershell | cmd | gitbash */
   termShell: string;
@@ -285,7 +286,7 @@ interface ChatAreaProps {
 }
 
 /** Компактный формат счётчика: 1234 → 1,2k */
-// D16: стартовые подсказки на всех четырёх языках — раньше zh/ja
+// стартовые подсказки на всех четырёх языках — раньше zh/ja
 // получали английские чипы (строки не в словарях)
 
 /** A15: пережимает вложение-картинку, чтобы data-URL уложился в лимит
@@ -456,7 +457,7 @@ export default function ChatArea({
     setDraft((d) => (d.trim() ? `${d.trimEnd()}\n\n${text}` : text));
     textareaRef.current?.focus();
   }, []);
-  // Ревью ветки (PLAN §23): поповер в шапке — база + кнопка; дифф уходит
+  // Ревью ветки: поповер в шапке — база + кнопка; дифф уходит
   // агенту обычной задачей в текущий чат
   const [reviewOpen, setReviewOpen] = useState(false);
   const [reviewBase, setReviewBase] = useState("main");
@@ -474,7 +475,7 @@ export default function ChatArea({
         diff = diff.slice(0, cap);
         marker = "\n... [diff truncated]";
       }
-      // Текст для модели — английский (решение владельца §19); UI — локали
+      // Текст для модели — английский (стабильнее для модели); UI — локали
       const prompt = [
         "Review the branch diff below as a strict senior code reviewer.",
         `Current branch: ${d.branch}. Base: ${d.base}.`,
@@ -507,7 +508,8 @@ export default function ChatArea({
   // onEditMessage из App нестабилен (замыкает handleSend/activeId) —
   // держим в ref, чтобы колбэк для UserCard не менялся никогда.
   // Обновление в эффекте: запись в ref в теле рендера вне модели
-  // React Compiler
+ // React Compiler
+
   const onEditMessageRef = useRef(onEditMessage);
   useEffect(() => {
     onEditMessageRef.current = onEditMessage;
@@ -522,7 +524,7 @@ export default function ChatArea({
   // Монитор субагентов: поповер у кнопки-робота в нижней панели
   const [subOpen, setSubOpen] = useState(false);
   // Память: старые ходы рендерим заглушкой, пока не попросили показать ещё.
-  // Пагинация (волна 3): кнопка досыпает по окну, а не «показать всё» —
+  // Пагинация: кнопка досыпает по окну, а не «показать всё» —
   // гигантская история снова не вываливается в DOM разом
   const [oldTurnsShown, setOldTurnsShown] = useState(0);
   const sessionKey = session?.id ?? null;
@@ -855,7 +857,8 @@ export default function ChatArea({
   // streamingMsgId, чтобы не перезапускаться на каждом сообщении
   const messagesRef = useRef(messages);
   // Обновление в эффекте: запись в ref в теле рендера вне модели React
-  // Compiler (конвенция дома; аудит A4-8)
+  // Compiler (конвенция дома; )
+
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
@@ -907,7 +910,7 @@ export default function ChatArea({
   }, [sessionWrites]);
   const changedLinesRef = useRef(sessionChangedLines);
 
-  // Реакции на печать (PLAN §25): путь/файл в черновике, простыня текста,
+  // Реакции на печать: путь/файл в черновике, простыня текста,
   // пауза печати > 30 с. Одно срабатывание на «эпизод» (до следующей
   // правки/очистки); шансы и кулдауны — внутри Нока
   const typingIdleRef = useRef<number | null>(null);
@@ -944,7 +947,7 @@ export default function ChatArea({
     };
   }, [draft, streamingMsgId, pushNokEvent]);
   // Обновление в эффекте: запись в ref в теле рендера вне модели React
-  // Compiler (аудит A4-8); эффект объявлен ДО потребителя (конец прогона)
+  // Compiler; эффект объявлен ДО потребителя (конец прогона)
   useEffect(() => {
     changedLinesRef.current = sessionChangedLines;
   }, [sessionChangedLines]);
@@ -955,7 +958,7 @@ export default function ChatArea({
   const prevStreamRef = useRef<string | null>(null);
   // Сессия на старте прогона: квип/ошибка считаются только если юзер не ушёл
   // в другую задачу к финалу (messagesRef — сообщения АКТИВНОЙ сессии;
-  // аудит A4-5: чужая сессия глотала тревогу об ошибке и врала счётчиком)
+  // чужая сессия глотала тревогу об ошибке и врала счётчиком)
   const runSessionRef = useRef<string | null>(null);
   useEffect(() => {
     const prev = prevStreamRef.current;
@@ -1094,7 +1097,6 @@ export default function ChatArea({
     if (askPingTimerRef.current) window.clearTimeout(askPingTimerRef.current);
     // CSS-пара: ask-ping = calc(1.4s * var(--motion-scale)) — таймер обязан
     // идти в том же темпе, иначе при 1.4 forwards-анимация обрывалась на 71%
-    // (аудит A6-4)
     askPingTimerRef.current = window.setTimeout(
       () => setAskPing(false),
       Math.round(1_400 * motionScale()),
@@ -1129,7 +1131,8 @@ export default function ChatArea({
       if (!d) return;
       // Потеря pointerup (кнопку отпустили за окном, alt-tab): pointermove
       // без прижатой кнопки больше не двигает Нока — «hover-драг» до первого
-      // клика. Зеркало страховки ресайза в App.tsx (аудит A4-3)
+      // клика. Зеркало страховки ресайза в App.tsx
+
       if (ev.buttons === 0) {
         cancelDrag();
         return;
@@ -1319,7 +1322,8 @@ export default function ChatArea({
       // Таймер стрим-прохода мог ещё висеть (120мс окно троттлинга): без
       // гашения он стрелял со СТАРЫМ замыканием после финального коммита —
       // вуаль возвращалась, контент панели откатывался к недопечатанному
-      // HTML, закрытая панель переоткрывалась (аудит A4-1)
+      // HTML, закрытая панель переоткрывалась
+
       window.clearTimeout(liveFenceRef.current.timer);
       liveFenceRef.current = { start: -1, msgId: "", dismissed: false, timer: 0 };
       return;
@@ -1364,12 +1368,12 @@ export default function ChatArea({
     [model, models],
   );
   // Если реальное использование ещё неизвестно — оцениваем сами (chars/4).
-  // Проход инкрементальный (волна 3): стоимость сообщения кэшируется по id
+  // Проход инкрементальный: стоимость сообщения кэшируется по id
   // с сигнатурой размеров — на флеш стрима пересчитываются только изменившиеся
   // сообщения (обычно одно стримящееся), остальные берутся из кэша; итог
   // суммируется заново (O(n) чтений кэша без арифметики). После первого
   // ответа (contextUsed > 0) проход не выполняется вовсе. Выполняется только
-  // пока оценка читается — раньше гонялся на каждый флеш всегда (аудит)
+  // пока оценка читается — раньше гонялся на каждый флеш всегда
   const ctxCostRef = useRef(
     new Map<string, { clen: number; tlen: number; atts: number; cost: number }>(),
   );
@@ -1467,7 +1471,7 @@ export default function ChatArea({
     return rows;
   }, [contextUsed, contextEstimate, toolsTokens]);
 
-  // Суммарный расход токенов по всей задаче (M5.3)
+  // Суммарный расход токенов по всей задаче
   const totals = useMemo(() => {
     let up = 0;
     let down = 0;
@@ -1684,7 +1688,7 @@ export default function ChatArea({
   // Автоскролл к последнему сообщению и индикатору печати.
   // «Принудительный» — всегда за последней строкой; «умный» — замирает,
   // если пользователь отлистал вверх, и возобновляется у нижнего края.
-  // D5: «был у низа» фиксируем в onScroll ДО коммита нового контента —
+  // «был у низа» фиксируем в onScroll ДО коммита нового контента —
   // прежний расчёт nearBottom в useEffect шёл ПОСЛЕ коммита, и крупный чанк
   // (>150px) скачком отдалял низ, обрывая слежение на длинных ответах
   const nearBottomRef = useRef(true);
@@ -1726,7 +1730,7 @@ export default function ChatArea({
 
   const submit = () => {
     let text = draft.trim();
-    // Скиллы — короткая форма &id: (фидбек владельца 04.10: полная
+    // Скиллы — короткая форма &id: (полная
     // инструкция в черновике сжимала композер и мешала). Инструкция
     // раскрывается ТОЛЬКО здесь, при отправке; в черновике видно
     // «&review: <код/путь>» — как цитату с вопросом
@@ -1743,7 +1747,7 @@ export default function ChatArea({
       }
     }
     if (!text && pendingImages.length === 0) return;
-    // Пасхалки Нока (PLAN.md §21): «Эй Нок, полетай» — команда перехватывается
+    // Пасхалки Нока: «Эй Нок, полетай» — команда перехватывается
     // ДО отправки, модели не видна (как slash-команды); черновик гасим
     if (mascot && mascotEaster) {
       const cmd = matchNokTrigger(text);
@@ -1797,7 +1801,8 @@ export default function ChatArea({
         e.preventDefault();
         // Короткая форма «&id: » — как Enter и клик по палитре ниже:
         // раскрытие требует двоеточие (regex при отправке), «&id␣» уходил
-        // модели литералом (№8 аудита v5)
+        // модели литералом
+
         setDraft(`&${skillMatches[skillIndex]?.id ?? ""}: `);
         return;
       }
@@ -1805,7 +1810,7 @@ export default function ChatArea({
         e.preventDefault();
         const skill = skillMatches[skillIndex];
         // Короткая форма &id: — инструкция раскроется при отправке
-        // (фидбек владельца: полная инструкция сжимала композер)
+        // (полная инструкция сжимала композер)
         if (skill) setDraft(`&${skill.id}: `);
         return;
       }
@@ -1935,7 +1940,7 @@ export default function ChatArea({
                 const assistants = derived.assistants;
 
                 if (groupTurns) {
-                  // —— Ход ОДНОЙ плоской лентой в стиле референса (фидбек 30.09):
+                  // —— Ход ОДНОЙ плоской лентой в стиле референса:
                   // шапка с таймером, строки «Размышления · N с» → текст →
                   // шаги хронологически, usage один раз в конце. Без карточек
                   // на каждый раунд — они и дублировали шапки/мысли ——
@@ -2082,7 +2087,7 @@ export default function ChatArea({
 
               });
               // Сводка изменённых файлов — ОДНА карточка, внизу ленты, после
-              // всего запроса (фидбек владельца: не сверху, не по одной на
+              // всего запроса (не сверху, не по одной на
               // ход; во время работы вместо неё живой «+N −M» в шапке хода)
               if (sessionWrites.length > 0 && !typing && !streamingMsgId) {
                 nodes.push(
@@ -2139,7 +2144,8 @@ export default function ChatArea({
     // (они в deps), функции-стабы стабильны по построению.
     // printSpeed/highlightLive/showReasoning ДОЛЖНЫ быть здесь: настройки
     // чтения применяются к карточкам лениво, только когда messages меняется
-    // (находка аудита — «тихо не работает»)
+    // (находка проверки — «тихо не работает»)
+
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [
       activity,
@@ -2206,7 +2212,7 @@ export default function ChatArea({
         >
           {session?.title ?? t("chat.new")}
         </h1>
-        {/* Суммарные токены задачи (M5.3); неинтерактивный индикатор —
+        {/* Суммарные токены задачи; неинтерактивный индикатор —
             тоже drag-регион, иначе в шапке остаётся мёртвая зона */}
         {totals.all > 0 && (
           <span
@@ -2380,7 +2386,7 @@ export default function ChatArea({
             {/* Ход = сообщение пользователя + всё, что агент сделал до следующего.
                 groupTurns: весь ход в ОДНОЙ карточке; иначе каждый шаг отдельно.
                 В конце хода — сводка изменённых файлов */}
-            {/* D3: key по сессии — одна битая карточка больше не кладёт границу
+            {/* key по сессии — одна битая карточка больше не кладёт границу
                 в error-state навсегда: смена задачи сбрасывает фолбэк */}
             <ErrorBoundary key={session?.id ?? "none"} title={t("err.boundary")} action={t("err.boundaryRetry")}>
             {feedNodes}
@@ -2450,13 +2456,13 @@ export default function ChatArea({
       >
         <div className={`mx-auto w-full ${composerCentered ? "max-w-2xl" : "max-w-3xl"}`}>
           {/* Пилюли окружения + селектор проекта — пилюли просятся быть
-              максимально близко к композеру (фидбек владельца) */}
+              максимально близко к композеру */}
           {composerCentered && (
             <div className="mb-2">
               <GreetingDashboard onOpenSettingsSection={onOpenSettingsSection} />
             </div>
           )}
-          {/* Селектор проекта — только в центрированном режиме (скрин 2:
+          {/* Селектор проекта — только в центрированном режиме (по макету:
               «HaloUI ▾» над композером). Выбор задаёт и контекст чатов,
               и корень работы, если у проекта есть папка */}
           {composerCentered && (

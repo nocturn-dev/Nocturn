@@ -13,7 +13,7 @@ export function DiffView({
   hasBefore: boolean;
   /** Язык hljs для построчной подсветки (из расширения файла); нет — plain */
   lang?: string | null;
-  /** Клик по строке диффа → цитата «file:line» в композер (Волна 6) */
+  /** Клик по строке диффа → цитата «file:line» в композер */
   onQuoteLine?: (lineNo: number, text: string) => void;
 }) {
   const { t } = useLang();

@@ -33,7 +33,7 @@ pub(crate) fn sanitize_note_file(file: &str) -> Result<String, String> {
 pub(crate) fn note_title_from_content(file: &str, content: &str) -> String {
     // Аудит notes 341: «# comment» внутри кода в середине документа
     // засчитывался заголовком. Заголовок ищем только в начале (до первого
-    // абзаца); таб после # тоже засчитываем (аудит notes 342)
+    // абзаца); таб после # тоже засчитываем
     for line in content.lines().take(25) {
         let t = line.trim();
         let h = t
@@ -68,7 +68,8 @@ pub async fn notes_list(app: tauri::AppHandle) -> Result<Vec<NoteInfo>, String> 
                 .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
                 .map(|d| d.as_secs())
                 .unwrap_or(0);
-            // Для заголовка достаточно первых 4 КБ (аудит notes 340: 1 МБ на
+            // Для заголовка достаточно первых 4 КБ (1 МБ на
+
             // заметку на каждое открытие списка — сотни МБ чтения на vault)
             let title = crate::fsutil::read_capped_string(&entry.path(), 4 * 1024)
                 .map(|c| note_title_from_content(&name, &c))

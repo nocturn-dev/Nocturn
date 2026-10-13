@@ -23,15 +23,15 @@ export function McpSection() {
   const [importOpen, setImportOpen] = useState(false);
   const [importText, setImportText] = useState("");
   const [importMsg, setImportMsg] = useState<{ ok: boolean; text: string } | null>(null);
-  // Волна F4: deferred-схемы (дефолт ON) — сверх порога MCP-схемы сворачиваются
+  // deferred-схемы (дефолт ON) — сверх порога MCP-схемы сворачиваются
   // в индекс, полные разворачивает mcp_tool_discover
   const [deferred, setDeferred] = useState(
     localStorage.getItem(STORAGE_KEYS.mcpDeferred) !== "0",
   );
-  // Волна F3: переменные окружения в конфиге (${VAR}) — предупреждение
+  // переменные окружения в конфиге (${VAR}) — предупреждение
   const [envNote, setEnvNote] = useState<string | null>(null);
-  // Волна F5: oauth-серверы — форма (тумблер в add-форме), кнопки Authorize/
-  // Revoke, предупреждение при включении (оговорка владельца)
+  // OAuth-серверы — форма (тумблер в add-форме), кнопки Authorize/
+  // Revoke, предупреждение при включении
   const [oauth, setOauth] = useState(false);
   const [oauthMsg, setOauthMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
@@ -71,7 +71,8 @@ export function McpSection() {
           env: {},
           // enabled/auth/client_id/oauth_scope — из вставленного конфига, не
           // принудительно: вставка своего mcp.json превращала oauth-сервер
-          // в plain и включала выключенные серверы (аудит 2026-10-04)
+          // в plain и включала выключенные серверы
+
           enabled: typeof cfg.enabled === "boolean" ? cfg.enabled : true,
           transport: ctype === "sse" ? "sse" : "http",
           url: rurl,
@@ -155,7 +156,8 @@ export function McpSection() {
   /** Сохранить конфиг и синхронизировать набор схем инструментов.
    *  Возвращает успех записи: провал откатывает UI к прежнему списку —
    *  иначе он врал об применённом конфиге, а импорт рапортовал «ок»
-   *  (revert-паттерн 6af9361; №7 аудита v5) */
+   *  (revert-паттерн 6af9361) */
+
   const persist = async (next: McpServerCfg[]): Promise<boolean> => {
     const prev = serversRef.current;
     serversRef.current = next;
@@ -170,7 +172,7 @@ export function McpSection() {
       setError(String(e));
       return false;
     }
-    // Волна F3: ${VAR} в конфиге — предупредить о переменных окружения
+    // ${VAR} в конфиге — предупредить о переменных окружения
     // (только после успешной записи: конфиг ещё мог не сохраниться)
     const vars = new Set<string>();
     for (const s of next) {
@@ -240,7 +242,7 @@ export function McpSection() {
   const toggleEnabled = async (idx: number) => {
     const srv = servers[idx];
     if (!srv) return;
-    // Волна F5 (оговорка владельца): включение oauth-сервера — с
+    // Включение oauth-сервера — с
     // предупреждением: запросы пойдут только после Authorize
     if (!srv.enabled && srv.auth === "oauth") {
       if (!window.confirm(t("mcp.oauthWarn", { name: srv.name }))) return;
@@ -288,7 +290,7 @@ export function McpSection() {
     refreshStatuses();
   };
 
-  // Волна F5: кнопка Authorize — единственный триггер discovery/браузера
+  // кнопка Authorize — единственный триггер discovery/браузера
   const authorize = async (name: string) => {
     setBusy(name);
     setOauthMsg(null);
@@ -325,7 +327,7 @@ export function McpSection() {
         {t("mcp.desc")}
       </p>
 
-      {/* Волна F4: тумблер deferred-схем */}
+      {/* Тумблер deferred-схем */}
       <div className="mb-3 flex items-center justify-between gap-2 rounded-lg border border-halo-line bg-halo-surface/40 px-3 py-2">
         <div className="min-w-0">
           <div className="text-xs font-medium text-halo-text">{t("mcp.deferred")}</div>
@@ -359,7 +361,7 @@ export function McpSection() {
         {servers.map((s, i) => {
           const st = statusOf(s.name);
           const connected = st?.connected ?? false;
-          // Волна F1: состояние из машины статусов (failed/needs_auth несут
+          // состояние из машины статусов (failed/needs_auth несут
           // причину; idle — включён, ещё не пытались в этом процессе)
           const state: McpServerState = st?.state ?? (s.enabled ? "idle" : "disabled");
           const reason = st?.reason;
@@ -425,8 +427,8 @@ export function McpSection() {
                     {busy === s.name ? "…" : t("mcp.connect")}
                   </button>
                 )}
-                {/* Волна F5: oauth-серверы — Authorize/Revoke. Кнопки юзера —
-                    единственный триггер сети (оговорка владельца) */}
+                {/* OAuth-серверы: Authorize/Revoke. Кнопки юзера —
+                    единственный триггер сети */}
                 {s.auth === "oauth" && !connected && (
                   <button
                     onClick={() => void authorize(s.name)}
@@ -453,7 +455,7 @@ export function McpSection() {
                   <MiniTrashIcon />
                 </button>
               </div>
-              {/* Волна F1: причина падения/needs_auth — stderr-хвост или
+              {/* Причина падения/needs_auth — stderr-хвост или
                   ошибка spawn/init; raw-текст (технический) в tooltip и тут */}
               {!connected && reason && (state === "failed" || state === "needs_auth") && (
                 <div className="mt-1.5 break-all pl-4 text-[0.6875rem] leading-relaxed text-red-400/80">
@@ -551,7 +553,7 @@ export function McpSection() {
               rows={2}
               className="w-full resize-y rounded-lg border border-halo-line bg-halo-surface px-3 py-2 font-mono text-xs text-halo-text outline-none transition-colors placeholder:text-halo-muted/60 focus:border-halo-accent/60"
             />
-            {/* Волна F5: oauth-тумблер — только по явному желанию юзера */}
+            {/* OAuth-тумблер — только по явному желанию юзера */}
             <label className="flex cursor-pointer items-center gap-2 text-xs text-halo-text">
               <input
                 type="checkbox"

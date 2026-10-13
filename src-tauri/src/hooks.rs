@@ -121,7 +121,7 @@ pub fn load(dir: &std::path::Path) -> HookFile {
             }
         }
     }
-    // Битый JSON не должен молча отключать ВСЕ хуки: владелец остаётся без
+    // Битый JSON не должен молча отключать ВСЕ хуки: пользователь остаётся без
     // гардалов/обогащения и не видит причины — громкая строка в stderr
     let parsed = match std::fs::read_to_string(&path) {
         Ok(d) => match serde_json::from_str::<HookFile>(&d) {

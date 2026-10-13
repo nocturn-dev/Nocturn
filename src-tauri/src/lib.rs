@@ -194,7 +194,6 @@ pub fn run() {
                 // ctrl+shift+space, не ctrl+alt+space: Ctrl+Alt = AltGr на
                 // уровне Win32-хоткеев, и на AZERTY дефолт перехватывал
                 // AltGr+Space — типографский пробел во ВСЕХ приложениях
-                // (аудит A3-6)
                 match app.global_shortcut().register("ctrl+shift+space") {
                     Ok(()) => QUICKENTRY_REGISTERED.store(true, Ordering::Relaxed),
                     Err(e) => {
@@ -414,7 +413,7 @@ pub fn run() {
                     // Во время «затмения» topmost держится ТОЛЬКО при фокусе:
                     // постоянный always-on-top накрывал собой приложения,
                     // выбранные через ALT+TAB/панель задач.
-                    // ФИКС (фидбек 29.09, «Alt+Tab и Win+D не работают, пока
+                    // «Alt+Tab и Win+D не работают, пока
                     // Nocturn на фоне»): tao-шный set_always_on_top на Windows
                     // ставит z-порядок БЕЗ SWP_NOACTIVATE — HWND_NOTOPMOST/
                     // HWND_TOPMOST АКТИВИРУЮТ окно → каждое переключение фокуса
@@ -487,7 +486,7 @@ pub fn run() {
                 tts::kill_on_exit();
                 lsp::kill_all();
                 // GGUF-сессия — static вне реестров: без этого llama-server
-                // переживал приложение с моделью в памяти (аудит 07.10 A1-11)
+                // переживал приложение с моделью в памяти
                 gguf::kill_session_on_exit();
                 cleanup_browser_profiles();
             }
@@ -564,7 +563,8 @@ async fn open_file_external(
     };
     crate::settings::rejects_sensitive_path(&target.to_string_lossy())?;
     let mode = mode.as_deref().unwrap_or("open").to_string();
-    // Канонический корень для проверки принадлежности (аудит lib 226);
+    // Канонический корень для проверки принадлежности;
+
     // отсутствие корня не запрещает открытие абсолютных путей — их отсекает
     // rejects_sensitive_path, а принадлежность проверить нечему
     let root_canon: Option<std::path::PathBuf> = match (
@@ -587,7 +587,7 @@ async fn open_file_external(
     let app2 = app.clone();
     // is_file + запуск процесса/открытие — блокирующие вызовы (до 20 с на
     // тупящем `code`-шиме): в blocking-пул, а не на воркер tokio
-    // (класс b451fd4, аудит A1-6)
+    // (класс b451fd4)
     tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
         // VS Code открывает и несуществующий путь (новый файл) — проверка
         // существования только для open/explorer
@@ -1177,7 +1177,7 @@ async fn factory_reset(app: tauri::AppHandle, confirm: Option<String>) -> Result
     let app2 = app.clone();
     // remove_dir_all гигабайтных данных (images не ограничен по размеру) на
     // сетевом профиле — минуты блокировки: в blocking-пул, не на воркер
-    // tokio (класс b451fd4, аудит A1-6)
+    // tokio (класс b451fd4)
     tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
         let mut roots = Vec::new();
         if let Ok(d) = app2.path().app_config_dir() {

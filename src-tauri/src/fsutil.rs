@@ -149,7 +149,8 @@ fn final_path_of(f: &fs::File) -> Result<PathBuf, String> {
     // Insufficient buffer: Win32 вернул ТРЕБУЕМЫЙ размер (с нулём) и не писал
     // буфер — срез min() давал строку из нулей, и fs_write fail-closed
     // отказывал легитимную запись на сверхдлинном финальном пути с
-    // бессмысленной диагностикой (аудит A1-8). Повтор с буфером точного размера
+    // бессмысленной диагностикой. Повтор с буфером точного размера
+
     if n > buf.len() {
         let mut big = vec![0u16; n];
         let n2 = query(&mut big) as usize;
@@ -460,7 +461,7 @@ pub struct StorageStats {
     pub sounds: u64,
     pub fonts: u64,
     /// GGUF Lab: экспорты, результаты резки, бинарник llama-server, логи —
-    /// гигабайты; PLAN §28.3 обещает видимость storage-менеджеру (аудит 07.10 A1-12)
+    /// гигабайты; PLAN §28.3 обещает видимость storage-менеджеру
     pub gguf: u64,
 }
 

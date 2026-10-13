@@ -65,7 +65,7 @@ fn kb_dir(app: &tauri::AppHandle, id: &str) -> Result<PathBuf, String> {
 
 fn open_db(dir: &std::path::Path) -> Result<Connection, String> {
     let conn = Connection::open(dir.join("index.db")).map_err(|e| e.to_string())?;
-    // Волна KB-H1: busy_timeout — чтение (kb_query перед каждой отправкой)
+    // busy_timeout — чтение (kb_query перед каждой отправкой)
     // больше не падает мгновенным SQLITE_BUSY, пока идёт запись документа
     // (BEGIN IMMEDIATE держит блокировку секунды на мегабайтах)
     conn.busy_timeout(std::time::Duration::from_secs(5))
@@ -527,7 +527,7 @@ mod tests {
 
     #[test]
     fn open_db_sets_busy_timeout_and_wal() {
-        // Волна KB-H1: чтение не падает мгновенным BUSY при записи; WAL —
+        // чтение не падает мгновенным BUSY при записи; WAL —
         // читатели не блокируют писателя
         let dir = std::env::temp_dir().join(format!("haloui-kb-open-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);

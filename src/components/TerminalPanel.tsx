@@ -15,9 +15,9 @@ import { useLang } from "../locales";
 
 /**
  * Терминальная панель с двумя режимами:
- * - «Агент» (M4.5): append-only текстовая проекция агентной сессии,
+ * - «Агент»: append-only текстовая проекция агентной сессии,
  *   подтверждения клавишами [y/a/n] прямо в терминале.
- * - «Консоль» (M6): настоящий интерактивный PTY (PowerShell) с нашим
+ * - «Консоль»: настоящий интерактивный PTY (PowerShell) с нашим
  *   VT-эмулятором (src/vt.ts) — команды печатает сам пользователь.
  *
  * Рендер собственный (без xterm.js): раскладку гарантирует CSS.
@@ -28,7 +28,7 @@ interface TerminalPanelProps {
   /** id ассистентского сообщения, которое сейчас стримится */
   streamingMsgId: string | null;
   pendingConfirm: { requestId: string; call: ToolCallInfo } | null;
-  /** Корень проекта — рабочая папка консоли (M4.2) */
+  /** Корень проекта — рабочая папка консоли */
   projectRoot: string | null;
   /** Оболочка консоли: auto | powershell | cmd | gitbash */
   termShell: string;
@@ -70,7 +70,7 @@ function measureCharWidth(style: CSSStyleDeclaration): number | null {
 
 /** ANSI SGR-коды. Акцент — живой токен темы (cssVarColor при каждом
  *  использовании): зашитый #D97757 не перекрашивался при смене акцента
- *  (аудит 2026-10-04). Остальные — семантика статусов, вне тем сознательно */
+ *. Остальные — семантика статусов, вне тем сознательно */
 const C = {
   reset: "\x1b[0m",
   dim: "\x1b[2m",
@@ -511,7 +511,7 @@ export default function TerminalPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [awaiting, t]);
 
-  // ---------- Режим «Консоль»: PTY + VT-эмулятор (M6) ----------
+  // ---------- Режим «Консоль»: PTY + VT-эмулятор ----------
   // Ленивая инициализация: useRef(new Vt(...)) строил экран 33×120 (~4k ячеек)
   // на КАЖДЫЙ рендер, хотя сохранялся только первый результат
   const vtRef = useRef<Vt | null>(null);
@@ -526,7 +526,8 @@ export default function TerminalPanel({
   const [consoleRows, setConsoleRows] = useState(() => vtInstance.render());
 
   // Смена палитры перекрашивает ЖИВУЮ консоль: Vt читает цвета при render(),
-  // пересоздание Vt стёрло бы экран — применяем поверх (аудит 2026-10-04)
+  // пересоздание Vt стёрло бы экран — применяем поверх
+
   useEffect(() => {
     vtInstance.applyPalette(termPalette);
     setConsoleRows(vtInstance.render());
@@ -624,7 +625,7 @@ export default function TerminalPanel({
     if (mode === "console") consoleRef.current?.focus();
   }, [mode]);
 
-  // D7: PTY жил с фикс 120×33 и не следил за ресайзом панели/окна — вывод
+  // PTY жил с фикс 120×33 и не следил за ресайзом панели/окна — вывод
   // свёрстывывался под старое число колонок, длинные строки уезжали вбок.
   // ResizeObserver меряет контейнер и пересылает cols/rows шеллу (SIGWINCH)
   const ptySizeRef = useRef({ cols: PTY_COLS, rows: PTY_ROWS });
@@ -752,7 +753,7 @@ export default function TerminalPanel({
   };
 
   // Автоскролл: только когда пользователь у нижнего края (режим «Агент»).
-  // D5: «был у низа» фиксируем в onScroll до коммита новых строк —
+  // «был у низа» фиксируем в onScroll до коммита новых строк —
   // пост-фактум расчёт обрывал слежение на крупном выводе
   const nearBottomRef = useRef(true);
   useEffect(() => {

@@ -1,10 +1,10 @@
 //! Telegram-бот уведомлений (фаза 1): исходящие уведомления о жизни задачи
-//! в личный чат владельца через СВОЕГО бота (токен от @BotFather).
+//! в личный чат пользователя через СВОЕГО бота (токен от @BotFather).
 //!
 //! Приватность (главный принцип модуля):
 //! - мёртв до явного включения тумблером (ни одного запроса к api.telegram.org
 //!   до `enabled: true` — зеркалит opt-in проверку обновлений);
-//! - наружу уходит ТОЛЬКО то, что владелец включил тумблерами событий, и
+//! - наружу уходит ТОЛЬКО то, что пользователь включил тумблерами событий, и
 //!   ТОЛЬКО в привязанный chat_id (первый /start боту — см. polling);
 //! - сообщения от других чатов игнорируются молча, ничего не отвечают;
 //! - токен на диске — enc:v1:… (шифруется как Brave-ключ), в экспорте —
@@ -86,14 +86,14 @@ pub fn set_config(cfg: TelegramConfig) {
 /// Живой long-polling таск: abort при каждом set_config/unbind (ремап по
 /// образцу portal-сессии — старый цикл не должен переживать новый).
 /// Хранится ПОЛНЫЙ JoinHandle: результат spawn терять нельзя — без него
-/// stop_polling вечно no-op и тумблер «выкл» не гасит цикл (найдено по
-/// логам владельца: getUpdates уходили при выключенном Telegram)
+/// stop_polling вечно no-op и тумблер «выкл» не гасит цикл (раньше getUpdates
+/// уходили при выключенном Telegram)
 static POLL_TASK: Mutex<Option<tauri::async_runtime::JoinHandle<()>>> = Mutex::new(None);
 /// Живость поллера для telegram_status: tauri-JoinHandle не отдаёт
 /// is_finished, поэтому флаг ведём сами (spawn/выход/abort)
 static POLLING: AtomicBool = AtomicBool::new(false);
 /// Персистентный offset getUpdates: старт с 0 ределиверил необработанную
-/// пачку после abort/крэша (аудит: повторное исполнение команд владельца
+/// пачку после abort/крэша (повторное исполнение команд владельца
 /// и повторный confirm-callback на фронте). В процессе живёт статика,
 /// между рестартами — поле "offset" в telegram.json (пишется после каждой
 /// обработанной пачки; set_config его теряет — допустимо: replay только
@@ -129,7 +129,7 @@ pub fn apply_runtime(app: tauri::AppHandle) {
 
 /// Токен из статики в рабочем виде: на диске и в статике он может лежать
 /// enc:v1:… (старт при запертом vault). None = расшифровать нечем —
-/// вызывающий честно гасит/пропускает работу (аудит: поллер уходил с
+/// вызывающий честно гасит/пропускает работу (поллер уходил с
 /// зашифрованным токеном в URL и молча ловил 401 после каждого рестарта)
 fn plain_token(token: &str) -> Option<String> {
     if crate::crypto::is_encrypted(token) {
@@ -141,7 +141,7 @@ fn plain_token(token: &str) -> Option<String> {
 
 /// Категория сетевой ошибки БЕЗ URL: reqwest прикладывает полный URL к
 /// Display/Debug ошибок, а URL getUpdates/sendMessage содержит токен бота
-/// (аудит: секрет в консоли при любом сетевом сбое)
+/// (секрет в консоли при любом сетевом сбое)
 fn net_err(e: &reqwest::Error) -> String {
     if let Some(s) = e.status() {
         format!("http {}", s.as_u16())
@@ -205,7 +205,8 @@ async fn send_message(
     buttons: &[TgButton],
 ) -> Result<(), String> {
     let client = crate::network::shared_client(Duration::from_secs(15))?;
-    // Total-таймаут обязателен (аудит: connect_timeout не спасает от
+    // Total-таймаут обязателен (connect_timeout не спасает от
+
     // stalled-соединения); Telegram сам отвечает быстро на sendMessage
     // Лимит Telegram на текст — 4096 символов: превышение даёт HTTP 400 и
     // уведомление терялось молча (кандидат на «работает 50/50»); хвост
@@ -316,7 +317,7 @@ async fn polling_loop(app: tauri::AppHandle) {
         }
         // Токен расшифровывается на КАЖДУЮ итерацию: после авто-лока vault
         // ключ стирается и цикл честно гасится вместо хождения с enc:v1:…
-        // в URL запроса (аудит: 401-флуд молча после каждого рестарта)
+        // в URL запроса (401-флуд молча после каждого рестарта)
         let Some(token) = plain_token(&cfg.bot_token) else {
             eprintln!("telegram polling: bot token is encrypted and the vault is locked — polling stopped until unlock");
             POLLING.store(false, Ordering::Relaxed);
@@ -345,7 +346,7 @@ async fn polling_loop(app: tauri::AppHandle) {
                 // 401/409/400 приходят как HTTP != 2xx ИЛИ {"ok":false} при
                 // 2xx: без этой проверки ветка трактовала ошибку API как
                 // «пустую пачку», сбрасывала бэкофф и флудила запросами
-                // без единой строки в консоли (аудит)
+                // без единой строки в консоли
                 let ok = v.get("ok").and_then(|x| x.as_bool()).unwrap_or(false);
                 if !status.is_success() || !ok {
                     let desc = v
@@ -595,7 +596,8 @@ pub async fn telegram_set_config(
     // enc-форма токена — НАШ шифротекст, вернувшийся из get_config при
     // запертом vault (круговое сохранение настроек из UI). valid_token его
     // не разбирает (id «enc» — 3 символа), и ЛЮБАЯ правка настроек падала
-    // с «invalid bot token» до разблокировки хранилища (аудит A2-2):
+    // с «invalid bot token» до разблокировки хранилища:
+
     // форматную проверку и getMe пропускаем — диск уже несёт этот токен,
     // расшифровку и живую проверку сделает unlock → apply_runtime
     let token_is_enc = crate::crypto::is_encrypted(&config.bot_token);
@@ -700,7 +702,7 @@ pub async fn telegram_unbind(app: tauri::AppHandle) -> Result<(), String> {
 pub fn telegram_notify(kind: String, text: String, buttons: Option<Vec<TgButton>>) {
     let cfg = config();
     if !should_notify(&cfg, &kind) {
-        // Диагностика «нуля уведомлений» (фидбек владельца): каждая причина
+        // Диагностика «нуля уведомлений»: каждая причина
         // дропа видна в консоли. Токен НЕ печатаем — только его состояние
         eprintln!(
             "telegram notify dropped: kind={} enabled={} bound={} token={}",
@@ -721,7 +723,7 @@ pub fn telegram_notify(kind: String, text: String, buttons: Option<Vec<TgButton>
     // Токен в статике может быть зашифрованным (старт с диска при
     // заблокированном хранилище) — тогда расшифровать нечем и слать
     // нечем. Раньше ветка молчала — единственная немая причина дропа,
-    // правдоподобный вклад в жалобу «работает 50/50» (аудит A2-1): теперь
+    // правдоподобный вклад в жалобу «работает 50/50»: теперь
     // причина видна в консоли, как и у should_notify выше
     let token_plain = if crate::crypto::is_encrypted(&cfg.bot_token) {
         match crate::crypto::decrypt(&cfg.bot_token) {
@@ -829,7 +831,7 @@ mod tests {
         assert_eq!(plain_token("enc:v1:AAAA"), None);
     }
 
-    /// Контракт обхода A2-2: enc-форма — не формат бота, valid_token её
+ /// Контракт обхода enc-форма — не формат бота, valid_token её
     /// отвергает; set_config пропускает проверку для enc ЯВНО (is_encrypted
     /// перед вызовом). Тест закрепляет, что «enc случайно пройдёт валидатор»
     /// невозможно — обход обязан оставаться явным

@@ -1312,7 +1312,7 @@ export const ru = {
     "ollama.noModels":
       "Рантайм запущен, но моделей не найдено. Для Ollama: ollama pull llama3.2",
     "ollama.badge": "local · без лимитов",
-    // GGUF Lab (волна §28): хирургия локальных моделей
+    // GGUF Lab: хирургия локальных моделей
     "ggufLab.entry": "GGUF Lab",
     "ggufLab.entryDesc":
       "Хирургия GGUF: скачать через Ollama, вырезать слои, протестировать. Для R&D и экспериментов.",

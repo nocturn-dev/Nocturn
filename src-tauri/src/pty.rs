@@ -1,4 +1,4 @@
-//! M6.1: интерактивный PTY-терминал (portable-pty).
+//! Интерактивный PTY-терминал (portable-pty).
 //! Сессия ConPTY: PowerShell под управлением пользователя.
 //! Вывод читается фоновым потоком и уходит наружу через callback
 //! (в команде — Tauri-событие), с посимвольной сборкой UTF-8 на границах чанков.
@@ -203,7 +203,7 @@ pub fn spawn_pty(
                     pending.extend_from_slice(&buf[..n]);
                     if pending.len() > PTY_OUTPUT_LIMIT {
                         // Аномалия: не собирается валидный UTF-8 — сбрасываем
-                        // с видимой пометкой (аудит pty 413: пропуск молча)
+                        // с видимой пометкой (пропуск молча)
                         on_output("...[terminal stream reset]".to_string());
                         pending.clear();
                         continue;
@@ -373,7 +373,7 @@ pub async fn pty_create(
         // FIX: отдельный child-лок — kill больше не соревнуется с io.
         // Дерево, а не голый kill: TOCTOU-гашение — единственный путь вне
         // pty_kill/kill_all, инвариант «дочерние гасим деревом» держат все
-        // пути (аудит A2-6)
+        // пути
         if let Ok(mut c) = session.child.lock() {
             match c.process_id() {
                 Some(pid) => crate::proc::kill_tree(pid),
@@ -459,7 +459,7 @@ pub async fn pty_kill(state: tauri::State<'_, PtyRegistry>, id: String) -> Resul
             // FIX: отдельный child-лок — kill срабатывает, даже если
             // pty_write застрял в write_all на io-локе. wait() reap'ит:
             // на Unix без него шелл оставался зомби до выхода приложения.
-            // Дерево потомков — как в kill_all выше (аудит: внуки терминала
+            // Дерево потомков — как в kill_all выше (внуки терминала
             // выживали после голого kill на Unix)
             if let Ok(mut c) = s.child.lock() {
                 match c.process_id() {

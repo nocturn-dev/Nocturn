@@ -4,8 +4,7 @@ import { describe, expect, it } from "vitest";
 import { STORAGE_KEYS } from "./storageKeys";
 
 /**
- * Гард-механическое зеркало реестра storageKeys (аудит A5-5, паттерн
- * toolFilter.test): ключ из STORAGE_KEYS не имеет права встречаться сырым
+ * Гард-механическое зеркало реестра storageKeys: ключ из STORAGE_KEYS не имеет права встречаться сырым
  * литералом вне самого модуля — иначе вторая точка правды возрождается
  * молча. Одномодульные ключи (literally на месте) тест не трогает.
  */

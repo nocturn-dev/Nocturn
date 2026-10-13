@@ -40,7 +40,8 @@ describe("parseNotePrompt", () => {
   });
 });
 
-// №53 аудита v5: остальные 4 экспорта vault.ts — граф заметок едет в UI
+// Остальные 4 экспорта vault.ts — граф заметок едет в UI
+
 // (бэклинки/висячие ссылки/цепочки), регрес был бы молчаливым
 
 const note = (file: string, title: string, content: string, updated = 1): Note => ({

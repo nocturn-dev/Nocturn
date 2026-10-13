@@ -17,7 +17,7 @@ impl AbortRegistry {
     /// который видит изолированный прогон.
     /// Отравленный лок (паника под ним) разбирается через into_inner, как в
     /// chat_abort: unwrap_or_default отдавал ПУСТУЮ карту, и Stop для стрима
-    /// молча переставал работать до перезапуска (аудит chat 67)
+    /// молча переставал работать до перезапуска
     fn snapshot(&self) -> AbortRegistry {
         AbortRegistry(Mutex::new(
             self.0.lock().unwrap_or_else(|p| p.into_inner()).clone(),
@@ -100,7 +100,7 @@ pub async fn test_connection(
     // Метка провайдера с фронта ("anthropic", …): тот же контракт, что у
     // chat_stream. Раньше адаптер выбирался только эвристикой по URL, и прокси
     // вида https://gw.corp/api.anthropic.com/v1 получал x-api-key вместо
-    // Bearer — 401 на валидном ключе (аудит chat 84)
+    // Bearer — 401 на валидном ключе
     provider: Option<String>,
 ) -> Result<Vec<ModelInfo>, String> {
     let base_url = normalize_base_url(&base_url);
@@ -299,7 +299,8 @@ pub async fn chat_once(
     let json: serde_json::Value =
         serde_json::from_str(&body).map_err(|e| format!("unexpected response format: {e}"))?;
     // Причина остановки раньше не читалась вовсе: «Рефлексия» в «Обзоре»
-    // молча получала обрезанный по лимиту текст без сигнала (аудит chat 71)
+    // молча получала обрезанный по лимиту текст без сигнала
+
     let truncated = if anthropic {
         json.get("stop_reason").and_then(|v| v.as_str()) == Some("max_tokens")
     } else if responses_wire {
@@ -390,7 +391,7 @@ const ERROR_BODY_LIMIT: usize = 1024 * 1024;
 
 /// Чтение тела ответа с потолком (замена `resp.text()` без границ): ответ
 /// неожиданного размера — сбойный шлюз или подмена прокси — не должен
-/// буферизоваться в память целиком (аудит chat 69/78)
+/// буферизоваться в память целиком
 async fn read_body_capped(resp: reqwest::Response, limit: usize) -> Result<String, String> {
     let mut stream = resp.bytes_stream();
     let mut buf: Vec<u8> = Vec::new();
@@ -410,7 +411,7 @@ async fn read_body_capped(resp: reqwest::Response, limit: usize) -> Result<Strin
 /// Схема Base URL: ключ уезжает в заголовке (Authorization/x-api-key),
 /// поэтому открытый http допустим только для локальных адресов. Раньше
 /// проверки не было вовсе — `http://` на удалённый хост отправлял ключ
-/// открытым текстом, и ошибку никто не видел (аудит chat 68/85)
+/// открытым текстом, и ошибку никто не видел
 fn ensure_key_transport_is_safe(base_url: &str) -> Result<(), String> {
     let Ok(parsed) = url::Url::parse(base_url) else {
         // Не парсится — запрос всё равно не уйдёт, проверять нечего
@@ -467,7 +468,7 @@ fn is_local_ipv4(ip: std::net::Ipv4Addr) -> bool {
 /// supplied: stream_options», pydantic: «Extra inputs are not permitted» вместе
 /// с именем поля, llama.cpp: «unknown field»); встречается и запись через
 /// пробел. Решение вынесено в именованную функцию с тестами — инлайн-подстрока
-/// без покрытия тихо ломалась при правке текстов (аудит chat 70)
+/// без покрытия тихо ломалась при правке текстов
 fn is_stream_options_rejection(body: &str) -> bool {
     let lower = body.to_ascii_lowercase();
     lower.contains("stream_options") || lower.contains("stream options")
@@ -525,7 +526,7 @@ pub async fn chat_stream(
         // Отравленный лок (паника под ним) разбирается через into_inner, как
         // в chat_abort: паника соседнего стрима не должна отключать запуск
         // нового — раньше map_err отдавал ошибку, а snapshot в том же
-        // состоянии молча терял Stop (аудит chat 67/79)
+        // состоянии молча терял Stop
         let mut map = registry.0.lock().unwrap_or_else(|p| p.into_inner());
         let f = Arc::new(AtomicBool::new(false));
         if let Some(old) = map.insert(request_id.clone(), f.clone()) {
@@ -679,7 +680,7 @@ async fn chat_stream_impl(
             "stream": true,
             "stream_options": { "include_usage": true }
         });
-        // M2: здесь передаются определения инструментов агента
+        // Здесь передаются определения инструментов агента
         if let Some(tools) = tools.filter(|t| !t.is_null()) {
             body["tools"] = tools;
         }
@@ -795,7 +796,7 @@ async fn chat_stream_impl(
     // стрима уезжает оценка (см. хвост ниже), иначе «Обзор», тренды и
     // Hard Limit молчат на таких провайдерах вечно
     let mut saw_usage = false;
-    // Волна GUI-fix: прокси (типа Ashna) после ответа держат TCP и шлют
+    // прокси (типа Ashna) после ответа держат TCP и шлют
     // keep-alive, а usage у OpenAI-пути вообще буферизуется до flush —
     // «тишина после usage» как единственный сигнал не работает. Два дедлайна:
     //  - soft: usage увиден, но конца сообщения ещё нет (нестандартный ранний
@@ -813,7 +814,7 @@ async fn chat_stream_impl(
         // Abort рвется ещё ОЖИДАЮЩИМ next(): раньше флаг читался только
         // после разрешения next() — Stop на «молчащем» стриме (провайдер
         // держит TCP, но не шлёт байт) не работал до idle-таймаута 300 с
-        // (аудит А1-1). Поллинг флага 100 мс — тот же паттерн, что
+        //. Поллинг флага 100 мс — тот же паттерн, что
         // wait_for_abort в tooling.rs
         let now = std::time::Instant::now();
         let idle = [soft_deadline, hard_deadline]
@@ -859,7 +860,7 @@ async fn chat_stream_impl(
                 break 'outer;
             }
             // События строки обрабатываем ДО продления soft-дедлайна: продлевает
-            // только строка с полезной нагрузкой (аудит chat 64)
+            // только строка с полезной нагрузкой
             let fed = acc.feed(data);
             let has_payload = fed.iter().any(|e| !matches!(e, FeedEvent::Usage { .. }));
             for event in fed {
@@ -877,7 +878,8 @@ async fn chat_stream_impl(
                     FeedEvent::ToolCallsFinished { calls } => {
                         // Аргументы вызовов — тоже сгенерированный вывод: без
                         // них ответ «из одних вызовов» давал нулевую оценку
-                        // usage, и Hard Limit/статистика молчали (аудит chat 66)
+                        // usage, и Hard Limit/статистика молчали
+
                         completion_chars += calls
                             .iter()
                             .map(|c| c.arguments.chars().count())
@@ -892,7 +894,7 @@ async fn chat_stream_impl(
             // продлевается никогда. Раньше продлевала любая data-строка:
             // провайдер, шлющий после usage одни keep-alive (data: {},
             // data: ), не давал наступить тишине, и стрим висел вечно — до
-            // Stop пользователя (аудит chat 64)
+            // Stop пользователя
             if saw_usage && hard_deadline.is_none() && has_payload {
                 soft_deadline = Some(std::time::Instant::now() + POST_USAGE_IDLE);
             }
@@ -1205,7 +1207,7 @@ pub fn take_complete_lines(buf: &mut Vec<u8>) -> Vec<String> {
 }
 
 // ---------------------------------------------------------------------------
-// M1: Аккумулятор SSE-потока (tool calling)
+// Аккумулятор SSE-потока (tool calling)
 // ---------------------------------------------------------------------------
 
 /// Вызов инструмента из стрима. arguments — «сырая» склеенная строка JSON;
@@ -1234,7 +1236,7 @@ pub enum FeedEvent {
         total: u64,
         /// Причина остановки раунда (finish_reason/stop_reason провайдера):
         /// "length"/"max_tokens" — ответ оборван лимитом вывода, фронт
-        /// делает авто-продолжение (волна G). None — оценка/старые пути
+        /// делает авто-продолжение. None — оценка/старые пути
         stop_reason: Option<String>,
         /// Токены, прочитанные провайдером из промпт-кэша (OpenAI:
         /// prompt_tokens_details.cached_tokens; Anthropic:
@@ -1245,7 +1247,7 @@ pub enum FeedEvent {
         cache_read: Option<u64>,
         /// Токены, записанные в промпт-кэш (Anthropic:
         /// cache_creation_input_tokens). Запись в кэш тарифицируется дороже
-        /// обычных токенов, и поле раньше не читалось вовсе (аудит chat 76)
+        /// обычных токенов, и поле раньше не читалось вовсе
         cache_creation: Option<u64>,
     },
     ToolCallsFinished { calls: Vec<StreamToolCall> },
@@ -1259,7 +1261,7 @@ pub enum FeedEvent {
     /// Reasoning-элементы Responses API (items с type:"reasoning"): при
     /// store:false API отдаёт их с encrypted_content, и их нужно вернуть в
     /// следующий запрос, иначе reasoning-модель теряет контекст рассуждений
-    /// между шагами инструментов (аудит chat 80)
+    /// между шагами инструментов
     ReasoningItems { items: Vec<serde_json::Value> },
 }
 
@@ -1286,14 +1288,14 @@ pub struct SseAccumulator {
     /// сетевым чанком (держим до следующей порции)
     tag_tail: String,
     /// Уже отдан НЕпустой (не пробельный) content вне think: с этого момента
-    /// `<think>` в тексте — литерал, а не тег (аудит chat 72)
+    /// `<think>` в тексте — литерал, а не тег
     saw_visible_content: bool,
     /// `<think>` встретился в середине ответа — интерпретация тегов в этом
     /// стриме выключена до конца (модель пишет про XML/HTML, а не рассуждает)
     think_disabled: bool,
     /// Вызов с невалидным JSON аргументов отброшен как оборванный: flush
     /// отдаст Usage со stop_reason "length", фронт продолжит генерацию
-    /// вместо исполнения обрывка (аудит chat 73)
+    /// вместо исполнения обрывка
     truncated_calls_dropped: bool,
 }
 
@@ -1322,7 +1324,7 @@ impl SseAccumulator {
     /// Тегом считается только `<think>` В НАЧАЛЕ ответа (до него — лишь
     /// пробелы, видимого контента ещё не было): тег в середине текста —
     /// литерал (модель пишет про XML/HTML), раньше он переводил весь остаток
-    /// ответа в «рассуждения» и прятал его (аудит chat 72). После первого
+    /// ответа в «рассуждения» и прятал его. После первого
     /// такого литерала интерпретация тегов в стриме выключается до конца.
     fn route_content(&mut self, piece: String, events: &mut Vec<FeedEvent>) {
         let mut buf = std::mem::take(&mut self.tag_tail);
@@ -1363,7 +1365,7 @@ impl SseAccumulator {
                     Some(pos) => {
                         if self.saw_visible_content || !buf[..pos].trim().is_empty() {
                             // Тег не в начале ответа — литерал: отдаём как текст
-                            // и выключаем интерпретацию (аудит chat 72)
+                            // и выключаем интерпретацию
                             self.think_disabled = true;
                             self.note_visible(&buf);
                             events.push(FeedEvent::Content { delta: buf });
@@ -1473,7 +1475,8 @@ impl SseAccumulator {
                     Some(_) => continue,
                     // Провайдер без index: новый id/имя открывает новый слот
                     // (раньше все вызовы падали в слот 0 и склеивались в
-                    // мусорный JSON — аудит chat 75)
+                    // мусорный JSON)
+
                     None => self.slot_without_index(call),
                 };
                 // Добиваем вектор до нужного индекса
@@ -1515,7 +1518,7 @@ impl SseAccumulator {
     /// Слот для фрагмента БЕЗ index (прокси, не шлющие index). Фрагмент без
     /// id/имени продолжает текущий слот; новый id или новое имя при занятом
     /// слоте открывают следующий — иначе разные вызовы склеивались в один и
-    /// аргументы образовывали невалидный JSON (аудит chat 75)
+    /// аргументы образовывали невалидный JSON
     fn slot_without_index(&mut self, call: &serde_json::Value) -> usize {
         let incoming_id = call.get("id").and_then(|v| v.as_str()).unwrap_or("");
         let incoming_name = call["function"]
@@ -1542,7 +1545,7 @@ impl SseAccumulator {
     /// имени и с ОБОРВАННЫМ JSON отбрасываются. Раньше оборванный по
     /// max_tokens/сети вызов уезжал «готовым» и tool-слой отвечал ошибкой
     /// разбора; теперь flush отдаёт stop_reason "length", и фронт продолжает
-    /// генерацию (аудит chat 73)
+    /// генерацию
     fn take_ready_calls(&mut self) -> Vec<StreamToolCall> {
         let mut calls = self.tool_calls.clone();
         for c in &mut calls {
@@ -1574,7 +1577,7 @@ trait StreamFeed: Send {
     /// Сообщение семантически закончено: finish_reason (OpenAI) /
     /// stop_reason (Anthropic) увидены. После этого в стриме идут только
     /// usage-чанк, [DONE]/message_stop и мусор соединения — дальше читать
-    /// нечего. Дефолт false; поля у обоих аккумуляторов уже были (волна G)
+    /// нечего. Дефолт false; поля у обоих аккумуляторов уже были
     fn is_complete(&self) -> bool {
         false
     }
@@ -1615,7 +1618,7 @@ impl StreamFeed for SseAccumulator {
     fn flush(&mut self) -> Vec<FeedEvent> {
         let mut events = Vec::new();
         // Вызовы готовим ДО usage: отброшенный оборванный вызов влияет на
-        // stop_reason (length → фронт продолжит генерацию) (аудит chat 73).
+        // stop_reason (length → фронт продолжит генерацию).
         // Страховка OpenAI-пути (у Anthropic она в его flush): соединение
         // оборвалось после вызовов, но до finish_reason — tool_calls не
         // теряем молча, агентный цикл получает их как обычно
@@ -1633,8 +1636,8 @@ impl StreamFeed for SseAccumulator {
                 completion: u.completion,
                 total: u.total,
                 // finish_reason финального чанка уже накоплен (1016): "length"
-                // — оборванный вывод, фронт делает авто-продолжение (волна G).
-                // Отброшенный оборванный вызов — та же семантика (аудит chat 73)
+                // Отброшенный оборванный вызов — та же семантика
+                // Отброшенный оборванный вызов — та же семантика
                 stop_reason: if self.truncated_calls_dropped {
                     Some("length".to_string())
                 } else {
@@ -1751,7 +1754,8 @@ pub fn build_responses_body(
                 // store:false) возвращаются ПЕРЕД function_call того же хода —
                 // так рекомендует документация Responses API; без них
                 // reasoning-модель теряет контекст рассуждений между шагами
-                // инструментов, а некоторые шлюзы отвечают 400 (аудит chat 80)
+                // инструментов, а некоторые шлюзы отвечают 400
+
                 if let Some(items) = m
                     .thinking
                     .as_ref()
@@ -1837,7 +1841,8 @@ struct ResponsesAccumulator {
     finish_reason: Option<String>,
     complete: bool,
     /// Reasoning-элементы ответа (type:"reasoning"): возвращаются в историю
-    /// следующего запроса вместе с function_call-итемами (аудит chat 80)
+    /// следующего запроса вместе с function_call-итемами
+
     reasoning_items: Vec<serde_json::Value>,
 }
 
@@ -1891,7 +1896,6 @@ impl ResponsesAccumulator {
                     }
                     // Reasoning-элемент (encrypted_content при store:false) —
                     // сохраняем ВЕРБАТИМ для возврата в следующий запрос
-                    // (аудит chat 80)
                     Some("reasoning") => self.reasoning_items.push(item.clone()),
                     _ => {}
                 }
@@ -1961,7 +1965,8 @@ impl StreamFeed for ResponsesAccumulator {
     fn flush(&mut self) -> Vec<FeedEvent> {
         let mut events = Vec::new();
         // Reasoning-элементы — раньше вызовов: в следующем запросе они идут
-        // ПЕРЕД function_call того же хода (аудит chat 80)
+        // ПЕРЕД function_call того же хода
+
         if !self.reasoning_items.is_empty() {
             events.push(FeedEvent::ReasoningItems {
                 items: std::mem::take(&mut self.reasoning_items),
@@ -1998,7 +2003,6 @@ impl StreamFeed for ResponsesAccumulator {
 /// изображения из data-URL — в блоки {"type":"image","source":{...}}.
 /// Result: неподдерживаемое изображение — это ОШИБКА с внятным текстом
 /// (провайдер отклонил бы запрос целиком с 400), а не тихая потеря
-/// (аудит chat 77)
 pub fn build_anthropic_body(
     model: &str,
     messages: &[ChatMessage],
@@ -2016,8 +2020,8 @@ pub fn build_anthropic_body(
         match m.role.as_str() {
             // developer (OpenAI-роль) маппится в system: Messages API знает
             // только system/user/assistant, голая роль developer давала 400
-            // (аудит chat 82). content-массив разбираем общим хелпером —
-            // as_str() молча терял system, пришедший массивом (аудит chat 81)
+            // as_str() молча терял system, пришедший массивом
+            // as_str() молча терял system, пришедший массивом
             "system" | "developer" => {
                 let text = content_to_plain_text(&m.content);
                 if !text.is_empty() {
@@ -2079,7 +2083,7 @@ pub fn build_anthropic_body(
                         let args_raw = c["function"]["arguments"].as_str().unwrap_or("{}");
                         // Обрезанные аргументы не подменяем пустым {}: модель
                         // принимала бы вызов без параметров за чистую монету.
-                        // Явная пометка с сырым хвостом (аудит chat 83)
+                        // Явная пометка с сырым хвостом
                         let input: serde_json::Value = match serde_json::from_str(args_raw) {
                             Ok(v) => v,
                             Err(_) => serde_json::json!({ "_invalid_arguments_json": args_raw }),
@@ -2098,7 +2102,7 @@ pub fn build_anthropic_body(
             _ => {
                 // user: строка или массив с картинками — конвертируем vision-формат.
                 // Роли без явного маппинга раньше уходили как есть — голая
-                // developer/function дала бы 400 (аудит chat 82)
+                // developer/function дала бы 400
                 let role = match m.role.as_str() {
                     "user" => "user",
                     _ => "user", // неизвестное — в user (безопасный фолбэк)
@@ -2116,9 +2120,9 @@ pub fn build_anthropic_body(
                             }));
                         } else if ptype == "image_url" {
                             // Неподдерживаемая картинка — не тихая потеря: MIME
-                            // вне whitelist API отклонил бы ЗАПРОС ЦЕЛИКОМ с 400
-                            // (аудит chat 77); внешняя http-ссылка API тоже не
-                            // принимает — раньше блок просто пропадал
+                            // вне whitelist API отклонил бы ЗАПРОС ЦЕЛИКОМ с 400;
+                            // внешняя http-ссылка API тоже не принимает —
+                            // раньше блок просто пропадал
                             let Some(url) = part["image_url"]["url"].as_str() else {
                                 continue;
                             };
@@ -2171,14 +2175,14 @@ pub fn build_anthropic_body(
     Ok(body)
 }
 
-/// MIME-типы изображений, которые принимает Messages API (аудит chat 77).
+/// MIME-типы изображений, которые принимает Messages API.
 /// Всё остальное (svg, bmp, …) API отклоняет ЗАПРОСОМ ЦЕЛИКОМ с 400
 const ANTHROPIC_IMAGE_MIMES: &[&str] = &["image/jpeg", "image/png", "image/gif", "image/webp"];
 
 /// data-URL (data:image/png;base64,…) → Anthropic-блок изображения.
 /// Err с внятным текстом вместо None: неподдерживаемый MIME или внешняя
 /// http-ссылка раньше ПРОПАДАЛИ молча — блок не попадал в запрос, модель
-/// отвечала «какой картинки?» (аудит chat 77)
+/// отвечала «какой картинки?»
 pub fn anthropic_image_block(data_url: &str) -> Result<serde_json::Value, String> {
     let Some(rest) = data_url.strip_prefix("data:") else {
         return Err(
@@ -2217,7 +2221,8 @@ pub struct AnthropicAccumulator {
     cache_read: Option<u64>,
     /// Запись в промпт-кэш из message_start (cache_creation_input_tokens):
     /// тарифицируется дороже обычных токенов и раньше не читалась вовсе —
-    /// prompt/Hard Limit занижались (аудит chat 76)
+    /// prompt/Hard Limit занижались
+
     cache_creation: Option<u64>,
     /// Все tool_use текущего ответа. Параллельные вызовы приходят отдельными
     /// блоками со своим content_block_stop, а фронт перезаписывает holder
@@ -2225,7 +2230,7 @@ pub struct AnthropicAccumulator {
     /// вызовами на message_delta (контракт OpenAI-пути).
     pending_calls: Vec<StreamToolCall>,
     /// Причина остановки раунда из message_delta ("end_turn"/"tool_use"/
-    /// "max_tokens") — доезжает до фронта в Usage (волна G)
+    /// "max_tokens") — доезжает до фронта в Usage
     stop_reason: Option<String>,
     /// thinking-блок текущего сообщения: текст (дублирует поток Thought —
     /// тот идёт на дисплей, этот — в историю) + подпись + redacted-блоки.
@@ -2266,7 +2271,7 @@ impl StreamFeed for AnthropicAccumulator {
                     self.cache_read = Some(cr);
                 }
                 // Запись в кэш — отдельное поле (и отдельный, дорогой тариф);
-                // раньше не читалось, prompt занижался (аудит chat 76)
+                // раньше не читалось, prompt занижался
                 if let Some(cc) =
                     value["message"]["usage"]["cache_creation_input_tokens"].as_u64()
                 {
@@ -2349,7 +2354,6 @@ impl StreamFeed for AnthropicAccumulator {
                 // (input + read + creation) и есть полный промпт, как
                 // prompt_tokens у OpenAI. Раньше prompt = input_tokens, и на
                 // запросах с промпт-кэшем Hard Limit/статистика занижались
-                // (аудит chat 76)
                 let prompt_total = self.input_tokens
                     + self.cache_read.unwrap_or(0)
                     + self.cache_creation.unwrap_or(0);
@@ -2380,7 +2384,6 @@ impl StreamFeed for AnthropicAccumulator {
         // Стрим оборвался ВНУТРИ tool_use (content_block_stop не пришёл):
         // блок раньше исчезал бесследно — отдаём ЧАСТИЧНЫЙ вызов, tool-слой
         // вернёт модели внятную ошибку аргументов вместо тихой потери
-        // (аудит chat 74)
         if self.in_tool {
             self.in_tool = false;
             let mut arguments = std::mem::take(&mut self.tool_json);
@@ -2459,7 +2462,7 @@ mod anthropic_tests {
 
     #[test]
     fn anthropic_max_tokens_stop_reason_surfaces() {
-        // Волна G: обрыв по лимиту вывода доезжает до фронта как stop_reason
+        // обрыв по лимиту вывода доезжает до фронта как stop_reason
         let mut acc = AnthropicAccumulator::default();
         let events = feed_lines(
             &mut acc,
@@ -3062,7 +3065,7 @@ mod tests {
     #[test]
     fn think_tag_split_across_chunks() {
         // Тег В НАЧАЛЕ ответа, разрезанный посреди сетевых чанков, — не должен
-        // протечь в Content ни частично, ни целиком (аудит chat 72: тегом он
+        // протечь в Content ни частично, ни целиком (тегом он
         // считается только до первого видимого контента)
         let mut acc = SseAccumulator::default();
         let events = feed_lines(

@@ -109,7 +109,7 @@ describe("mergePermRules ([P9])", () => {
     expect(v.denyHit).toBe(true);
   });
 
-  // Аудит A7-12: строитель сессионного allow-правила — золотые векторы
+ // строитель сессионного allow-правила — золотые векторы
   it("withSessionAllowRule дописывает с дедупом и сохраняет deny/always_ask", () => {
     // С нуля (sessionRules не было)
     expect(withSessionAllowRule(undefined, "shell_run(git *)")).toEqual({

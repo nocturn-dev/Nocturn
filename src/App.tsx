@@ -121,12 +121,12 @@ import { withViewTransition } from "./motion";
 import { AmbientLayer } from "./components/AmbientLayer";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 
-// Волна 2 (жёсткая оптимизация): тяжёлые поверхности — ленивые чанки.
+// Жёсткая оптимизация: тяжёлые поверхности — ленивые чанки.
 // Модалки грузятся при первом открытии и после него живут смонтированными
 // (useEverOpened): внутреннее состояние (вкладки настроек, черновики) и
 // exit-анимации useDelayedUnmount ведут себя ровно как при
 // всегда-смонтированной модалке, но старт приложения их не парсит.
-// memo (аудит A4-4): App перерисовывается на каждый 40мс-флаш стрима —
+// memo: App перерисовывается на каждый 40мс-флаш стрима —
 // без мемоизации sticky-mounted модалки рендерились целиком на каждый
 // флаш (SessionRow/AssistantCard мемоизированы по той же причине);
 // работает в паре со стабильными пропсами ниже (блок «Стабильные пропсы»)
@@ -278,7 +278,7 @@ export default function App() {
   const compareMounted = useEverOpened(compareOpen);
   const ggufLabMounted = useEverOpened(ggufLabOpen);
   const knowledgeMounted = useEverOpened(knowledgeOpen);
-  // RAG-трасса (PLAN §24 ш.3): последний поиск по базе — для KnowledgeModal
+  // RAG-трасса: последний поиск по базе — для KnowledgeModal
   const [kbTrace, setKbTrace] = useState<KbTrace | null>(null);
   // Плавающие уведомления (чекпоинты и пр.) — без строк в чате
   const { toasts, addToast } = useToasts();
@@ -447,7 +447,7 @@ export default function App() {
   }, [zenMode]);
   // Скорость плавной печати: множитель догоняющего темпа (сегмент
   // «Основного»; в ленту едет пропом printSpeed) — комментарий жил в 20
-  // строках выше состояния, склеенный с чужим обрывком (аудит 2026-10-04)
+  // строках выше состояния, склеенный с чужим обрывком
   const [printSpeed, setPrintSpeed] = useNumPref("haloui-print-speed", 1, (v) =>
     [0.5, 1, 2].includes(v) ? v : 1,
   );
@@ -480,7 +480,7 @@ export default function App() {
   const [groupTurns, setGroupTurns] = useBoolPref("haloui-group-turns", true);
   // Журнал использования (раздел «Статистика»): одна запись на отправку
   const [usageLog, setUsageLog] = useState<UsageEvent[]>([]);
-  // Журнал usage грузим ПОСЛЕ первого рендера (волна 5): JSON.parse до 5000
+  // Журнал usage грузим ПОСЛЕ первого рендера: JSON.parse до 5000
   // записей на старте держал главный поток в момент, когда он занят гидрацией.
   // Единственный потребитель — ленивая секция статистики в настройках; на
   // первом экране его нет, а API-события usage ещё физически не могут прийти
@@ -512,7 +512,7 @@ export default function App() {
   const [chatMark, setChatMark] = useBoolPref("haloui-chat-mark", true);
   // Эффект стекла на карточках ответов ИИ
   const [msgGlass, setMsgGlass] = useBoolPref("haloui-msg-glass", false);
-  // Маскот Нок у композера (PLAN.md §21) + его характер
+  // Маскот Нок у композера + его характер
   const [mascot, setMascot] = useBoolPref("haloui-mascot", true);
   const [mascotSize, setMascotSize] = useNumPref("haloui-mascot-size", 1);
   const [mascotGlow, setMascotGlow] = useNumPref("haloui-mascot-glow", 1);
@@ -541,7 +541,7 @@ export default function App() {
   const [mascotSide, setMascotSide] = useStringPref<"left" | "right">("haloui-mascot-side", "left");
   const [mascotShooed, setMascotShooed] = useState(false);
 
-  // Saved-тост (фидбек 26.09): изменения в открытых настройках не тостят
+  // Saved-тост: изменения в открытых настройках не тостят
   // вовсе (слайдер масштаба хоть по 1% — ни одного лишнего окна); один тост
   // «Сохранено» — при закрытии модалки, если что-то менялось
   const settingsTouchedRef = useRef(false);
@@ -569,13 +569,14 @@ export default function App() {
     }
     setSettingsOpen(false);
   }, [addToast, t]);
-  // Стабильные пропсы sticky-модалок (аудит 07.10 A4-9): инлайн-стрелки
+  // Стабильные пропсы sticky-модалок: инлайн-стрелки
+
   // пробивали memo — модалки ре-рендерились на каждом 40мс-флаше стрима
   const openGgufLab = useCallback(() => setGgufLabOpen(true), []);
   const closeGgufLab = useCallback(() => setGgufLabOpen(false), []);
 
   const [searchOpen, setSearchOpen] = useState(false);
-  // Терминальный режим (M4.5): панель снизу
+  // Терминальный режим: панель снизу
   const [terminalOpen, setTerminalOpen] = useState(false);
   // Реф «идёт ли стрим» — пишется из streamingId агента ниже; читается автосейвом
   const streamingActiveRef = useRef(false);
@@ -615,7 +616,7 @@ export default function App() {
   // «Пустая лента» по ЕДИНОЙ формуле с ChatArea (filterVisibleMessages):
   // раньше App смотрел сырой messages.length, и при скрытых сообщениях
   // пользователя композер центрировался, а лента лирики рисовалась в
-  // нижней полосе — тексты сталкивались (аудит А4-4)
+  // нижней полосе — тексты сталкивались
   const chatEmptyForRibbon = useMemo(
     () =>
       filterVisibleMessages(activeSession?.messages ?? [], showUserMsgs)
@@ -623,7 +624,7 @@ export default function App() {
     [activeSession, showUserMsgs],
   );
   // Стабильный пропс sticky-настроек: `?? []` создавал новый массив каждый
-  // рендер и пробивал memo (аудит 07.10 A4-9)
+  // рендер и пробивал memo
   const allowedCommands = useMemo(
     () => activeSession?.allowedCommands ?? [],
     [activeSession?.allowedCommands],
@@ -687,7 +688,7 @@ export default function App() {
   const [jailbreaks, setJailbreaks] = useState<JailbreakEntry[]>(() =>
     loadJailbreaks(),
   );
-  // Корневая папка проекта для файлового менеджера (M4.2), помнит выбор
+  // Корневая папка проекта для файлового менеджера, помнит выбор
   const [projectRoot, setProjectRoot] = useState<string | null>(() =>
     localStorage.getItem(STORAGE_KEYS.projectRoot),
   );
@@ -1028,7 +1029,7 @@ export default function App() {
   }, []);
 
   // ---------- Уведомления о завершении / подтверждении (когда окно не в фокусе) ----------
-  // Конфиг субагентов (M3): роли/параллельность/тумблер — subagents.json
+  // Конфиг субагентов: роли/параллельность/тумблер — subagents.json
   const [subConfig, setSubConfig] = useState(parseSubagentsConfig({}));
   const subConfigRef = useRef(subConfig);
   useEffect(() => {
@@ -1061,7 +1062,7 @@ export default function App() {
   // [P12] Реестр плагинных скиллов для skill_run — рефом (паттерн
   // notifyPrefsRef): рефы не пересоздают колбэки движка.
   // Обновление в эффекте: запись в ref в теле рендера вне модели
-  // React Compiler (аудит A4-8)
+  // React Compiler
   const pluginSkillsRef = useRef(pluginSkills);
   useEffect(() => {
     pluginSkillsRef.current = pluginSkills;
@@ -1095,7 +1096,7 @@ export default function App() {
 
 
   const [notifyPrefs, setNotifyPrefs] = useState<NotifyPrefs>(loadNotifyPrefs);
-  // Волна E1: персистентные правила прав — реф для useAgentRun (perm_set и
+  // персистентные правила прав — реф для useAgentRun (perm_set и
   // политика подтверждений). Секция «Права» сохраняет сама и дёргает событие
   const [permRules, setPermRules] = useState<PermRules>(loadPermRules);
   const permRulesRef = useRef(permRules);
@@ -1131,7 +1132,7 @@ export default function App() {
   }, [mediaPrefs]);
   // Повтор очереди YT: тумблер «Интеграций» — источник правды, плеер —
   // потребитель. Раньше поле и ветка в onTrackChange были, а синка не было:
-  // тумблер молча ничего не делал (аудит 07.10 A7-13)
+  // тумблер молча ничего не делал
   useEffect(() => {
     ytSetLoopQueue(mediaPrefs.ytLoopQueue);
   }, [mediaPrefs.ytLoopQueue]);
@@ -1432,7 +1433,8 @@ export default function App() {
   }, [interactions]);
   // Ключ темы маскота: stringify в теле JSX пересчитывался на каждый флеш
   // стрима (App ре-рендерится на typing/activity) — тот же класс, что уже
-  // закрыт settingsFingerprint'ом (аудит 2026-10-04)
+  // закрыт settingsFingerprint'ом
+
   const mascotThemeKey = useMemo(
     () => `${theme}|${JSON.stringify(appearance)}`,
     [theme, appearance],
@@ -1454,7 +1456,7 @@ export default function App() {
 
   const menuSession = menu ? sessions.find((s) => s.id === menu.id) : null;
 
-  // Файлы, изменённые агентом в активной задаче (M4.3) — для подсветки в дереве.
+  // Файлы, изменённые агентом в активной задаче — для подсветки в дереве.
   // C7: дорогой пересчёт (JSON.parse содержимого before/after) отсечён от
   // ежекадровых флешей стрима — дешёвый ключ (id fs_write-результатов)
   // меняется только когда реально появился новый результат записи
@@ -1758,7 +1760,7 @@ export default function App() {
   const voiceOptsRef = useRef({ model: voiceModel, threshold: voiceThreshold, tts: voiceTtsReply });
   // Опции ЖИВОГО слушателя: слайдер порога мутирует threshold по месту —
   // VoiceWake читает его каждый кадр детектора, пересоздание микрофона и
-  // модели на каждый шаг слайдера не нужно (аудит 07.10 A4-12)
+  // модели на каждый шаг слайдера не нужно
   const wakeOptsRef = useRef<WakeOptions | null>(null);
   useEffect(() => {
     voiceOptsRef.current = { model: voiceModel, threshold: voiceThreshold, tts: voiceTtsReply };
@@ -1782,7 +1784,8 @@ export default function App() {
     setVoicePhase("listen");
     // Порог — из ref: включение его в deps пересоздавало слушателя (закрыть
     // микрофон, выгрузить модель, открыть заново) на каждый шаг слайдера
-    // «Порог» (аудит 07.10 A4-12); живое изменение — через wakeOptsRef ниже
+    // «Порог»; живое изменение — через wakeOptsRef ниже
+
     const opts: WakeOptions = {
       model: voiceModel,
       threshold: voiceOptsRef.current.threshold,
@@ -1956,7 +1959,7 @@ export default function App() {
             if (s.id !== activeId) return s;
             const idx = order.indexOf(s.permissionMode ?? "ask");
             const next = order[(idx + 1) % order.length];
-            // План-режим — открыть панель плана (авто-открытие, Волна 3)
+            // План-режим — открыть панель плана (авто-открытие)
             if (next === "plan") setPlanPanelOpen(true);
             return { ...s, permissionMode: next };
           }),
@@ -1983,7 +1986,8 @@ export default function App() {
     const onKey = (e: KeyboardEvent) => {
       // AltGr (европейские раскладки) приходит в Chromium как ctrl+alt:
       // AltGr+Z = «ż», и матч Ctrl+Alt+Z глотал символ preventDefault'ом
-      // и дёргал Zen/YouTube посреди набора текста (аудит A3-1). Клавиши
+      // и дёргал Zen/YouTube посреди набора текста. Клавиши
+
       // с AltGraph — всегда ввод текста, хоткеям приложения они не принадлежат
       if (e.getModifierState("AltGraph")) return;
       // В Hard-Mode (полноэкранный терминал) глобальные бинды глушим —
@@ -2673,7 +2677,8 @@ export default function App() {
     setMenu({ id, x, y, kind: "session" });
   };
 
-  // --- Стабильные пропсы sticky-mounted модалок (аудит A4-4): App
+  // --- Стабильные пропсы sticky-mounted модалок: App
+
   // перерисовывается на каждый 40мс-флаш стрима, инлайн-объекты и стрелки
   // в JSX пробивали бы memo модалок на каждом флаше ---
   const settingsAvailableCommands = useMemo(
@@ -2775,7 +2780,7 @@ export default function App() {
             scene={appearance.ambientScene}
             videoPath={appearance.ambientVideo}
             density={appearance.ambientDensity}
-            // Ambient живой всегда (решение владельца): во время прогона
+            // Ambient живой всегда: во время прогона
             // агента не замирает — «плавает» как в Claude Desktop.
             // Пауза только по reduce-motion и в свёрнутом/скрытом окне
             // (hasFocus внутри слоя); GPU-цена принята

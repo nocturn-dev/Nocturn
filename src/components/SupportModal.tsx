@@ -8,7 +8,7 @@ import { useState } from "react";
 import { useLang } from "../locales";
 import { copyText } from "../clipboard";
 
-/** Данные кошельков владельца. Адреса сверены с QR-кодами кошелька */
+/** Реквизиты для поддержки проекта. Адреса сверены с QR-кодами кошелька */
 const SECTIONS: {
   titleKey: "support.stableTitle" | "support.nativeTitle";
   wallets: {

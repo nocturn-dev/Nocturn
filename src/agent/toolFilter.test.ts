@@ -55,8 +55,7 @@ describe("filterToolSchemas", () => {
 // Золотой список: ДОСЛОВНОЕ зеркало perm.rs (is_mutating, perm.rs:74-81).
 // Стык front↔perm склеен этим списком, комментариями-зеркалами И
 // МЕХАНИЧЕСКОЙ сверкой ниже: тест читает исходник perm.rs и проверяет,
-// что match-блок бекенда и isMutatingTool не разъехались (аудит А7-5:
-// раньше тест вызывал только фронтовую функцию, и новый мутирующий
+// что match-блок бекенда и isMutatingTool не разъехались (// раньше тест вызывал только фронтовую функцию, и новый мутирующий
 // инструмент в perm.rs оставался незамеченным фронтом)
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -133,7 +132,7 @@ describe("isMutatingTool — золотой список perm.rs", () => {
   });
 });
 
-describe("isConcurrencySafe — батчи параллельных чтений (волна C)", () => {
+describe("isConcurrencySafe — батчи параллельных чтений", () => {
   it("золотой список safe-имён", () => {
     const safe = [
       "fs_read",

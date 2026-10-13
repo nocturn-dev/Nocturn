@@ -11,7 +11,7 @@ const StablePart = memo(function StablePart(
   return <ReactMarkdown {...rest}>{md}</ReactMarkdown>;
 });
 
-/** Стримящийся markdown (волна 3а): стабильный префикс парсится один раз
+/** Стримящийся markdown: стабильный префикс парсится один раз
  *  за жизнь блока (memo по md), на каждом тике печати ре-парсится только
  *  хвост. streaming=false — одиночный парс, как раньше. Между частями
  *  ставится "\n": react-markdown в одиночном парсе разделяет блочных
@@ -20,7 +20,7 @@ const StablePart = memo(function StablePart(
  *  это НЕ div; className="stream-tail" носит контейнер в AssistantCard/
  *  RunCard, он монтируется ВСЕГДА и перехватывает прямое родство
  *  .markdown > :first/:last-child — селекторы в index.css пробивают
- *  и его детей (аудит A6-3) */
+ *  и его детей */
 export function StreamMarkdown({
   md,
   streaming,

@@ -18,7 +18,7 @@ function fmtQuip(
 }
 
 /**
- * Нок — светлячок-маскот Nocturn (PLAN.md §21). Живёт у композера:
+ * Нок — светлячок-маскот Nocturn. Живёт у композера:
  * сопровождает стриминг (свечение пульсирует в ритме typing-точек),
  * thinking (точки над головой — тот же темп индикатора), завершение прогона
  * (вспышка + конфетти, синхронно со звуком complete), сон при простое,
@@ -165,9 +165,9 @@ export function Nok({
     [t, displayName],
   );
   // Latest-ref: эффект самодеятельности зовёт всегда СВЕЖИЙ spawnQuip, но
-  // сам не перезапускается при смене языка/имени — иначе (регрессия 0e6d0dd,
-  // №6 аудита v5) ре-ран эффекта гасил cleanup'ом таймеры завершения
-  // кувырка/исуга/кодинга, а состояния те не сбрасывает: поза залипала
+  // сам не перезапускается при смене языка/имени — иначе (регрессия 0e6d0dd:
+  // ре-ран эффекта гасил cleanup'ом таймеры завершения,
+  // кувырка/исуга/кодинга, а состояния те не сбрасывает: поза залипала)
   const spawnQuipRef = useRef(spawnQuip);
   useEffect(() => {
     spawnQuipRef.current = spawnQuip;
@@ -352,7 +352,8 @@ export function Nok({
   useEffect(() => {
     // spawnQuip — через latest-ref (см. выше): ре-ран на смену t/displayName
     // здесь запрещён — cleanup гасит таймеры завершения выступлений, а
-    // состояния не сбрасывает (№6 аудита v5, регрессия 0e6d0dd)
+    // состояния не сбрасывает
+
     const quip = (key: MsgKey, n?: number) => spawnQuipRef.current(key, n);
     if (streaming || !selfActivity) {
       setCoding(false);
@@ -441,7 +442,6 @@ export function Nok({
       const timer = window.setTimeout(() => setRelief(false), 1_400);
       // spawnQuip, а не прямой setQuips: таймер удаления — часть контракта
       // реплики (2.7s * scale), прямая запись оставляла узел в DOM навсегда
-      // (аудит A4-6)
       spawnQuip("mascot.quip.relief");
       prevSettingsRef.current = settingsClosedSeq;
       return () => window.clearTimeout(timer);

@@ -4,7 +4,8 @@ export interface LyricLine {
 }
 
 /** LRC "[mm:ss.xx] строка" → отсортированные строки (плейн — t = -1).
- *  Вынесено из MediaBar (№52 аудита v5): чистый парсер внешних данных
+ *  Вынесено из MediaBar: чистый парсер внешних данных
+
  *  lrclib обязан иметь золотые векторы */
 export function parseLyrics(synced: string | null, plain: string | null): LyricLine[] {
   if (synced) {

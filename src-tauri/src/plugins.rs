@@ -16,7 +16,8 @@ pub fn hooks_dir(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
 
 #[tauri::command(async)]
 pub async fn hooks_load(app: tauri::AppHandle) -> Result<hooks::HookFile, String> {
-    // Чтение hooks.json — sync-диск, в blocking-пул (№4 аудита v5)
+    // Чтение hooks.json — sync-диск, в blocking-пул
+
     tauri::async_runtime::spawn_blocking(move || Ok(hooks::load(&hooks_dir(&app)?)))
         .await
         .map_err(|e| format!("hooks load task failed: {e}"))?
@@ -67,7 +68,8 @@ Save?",
             return Err("hooks save cancelled".into());
         }
     }
-    // Запись hooks.json — sync-диск, в blocking-пул (№4 аудита v5)
+    // Запись hooks.json — sync-диск, в blocking-пул
+
     tauri::async_runtime::spawn_blocking(move || hooks::save(&hooks_dir(&app)?, &file))
         .await
         .map_err(|e| format!("hooks save task failed: {e}"))?
@@ -133,7 +135,7 @@ pub async fn hooks_run_event(
 
 #[tauri::command(async)]
 pub async fn shortcuts_load(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
-    // sync-диск, в blocking-пул (№4 аудита v5)
+    // sync-диск, в blocking-пул
     tauri::async_runtime::spawn_blocking(move || {
         let path = config_file(&app, "shortcuts.json")?;
         if !path.exists() {
@@ -148,7 +150,7 @@ pub async fn shortcuts_load(app: tauri::AppHandle) -> Result<serde_json::Value, 
 
 #[tauri::command(async)]
 pub async fn shortcuts_save(app: tauri::AppHandle, binds: serde_json::Value) -> Result<(), String> {
-    // sync-диск, в blocking-пул (№4 аудита v5)
+    // sync-диск, в blocking-пул
     tauri::async_runtime::spawn_blocking(move || {
         let path = config_file(&app, "shortcuts.json")?;
         if let Some(dir) = path.parent() {
@@ -192,7 +194,7 @@ pub async fn plugin_read(path: String) -> Result<serde_json::Value, String> {
 /// Реестр установленных плагинов (plugins.json)
 #[tauri::command(async)]
 pub async fn plugins_load(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
-    // sync-диск, в blocking-пул (№4 аудита v5)
+    // sync-диск, в blocking-пул
     tauri::async_runtime::spawn_blocking(move || {
         let path = config_file(&app, "plugins.json")?;
         if !path.exists() {
@@ -207,7 +209,7 @@ pub async fn plugins_load(app: tauri::AppHandle) -> Result<serde_json::Value, St
 
 #[tauri::command(async)]
 pub async fn plugins_save(app: tauri::AppHandle, file: serde_json::Value) -> Result<(), String> {
-    // sync-диск, в blocking-пул (№4 аудита v5)
+    // sync-диск, в blocking-пул
     tauri::async_runtime::spawn_blocking(move || {
         let path = config_file(&app, "plugins.json")?;
         if let Some(dir) = path.parent() {
@@ -223,7 +225,7 @@ pub async fn plugins_save(app: tauri::AppHandle, file: serde_json::Value) -> Res
 /// Пользовательские slash-команды (commands.json): { commands: [{name, description, template}] }
 #[tauri::command(async)]
 pub async fn commands_load(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
-    // sync-диск, в blocking-пул (№4 аудита v5)
+    // sync-диск, в blocking-пул
     tauri::async_runtime::spawn_blocking(move || {
         let path = config_file(&app, "commands.json")?;
         if !path.exists() {
@@ -238,7 +240,7 @@ pub async fn commands_load(app: tauri::AppHandle) -> Result<serde_json::Value, S
 
 #[tauri::command(async)]
 pub async fn commands_save(app: tauri::AppHandle, file: serde_json::Value) -> Result<(), String> {
-    // sync-диск, в blocking-пул (№4 аудита v5)
+    // sync-диск, в blocking-пул
     tauri::async_runtime::spawn_blocking(move || {
         let path = config_file(&app, "commands.json")?;
         if let Some(dir) = path.parent() {
@@ -254,7 +256,7 @@ pub async fn commands_save(app: tauri::AppHandle, file: serde_json::Value) -> Re
 /// Конфиг субагентов (subagents.json): { enabled, maxParallel, roles: [...] }
 #[tauri::command(async)]
 pub async fn subagents_load(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
-    // sync-диск, в blocking-пул (№4 аудита v5)
+    // sync-диск, в blocking-пул
     tauri::async_runtime::spawn_blocking(move || {
         let path = config_file(&app, "subagents.json")?;
         if !path.exists() {
@@ -269,7 +271,7 @@ pub async fn subagents_load(app: tauri::AppHandle) -> Result<serde_json::Value, 
 
 #[tauri::command(async)]
 pub async fn subagents_save(app: tauri::AppHandle, config: serde_json::Value) -> Result<(), String> {
-    // sync-диск, в blocking-пул (№4 аудита v5)
+    // sync-диск, в blocking-пул
     tauri::async_runtime::spawn_blocking(move || {
         let path = config_file(&app, "subagents.json")?;
         if let Some(dir) = path.parent() {
@@ -285,7 +287,7 @@ pub async fn subagents_save(app: tauri::AppHandle, config: serde_json::Value) ->
 /// Цвета моделей в статистике (colors.json): { "<model>": "#rrggbb" }
 #[tauri::command(async)]
 pub async fn usage_colors_load(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
-    // sync-диск, в blocking-пул (№4 аудита v5)
+    // sync-диск, в blocking-пул
     tauri::async_runtime::spawn_blocking(move || {
         let path = config_file(&app, "colors.json")?;
         if !path.exists() {
@@ -303,7 +305,7 @@ pub async fn usage_colors_save(
     app: tauri::AppHandle,
     colors: serde_json::Value,
 ) -> Result<(), String> {
-    // sync-диск, в blocking-пул (№4 аудита v5)
+    // sync-диск, в blocking-пул
     tauri::async_runtime::spawn_blocking(move || {
         let path = config_file(&app, "colors.json")?;
         if let Some(dir) = path.parent() {

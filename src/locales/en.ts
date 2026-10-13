@@ -1299,7 +1299,7 @@ export const en = {
     "ollama.noModels":
       "The runtime is up, but no models were found. For Ollama: ollama pull llama3.2",
     "ollama.badge": "local · unlimited",
-    // GGUF Lab (wave §28): local model surgery
+    // GGUF Lab: local model surgery
     "ggufLab.entry": "GGUF Lab",
     "ggufLab.entryDesc":
       "GGUF surgery: pull via Ollama, cut layers, test. For R&D and experiments.",
@@ -1690,4 +1690,4 @@ export const en = {
   "steps.kindExplore": "Explore",
   "steps.kindAsked": "Asked",
   "composer.dropFiles": "Drop to add attachments",
-} satisfies Record<MsgKey, string>; // D20: полный Record — пропущенный ключ = ошибка компиляции, а не молчаливый фолбэк
+} satisfies Record<MsgKey, string>; // Полный Record — пропущенный ключ = ошибка компиляции, а не молчаливый фолбэк

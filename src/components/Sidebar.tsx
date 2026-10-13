@@ -15,9 +15,9 @@ interface SidebarProps {
   activeProjectId: string | null;
   activeId: string | null;
   renamingId: string | null;
-  /** Корневая папка проекта для файлового менеджера (M4.2) */
+  /** Корневая папка проекта для файлового менеджера */
   projectRoot: string | null;
-  /** Нормализованные пути файлов, изменённых агентом в активной задаче (M4.3) */
+  /** Нормализованные пути файлов, изменённых агентом в активной задаче */
   modifiedFiles: Set<string>;
   /** Сторона сайдбара (эргономика) и ширина (drag-ресайз) */
   side: "left" | "right";
@@ -371,7 +371,7 @@ export default function Sidebar({
   // бы инлайн-стрелками App. Обработчикам свежесть критична (замыкания над
   // стейтом App) — эффект без deps обновляет поля после каждого рендера.
   // Инициализация через useRef({...}), а не записью в ref в теле рендера —
-  // запись в ref во время рендера вне модели React Compiler (аудит А4-5)
+  // запись в ref во время рендера вне модели React Compiler
   const rowHandlersRef = useRef<SessionRowHandlers>({
     onSelect,
     onSessionMenu,
@@ -573,7 +573,7 @@ export default function Sidebar({
         ) : groupBy === "project" ? (
           <div className="space-y-3">
             {/* Секция проектов: ТОЛЬКО проекты со своими диалогами — сессии
-                без проекта живут во вкладке «Задачи» (фидбек 29.09) */}
+                без проекта живут во вкладке «Задачи» */}
             {!projectsCollapsed && (
               <div>
                 <div className="relative flex items-center gap-1 px-2 pb-1">
@@ -589,7 +589,7 @@ export default function Sidebar({
                   >
                     <PlusIcon />
                   </button>
-                  {/* Меню добавления: проект / файл / папку (фидбек 29.09) */}
+                  {/* Меню добавления: проект / файл / папку */}
                   {addMenuOpen && (
                     <>
                       <div
@@ -598,7 +598,7 @@ export default function Sidebar({
                       />
                       {/* Лестница z вместо raw z-50: raw завязывал меню в
                           ничью с ambient-front (50, позже в DOM) — сцена
-                          рисовала частицы поверх меню (аудит A6-6) */}
+                          рисовала частицы поверх меню */}
                       <div className="absolute right-1 top-7 z-[var(--halo-z-panel-top)] w-44 rounded-lg border border-halo-line bg-halo-raised py-1 shadow-xl">
                         <button
                           onClick={() => {
@@ -705,7 +705,7 @@ export default function Sidebar({
               </div>
             )}
             {/* Сессии без проекта — только во вкладке «Задачи»; во вкладке
-                «Проекты» их намеренно нет (фидбек 29.09) */}
+                «Проекты» их намеренно нет */}
           </div>
         ) : (
           sorted.length === 0 ? (
@@ -719,7 +719,7 @@ export default function Sidebar({
           )
         )}
 
-        {/* Файлы: выбор папки проекта и дерево (M4.2) */}
+        {/* Файлы: выбор папки проекта и дерево  */}
         <div className="mt-5">
           <div className="flex items-center gap-1 px-2 pb-1">
             <button
@@ -1217,7 +1217,7 @@ function relTime(ts: number, lang: "ru" | "en" | "zh" | "ja"): string {
   return lang === "ru" ? `${Math.floor(h / 24)}д` : `${Math.floor(h / 24)}d`;
 }
 
-/** D14: соединение сегментов пути в нормализованной форме (разделитель
+/** соединение сегментов пути в нормализованной форме (разделитель
  *  платформы — как в normalizePath, без хвостовых слэшей базового сегмента) */
 function joinNorm(base: string, name: string): string {
   return `${base.replace(/[\\/]+$/, "")}${pathSep()}${name}`;
@@ -1287,9 +1287,9 @@ function TagIcon() {
 }
 
 /**
- * Дерево файлов проекта (M4.2): ленивая загрузка папок через list_dir,
+ * Дерево файлов проекта : ленивая загрузка папок через list_dir,
  * раскрытие по клику, клик по файлу копирует абсолютный путь.
- * Файлы, изменённые агентом в активной задаче, помечаются точкой (M4.3).
+ * Файлы, изменённые агентом в активной задаче, помечаются точкой.
  */
 // F6: memo — во время стрима App перерисовывается на каждый флэш дельт,
 // а пропсы FileTree стабильны (root + мемоизированный modifiedFiles):
@@ -1328,7 +1328,7 @@ const FileTree = memo(function FileTree({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [root]);
 
-  // Git-статус для подсветки (M5.1): относительный путь → код porcelain.
+  // Git-статус для подсветки : относительный путь → код porcelain.
   // null — не git-repo, подсветки нет
   const [gitMap, setGitMap] = useState<Map<string, string> | null>(null);
   useEffect(() => {
@@ -1385,17 +1385,17 @@ const FileTree = memo(function FileTree({
       );
     }
     const rows = entries.map((e) => {
-      // D14: соединение через утилиту joinNorm (см. ниже) — явный бэкслэш
+      // соединение через утилиту joinNorm (см. ниже) — явный бэкслэш
       // в шаблоне держал соглашение normalizePath только неявно
       const childPath = joinNorm(path, e.name);
       const isOpen = open.has(childPath);
-      // Подсветка (M4.3): файл — точное совпадение пути, папка — если
+      // Подсветка : файл — точное совпадение пути, папка — если
       // внутри неё есть хоть один изменённый файл (по префиксу)
       const norm = normalizePath(childPath);
       const isModified = e.is_dir
         ? Array.from(modifiedFiles).some((p) => p.startsWith(`${norm}${pathSep()}`))
         : modifiedFiles.has(norm);
-      // Git-статус (M5.1): относительный путь внутри корня
+      // Git-статус : относительный путь внутри корня
       const relNorm = norm.startsWith(`${rootNorm}${pathSep()}`)
         ? norm.slice(rootNorm.length + 1)
         : norm;
@@ -1459,7 +1459,7 @@ const FileTree = memo(function FileTree({
         </div>
       );
     });
-    // Аудит: list_dir обрезает ответ до 500 записей молча — бекенд ставит
+    // list_dir обрезает ответ до 500 записей молча — бекенд ставит
     // флаг на последней записи, здесь честный маркер вместо тишины
     const last = entries[entries.length - 1];
     if (last?.truncated) {

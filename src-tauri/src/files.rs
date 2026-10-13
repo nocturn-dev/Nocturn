@@ -5,7 +5,7 @@ use base64::Engine as _;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
-/// Запись для дерева файлов (M4.2)
+/// Запись для дерева файлов
 #[derive(Debug, Serialize)]
 pub struct FileEntry {
     pub name: String,
@@ -21,7 +21,7 @@ pub struct FileEntry {
 pub(crate) const LIST_DIR_LIMIT: usize = 500; // максимум записей на папку в ответе
 pub(crate) const LIST_DIR_HARD_CAP: usize = 100_000; // защита от патологических каталогов
 
-/// Запись git-статуса (M5.1): относительный путь + двухсимвольный код porcelain
+/// Запись git-статуса: относительный путь + двухсимвольный код porcelain
 #[derive(Debug, Serialize)]
 pub struct GitEntry {
     pub path: String,
@@ -89,7 +89,8 @@ fn git_exec(cwd: &Path, args: &[&str], timeout: std::time::Duration) -> Result<S
     } else {
         // Ни кода выхода, ни таймаута: процесс убит сигналом (Unix) или не
         // запустился вовсе (proc пишет причину в stderr) — частичный stdout
-        // успехом не является (№17 аудита v5)
+        // успехом не является
+
         let err = out.stderr.trim().to_string();
         return Err(if err.is_empty() {
             format!(
@@ -103,7 +104,7 @@ fn git_exec(cwd: &Path, args: &[&str], timeout: std::time::Duration) -> Result<S
     Ok(out.stdout)
 }
 
-/// Дифф ветки для кнопки «Review» в шапке чата (PLAN §23): против базовой
+/// Дифф ветки для кнопки «Review» в шапке чата: против базовой
 /// ветки собирается stat + полный дифф, фронт скармливает его агенту
 /// как обычную задачу. Кодировка параметров: base идёт АРГУМЕНТОМ git
 /// (без шелла — инъекции нет), но грязные формы отсекаем до вызова
@@ -186,7 +187,7 @@ fn git_status_impl(path: String) -> Result<Vec<GitEntry>, String> {
     Ok(parse_porcelain_z(&text))
 }
 
-/// Разбор `git status --porcelain -z` (№14/№15 аудита v5): записи
+/// Разбор `git status --porcelain -z`: записи
 /// NUL-терминированы, пути отдаются RAW — формат не порождает ни кавычек,
 /// ни C-эскейпов (включая octal \NNN), поэтому весь класс «манглился путь
 /// с кавычками/эскейпами» отсутствует в принципе; у переименований нет и
@@ -292,7 +293,7 @@ pub(crate) fn collect_files(dir: &Path, root: &Path, files: &mut Vec<CheckpointF
 
 const CP_MAX_DEPTH: usize = 32;
 
-/// Чувствительное имя на ЛЮБОМ компоненте rel (аудит A1-4). Тот же класс,
+/// Чувствительное имя на ЛЮБОМ компоненте rel. Тот же класс,
 /// что у perm для fs_* — один источник правды, второй список не заводится.
 /// Разделители нормализуются к нативному: root с «/» на Windows даёт
 /// смешанный rel, который is_sensitive_path иначе не разобрал бы
@@ -343,7 +344,8 @@ pub(crate) fn collect_files_at(
                 Ok(r) => r.to_string_lossy().to_string(),
                 Err(_) => continue,
             };
-            // Секрет-гард снимка (аудит A1-4): вложенные .env/.ssh/id_rsa/*.pem
+            // Секрет-гард снимка: вложенные .env/.ssh/id_rsa/*.pem
+
             // раньше уезжали в снапшот base64-ом и читались через
             // checkpoint_files мимо perm-гардов (старый фильтр отсекал
             // только top-level точку)
@@ -470,7 +472,7 @@ fn hide_console_window(cmd: &mut std::process::Command) {
 /// Синхронный — вызывается только из spawn_blocking. Таймаут через
 /// proc::run_command_opts: зависший git (сетевой HOME, fsmonitor-хелпер,
 /// антивирус) раньше вечно держал blocking-поток и checkpoint_save
-/// (аудит A1-2 — git_exec был починен, git_run остался)
+/// (починен, git_run остался)
 fn git_run(
     idx_dir: &Path,
     root: &Path,
@@ -524,7 +526,8 @@ fn git_run(
         return Err(format!("git {} timed out", args.first().unwrap_or(&"?")));
     } else {
         // Ни кода, ни таймаута — убит сигналом/не запустился: частичный
-        // stdout успехом не является (№17 аудита v5)
+        // stdout успехом не является
+
         return Err(format!(
             "git {} was killed by a signal or failed to start: {}",
             args.first().unwrap_or(&"?"),
@@ -798,7 +801,7 @@ fn checkpoint_restore_impl(
     let mut restored = 0usize;
     for f in &store.files {
         // Легаси-снимок мог содержать секреты до секрет-гарда collect:
-        // restore их не переписывает в дерево (аудит A1-4)
+        // restore их не переписывает в дерево
         if rel_sensitive(&f.rel) {
             continue;
         }
@@ -883,7 +886,8 @@ pub async fn checkpoint_files(
         let mut out = Vec::new();
         for f in &store.files {
             // Легаси-снимок мог содержать секреты до секрет-гарда collect:
-            // expose их не отдаёт (аудит A1-4)
+            // expose их не отдаёт
+
             if rel_sensitive(&f.rel) {
                 continue;
             }
@@ -1059,7 +1063,7 @@ mod list_dir_tests {
 mod checkpoint_secret_tests {
     use super::*;
 
-    /// Аудит A1-4: вложенные секреты не попадают в снимок; .gitignore и
+ /// вложенные секреты не попадают в снимок; .gitignore и
     /// прочие несекретные dot-файлы — остаются (класс один с perm)
     #[test]
     fn collect_skips_nested_sensitive_files() {
@@ -1148,7 +1152,7 @@ mod git_status_tests {
 
     #[test]
     fn porcelain_z_rename_takes_new_path_and_consumes_orig() {
-        // №15: в -z стороны переименования не склеиваются « -> », разбор не
+        // В -z стороны переименования не склеиваются « -> », разбор не
         // ломается даже на пути, СОДЕРЖАЩЕМ стрелку (возможен на Unix);
         // формат: XY SP new\0old\0 — новый путь первым, old потребляется
         let text = "R  a -> b.txt\0old name.txt\0M  plain.txt\0";
@@ -1162,7 +1166,7 @@ mod git_status_tests {
 
     #[test]
     fn porcelain_z_paths_are_raw() {
-        // №14: не-ASCII приходит байтами UTF-8 без кавычек и octal-эскейпов;
+        // Не-ASCII приходит байтами UTF-8 без кавычек и octal-эскейпов;
         // кавычки в имени файла — часть пути, а не git-цитирование
         let text = "?? \u{444}\u{430}\u{439}\u{43b}.txt\0A  \"quoted\".txt\0";
         let entries = parse_porcelain_z(text);

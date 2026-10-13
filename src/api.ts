@@ -217,7 +217,7 @@ export interface ChatMsgParam {
 
 let cachedSchemas: unknown = null;
 
-/** M3: OpenAI-схемы инструментов агента (+ инструменты MCP-серверов).
+/** OpenAI-схемы инструментов агента (+ инструменты MCP-серверов).
     Кэш сбрасывается при изменении набора соединений — вызов дешёвый. */
 export async function getToolSchemas(): Promise<unknown> {
   if (!inTauri) {
@@ -227,7 +227,7 @@ export async function getToolSchemas(): Promise<unknown> {
   // send платил лишний IPC-раундтрип. Читаем до invoke; invalidateToolSchemas
   // снова обретает смысл.
   if (cachedSchemas !== null) return cachedSchemas;
-  // Волна F4: deferred-режим схем (дефолт ON, тумблер в McpSection)
+  // deferred-режим схем (дефолт ON, тумблер в McpSection)
   cachedSchemas = await invoke<unknown>("get_tool_schemas", {
     deferred: localStorage.getItem(STORAGE_KEYS.mcpDeferred) !== "0",
   });
@@ -238,7 +238,7 @@ export function invalidateToolSchemas(): void {
   cachedSchemas = null;
 }
 
-/** M3: исполнение инструмента агента в Rust. requestId связывает вызов с
+/** Исполнение инструмента агента в Rust. requestId связывает вызов с
  * прогоном: Stop поднимает флаг отмены и Rust убивает процесс немедленно.
  * disabledTools — чёрный список задачи: сервер отклонит скрытый инструмент,
  * даже если схема просочилась в запрос (субагенты наследуют список) */
@@ -263,7 +263,7 @@ export async function runTool(
 export async function permSet(
   mode: string,
   roots: string[],
-  /** Волна E1: персистентные правила (валидация fail-closed на бекенде);
+  /** персистентные правила (валидация fail-closed на бекенде);
    *  snake_case always_ask — контракт serde-структуры perm.rs */
   rules?: { allow: string[]; deny: string[]; always_ask: string[] },
 ): Promise<void> {
@@ -344,7 +344,7 @@ export interface ChatUsage {
   completion: number;
   total: number;
   /** Причина остановки раунда: "length"/"max_tokens" — ответ оборван лимитом
-   *  вывода (волна G: авто-продолжение). Нет у оценочных путей */
+   *  вывода (авто-продолжение). Нет у оценочных путей */
   stopReason?: string;
   /** Токены, прочитанные провайдером из промпт-кэша ([P2]). undefined —
    *  провайдер кэш-статистику не отдал */
@@ -372,7 +372,7 @@ export async function chatStream(opts: {
   apiKey: string;
   model: string;
   messages: ChatMsgParam[];
-  /** Определения инструментов для агентного режима (M2) */
+  /** Определения инструментов для агентного режима */
   tools?: unknown;
   /** Усилие размышлений: "off"/null — не отправлять провайдеру */
   reasoningEffort?: "off" | "low" | "high" | "max";
@@ -565,7 +565,7 @@ export async function detectLocalRuntimes(): Promise<LocalRuntimes> {
   return invoke<LocalRuntimes>("detect_local_runtimes");
 }
 
-/* === GGUF Lab (PLAN §28, шаг 2: скачивание/экспорт; шаг 3c: резка) === */
+/* === GGUF Lab: скачивание/экспорт моделей и резка === */
 
 /** Прогресс конвейера GGUF Lab — событие gguf-progress */
 export interface GgufProgress {
@@ -594,7 +594,7 @@ export interface GgufExported {
   sizeBytes: number;
 }
 
-/** Сводка post-flight гейта резки (§6.2) */
+/** Сводка post-flight гейта резки */
 export interface GgufPostflight {
   tensorsChecked: number;
   bytesCompared: number;
@@ -744,7 +744,7 @@ export interface GgufLayerInfo {
   hasNextn: boolean;
 }
 
-/** Флаги арха — вход политики резки (§6.3) */
+/** Флаги арха — вход политики резки */
 export interface GgufFlags {
   swa: boolean;
   moe: boolean;
@@ -811,7 +811,7 @@ export async function saveProjectSessions(root: string, data: string): Promise<v
   return invoke("save_project_sessions", { root, data });
 }
 
-// ---------- M4.2: файловый менеджер ----------
+// ---------- Файловый менеджер ----------
 
 export interface FileEntry {
   name: string;
@@ -873,7 +873,7 @@ export async function listDir(path: string): Promise<FileEntry[]> {
   return invoke<FileEntry[]>("list_dir", { path });
 }
 
-/** Git-статус папки (M5.1): относительный путь + код porcelain. null — не git-repo */
+/** Git-статус папки: относительный путь + код porcelain. null — не git-repo */
 export interface GitEntry {
   path: string;
   code: string;
@@ -888,7 +888,7 @@ export async function gitStatus(path: string): Promise<GitEntry[] | null> {
   }
 }
 
-/** Дифф ветки против базы — кнопка «Review» в шапке чата (PLAN §23) */
+/** Дифф ветки против базы — кнопка «Review» в шапке чата */
 export interface BranchDiff {
   branch: string;
   base: string;
@@ -1042,7 +1042,7 @@ export async function onQuickEntryTask(
   return await listen<string>("quickentry-task", (e) => cb(e.payload));
 }
 
-/** Команда из Telegram: текст владельца или нажатие inline-кнопки */
+/** Команда из Telegram: текст пользователя или нажатие inline-кнопки */
 export type TelegramCommand =
   | { type: "text"; text: string }
   | { type: "callback"; data: string };
@@ -1148,7 +1148,7 @@ export async function networkSetConfig(cfg: NetworkConfig): Promise<void> {
   await invoke("network_set_config", { config: cfg });
 }
 
-// ---------- M6: интерактивный PTY-терминал ----------
+// ---------- Интерактивный PTY-терминал ----------
 
 export async function ptyCreate(
   id: string,
@@ -1169,7 +1169,7 @@ export async function ptyWrite(id: string, data: string): Promise<void> {
   return invoke("pty_write", { id, data });
 }
 
-/** D7: ресайз PTY под текущий размер панели (сигнал SIGWINCH для шелла) */
+/** Ресайз PTY под текущий размер панели (сигнал SIGWINCH для шелла) */
 export async function ptyResize(
   id: string,
   cols: number,
@@ -1273,8 +1273,8 @@ export interface McpServerCfg {
   url?: string;
   /** Заголовки запроса (Authorization: Bearer …) — токены доступа */
   headers?: Record<string, string>;
-  /** Волна F5: "oauth" — браузерная авторизация; никакой автоконнект,
-   *  запросы только после кнопки Authorize (оговорка владельца) */
+  /** "oauth" — браузерная авторизация; никакого автоконнекта,
+   *  запросы только после явной кнопки Authorize */
   auth?: string;
   /** Статический client_id (если провайдер не даёт Dynamic Registration) */
   client_id?: string;
@@ -1332,7 +1332,7 @@ export async function mcpStatus(): Promise<McpServerStatus[]> {
   return invoke<McpServerStatus[]>("mcp_status");
 }
 
-/** Волна F5: авторизация oauth-сервера (единственный триггер сети) */
+/** авторизация oauth-сервера (единственный триггер сети) */
 export async function mcpOauthAuthorize(name: string): Promise<string> {
   if (!inTauri) {
     throw new Error("OAuth работает в нативном приложении (npm run tauri dev)");
@@ -1340,7 +1340,7 @@ export async function mcpOauthAuthorize(name: string): Promise<string> {
   return invoke<string>("mcp_oauth_authorize", { name });
 }
 
-/** Волна F5: отозвать доступ (revoke + очистка локальных токенов) */
+/** отозвать доступ (revoke + очистка локальных токенов) */
 export async function mcpOauthRevoke(name: string): Promise<void> {
   if (!inTauri) {
     throw new Error("OAuth работает в нативном приложении (npm run tauri dev)");
@@ -1469,7 +1469,7 @@ export interface TelegramConfig {
   enabled: boolean;
   /** Токен от @BotFather; на диске — зашифрованным, в экспорте — пусто */
   botToken: string;
-  /** chat_id владельца: привязывается первым /start боту */
+  /** chat_id пользователя: привязывается первым /start боту */
   chatId: string;
   notifyStart: boolean;
   notifyFinish: boolean;
@@ -2049,7 +2049,7 @@ export async function importFetchUrl(url: string): Promise<string> {
  *  capability opener:default разрешает только http/https/mailto — экзотические
  *  схемы честно падают на уровне ACL. */
 export function openExternal(url: string): Promise<void> {
-  // Браузерное превью: системный аналог вместо raw-ошибки invoke (аудит A5-7)
+  // Браузерное превью: системный аналог вместо raw-ошибки invoke
   if (!inTauri) {
     window.open(url, "_blank", "noopener,noreferrer");
     return Promise.resolve();
@@ -2073,7 +2073,7 @@ export interface MediaStateDto {
 }
 
 export function mediaStatus(): Promise<MediaStateDto | null> {
-  // Браузерное превью: плеера нет — «ничего играет», минибар молчит (A5-7)
+ // Браузерное превью: плеера нет — «ничего играет», минибар молчит 
   if (!inTauri) return Promise.resolve(null);
   return invoke("media_status");
 }
@@ -2289,8 +2289,8 @@ export interface KbHit {
   score: number;
 }
 
-/** Трасса последней RAG-инъекции (дебаг «почему не нашёл», PLAN §24 ш.3):
- *  failed — kbQuery упал (KB-H2 тост); hits пуст при failed=false — честное
+/** Трасса последней RAG-инъекции (дебаг «почему не нашёл»):
+ *  failed — kbQuery упал (покажется тост об ошибке); hits пуст при failed=false — честное
  *  «нет совпадений» */
 export interface KbTrace {
   kbId: string;

@@ -96,7 +96,7 @@ export function ThemeSection({
   const [profileMenu, setProfileMenu] = useState<{ x: number; y: number; id: string } | null>(null);
   const [profileRenamingId, setProfileRenamingId] = useState<string | null>(null);
   const [profileRenameDraft, setProfileRenameDraft] = useState("");
-  // Конструктор собственных тёмных стилей (идея №3): список + редактор
+  // Конструктор собственных тёмных стилей: список + редактор
   const [customStyles, setCustomStyles] = useState<CustomStyleDef[]>(() => loadCustomStyles());
   const [editor, setEditor] = useState<{ draft: CustomStyleDef; isNew: boolean } | null>(null);
   // Двухшаговое удаление чипа: первый клик — подсветка, второй — удаление
@@ -294,7 +294,7 @@ export function ThemeSection({
     { id: "quartz", key: "themes.styleQuartz" },
   ];
   // Активный профиль: theme и appearance полностью совпадают с текущими.
-  // D18: поэлементная сверка вместо JSON.stringify — порядок ключей объекта
+  // Поэлементная сверка вместо JSON.stringify — порядок ключей объекта
   // не должен влиять (изменение пути мутации гасило чип активности)
   const appearanceEqual = (a: typeof appearance, b: typeof appearance) =>
     Object.keys({ ...a, ...b }).every(
@@ -864,7 +864,7 @@ export function ThemeSection({
 
       {/* Палитра/геометрия/шрифты — часть гейта выше: при жёстких темах
           (Official/Full Claude) скрыты целиком, у темы свои акцент,
-          скругления и шрифты — иначе задваивалось (фидбек владельца) */}
+          скругления и шрифты — иначе задваивалось */}
       <p className="mb-2 mt-6 text-[0.625rem] font-semibold uppercase tracking-[0.14em] text-halo-muted/60">{t("themes.gPalette")}</p>
 
       {/* Стиль тёмной темы: выпадающий список с живым превью выбранного */}
@@ -897,7 +897,7 @@ export function ThemeSection({
         </div>
       </div>
 
-      {/* Свои стили (конструктор, идея №3): чипы + редактор с живым превью.
+      {/* Свои стили (конструктор): чипы + редактор с живым превью.
           Пустой список — блок остаётся, но без чипов: точка входа всегда видна */}
       <div className="mb-4 rounded-xl border border-halo-line px-3.5 py-3">
         <div className="flex items-center justify-between gap-3">
@@ -1064,7 +1064,7 @@ export function ThemeSection({
         </label>
       </div>
       {/* Акцент-градиент: opt-in, только заливка bg-элементов.
-          Обводка-карточка — как у остальных блоков секции (фидбек 26.09) */}
+          Обводка-карточка — как у остальных блоков секции */}
       <div className="mt-2.5 rounded-xl border border-halo-line px-3.5 py-3">
         <ToggleRow
           label={t("themes.accentGradient")}
@@ -1453,7 +1453,7 @@ export function ThemeSection({
       </div>
 
       {/* Подсветка кода: компактный блок — темы с мини-превью реальных цветов
-          вместо двух громоздких карточек (фидбек 26.09). В Full Claude
+          вместо двух громоздких карточек. В Full Claude
           подсветка своя (midnight) — карточка скрыта вместе с секцией */}
       <div className="mt-4 rounded-xl border border-halo-line px-3.5 py-3">
         <div className="flex items-center justify-between gap-3">

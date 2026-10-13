@@ -3,13 +3,12 @@ import { highlightLine, langFromPath } from "./highlight";
 
 // Золотые векторы подсветки (правило 7): DiffView/ToolStepCard рендерят
 // результат через dangerouslySetInnerHTML — регресс экранирования/языка
-// инжектил бы разметку молча (аудит 2026-10-04)
+// инжектил бы разметку молча
 describe("highlight — золотые векторы", () => {
   it("langFromPath: расширения и отказы", () => {
     expect(langFromPath("src/App.tsx")).toBe("typescript");
     // Windows-разделители: \\ обязательны — одинарные \p/\m JS съедал,
     // вектор превращался в «C:projmain.rs» и split(/[\\/]/) не покрывался
-    // (№12 аудита v5)
     expect(langFromPath("C:\\proj\\main.rs")).toBe("rust");
     expect(langFromPath("C:\\proj\\sub dir\\util.go")).toBe("go");
     expect(langFromPath("src/lib/util.go")).toBe("go");

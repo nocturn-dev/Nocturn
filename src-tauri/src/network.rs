@@ -41,7 +41,7 @@ pub fn config() -> NetworkConfig {
 const CA_MAX_BYTES: u64 = 8 * 1024 * 1024;
 
 /// Чтение корневого сертификата по пользовательскому пути. Смена якоря
-/// доверия TLS ВСЕХ исходящих вызовов приложения (аудит A1-5): путь с
+/// доверия TLS ВСЕХ исходящих вызовов приложения: путь с
 /// фронтенда проходит общий sensitive-гардал и канонизацию с ревалидацией
 /// (симлинк не уводит чтение в защищённую локацию). Err хранится в CA_PEM
 /// и всплывает при первом же apply() — запрос не уйдёт молча в обход
@@ -117,8 +117,8 @@ pub fn apply(builder: reqwest::ClientBuilder) -> Result<reqwest::ClientBuilder, 
     if !cfg.proxy.trim().is_empty() {
         let mut proxy = reqwest::Proxy::all(cfg.proxy.trim())
             .map_err(|e| format!("invalid proxy URL: {e}"))?;
-        // Аудит network 327: без no_proxy запросы к Ollama/LM Studio/
         // llama-server на 127.0.0.1 уходили через корпоративный прокси и
+     // llama-server
         // не работали. Локальные адреса обходят прокси по умолчанию
         let no_proxy = if cfg.no_proxy.trim().is_empty() {
             "localhost,127.0.0.1,::1".to_string()

@@ -167,7 +167,7 @@ export function ApiSection({
     setProfSaved(true);
     window.setTimeout(() => setProfSaved(false), 2000);
   };
-  // D9: автотест соединения срабатывает по blur (и на открытии раздела),
+  // Автотест соединения срабатывает по blur (и на открытии раздела),
   // а не на каждый keystroke API-ключа: раньше каждый символ после 700 мс
   // улетал сетевым запросом к провайдеру с полным ключом
   const lastTestedRef = useRef<string | null>(null);
@@ -387,7 +387,7 @@ export function ApiSection({
               // openai-responses — проводной формат (импорт config.toml),
               // providerFromBaseUrl его не выводит: без гарда один keystroke
               // в Base URL молча возвращал чат-провод и Responses-провайдер
-              // ломался на /chat/completions (аудит A5-1). Смена провода —
+              // ломался на /chat/completions. Смена провода —
               // через чипы пресетов, не через правку URL
               provider:
                 settings.provider === "openai-responses"
@@ -622,7 +622,7 @@ export function ApiSection({
         )}
       </div>
 
-      {/* GGUF Lab (§28): тихий вход — не бросается в глаза, но не пропустить */}
+      {/* GGUF Lab: тихий вход — не бросается в глаза, но не пропустить */}
       <button
         onClick={onOpenGgufLab}
         className="mb-4 flex w-full items-center gap-2 rounded-lg border border-halo-line px-3 py-2 text-left transition-colors hover:bg-halo-hover"

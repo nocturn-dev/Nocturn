@@ -1,5 +1,5 @@
 /**
- * Хелперы аргументов инструментальных вызовов (PLAN §24 шаг 4б) — вынесены
+ * Хелперы аргументов инструментальных вызовов — вынесены
  * из useAgentRun без изменения поведения: чистые функции, тестируемые
  * таблично. Ни один из них не знает про React/стейт.
  */
@@ -18,7 +18,7 @@ export function parseHttpCode(raw: string): number | null {
  *  содержит пробелов, поэтому первый пробел однозначно делит ключ */
 export const allowKey = (call: ToolCallInfo) => `${call.name} ${call.arguments}`;
 
-/** Волна E1: аргумент матчинга правил — команда shell_run / путь fs_*;
+/** аргумент матчинга правил — команда shell_run / путь fs_*;
  *  bare-правила матчат инструмент и без аргумента */
 export const ruleArgument = (call: ToolCallInfo): string | null => {
   try {

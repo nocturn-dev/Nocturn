@@ -321,7 +321,6 @@ export function MainSection({
   // его при старте (App читает prefs до монтирования настроек).
   // Дефолт дублируется бекендом (lib.rs setup/restore) — держать синхронно;
   // ctrl+shift, не ctrl+alt: AltGr+Space на AZERTY — типографский пробел
-  // (аудит A3-6)
   const [qeBind, setQeBind] = useState<string>(
     () => localStorage.getItem(STORAGE_KEYS.quickentryBind) ?? "ctrl+shift+space",
   );
@@ -1041,7 +1040,6 @@ export function MainSection({
                 // (<style id="halo-custom-css">, img-src допускает https):
                 // тот же класс честного confirm, что у исполняемых конфигов
                 // выше — асимметрии «hooks/mcp спрашиваем, CSS нет» больше нет
-                // (аудит A5-6)
                 const css = data.local?.[STORAGE_KEYS.customCss];
                 if (typeof css === "string" && css.trim()) {
                   if (
@@ -1090,7 +1088,8 @@ export function MainSection({
               onClean={() => void cleanStorage("images")}
             />
             {/* GGUF Lab: экспорты/результаты/бинарь — гигабайты; бинарь
-                скачивается кнопкой заново (аудит 07.10 A1-12) */}
+                скачивается кнопкой заново */}
+
             <StorageRow
               label={t("main.storageGguf")}
               bytes={stats.gguf}

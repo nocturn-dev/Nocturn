@@ -88,7 +88,7 @@ export function LangProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.lang, lang);
   }, [lang]);
-  // D20: lang у <html> синхронно с локалью — скринридеры и IME раньше
+  // lang у <html> синхронно с локалью — иначе скринридеры и IME
   // получали захардкоженный ru при любой выбранной языке
   useEffect(() => {
     document.documentElement.lang = lang === "zh" ? "zh-CN" : lang;

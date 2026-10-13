@@ -49,7 +49,7 @@ const steps = [
   { name: "vitest", cmd: "npx", args: ["vitest", "run"], cwd: ROOT },
 ];
 
-/** A7-2 (аудит 06.10): pre-commit гонял только JS-слой — красный cargo test
+/** pre-commit гонял только JS-слой — красный cargo test
  *  (протухший счётчик tool_schemas_valid) пережил два коммита. cargo test в
  *  fast — но ТОЛЬКО когда rust-дерево реально трогается (индекс pre-commit
  *  или рабочее дерево): на тёплом кэше это секунды, холодный первый прогон —

@@ -1,5 +1,5 @@
 /**
- * Субагенты (M1): изолированные агентные прогоны с ролью, своим контекстом
+ * Субагенты: изолированные агентные прогоны с ролью, своим контекстом
  * и allowlist-ом инструментов. Главный агент вызывает их инструментом
  * subagent_run({ role, task }); итоговый отчёт возвращается как tool result.
  * Глубина ровно 1: субагенту схема subagent_run не выдаётся.
@@ -124,7 +124,7 @@ export interface SubagentRunOpts {
   baseUrl: string;
   apiKey: string;
   model: string;
-  /** Живые события шагов (для UI-карточки в M2) */
+  /** Живые события шагов (для UI-карточки) */
   onStep?: (step: SubagentStep) => void;
   /** Usage каждого шага — наверх, в копилку Hard Limit главной задачи */
   onUsage?: (usage: { prompt: number; completion: number; total: number }) => void;
@@ -279,7 +279,7 @@ export function mergeRoles(stored: SubagentRole[]): SubagentRole[] {
 /** Последний фолбэк обеих цепочек выбора роли: SUBAGENT_ROLES непустой
  *  по построению, но строгие индексы требуют явности. Жил литералом в
  *  ДВУХ местах useAgentRun (subagent_run и workflow_run) — при изменении
- *  списка ролей копии разъезжались (PLAN §24 ш.4в) */
+ *  списка ролей копии разъезжались */
 export const FALLBACK_ROLE: SubagentRole = {
   id: "researcher",
   name: "Researcher",

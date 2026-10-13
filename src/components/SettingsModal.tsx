@@ -193,7 +193,7 @@ interface SettingsModalProps {
   onChangeJailbreaks: (list: JailbreakEntry[]) => void;
   onApplyJailbreak: (entry: JailbreakEntry) => "task" | "new";
   localRuntimes: LocalRuntimes;
-  /** Allowlist активной задачи (M5.2) + её название */
+  /** Allowlist активной задачи + её название */
   allowedCommands: string[];
   allowedCommandsTitle: string | null;
   /** Разрешённые команды всех задач — глобальный просмотр на вкладке Agent */
@@ -479,7 +479,6 @@ export default function SettingsModal({
   // нельзя (reflow всего контента каждый кадр = дёрганье). Гейт ЕДИНЫЙ —
   // withViewTransition из motion.ts: локальная копия гейта не знала про
   // ручной тумблер «Motion: Reduced» и морф анимировался вопреки ему
-  // (аудит А6-2)
   const setExpandedSmooth = (next: boolean) => {
     withViewTransition(() => setExpanded(next));
   };
@@ -530,7 +529,7 @@ export default function SettingsModal({
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        // D11: не гасим модалку, пока фокус в поле ввода — черновик длинного
+        // Не гасим модалку, пока фокус в поле ввода — черновик длинного
         // текста (промт роли, заметка, форма автоматизации) терялся без спроса
         const tgt = e.target as HTMLElement | null;
         if (tgt && (tgt.tagName === "INPUT" || tgt.tagName === "TEXTAREA" || tgt.isContentEditable)) return;

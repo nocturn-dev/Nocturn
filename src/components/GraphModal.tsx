@@ -288,7 +288,7 @@ export default function GraphModal({ notes, onOpenNote, onClose }: GraphModalPro
   }, []);
   const dragNode = useRef<number | null>(null);
   // Экранные координаты старта перетаскивания: порог «двигал/не двигал»
-  // для click (аудит А4-1 — drag всегда доигрывал click)
+  // для click (оигрывал click)
   const dragStart = useRef<{ x: number; y: number } | null>(null);
   const panning = useRef(false);
   const panStart = useRef({ x: 0, y: 0, tx: 0, ty: 0 });
@@ -488,7 +488,8 @@ export default function GraphModal({ notes, onOpenNote, onClose }: GraphModalPro
                     onClick={(e) => {
                       // Порог перетаскивания ~4px: mousedown и mouseup на
                       // одном элементе всегда диспетчеризуют click, и drag
-                      // узла закрывал граф, открывая заметку (аудит А4-1)
+                      // узла закрывал граф, открывая заметку
+
                       const st = dragStart.current;
                       if (
                         st &&

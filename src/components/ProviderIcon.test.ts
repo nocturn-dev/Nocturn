@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { brandName, matchBrand } from "./ProviderIcon";
 
 /**
- * Волна иконок-фиксов: матчинг бренда стал двухступенчатым. Раньше семья
+ * Матчинг бренда стал двухступенчатым. Раньше семья
  * бралась точным ключом «до слэша» — бесслэшные id кастомных провайдеров
  * (claude-3-5-haiku) и вариации OpenRouter (meta-llama, x-ai) рисовали
  * букву-заглушку вместо имеющихся в бандле SVG.
@@ -40,7 +40,7 @@ describe("matchBrand", () => {
   it("нишевый вендор — null (буква-аватар), но его модели с известными именами ловятся", () => {
     // семья ashna — неизвестна
     expect(matchBrand("ashna/custom-model")).toBeNull();
-    // но модели на ней — известные бренды (главный кейс со скринов)
+    // но модели на ней — известные бренды (главный кейс)
     expect(matchBrand("gpt-6-astra")?.slug).toBe("openai");
     expect(matchBrand("claude-3-7-sonnet")?.slug).toBe("anthropic");
   });

@@ -53,8 +53,8 @@ export function QuickEntry() {
     // body красим цветом темы: на X11-фолбэке вместо прозрачности был бы
     // чёрный прямоугольник. Цена: на Wayland с поддержкой transparent:true
     // окно тоже непрозрачное — парящая панель выглядит сплошной карточкой
-    // (аудит 07.10 A3-9: комментарий раньше обещал обратное); гейт по
-    // XDG_SESSION_TYPE — если владельцу понадобится Wayland-прозрачность
+ // (поймано комментарий раньше обещал обратное); гейт по
+    // XDG_SESSION_TYPE — прозрачность на Wayland можно добавить при нужде
     document.body.style.background =
       getPlatform() === "linux"
         ? `var(--halo-bg, ${STYLE_PALETTES.claude.dark.deep})`

@@ -65,7 +65,7 @@ const WS_SOFT_TIMEOUT: Duration = Duration::from_secs(3);
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 // rename_all обязателен: фронт шлёт/читает allowPrivateNetworks
 // (api.ts BrowserConfig) — без camelCase SSRF-тумблер не применялся никогда
-// и всегда рисовался выключенным (аудит А5-1)
+// и всегда рисовался выключенным
 #[serde(rename_all = "camelCase")]
 pub struct BrowserConfig {
     /// Browser Use по умолчанию выключен — включается явно в настройках
@@ -297,7 +297,7 @@ fn http_get_json(port: u16, path: &str) -> Result<String, String> {
     // перехвативший порт, может слать байты без \r\n\r\n — без капа буфер
     // рос бы до исчерпания памяти. Поиск разделителя идёт только в новых
     // байтах (отступ 3 на стык чанков): пересканирование всего буфера на
-    // каждом чанке — квадратичная работа (аудит 38/45)
+    // каждом чанке — квадратичная работа
     const CDP_HEADER_MAX_BYTES: usize = 64 * 1024;
     let mut scanned = 0usize;
     let header_end = loop {
@@ -483,7 +483,7 @@ pub struct BrowserConnection {
     /// Отдельный ws-канал для мягких запросов (кадры живого просмотра, смена
     /// вьюпорта): они не делят мьютекс с жёсткими агентскими вызовами, иначе
     /// «3 с» и «15 с» не начинали отсчёт до освобождения основного канала
-    /// (аудит 37/44). Создаётся лениво, при первом мягком запросе
+    /// Создаётся лениво, при первом мягком запросе
     soft: Mutex<Option<Ws>>,
     soft_next_id: AtomicU64,
 }
@@ -491,7 +491,6 @@ pub struct BrowserConnection {
 /// Итог шага запуска: различаем «порт ещё не отвечает» (TOCTOU-перехват порта,
 /// есть смысл на вторую попытку) и всё остальное. Раньше ретрай решался по
 /// подстрокам текста ошибки — переименование сообщения молча его ломало
-/// (аудит 41)
 enum BuildFailure {
     Retryable(String),
     Fatal(String),
@@ -504,7 +503,7 @@ impl BrowserConnection {
         let exe = find_browser_executable().ok_or_else(|| {
             // Свой путь, которого нет, — это не «нет браузера»: сообщение
             // должно указывать на настройку, иначе пользователь ставит Edge
-            // поверх уже указанного (и битого) пути (аудит 50)
+            // поверх уже указанного (и битого) пути
             let configured = cfg.executable.trim();
             if configured.is_empty() {
                 "Browser not found: install Edge or Chrome, or set HALOUI_BROWSER to the browser executable.".to_string()
@@ -544,7 +543,7 @@ impl BrowserConnection {
             }
             let mut command = Command::new(&exe);
             // stdout/stderr явно в null: логи Chromium иначе лились бы в
-            // консоль GUI-приложения (аудит 42). Диагностика запуска — в наших
+            // консоль GUI-приложения. Диагностика запуска — в наших
             // структурированных ошибках
             command
                 .args(&browser_args)
@@ -663,7 +662,7 @@ impl BrowserConnection {
     /// страницы убивал соединение и ломал инструменты агента. Отдельный канал
     /// нужен, чтобы мягкий дедлайн отсчитывался сразу: на общем мьютексе он
     /// ждал бы освобождения жёсткого запроса (до 120 с), и «3 с» ничего бы
-    /// не ограничивали (аудит 37/44)
+    /// не ограничивали
     fn request_soft(&self, method: &str, params: Value) -> Result<Value, String> {
         if self.is_dead() || !self.child_alive() {
             return Err("browser connection is closed".into());
@@ -683,7 +682,7 @@ impl BrowserConnection {
             Err(err) => {
                 // Кэш сокета сбрасываем — следующий кадр переподключится сам.
                 // dead не трогаем: сбой мягкого канала не должен убивать
-                // агентскую сессию (семантика прежняя, аудит A2-5)
+                // агентскую сессию (семантика прежняя)
                 *slot = None;
                 Err(match err {
                     WsError::Timeout => format!("{method} timed out (soft)"),
@@ -697,7 +696,7 @@ impl BrowserConnection {
     /// убивает соединение). wait_ready опрашивает readyState в своём
     /// NAV_TIMEOUT-цикле — жёсткий 120-с WS-дедлайн каждого evaluate
     /// растягивал «20-секундную» навигацию до 120 с на stalled-пире
-    /// (аудит A2-5). Канал основной: вызов идёт внутри своей же операции,
+    /// Канал основной: вызов идёт внутри своей же операции,
     /// конкурировать за мьютекс не с кем (отдельный «мягкий» канал — только
     /// для фоновой трансляции и смены вьюпорта)
     fn evaluate_soft(&self, expression: &str, timeout: Duration) -> Result<Value, String> {
@@ -774,7 +773,7 @@ impl BrowserConnection {
         loop {
             // Мягкий кап на один evaluate: 15 с хватит любому живому рендереру
             // на «document.readyState»; stalled-пир отдаёт ошибку вызову вместо
-            // удержания ws-мьютекса до 120 с (аудит A2-5)
+            // удержания ws-мьютекса до 120 с
             let state = self
                 .evaluate_soft("document.readyState", Duration::from_secs(15))?
                 .as_str()
@@ -802,7 +801,7 @@ impl BrowserConnection {
 
     /// Гард перед отдачей содержимого страницы: входной фильтр проверяет
     /// только URL навигации, а редирект или клик по ссылке уводят браузер
-    /// куда угодно (аудит 54). Сверяем фактический location.href; нарушителя
+    /// куда угодно. Сверяем фактический location.href; нарушителя
     /// уводим на about:blank, чтобы контент не утёк следующим вызовом
     fn ensure_page_allowed(&self) -> Result<(), String> {
         let href = self.evaluate("location.href")?;
@@ -859,7 +858,8 @@ impl BrowserConnection {
                 // CDP снимает свой override («0 disables the override», спека
                 // Emulation.setDeviceMetricsOverride), и инвариант «скриншот 1:1
                 // к CSS-пикселям» держался бы только на флаге
-                // --force-device-scale-factor=1 (аудит 40)
+                // --force-device-scale-factor=1
+
                 self.request_soft(
                     "Emulation.setDeviceMetricsOverride",
                     json!({ "width": w, "height": h, "deviceScaleFactor": 1, "mobile": false }),
@@ -1020,7 +1020,7 @@ const REF_FOCUS_JS_TEMPLATE: &str = r#"
   return JSON.stringify({ focused: el.tagName.toLowerCase() });
 })()"#;
 
-/// Активный редактируемый элемент для Input.insertText (аудит 57).
+/// Активный редактируемый элемент для Input.insertText.
 /// Shadow DOM: document.activeElement — хост, спускаемся внутрь;
 /// isContentEditable проверяется ДО тега — body в редакторах вроде
 /// Google Docs сам editable и обязан считаться валидной целью
@@ -1204,7 +1204,7 @@ pub fn browser_tool_schemas() -> Value {
 
 /// Имена инструментов, которые обрабатывает execute_on. Держатся синхронными
 /// со схемами тестом browser_schemas_match_dispatch: схема и диспетчер раньше
-/// могли разъехаться молча (аудит 60)
+/// могли разъехаться молча
 const DISPATCHED_TOOLS: &[&str] = &[
     "browser_navigate",
     "browser_read",
@@ -1236,7 +1236,7 @@ fn is_navigable_url(url: &str, allow_private_networks: bool) -> bool {
 
 /// Заблокирован ли ФАКТИЧЕСКИЙ URL страницы (то, что в location.href):
 /// входной фильтр проверяет только аргумент навигации, а редирект или клик
-/// по ссылке уводят браузер куда угодно (аудит 54). about:* — не страница
+/// по ссылке уводят браузер куда угодно. about:* — не страница
 /// (утечки нет), не-http(s) схемы — fail closed (file:, chrome:, ...)
 fn page_url_blocked(href: &str, allow_private_networks: bool) -> bool {
     let lower = href.trim().to_ascii_lowercase();
@@ -1289,7 +1289,7 @@ fn is_private_ipv4(ip: std::net::Ipv4Addr) -> bool {
         || (o[0] == 192 && o[1] == 0 && o[2] == 0)
         // 198.18.0.0/15 (benchmark-сети)
         || (o[0] == 198 && (18..=19).contains(&o[1]))
-        // 240.0.0.0/4 (reserved; включает 255.255.255.255) — аудит 61
+        // 240.0.0.0/4 (reserved; включает 255.255.255.255)
         || o[0] >= 240
 }
 
@@ -1322,7 +1322,7 @@ fn is_private_ipv6(ip: std::net::Ipv6Addr) -> bool {
         return is_private_ipv4(v4);
     }
     // 2002::/16 (6to4): первые 32 бита после префикса — вложенный IPv4,
-    // приватный вложенный блокируем (аудит 61)
+    // приватный вложенный блокируем
     if seg[0] == 0x2002 {
         let v4 = std::net::Ipv4Addr::new(
             (seg[1] >> 8) as u8,
@@ -1361,18 +1361,21 @@ pub fn execute_on(conn: &BrowserConnection, name: &str, args: &Value) -> Result<
             }
             let note = conn.wait_ready()?;
             // Редирект мог увести на private-адрес: входной фильтр проверяет
-            // только аргумент, фактический landing сверяем здесь (аудит 54)
+            // только аргумент, фактический landing сверяем здесь
+
             conn.ensure_page_allowed()?;
             Ok(format!("Navigated to {url}. {}", conn.describe()? + &note))
         }
         "browser_read" => {
-            // Перед отдачей текста — сверка фактического URL (аудит 54)
+            // Перед отдачей текста — сверка фактического URL
+
             conn.ensure_page_allowed()?;
             // innerText требует лэйаута — в headless бывает пуст; фолбэк textContent.
             // Срез делается В JS: страница с десятками мегабайт текста иначе
             // упиралась в лимит кадра tungstenite (16 МиБ), соединение
             // помечалось мёртвым, а следующий вызов перезапускал браузер
-            // (аудит 55). Лимит — в символах (аудит 63), байтовый бэкстоп ниже
+            //. Лимит — в символах, байтовый бэкстоп ниже
+
             let expr = format!(
                 "(() => {{ const b = document.body; \
                  const t = b ? (b.innerText || b.textContent || '') : ''; \
@@ -1459,7 +1462,8 @@ pub fn execute_on(conn: &BrowserConnection, name: &str, args: &Value) -> Result<
             // Координатный fallback: клик тоже ДОВЕРЕННЫЙ (Input.dispatchMouseEvent),
             // как в ref-пути. el.click() — синтетика: обработчики с проверкой
             // isTrusted и hover-меню её не видят, хотя описание инструмента
-            // обещает тот же клик (аудит 56)
+            // обещает тот же клик
+
             let (x, y) = (arg_int(args, "x")?, arg_int(args, "y")?);
             let desc = conn.evaluate(&format!(
                 "(() => {{ const el = document.elementFromPoint({x},{y}); \
@@ -1498,7 +1502,8 @@ pub fn execute_on(conn: &BrowserConnection, name: &str, args: &Value) -> Result<
                 }
             } else if let (Some(x), Some(y)) = (arg_int_opt(args, "x"), arg_int_opt(args, "y")) {
                 // Доверенный клик по координатам фокусирует поле как настоящий
-                // пользователь (el.click()+focus — синтетика, аудит 56)
+                // пользователь (el.click()+focus — синтетика)
+
                 for t in ["mousePressed", "mouseReleased"] {
                     conn.request(
                         "Input.dispatchMouseEvent",
@@ -1508,7 +1513,6 @@ pub fn execute_on(conn: &BrowserConnection, name: &str, args: &Value) -> Result<
             }
             // Input.insertText уходит АКТИВНОМУ элементу: без проверки фокуса
             // текст мог уйти в никуда, а инструмент рапортовал «typed N»
-            // (аудит 57)
             let active = conn.evaluate(ACTIVE_EDITABLE_JS)?;
             let active = active.as_str().unwrap_or("none").to_string();
             if active != "ok" {
@@ -1539,7 +1543,8 @@ pub fn execute_on(conn: &BrowserConnection, name: &str, args: &Value) -> Result<
         }
         "browser_snapshot" => {
             // Снапшот отдаёт имена элементов и href'ы — тоже содержимое
-            // страницы, поэтому та же сверка landing-URL (аудит 54)
+            // страницы, поэтому та же сверка landing-URL
+
             conn.ensure_page_allowed()?;
             let raw = conn.evaluate(REF_REGISTRY_JS)?;
             let mut text = raw.as_str().unwrap_or("{}").to_string();
@@ -1557,7 +1562,7 @@ pub fn execute_on(conn: &BrowserConnection, name: &str, args: &Value) -> Result<
             Ok(format!("scrolled by {dy}"))
         }
         // Объявлен в списке диспетчера, но ветки нет — рассинхрон схемы и
-        // обработчика: ошибка громкая, а не «unknown tool» (аудит 60)
+        // обработчика: ошибка громкая, а не «unknown tool»
         other if DISPATCHED_TOOLS.contains(&other) => Err(format!(
             "browser tool {other} is declared but has no handler — internal mismatch"
         )),
@@ -1604,7 +1609,7 @@ mod tests {
 
     /// Стык с фронтом (api.ts BrowserConfig.allowPrivateNetworks): serde-
     /// контракт camelCase в обе стороны + чтение старых дисковых конфигов
-    /// (snake) через alias. Аудит А5-1: без rename_all тумблер SSRF не
+ /// (snake) через alias. без rename_all тумблер SSRF не
     /// применялся никогда и всегда рисовался выключенным
     #[test]
     fn browser_config_camel_case_contract() {
@@ -1656,7 +1661,7 @@ mod tests {
 
     /// Гард landing-URL: редирект или клик по ссылке уводит браузер мимо
     /// входного фильтра, поэтому перед отдачей содержимого проверяется
-    /// фактический location.href (аудит 54)
+    /// фактический location.href
     #[test]
     fn landed_url_guard_blocks_private_pages() {
         // about:blank — не страница: читать нечего, вызовы не ломаем
@@ -1717,7 +1722,7 @@ mod tests {
         (port, stop)
     }
 
-    /// Кап заголовков CDP-ответа и чтение тела (аудит 38/45). Без браузера —
+    /// Кап заголовков CDP-ответа и чтение тела. Без браузера —
     /// только TCP: перехвативший порт процесс может слать байты без \r\n\r\n,
     /// и без капа буфер клиента рос бы до исчерпания памяти
     #[test]
@@ -1756,7 +1761,8 @@ mod tests {
 
     /// Каждое имя из схемы обязано быть либо в диспетчере execute_on, либо в
     /// списке lifecycle-инструментов: раньше связь не проверялась, и
-    /// browser_close мог тихо остаться без обработчика (аудит 60)
+    /// browser_close мог тихо остаться без обработчика
+
     #[test]
     fn browser_schemas_match_dispatch() {
         let names: Vec<String> = browser_tool_schemas()
@@ -1823,7 +1829,8 @@ mod tests {
         assert!(is_navigable_url("https://172.32.0.1/", false)); // 172.16-31 — приват, 172.32 нет
         // Хосты, содержащие «127» как подстроку, но не являющиеся loopback
         assert!(is_navigable_url("https://example.com/127.0.0.1", false));
-        // Расширенный список private/reserved (аудит 61)
+        // Расширенный список private/reserved
+
         assert!(!is_navigable_url("http://192.0.0.1/", false)); // 192.0.0.0/24
         assert!(!is_navigable_url("http://198.18.0.1/", false)); // benchmark /15
         assert!(!is_navigable_url("http://198.19.255.255/", false));
@@ -1932,7 +1939,7 @@ mod tests {
     }
 
     /// Возврат глобального CONFIG на выходе из теста, включая панику: иначе
-    /// allow_private_networks=true утекал в остальные тесты бинаря (аудит 58)
+    /// allow_private_networks=true утекал в остальные тесты бинаря
     struct ConfigGuard(BrowserConfig);
 
     impl Drop for ConfigGuard {
@@ -1942,7 +1949,6 @@ mod tests {
     }
 
     /// Остановка тестового HTTP-сервера на любом выходе, включая панику
-    /// (аудит 58)
     struct StopGuard(Arc<AtomicBool>);
 
     impl Drop for StopGuard {
@@ -1976,7 +1982,8 @@ mod tests {
             allow_private_networks: true,
         });
         // Страховки от паники в ассертах: конфиг и тестовый сервер возвращаются
-        // в исходное состояние через Drop (аудит 58)
+        // в исходное состояние через Drop
+
         let _cfg_guard = ConfigGuard(prev_config);
         let (port, stop_server) = spawn_test_http_server();
         let _stop_guard = StopGuard(Arc::clone(&stop_server));
@@ -2046,7 +2053,7 @@ mod tests {
             "trusted click must run onclick, got: {title_after_click}"
         );
 
-        // Координатный клик — тоже доверенные Input.dispatchMouseEvent (аудит 56):
+        // Координатный клик — тоже доверенные Input.dispatchMouseEvent:
         // синтетический el.click() дал бы isTrusted=false
         let probe = elements
             .iter()
@@ -2067,7 +2074,6 @@ mod tests {
 
         // Без ref и координат при фокусе на кнопке текст не вводится, а вызов
         // падает — раньше уходило «typed N» при ушедшем в никуда insertText
-        // (аудит 57)
         let no_focus = execute_on(&conn, "browser_type", &json!({ "text": "x" }))
             .expect_err("type without a focused editable element must fail");
         assert!(
@@ -2075,7 +2081,7 @@ mod tests {
             "got: {no_focus}"
         );
 
-        // ── Мягкий канал не ждёт жёсткий запрос (аудит 37/44) ──
+        // ── Мягкий канал не ждёт жёсткий запрос ──
         // Жёсткий запрос на never-resolving promise висит до своего дедлайна,
         // удерживая основной ws-мьютекс; кадр живого просмотра обязан прийти
         // сразу по своему (отдельному) каналу
@@ -2107,7 +2113,8 @@ mod tests {
         );
         stalled.join().unwrap();
 
-        // ── Гард landing-URL (аудит 54): private-страница не читается ──
+        // ── Гард landing-URL: private-страница не читается ──
+
         // Тумблер выключаем ПОСЛЕ навигации — так воспроизводится редирект или
         // клик на private-адрес, не требуя внешнего публичного хоста
         set_config(BrowserConfig {

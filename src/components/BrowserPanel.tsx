@@ -38,7 +38,7 @@ export default function BrowserPanel({ open, onClose }: BrowserPanelProps) {
   useEffect(() => {
     if (!open) return;
     let alive = true;
-    // D19: start больше не void — cleanup при быстром закрытии раньше
+    // start больше не void — cleanup при быстром закрытии раньше
     // вызывался ДО завершения start, stop обгонял start, и CDP-трансляция
     // оставалась жить в Rust с мёртвым подписчиком. Ждём start и гасим
     // по флагу, если панель уже закрылась

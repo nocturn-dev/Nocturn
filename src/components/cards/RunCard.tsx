@@ -32,7 +32,7 @@ const REHYPE_PLUGINS = [rehypeHighlight];
 const REHYPE_PLUGINS_NO_HL: typeof REHYPE_PLUGINS = [];
 
 /**
- * Лента хода в стиле референса (фидбек 30.09): ВЕСЬ ход — один плоский фид
+ * Лента хода в стиле референса: ВЕСЬ ход — один плоский фид
  * без карточек-дублей. Шапка «Работает/Работал N мин N с» (живой таймер),
  * внутри хронологически по раундам: строка «Размышления · N с» (свёрнута,
  * клик раскрывает текст) → текст раунда → плоские ряды шагов
@@ -139,7 +139,7 @@ function RunRound({
 
       {round.content && (
         /* Мягкая подложка под текстом раунда: на «голом» фоне ленты текст
-           сливался с ambient/шагами (фидбек владельца) */
+           сливался с ambient/шагами */
         <div className="markdown mt-2 rounded-lg border border-halo-line/40 bg-halo-surface/40 px-3.5 py-2.5 text-sm leading-relaxed text-halo-text">
           {/* stream-tail только на тексте: каретка ниже остаётся чёткой */}
           <div className={isStreamingRound ? "stream-tail" : undefined}>
@@ -276,7 +276,7 @@ function RunCardBase({
     }
   }, [showReasoning, rounds, streamingMsgId]);
   // Автоскрытие: у авто-раскрытого раунда появился финальный текст — его
-  // раздумия сворачиваются сами (требование владельца). Защёлка по переходу
+  // раздумия сворачиваются сами. Защёлка по переходу
   // content «пусто → непусто»: ручное открытие и история не трогаются
   const prevContentLen = useRef(new Map<string, number>());
   useEffect(() => {

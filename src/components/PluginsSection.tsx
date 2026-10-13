@@ -44,7 +44,8 @@ export default function PluginsSection({
       const path = await pickSaveFile("nocturn-plugin-pack.json", "json");
       if (!path) return;
       // Тип из api.ts связывает контракт файла пака с местом создания:
-      // иначе рассинхрон shape'а не ловил компилятор (аудит А7-7)
+      // иначе рассинхрон shape'а не ловил компилятор
+
       const pack: PluginPackFile = { kind: "nocturn-plugin-pack", version: 1, plugins };
       await chatExportWrite(path, JSON.stringify(pack, null, 2));
     } catch (e) {

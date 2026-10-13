@@ -1326,7 +1326,7 @@ export const ja = {
     "ollama.noModels":
       "ランタイムは起動していますが、モデルが見つかりません。Ollama の場合： ollama pull llama3.2",
     "ollama.badge": "ローカル · 無制限",
-    // GGUF Lab（ウェーブ §28）：ローカルモデルの手術
+    // GGUF Lab：ローカルモデルの手術
     "ggufLab.entry": "GGUF Lab",
     "ggufLab.entryDesc":
       "GGUFサージェリー：Ollamaからダウンロードし、層を切り取り、そのままテスト。研究・実験向け。",
@@ -1692,7 +1692,7 @@ export const ja = {
     "docs.keys.body":
       "Ctrl+N — 新しいタスク · Ctrl+K — 検索 · Ctrl+V — スクリーンショットを貼り付け · Enter — 送信、Shift+Enter — 改行。入力欄のスラッシュコマンド：/new /clear /agent /terminal /theme /glass /provider /prompt /note /chain。",
 
-    // Аудит: строки UI, ходившие мимо словарей
+    // Строки UI, ходившие мимо словарей
     "chat.modelLocal": "ローカル",
     "agent.reviewOpen": "レビュー ↗",
     "commands.blankTemplate": "あなたは…\n\nタスク：$ARGUMENTS",
@@ -1703,4 +1703,4 @@ export const ja = {
     "steps.kindExplore": "調査",
     "steps.kindAsked": "質問",
     "composer.dropFiles": "ドロップしてファイルを添付",
-} satisfies Record<MsgKey, string>; // D20: полный Record — пропущенный ключ = ошибка компиляции, а не молчаливый фолбэк
+} satisfies Record<MsgKey, string>; // Полный Record — пропущенный ключ = ошибка компиляции, а не молчаливый фолбэк

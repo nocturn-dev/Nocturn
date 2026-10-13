@@ -118,7 +118,7 @@ async fn speak_impl(text: String, output: Option<String>) -> Result<(), String> 
 /// Худший случай — ASCII: ×2 в юникодных байтах, т.е. ≤16 КБ UTF-16 на
 /// кусок текста + оверхед скрипта → ~22 КБ base64 против потолка 32767
 /// симв. командной строки. Кириллица/эмодзи дают МЕНЬШЕ юникодных байт
-/// на байт UTF-8 — переполнения нет (подозрение аудита А2-7 не
+/// на байт UTF-8 — переполнения нет (подозрение не
 /// подтвердилось: лимит байтовый, а не посимвольный)
 #[cfg(windows)]
 const MAX_TTS_CHUNK_BYTES: usize = 8000;
@@ -193,7 +193,7 @@ fn render_wavs(text: &str, gen: u64) -> Result<Vec<std::path::PathBuf>, String> 
 /// переменные окружения, в скрипте их литералов нет вообще. Удвоение
 /// апострофа не спасало — Windows PowerShell считает типографские
 /// кавычки (U+2018/2019/201A/201B) вариантами одинарной, и текст ответа
-/// модели вида «…’; Start-Process calc; ‘…» исполнял команду (аудит tts 488)
+/// модели вида «…’; Start-Process calc; ‘…» исполнял команду
 #[cfg(windows)]
 fn render_wav(text: &str) -> Result<std::path::PathBuf, String> {
     let path = std::env::temp_dir().join(format!(
@@ -318,7 +318,7 @@ mod tests {
     fn split_tts_text_keeps_every_sentence_within_limit() {
         // Куски не превышают лимит и не теряют содержимое: конкатенация
         // сохраняет все предложения (детерминированный генератор без
-        // вектора = незакрытая находка, аудит 2026-10-04)
+        // вектора = незакрытая находка)
         let text = "Первое предложение. ".repeat(1500);
         let chunks = split_tts_text(&text);
         assert!(chunks.len() >= 2);

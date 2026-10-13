@@ -27,7 +27,7 @@ pub struct ColibriStatus {
 #[derive(serde::Deserialize)]
 // rename_all обязателен: фронт шлёт apiKey (api.ts ColibriLaunch), а без
 // camelCase serde молча отбрасывал ключ — шлюз всегда стартовал с
-// nocturn-local (аудит А5-2)
+// nocturn-local
 #[serde(rename_all = "camelCase")]
 pub struct ColibriLaunch {
     pub exe: String,
@@ -147,7 +147,7 @@ pub fn colibri_start(
     }
 
     let mut cmd = Command::new(exe);
-    // Аудит colibri 91: дефолт «nocturn-local» известен из исходников — при
+    // Дефолт «nocturn-local» известен из исходников — при
     // наружном bind шлюза любой в сети получал доступ. Случайный ключ на
     // каждый старт, когда пользователь не задал свой
     cmd.arg("serve").env(
@@ -278,7 +278,7 @@ mod tests {
     }
 
     /// Стык с фронтом (api.ts ColibriLaunch.apiKey): serde-контракт
-    /// camelCase. Аудит А5-2: без rename_all ключ молча отбрасывался и
+ /// camelCase. без rename_all ключ молча отбрасывался и
     /// COLI_API_KEY всегда был «nocturn-local»
     #[test]
     fn colibri_launch_accepts_camel_case_api_key() {

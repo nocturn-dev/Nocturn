@@ -33,7 +33,7 @@ export function ContextRing({
         title={t("ctx.title")}
         className="flex size-6 items-center justify-center rounded-md transition-colors hover:bg-halo-hover"
       >
-        {/* Чистое кольцо заполнения без цифры (фидбек владельца: «0» внутри
+        {/* Чистое кольцо заполнения без цифры («0» внутри
             выпирало) — детали по hover в поповере. Тонкие 2px, как у референс */}
         <svg width="16" height="16" viewBox="0 0 16 16">
           <circle cx="8" cy="8" r={R} fill="none" stroke="var(--halo-line)" strokeWidth={2} />

@@ -7,7 +7,7 @@ import { PROVIDER_ICONS, TILE_RECT_PATH } from "./providerIconsData";
  * `img-src 'self' data: blob:` блокировала оба — в проде фича была мертва,
  * а в dev модельные имена утекали сторонним CDN. Теперь всё локально.
  *
- * Волна иконок-фиксов: матчинг стал двухступенчатым. Раньше семья бралась
+ * Матчинг стал двухступенчатым. Раньше семья бралась
  * как точный ключ «до слэша» — бесслэшные id кастомных провайдеров
  * (claude-3-5-haiku, gpt-6-astra) и вариации OpenRouter (meta-llama, x-ai)
  * промахивались мимо имеющихся иконок и рисовали букву-заглушку. Теперь:
@@ -26,7 +26,7 @@ export interface BrandDef {
   /** slug в PROVIDER_ICONS; нет — цветная буква-фолбэк */
   slug?: string;
   color: string;
-  /** Волна иконок: tile-марка — брендовая плитка + буква + точка
+  /** Tile-марка — брендовая плитка + буква + точка
    *  (Kimi «K·»: буква из шрифта приложения на брендовой плитке) */
   tile?: {
     bg: string;
@@ -111,7 +111,7 @@ export function brandName(modelId: string): string {
   return seg.charAt(0).toUpperCase() + seg.slice(1, 14);
 }
 
-/** Детерминированный оттенок аватара из имени семьи (волна иконок-фиксов):
+/** Детерминированный оттенок аватара из имени семьи (иконки-фиксы):
  *  у нишевого провайдера кружок выглядит умышленным (как аватары в
  *  мессенджерах), а не «данные не приехали» */
 function hueOf(s: string): number {
@@ -153,7 +153,7 @@ export default function ProviderIcon({ modelId, size = 18 }: ProviderIconProps) 
     fontSize: Math.max(9, Math.round(size * 0.5)),
   };
 
-  // Волна иконок: tile-марка (Kimi «K·») — брендовая плитка + буква + точка
+  // Tile-марка (Kimi «K·») — брендовая плитка + буква + точка
   if (brand?.tile) {
     const t = brand.tile;
     return (
@@ -190,7 +190,7 @@ export default function ProviderIcon({ modelId, size = 18 }: ProviderIconProps) 
     );
   }
 
-  // Волна иконок: многозаливочные марки (z.ai — плитка + slashed-Z)
+  // Многозаливочные марки (z.ai — плитка + slashed-Z)
   if (icon?.shapes) {
     return (
       <span

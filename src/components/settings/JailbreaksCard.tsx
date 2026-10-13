@@ -63,7 +63,7 @@ export function JailbreaksCard({
   const [yearF, setYearF] = useState("");
   const [sort, setSort] = useState<"relevance" | "newest" | "name">("relevance");
   const [visible, setVisible] = useState(PAGE);
-  // Предупреждение при применении (решение владельца): гейт перед onApply
+  // Предупреждение при применении: гейт перед onApply
   const [warnEntry, setWarnEntry] = useState<JailbreakEntry | null>(null);
   // Инлайн-результат применения: тост из настроек не виден — дублируем тут
   const [appliedMsg, setAppliedMsg] = useState("");

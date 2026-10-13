@@ -31,8 +31,8 @@ interface KnowledgeModalProps {
   onAttach: (kbId: string | null) => void;
   /** Есть ли активный чат: без него привязывать не к чему */
   hasActiveChat: boolean;
-  /** Последняя RAG-инъекция (useAgentRun) — дебаг «почему не нашёл»
-   *  (PLAN §24 ш.3). Не персистится: живёт до рестарта приложения */
+  /** Последняя RAG-инъекция (useAgentRun) — дебаг «почему не нашёл».
+   *  Не персистится: живёт до рестарта приложения */
   trace?: KbTrace | null;
 }
 
@@ -166,7 +166,7 @@ export default function KnowledgeModal({
         <p className="mb-4 text-xs leading-relaxed text-halo-muted">{t("kb.hint")}</p>
 
         {/* Последний поиск по базе активного чата: что реально уехало в
-            контекст (PLAN §24 ш.3) — ответ на «почему агент не нашёл» */}
+            контекст — ответ на «почему агент не нашёл» */}
         {trace && (
           <div className="mb-4 rounded-xl border border-halo-line bg-halo-surface/40 px-3.5 py-2.5">
             <div className="flex items-baseline justify-between gap-2">

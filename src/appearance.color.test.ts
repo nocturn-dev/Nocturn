@@ -4,7 +4,6 @@ import { hslToRgb, mixRgb, parseHexColor, rgbCss, rgbToHsl, sceneTint } from "./
 // Золотые векторы цветовой арифметики (правило 7): canvas-слои
 // (LyricsRibbon/AmbientLayer/терминал) вызывают эти функции при каждой
 // отрисовке — регресс смешивания давал невидимые/кислотные цвета молча
-// (аудит 2026-10-04)
 describe("цветовая арифметика — золотые векторы", () => {
   it("parseHexColor: #rrggbb, #rgb, отказ", () => {
     expect(parseHexColor("#d97757")).toEqual([217, 119, 87]);

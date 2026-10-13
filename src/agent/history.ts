@@ -180,7 +180,7 @@ export function buildHistory(
   return historyWithSummary(summary, rest, 30);
 }
 
-// ---------- Autocompact (волна B2): персистентная суммаризация головы ----------
+// ---------- Autocompact: персистентная суммаризация головы ----------
 
 /**
  * Заголовок summary-блока autocompact. Суммаризация вшивается в SYSTEM-

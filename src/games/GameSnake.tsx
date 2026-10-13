@@ -37,7 +37,8 @@ export default function GameSnake() {
 
   // Accent читается при КАЖДОЙ отрисовке из живого токена: чтение один раз
   // при монтировании оставляло старый цвет после смены темы при открытой
-  // игре (аудит 2026-10-04); getComputedStyle в кадре дешёвый
+  // игре; getComputedStyle в кадре дешёвый
+
   const readAccent = () =>
     getComputedStyle(document.documentElement).getPropertyValue("--halo-accent").trim() ||
     "#d97757";
@@ -144,7 +145,7 @@ export default function GameSnake() {
         }
       }
       // Один readAccent на кадр: раньше вызов был на еду И на каждую секцию
-      // змейки — 1+N getComputedStyle за кадр (аудит A4-7)
+      // змейки — 1+N getComputedStyle за кадр
       const accent = readAccent();
       // Еда
       ctx.fillStyle = accent;

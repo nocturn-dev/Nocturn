@@ -122,7 +122,7 @@ pub fn clear_key() {
 /// хранилищ не использовать. Ключ в Zeroizing с момента выделения
 /// Легаси-KDF (PBKDF2) — ТОЛЬКО для чтения старых хранилищ и миграции
 /// на Argon2id (crypto_unlock). Новые хранилища создаются исключительно
-/// через derive_key_argon2 (аудит crypto 131)
+/// через derive_key_argon2
 #[doc(hidden)]
 pub fn derive_key(password: &str, salt: &[u8]) -> Zeroizing<Vec<u8>> {
     let mut out = Zeroizing::new(vec![0u8; KEY_LEN]);

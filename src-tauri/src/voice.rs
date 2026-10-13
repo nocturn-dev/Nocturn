@@ -62,7 +62,7 @@ pub struct VoiceStatus {
 /// фронте ключ («hey_jarvis»), его файл проверяется вместе с фичевыми
 #[tauri::command(async)]
 pub async fn voice_status(app: tauri::AppHandle, wake_model: String) -> Result<VoiceStatus, String> {
-    // metadata-опрос файлов моделей — sync-диск, в blocking-пул (№4 v5):
+    // metadata-опрос файлов моделей — sync-диск, в blocking-пул:
     // на сетевом AppData морозил tokio-воркер под SSE
     tauri::async_runtime::spawn_blocking(move || voice_status_impl(&app, &wake_model))
         .await
@@ -127,7 +127,7 @@ async fn do_download(app: &tauri::AppHandle, wake_model: &str) -> Result<(), Str
         names.push(w);
     }
     // create_dir_all + exists-опрос недостающих моделей — sync-диск на
-    // async-пути, в blocking-пул (№4 аудита v5): в цикле остаются только
+    // async-пути, в blocking-пул: в цикле остаются только
     // реально недостающие имена
     let names = tauri::async_runtime::spawn_blocking({
         let dir = dir.clone();

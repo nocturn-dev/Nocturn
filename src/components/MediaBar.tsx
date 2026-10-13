@@ -25,7 +25,8 @@ import {
   PrevTrackIcon,
 } from "./cards/icons";
 
-// parseLyrics/LyricLine вынесены в src/lyrics.ts (№52 аудита v5: чистый
+// parseLyrics/LyricLine вынесены в src/lyrics.ts (чистый
+
 // парсер внешних данных lrclib — с золотыми векторами)
 
 function mmssFmt(secs: number): string {
@@ -102,7 +103,8 @@ export function MediaBar({
         });
         // cleanup сработал ДО резолва подписки (StrictMode, быстрый тоггл
         // минибара): unlisten вызывается здесь, иначе слушатель media-state
-        // живёт вечно и гоняет IPC на каждое событие плеера (аудит A4-2)
+        // живёт вечно и гоняет IPC на каждое событие плеера
+
         if (disposed && un) {
           un();
           un = null;

@@ -279,7 +279,8 @@ pub async fn generate(
     };
     // Запись до 32 МБ (каталог может быть на сетевом профиле) — в
     // blocking-пул: sync fs::create_dir_all/fs::write на воркере tokio
-    // морозили стримы (класс b451fd4, аудит A1-3)
+    // морозили стримы (класс b451fd4)
+
     let (path, bytes_len) = tauri::async_runtime::spawn_blocking(
         move || -> Result<(PathBuf, usize), String> {
             fs::create_dir_all(&dir).map_err(|e| format!("cannot create images dir: {e}"))?;

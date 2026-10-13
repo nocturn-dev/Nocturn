@@ -19,7 +19,7 @@ use std::time::Duration;
 
 /// Кап одного вызова MCP-инструмента (обе попытки пула)
 const MCP_TOOL_TIMEOUT: Duration = Duration::from_secs(120);
-/// M2: исполнение инструмента агента (вызывается из агентного цикла / для тестов).
+/// Исполнение инструмента агента (вызывается из агентного цикла / для тестов).
 /// Имена mcp__<server>__<tool> маршрутизируются в подключённый MCP-сервер.
 /// По пути прогоняются хуки PreToolUse (может заблокировать; additionalContext
 /// дописывается к результату) и PostToolUse (additionalContext к результату).
@@ -91,7 +91,7 @@ pub async fn run_tool(
     // Проверка стоит ДО PreToolUse-хуков: в Plan-режиме shell-команды хуков
     // не должны запускаться на каждый вызов заблокированного инструмента.
     // shell_run — без path-контроля (cwd опционален), но его КОМАНДА едет в
-    // perm как аргумент матчинга deny-правил (волна E1)
+    // perm как аргумент матчинга deny-правил
     {
         let perm_arg = if name.starts_with("fs_") || name == "diagnostics" {
             args.get("path").and_then(|v| v.as_str()).map(str::to_string)
@@ -461,7 +461,7 @@ pub async fn execute_tool_inner(
         let result: String = match first {
             Ok(r) => r,
             Err(e) if e.contains("HTTP 401") && mcp_oauth::has_meta(&server) => {
-                // Волна F5: 401 на oauth-сервере — запрос НЕ исполнялся
+                // 401 на oauth-сервере — запрос НЕ исполнялся
                 // (auth-гейт), поэтому повтор безопасен. Refresh single-flight:
                 // ровно один запрос к провайдеру, остальные ждут новый токен
                 mcp_oauth::refresh_single_flight(&app, &server)
@@ -486,7 +486,7 @@ pub async fn execute_tool_inner(
                 mcp_attempt!(fresh, args.clone())?
             }
             Err(e) if mcp::is_session_expired(&e) => {
-                // Волна F2: сессия удалённого сервера истекла — невидимый
+                // сессия удалённого сервера истекла — невидимый
                 // реконнект (drop + ensure_connected), повтор инициирует сама
                 // модель следующим вызовом (аннотаций readOnlyHint нет,
                 // авто-повтор задвоил бы побочные эффекты)
@@ -505,7 +505,7 @@ pub async fn execute_tool_inner(
         };
         return Ok(result);
     }
-    // Волна F4: discover отложенных MCP-схем — чтение реестра, не мутация
+    // discover отложенных MCP-схем — чтение реестра, не мутация
     if name == "mcp_tool_discover" {
         let query = args.get("query").and_then(|v| v.as_str()).unwrap_or("");
         let found = mcp_registry.discover_tools(query);
@@ -610,10 +610,11 @@ pub async fn execute_tool_inner(
         )
         .await;
     }
-    // GGUF Lab (§28 шаг 6): inspect/cut/test — команда сама знает, как
+    // GGUF Lab: inspect/cut/test — команда сама знает, как
     // стримить прогресс; cut/test мутирующие (гарды perm.rs отработали
     // ДО этого вызова — гардалы ставятся до PreToolUse-хуков).
-    // Stop обязан отвечать сразу и здесь (аудит 07.10 A1-10: единственная
+    // Stop обязан отвечать сразу и здесь (единственная
+
     // ветка диспетчера без select! — Stop висел минуты, операция писала
     // гигабайты после отмены прогона). При отмене дёргаем кооперативный
     // GGUF_CANCEL — циклы операции выходят между чанками и чистят tmp, —
@@ -632,7 +633,8 @@ pub async fn execute_tool_inner(
     // Инструменты блокирующие (shell_run — до 300 сек, fs-вызовы — ФС):
     // исполняем в отдельном потоке, иначе главный поток окна замирает на
     // весь таймаут. Stop обязан отвечать сразу: select! с abort — как у
-    // computer/browser-веток выше (аудит: зависший fs-вызов держал шаг
+    // computer/browser-веток выше (зависший fs-вызов держал шаг
+
     // агента без ответа даже после Stop)
     let work = tauri::async_runtime::spawn_blocking({
         // Клон Arc для closure: сам флаг нужен живым в select! ниже.
@@ -1080,7 +1082,7 @@ pub async fn perm_set(
         "full" => perm::PermMode::Full,
         other => return Err(format!("unknown permission mode: {other}")),
     };
-    // Волна E1: валидация правил fail-closed — битое правило отвергает весь
+    // валидация правил fail-closed — битое правило отвергает весь
     // perm_set, защита «not synchronized» держит мутации до починки списка
     let rules = rules.unwrap_or_default();
     let known = known_tool_names();
@@ -1092,7 +1094,7 @@ pub async fn perm_set(
     }
     // Канонизация корней и config-dir — один раз здесь (FS-работа в
     // blocking-пул; на сетевом корне висела бы до таймаута), а не на каждый
-    // fs_* вызов. config-dir — самозащита конфига (волна E3)
+    // fs_* вызов. config-dir — самозащита конфига
     let roots_for_canon = roots.clone();
     let app_for_cfg = app.clone();
     let (roots_canon, config_dir) = tauri::async_runtime::spawn_blocking(move || {
@@ -1117,7 +1119,7 @@ pub async fn perm_set(
     Ok(())
 }
 
-/// Реестр builtin-имён для валидации правил (волна E1): собирается из тех же
+/// Реестр builtin-имён для валидации правил: собирается из тех же
 /// источников, что get_tool_schemas — новый источник схем = добавить сюда.
 /// mcp-имена правилами допускаются по форме (сервер может быть ещё офлайн)
 fn known_tool_names() -> std::collections::HashSet<String> {
@@ -1148,7 +1150,7 @@ fn known_tool_names() -> std::collections::HashSet<String> {
             set.insert(n.to_string());
         }
     }
-    // Волна F4: discover-инструмент в схемах появляется условно (есть
+    // discover-инструмент в схемах появляется условно (есть
     // MCP-серверы) — в реестр валидации добавляем всегда
     set.insert("mcp_tool_discover".to_string());
     set
@@ -1159,7 +1161,7 @@ pub fn get_tool_schemas(
     mcp_registry: tauri::State<'_, mcp::McpRegistry>,
     deferred: Option<bool>,
 ) -> serde_json::Value {
-    // Волна F4: deferred-схемы (вердикт владельца — ON по умолчанию)
+    // Deferred-схемы — ON по умолчанию
     let deferred = deferred.unwrap_or(true);
     let builtin = tools::tool_schemas();
     let vault = tools::vault_tool_schemas();
@@ -1172,7 +1174,7 @@ pub fn get_tool_schemas(
         if let Some(extra) = crate::memory::memory_tool_schemas().as_array() {
             arr.extend(extra.iter().cloned());
         }
-        // Волна F4: discover-инструмент — когда есть хотя бы один MCP-сервер
+        // discover-инструмент — когда есть хотя бы один MCP-сервер
         if !mcp_registry.0.lock().unwrap_or_else(|p| p.into_inner()).is_empty() {
             arr.push(serde_json::json!({
                 "type": "function",
@@ -1581,7 +1583,7 @@ mod tests {
 
     #[test]
     fn perm_gates_before_pre_tool_use_hooks() {
-        // Волна G: механический регресс порядка гардалов run_tool — perm-слой
+        // механический регресс порядка гардалов run_tool — perm-слой
         // решает РАНЬШЕ PreToolUse-хуков, заблокированный Plan-вызов не должен
         // запускать shell-команды хуков. Тест привязан к текущему форматированию
         // (стиль зеркала toolFilter.test.ts): сдвинешь порядок — упадёт громко
@@ -1600,8 +1602,7 @@ mod tests {
         // Стык mcp.rs↔tooling.rs склеен ТЕКСТОМ ошибки: tooling маршрутизирует
         // oauth-refresh (401) и реконнект (404/-32001) по подстрокам, которые
         // производит format! в mcp.rs. Правка формата одной стороны без
-        // другой = молчаливое отключение авто-refresh/реконнекта (аудит
-        // 2026-10-04). Тест привязан к литералам — рассинхрон упадёт громко
+        // другой = молчаливое отключение авто-refresh/реконнекта. Тест привязан к литералам — рассинхрон упадёт громко
         const MCP: &str = include_str!("mcp.rs");
         const SELF: &str = include_str!("tooling.rs");
         for (produced, routed) in [("HTTP {}: {}", "HTTP 401"), ("HTTP {}: {}", "HTTP 404")] {

@@ -160,7 +160,8 @@ describe("powershell/windows destructive patterns (audit 2026-10-04)", () => {
     }
   });
 
-  it("rm: рекурсия+force в любых комбинациях — №24 аудита v5 (node-прогон L13)", () => {
+  it("rm: рекурсия+force в любых комбинациях (node-прогон)", () => {
+
     for (const cmd of [
       "rm -rf build", // прежний кластер — не регресс
       "rm -r -f build", // раздельные кластеры
@@ -177,7 +178,8 @@ describe("powershell/windows destructive patterns (audit 2026-10-04)", () => {
     expect(dangerousShellPattern("rm --recursive build")).toBe(false);
   });
 
-  it("PowerShell-алиасы, свойства, реестр, диски, WSL — №24 аудита v5", () => {
+  it("PowerShell-алиасы, свойства, реестр, диски, WSL", () => {
+
     for (const cmd of [
       "ri -recurse ./x", // алиас Remove-Item
       "ri -r ./x",

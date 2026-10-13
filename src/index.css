@@ -368,8 +368,7 @@ html.motion-reduced .snake-preview-seg {
   }
 }
 
-/* Фокус-кольца выключены (решение владельца, подтверждено дважды):
-   подсветка по Tab/клику — визуальный мусор. Активный элемент виден по
+/* Фокус-кольца выключены сознательно: подсветка по Tab/клику — визуальный мусор. Активный элемент виден по
    каретке ввода и ховер-стилям; клавиатурная навигация работает как раньше */
 :focus-visible {
   outline: none;
@@ -504,7 +503,7 @@ html.zen.voice-listening body::after {
      Селекторы, чьи базы стоят ниже по файлу (.typing-dot, .splash-pulse,
      .work-status-*, .shimmer::after, .nav-tick-in, .ask-ping), гасит
      консолидированный блок В КОНЦЕ файла: при равной специфичности
-     побеждает позднее правило, здесь они были мертвы (аудит A6-1) */
+     побеждает позднее правило, здесь они были мертвы */
   .anim-fade-up,
   .anim-pop,
   .anim-pop-out,
@@ -567,7 +566,7 @@ html.zen.voice-listening body::after {
 }
 
 /* Хвост стримящегося текста мягко проявляется снизу (аналог word-reveal
-   claude.ai). Урок со скрина владельца: зона 3.5em до ПРОЗРАЧНОГО на
+   claude.ai). Грабль: зона 3.5em до ПРОЗРАЧНОГО на
    коротком абзаце накрывала весь блок — «текст-призрак». Теперь зона
    1.2em и пол 55% альфы: текст всегда читаем, мягкая дымка только у
    самой каретки, твердеет при росте блока. Это статичная маска, не
@@ -612,7 +611,7 @@ html.zen.voice-listening body::after {
   }
 }
 
-/* D13: reduce-motion глушит и tailwind-овские бесконечные анимации
+/* Reduce-motion глушит и tailwind-овские бесконечные анимации
    (animate-pulse у курсора терминала, PlanPanel, SubagentCard) —
    собственные keyframes гасились, а библиотечные — нет */
 @media (prefers-reduced-motion: reduce) {
@@ -622,7 +621,7 @@ html.zen.voice-listening body::after {
   }
 }
 
-/* Motion/Reduced (фидбек 26.09): тумблер в «Кастомизации» форсит то же
+/* Motion/Reduced: тумблер в «Кастомизации» форсит то же
    глушение поверх системной настройки — тот же список + ambient-glow.
    Canvas-сцены ставит на паузу App (paused у AmbientLayer).
    Синхронно со списком prefers-reduced-motion выше: anim-slide-left(-out),
@@ -715,7 +714,8 @@ html.motion-reduced body::before {
 }
 /* Обёртка stream-tail (StableMarkdown) монтируется ВСЕГДА, даже вне стрима,
    и перехватывает прямое родство — пробиваем и её детей, иначе отступы
-   первого/последнего блока не гасились (аудит A6-3) */
+   первого/последнего блока не гасились */
+
 .markdown > :first-child,
 .markdown > :first-child > :first-child {
   margin-top: 0;
@@ -901,7 +901,7 @@ html.light.inline-code-claude .markdown code:not(pre code) {
   animation: halo-blink 1.2s infinite;
 }
 
-/* ---------- Маскот Нок (светлячок у композера, PLAN.md §21) ----------
+/* ---------- Маскот Нок (светлячок у композера) ----------
    Все темпы — через --motion-scale; reduce-motion глушит общей плиткой
    ниже (спрайт остаётся статичным). Группы .nok-aura/.nok-lamp пульсируют
    групповой прозрачностью: базовые opacity клеток не трогаются */
@@ -979,7 +979,7 @@ html.light.inline-code-claude .markdown code:not(pre code) {
   --nok-dir: -1;
 }
 /* Работа: перелетает с насеста НА кромку ленты — вверх и чуть внутрь,
-   с наклоном к стримящемуся тексту (фидбек владельца 04.10: прежняя поза
+   с наклоном к стримящемуся тексту (прежняя поза
    «за левую границу шелла» читалась как «просто сидит сбоку», уезжая ОТ
    текста; «к тексту» = внутрь = +dir, для правого насеста зеркально) */
 .nok-streaming,
@@ -1280,7 +1280,8 @@ html.motion-reduced .ask-ping,
 html.motion-reduced .nok-quip {
   animation: none;
 }
-/* №10 аудита v5: opacity:1 альт-крыла живёт при animation:none — без
+/* Opacity:1 альт-крыла живёт при animation:none — без
+
    оверрайда под reduce видны ОБА кадра (двойной спрайт поверх статичного
    базового); reduce оставляет базовый кадр */
 html.motion-reduced .nok-fly .nok-wings-alt,
@@ -1384,7 +1385,7 @@ html.motion-reduced .nok-z {
    а сами панели становятся полупрозрачными с размытием.
    Градиент выводится из ПАЛИТРЫ (accent/deep/bg), а не из хардкода:
    раньше тёплые терракотовые пятна не менялись со стилем, и смена темы
-   была видна только на сайдбаре (фидбек 26.09). Для движков без
+   была видна только на сайдбаре. Для движков без
    color-mix — фолбэк на исходные фиксированные тона. */
 html.glass body {
   background: transparent;
@@ -1440,11 +1441,12 @@ html.glass .glass-pane {
   backdrop-filter: blur(var(--halo-blur, 14px)) saturate(1.25);
   -webkit-backdrop-filter: blur(var(--halo-blur, 14px)) saturate(1.25);
 }
-/* D13: экономим GPU при reduce-motion — глушители ВСЕХ blur-носителей
+/* Экономим GPU при reduce-motion — глушители ВСЕХ blur-носителей
    переехали в САМЫЙ КОНЕЦ файла (блок после reduce-motion-хвоста ниже):
    при равной специфичности базы sidebar-glass/msg-glass объявлены ниже
-   этого места и побеждали, глушители были мертвы (аудит 07.10 A6-10 —
-   неполный фикс A6-7 из bad3ced) */
+   этого места и побеждали, глушители были мертвы (
+
+ неполный фикс из bad3ced) */
 
 /* Выход модалок при активном стекле: .anim-pop-out объявлен выше с
    backdrop-filter: none, но специфичностью (0,1,0) проигрывает
@@ -1467,8 +1469,8 @@ html.sidebar-glass aside.bg-halo-deep {
   -webkit-backdrop-filter: blur(calc(var(--halo-blur, 14px) * 1.6)) saturate(1.35);
   box-shadow: inset -1px 0 0 color-mix(in srgb, var(--halo-line, #3d3c38) 80%, transparent);
 }
-/* D13 (отменено решением владельца): пауза ambient на время стрима
-   («интерфейс залагал») убрана — фон живёт всегда, GPU-цена принята.
+/* Пауза ambient на время стрима
+   («интерфейс залагал») отменена — фон живёт всегда, GPU-цена принята.
    Бывшие правила html.ambient-paused удалены вместе с классом */
 
 /* C5: WebKitGTK < 2.40 отбрасывает color-mix декларацию целиком — «стекло»
@@ -1500,7 +1502,8 @@ html.sidebar-glass aside.bg-halo-deep {
   }
   /* Opacity-модификаторы var-палитры Tailwind компилирует через color-mix
      с фолбэком на СПЛОШНОЙ цвет: низкоальфовый акцентный тинт под акцентным
-     текстом становился «акцент на акценте» (аудит: 42 пары /10 /15) —
+     текстом становился «акцент на акценте» —
+
      нечитаемо. Деградация: нейтральная поверхность, текст акцента читается.
      Сильные заливки (/50+) не трогаем — там текст on-accent */
   .bg-halo-accent\/5,
@@ -1535,7 +1538,8 @@ html.sidebar-glass aside.bg-halo-deep {
     background: var(--halo-deep);
   }
   /* Лента лирики «за интерфейсом»: без фолбэка корень чата оставался
-     непрозрачным и фича молча не работала вовсе (аудит 2026-10-04) */
+     непрозрачным и фича молча не работала вовсе */
+
   html[data-media-ribbon="1"]:not(.glass) .chat-surface {
     background: var(--halo-bg);
   }
@@ -1582,7 +1586,7 @@ input[type="range"]::-webkit-slider-thumb {
   cursor: grab;
   transition: transform var(--motion-fast) ease;
 }
-/* Фокус-кольца выключены решением владельца (см. :focus-visible выше), но
+/* Фокус-кольца выключены (см. :focus-visible выше), но
    у ползунка не было НИКАКОГО индикатора клавиатурного фокуса — ручка
    подсвечивается только по focus-visible (не по клику) */
 input[type="range"]:focus-visible::-webkit-slider-thumb {
@@ -1757,7 +1761,7 @@ html.has-wallpaper aside.bg-halo-deep {
    непрозрачность с более высокой специфичностью (0,6,1 и 0,4,1 против
    0,4,1 и 0,2,1 у исходных правил). pre в AskUserCard и чипы
    PermissionsSection остаются прозрачными сознательно: они живут ВНУТРИ
-   уже полупрозрачной поверхности чата (аудит 2026-10-04) */
+   уже полупрозрачной поверхности чата */
 html[data-ambient-render="behind"].ambient:not(.glass) .fixed.inset-0.bg-halo-bg,
 html.has-wallpaper .fixed.inset-0.bg-halo-bg {
   background: var(--halo-bg);
@@ -1829,7 +1833,8 @@ html.official .bg-halo-raised {
    — целевая фича (has-wallpaper), а не стеклянный режим. ambient-behind —
    та же категория «фон-фича, а не стекло»: без гейтов official (0,2,2)
    проигрывал ambient-правилу (0,4,2); с гейтами — (0,4,2), равенство,
-   решает позиция в конце файла (аудит А6-3) */
+   решает позиция в конце файла */
+
 html:not(.has-wallpaper):not([data-ambient-render="behind"]).official aside.bg-halo-deep {
   background: var(--halo-deep);
   backdrop-filter: none;
@@ -1839,7 +1844,7 @@ html:not(.has-wallpaper):not([data-ambient-render="behind"]).official aside.bg-h
 /* ---------- prefers-reduced-motion: базы ниже ранних глушителей ----------
    Системный тумблер ОС. При равной специфичности побеждает позднее правило,
    поэтому глушители селекторов, чьи базы объявлены выше в файле, обязаны
-   стоять В САМОМ КОНЦЕ (аудит A6-1: семь глушителей в ранних блоках были
+   стоять В САМОМ КОНЦЕ (семь глушителей в ранних блоках были
    мертвы — typing-dot, splash-pulse, work-status-*, shimmer, nav-tick-in,
    ask-ping продолжали крутиться при включённой системной настройке).
    Ранние блоки (497+, 1258+) покрывают свои базы и остаются; этот — хвост */
@@ -1853,10 +1858,11 @@ html:not(.has-wallpaper):not([data-ambient-render="behind"]).official aside.bg-h
   .ask-ping {
     animation: none;
   }
-  /* D13-хвост (аудит 07.10 A6-10): глушители blur ВСЕХ носителей — базы
+  /* Хвост reduce-motion: глушители blur ВСЕХ носителей — базы
+
      html.glass aside/.glass-pane, sidebar-glass и msg-glass объявлены выше
      по файлу, при равной специфичности решает позиция. По образцу самого
-     reduce-motion-блока выше (урок A6-1) */
+ reduce-motion-блока выше (урок ) */
   html.glass aside,
   html.glass .glass-pane,
   html.sidebar-glass aside.bg-halo-deep,

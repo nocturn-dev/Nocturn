@@ -1,6 +1,6 @@
-//! Волна F5: OAuth для удалённых MCP-серверов (только http-транспорт).
+//! OAuth для удалённых MCP-серверов (только http-транспорт).
 //!
-//! ФИЛОСОФИЯ-ОГОВОРКА владельца (жёсткая): oauth-сервер не инициирует
+//! ЖЁСТКАЯ философия: oauth-сервер не инициирует
 //! НИКАКИХ запросов сам — discovery/авторизация только по явной кнопке
 //! «Authorize» в настройках, refresh — только по 401 в активном вызове,
 //! фоновых рефрешей и автоконнекта нет; никаких рекомендаций сервисов.
@@ -9,7 +9,7 @@
 //! (crypto::encrypt). Vault заперт / ключа нет → токены живут до рестарта
 //! (Authorize честно возвращает пометку «session-only»).
 //!
-//! Single-flight refresh (заметка владельца): N параллельных 401 → ровно
+//! Single-flight refresh: N параллельных 401 → ровно
 //! один запрос refresh к провайдеру, остальные ждут новый токен — иначе
 //! первый рефреш инвалидирует старый токен, второй падает.
 
@@ -47,7 +47,7 @@ pub struct OAuthMeta {
 }
 
 pub(crate) const TOKENS_FILE: &str = "mcp-oauth.json";
-/// Заметка владельца: юзер закрыл вкладку авторизации → ничего не висит вечно
+/// Юзер закрыл вкладку авторизации → ничего не висит вечно
 const LOOPBACK_TIMEOUT_SECS: u64 = 180;
 const HTTP_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -85,7 +85,7 @@ fn config_path(app: &tauri::AppHandle) -> std::path::PathBuf {
 
 /// Загрузка персистнутых токенов при старте (best-effort: vault заперт —
 /// токены недоступны, юзер переавторизуется по кнопке). Никаких запросов —
-/// только чтение локального файла (оговорка владельца)
+/// только чтение локального файла, никаких запросов
 pub fn load_persisted(app: &tauri::AppHandle) {
     let Ok(raw) = std::fs::read_to_string(config_path(app)) else {
         return;
@@ -137,7 +137,7 @@ struct OAuthMetaRaw {
 }
 
 /// RFC 8414 discovery: root → path-вставка → openid-configuration. Запросы
-/// идут ТОЛЬКО из authorize (кнопка юзера) — оговорка владельца
+/// идут ТОЛЬКО из authorize (кнопка юзера)
 async fn discover(server_url: &str) -> Result<OAuthMetaRaw, String> {
     let client = crate::network::shared_client(HTTP_TIMEOUT)?;
     let trimmed = server_url.trim().trim_end_matches('/');
@@ -250,7 +250,7 @@ fn url_encode(s: &str) -> String {
 /// Полный authorize-флоу (кнопка юзера): discovery → DCR/конфиг-client_id →
 /// PKCE → браузер → loopback → обмен кода. Возвращает (сообщение, persisted).
 /// Loopback слушается ДО открытия браузера: redirect_uri точен; жёсткий
-/// дедлайн — поток не висит вечно (заметка владельца)
+/// дедлайн — поток не висит вечно
 pub async fn authorize(
     app: &tauri::AppHandle,
     server: &str,
@@ -411,7 +411,7 @@ pub async fn authorize(
     ))
 }
 
-/// Ждём редирект с кодом: жёсткий дедлайн (заметка владельца), ответ юзеру —
+/// Ждём редирект с кодом: жёсткий дедлайн, ответ юзеру —
 /// «закройте вкладку», проверка state (CSRF). Соединения без параметров
 /// редиректа (префетч браузера, favicon, скан портов) НЕ завершают ожидание —
 /// раньше первый же «пустой» запрос гасил весь авторизационный цикл; финал —
@@ -477,11 +477,11 @@ fn wait_for_code_on(
     Err(format!("authorization timed out after {timeout_secs}s"))
 }
 
-/// Single-flight refresh (заметка владельца): один запрос, остальные ждут.
+/// Single-flight refresh: один запрос, остальные ждут.
 /// Вызывается только из 401-ветки активного вызова — фоновых рефрешей нет.
 /// AppHandle нужен для персиста: провайдер вправе РОТИРОВАТЬ refresh_token
 /// при refresh_token grant — без записи на диск рестарт поднимал бы
-/// отозванный токен и требовал re-authorize (аудит 07.10 A2-13)
+/// отозванный токен и требовал re-authorize
 pub async fn refresh_single_flight(
     app: &tauri::AppHandle,
     server: &str,
@@ -589,7 +589,8 @@ pub async fn mcp_oauth_authorize(
     app: tauri::AppHandle,
     name: String,
 ) -> Result<String, String> {
-    // Чтение mcp.json — sync-диск, в blocking-пул (№4 аудита v5)
+    // Чтение mcp.json — sync-диск, в blocking-пул
+
     let app_for_load = app.clone();
     let servers = tauri::async_runtime::spawn_blocking(move || {
         crate::mcp::load_servers(&app_for_load)
@@ -671,7 +672,7 @@ mod tests {
 
     #[test]
     fn extract_query_param_skips_bare_params_and_decodes() {
-        // №22: голый параметр без `=` раньше обрывал разбор (split_once('?')?)
+        // Голый параметр без `=` раньше обрывал разбор (split_once('?')?)
         let line = "GET /callback?flag&state=st%3D1&code=x+y HTTP/1.1";
         assert_eq!(extract_query_param(line, "state").as_deref(), Some("st=1"));
         assert_eq!(extract_query_param(line, "flag"), None);
@@ -684,7 +685,7 @@ mod tests {
 
     #[test]
     fn state_is_url_safe_and_padding_free() {
-        // №1: STANDARD-энкод давал хвост `==` и `+/` — провайдеры переэнкодили
+        // STANDARD-энкод давал хвост `==` и `+/` — провайдеры переэнкодили
         for _ in 0..32 {
             let s = rand_state(16);
             assert_eq!(s.len(), 22); // 16 байт → 128 бит / 6 бит на символ

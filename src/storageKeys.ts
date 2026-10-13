@@ -1,6 +1,6 @@
 /**
  * Единая точка правды для localStorage-ключей, которые читают/пишут
- * НЕЗАВИСИМЫЕ модули (аудит A5-5): два сырых литерала одного ключа в разных
+ * НЕЗАВИСИМЫЕ модули: два сырых литерала одного ключа в разных
  * файлах молча расходились бы при переименовании — читатель получал бы
  * дефолт без единой ошибки. Образец паттерна — AUDIO_OUTPUT_KEY в tts.ts
  * («независимые литералы молча расходились бы»).
@@ -27,10 +27,10 @@ export const STORAGE_KEYS = {
   projectRoot: "haloui-project-root",
   lang: "haloui-lang",
   jbWarnDontShow: "haloui-jb-warn-dontshow",
-  // appearance: appearance.ts (владелец) + main.tsx (boot-чтение код-темы
-  // до первого рендера) — аудиt 07.10 A5-9
+  // appearance: appearance.ts (запись) + main.tsx (boot-чтение код-темы
+  // до первого рендера)
   appearance: "haloui-appearance",
-  // customCss: userCss.ts (владелец) + MainSection (гард confirm импорта
+  // customCss: userCss.ts (запись) + MainSection (гард confirm импорта
   // CSS: переименование ключа иначе сделало бы confirm молчаливым)
   customCss: "haloui-custom-css",
 } as const;

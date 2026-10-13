@@ -12,7 +12,6 @@ const MAX_BODY: usize = 32 * 1024 * 1024;
 /// GitHub API отклоняет запросы без User-Agent (документированное требование;
 /// на части IP-адресов — 403 сразу). Осмысленный UA приложения вместо
 /// подделки браузера — это и честнее, и соответствует правилам API
-/// (аудит importer 207)
 const FETCH_USER_AGENT: &str = concat!("Nocturn/", env!("CARGO_PKG_VERSION"));
 
 /// Синхронный гардал URL: только публичный http/https (SSRF-фильтр browser.rs).

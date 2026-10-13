@@ -1,4 +1,4 @@
-/** Раздел «Субагенты»: тумблер, лимит параллельности, редактор ролей (M3) */
+/** Раздел «Субагенты»: тумблер, лимит параллельности, редактор ролей */
 import { useState } from "react";
 import { useLang } from "../locales";
 import { mergeRoles, type SubagentRole, type SubagentsConfig } from "../subagents";

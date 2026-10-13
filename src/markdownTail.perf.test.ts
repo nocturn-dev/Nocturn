@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { splitMarkdownTail } from "./markdownTail";
 
-// Бюджет сплита (волна 3а): функция зовётся на каждом тике печати (50 мс),
+// Бюджет сплита: функция зовётся на каждом тике печати (50 мс),
 // на длинных ответах обязана оставаться шумом рядом с ре-парсом хвоста
 describe("markdownTail perf budgets", () => {
   it("splitMarkdownTail: 6000 строк / 100 КБ — до 5 мс", () => {

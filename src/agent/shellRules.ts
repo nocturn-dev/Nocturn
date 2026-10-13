@@ -1,10 +1,10 @@
 /**
- * Статический анализ shell-команд для правил прав (волна E2). Бекенд матчит
+ * Статический анализ shell-команд для правил прав. Бекенд матчит
  * deny/allow по сырому префиксу строки (без AST — сложная команда deny не
  * обходит); этот модуль решает ТОЛЬКО политику подтверждений фронта:
  * allow-правило не пробивает сложные (цепочки/пайпы/подстановки) и
  * dangerous-команды — они идут обычным ask-флоу. В Full-режиме dangerous
- * не спрашивает (Full = явный отказ от вопросов), deny-правила владельца
+ * не спрашивает (Full = явный отказ от вопросов), deny-правила пользователя
  * работают всегда.
  */
 import { ruleMatches, type PermRules } from "./permRules";
@@ -114,7 +114,7 @@ const DANGEROUS_PATTERNS: RegExp[] = [
   /\b(curl|wget)\b[^;&|]*\|\s*(ba|z|fi|da)?sh\b/, // curl … | sh
   /\brm\s+[^;&|]*-[a-z]*(rf|fr)\b/, // rm -rf/-fr (цели проверяет юзер вопросом)
   // rm: рекурсия+force в РАЗНЫХ кластерах/порядке — «-r -f», «-f -r»,
-  // «--recursive --force» старый кластерный паттерн пропускал (№24 v5)
+  // «--recursive --force» старый кластерный паттерн пропускал
   /\brm\s+[^;&|]*(-r\b|--recursive)\b[^;&|]*(-+[a-z]*f\b|--force)/,
   /\brm\s+[^;&|]*(-f\b|--force)\b[^;&|]*(-r\b|--recursive)/,
   /\bdd\b[^;&|]*of=\/dev\//,
@@ -122,14 +122,15 @@ const DANGEROUS_PATTERNS: RegExp[] = [
   /\bchmod\b[^;&|]*-r\b[^;&|]*777/,
   // Windows/PowerShell-диалект: shell_run на Windows исполняет через
   // powershell, а список ниже был POSIX-центричен — Remove-Item -Recurse
-  // и дисковые операции уходили в allow без вопроса (аудит 2026-10-04).
+  // и дисковые операции уходили в allow без вопроса.
+
   // False positive уводит в ask — безопасное направление
   /\bremove-item\b[^;&|]*-[a-z]*r/, // Remove-Item -Recurse [-Force]
-  /\b(ri|erase)\b[^;&|]*-[a-z]*r/, // алиасы Remove-Item с рекурсией (№24 v5)
-  /\bremove-itemproperty\b/, // чистка свойств — всегда вопрос (№24 v5)
-  /\breg\s+(add|delete)\b/, // запись/удаление в реестре (№24 v5)
+  /\b(ri|erase)\b[^;&|]*-[a-z]*r/, // алиасы Remove-Item с рекурсией
+  /\bremove-itemproperty\b/, // чистка свойств — всегда вопрос
+  /\breg\s+(add|delete)\b/, // запись/удаление в реестре
   /\b(format-volume|clear-disk)\b/, // дисковые операции PS (format c: — выше)
-  /\bwsl\b[^;&|]*--unregister\b/, // снос дистрибутива WSL (№24 v5)
+  /\bwsl\b[^;&|]*--unregister\b/, // снос дистрибутива WSL
   /\b(rd|rmdir)\b[^;&|]*\/s\b/, // rd /s /q — деревo каталогов
   /\bdel\b[^;&|]*\/s\b/, // del /s — деревo файлов
   /\bformat\b[^;&|]*[a-z]:/, // format c:

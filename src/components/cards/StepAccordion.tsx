@@ -5,7 +5,7 @@ import { useLang, type MsgKey } from "../../locales";
 import { DiffView } from "./DiffView";
 
 /**
- * Аккордеон шагов хода (фидбек 26.09): плоские ряды Edit/Terminal/Explore/Asked
+ * Аккордеон шагов хода: плоские ряды Edit/Terminal/Explore/Asked
  * с живыми деталями (+N −N, команда, путь, секунды), раскрытие по клику.
  * Thought — не здесь: мысли показывает раскрывающийся блок «Размышления»
  * в AssistantCard; subagent_run — живые карточки SubagentCard.
@@ -14,7 +14,8 @@ import { DiffView } from "./DiffView";
 /** Дифф ряда: diffLines (LCS до 1500×1500 + O(n·m) отсечение) считается
  *  ТОЛЬКО здесь и кэшируется по (before, after). В теле рендера ряда он
  *  пересчитывался на каждый флеш стрима — derived-кэш ChatArea пересобирает
- *  ход стримящегося сообщения, memo(RunCard) пробит (аудит 2026-10-04) */
+ *  ход стримящегося сообщения, memo(RunCard) пробит */
+
 const RowDiff = memo(function RowDiff({ before, after }: { before: string; after: string }) {
   const lines = useMemo(() => diffLines(before, after), [before, after]);
   return <DiffView lines={lines} hasBefore />;
@@ -152,7 +153,7 @@ export function StepAccordion({
               {s.secondsMs != null && s.secondsMs > 0 && (
                 <span className="w-10 shrink-0 text-right tabular-nums text-halo-muted/60">
                   {/* Разделитель по локали — как в AssistantCard/RunCard:
-                      безусловная запятая противоречила en/zh/ja (аудит А4-2) */}
+                      безусловная запятая противоречила en/zh/ja */}
                   {(s.secondsMs / 1000)
                     .toFixed(1)
                     .replace(".", lang === "ru" ? "," : ".")}

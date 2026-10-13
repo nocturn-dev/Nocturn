@@ -587,7 +587,7 @@ pub async fn crypto_reset(app: tauri::AppHandle, confirm: String) -> Result<(), 
                     .as_bytes(),
             )?;
         }
-        // Секретные конфиги: без чистки после RESET и нового пароля владелец
+        // Секретные конфиги: без чистки после RESET и нового пароля пользователь
         // получал «vault is locked» при РАЗБЛОКИРОВАННОМ vault — старый
         // шифротекст новым ключом не расшифровывается
         for (file, field) in [
@@ -636,7 +636,7 @@ pub async fn crypto_reset(app: tauri::AppHandle, confirm: String) -> Result<(), 
 /// memory.json (личная память агента) сознательно НЕ входит: приватные
 /// данные пользователя, перенос — только руками, как у sessions.json
 /// в «поделенный» экспорт без секретов.
-/// lsp.json/gguf.json входят (аудит 07.10, пакет реестров): конфиги волны
+/// lsp.json/gguf.json входят: конфиги волны
 /// LSP/GGUF забывали внести в реестр — экспорт молча терял их. Секретов
 /// в них нет (команда/путь), как в mcp.json — в «поделенный» экспорт идут.
 const EXPORT_FILES: &[&str] = &[
@@ -683,7 +683,8 @@ fn settings_read_all_blocking(
         // «настроек без ключей» не должно отдавать переписку; hooks.json —
         // исполняемые командные строки, в которых токен (Bearer-заголовок в
         // curl и т.п.) — обычная практика, замаскировать их нельзя не убив
-        // хук (аудит А1-3). Машино-перенос — только осознанный
+        // хук. Машино-перенос — только осознанный
+
         // include_secrets=true
         if !include_secrets
             && (*name == "crypto.json" || *name == "sessions.json" || *name == "hooks.json")
@@ -784,7 +785,7 @@ fn mask_secrets(file: &str, v: &mut serde_json::Value) {
         }
         // Прокси может нести креды прямо в URL (http://user:pass@host:port —
         // reqwest это легальный формат); без ветки адрес с паролем уходил в
-        // «поделенный» экспорт как есть (аудит А1-3). Гасим целиком: адрес
+        // «поделенный» экспорт как есть. Гасим целиком: адрес
         // внутреннего прокси — машинно-специфичная информация
         "network.json" => {
             if let Some(k) = v.get_mut("proxy") {
@@ -811,7 +812,7 @@ fn settings_write_all_blocking(
     // серверов; gguf.json — llama_server_path (спавнится resolve_llama_server).
     // Новый конфиг с командой/бинарем ОБЯЗАН попасть сюда одновременно с
     // describeExecutableConfigs (MainSection.tsx) — теста-гарда списка нет,
-    // инвариант держится на этой паре (аудит 07.10: пакет реестров)
+    // инвариант держится на этой паре (пакет реестров)
     const EXECUTABLE_CONFIGS: &[&str] = &[
         "hooks.json",
         "mcp.json",
@@ -941,8 +942,7 @@ pub(crate) fn rejects_sensitive_path(path: &str) -> Result<(), String> {
         // UNC определяется ПОСЛЕ учёта вербатим-префикса: fs::canonicalize
         // возвращает `\\?\C:\...` — starts_with("\\\\") на сырье давал ложный
         // UNC, и диск «c:» в comps[0] отвергался как NTFS-поток — любой
-        // импорт существующего файла был мёртв (импорт config.toml — репорт
-        // владельца). `\\?\UNC\` — настоящая шара, прочее `\\?\` — диск
+        // импорт существующего файла был мёртв при импорте config.toml. `\\?\UNC\` — настоящая шара, прочее `\\?\` — диск
         let is_unc = if let Some(rest) = norm.strip_prefix(r"\\?\unc\") {
             !rest.is_empty()
         } else if norm.starts_with(r"\\?\") {
@@ -1054,7 +1054,8 @@ pub(crate) fn rejects_sensitive_path(path: &str) -> Result<(), String> {
         // macOS: /etc, /var, /root — симлинки в /private/...; канонизация на
         // ревалидации (ensure_export_target / settings_import_read) даёт
         // /private/etc, который без этой ветки проходил мимо блока — два пути
-        // к одному месту были защищены асимметрично (аудит А3-3)
+        // к одному месту были защищены асимметрично
+
         #[cfg(target_os = "macos")]
         if comps.first().is_some_and(|c| *c == "private")
             && comps
@@ -1413,8 +1414,8 @@ pub struct ProjectRec {
     /// Акцент проекта (кастомизация «акцент проекта»)
     #[serde(default)]
     pub accent: Option<String>,
-    /// Папка проекта: в <root>/.nocturn живут сессии проекта (фидбек 29.09,
-    /// стиль референса). serde default — старые projects.json без root валидны
+    /// Папка проекта: в <root>/.nocturn живут сессии проекта (стиль
+    /// референса). serde default — старые projects.json без root валидны
     #[serde(default)]
     pub root: Option<String>,
 }
@@ -1628,7 +1629,8 @@ mod tests {
     use super::*;
 
     // Гардал записи с фронтенда — центральный security-путь, поэтому
-    // регресс-тест на каждый известный класс обхода (аудит: вербатим-префиксы,
+    // регресс-тест на каждый известный класс обхода (вербатим-префиксы,
+
     // `\.\`, 8.3-алиасы, сиблинги конфиг-каталога)
 
     #[cfg(windows)]
@@ -1661,7 +1663,7 @@ mod tests {
             // IPv6-литерал в UNC-хосте — двоеточие вне диска, fail closed
             r"\\[::1]\share\x.json",
             // хвостовая точка/пробел ПРОМЕЖУТОЧНОГО компонента: Win32
-            // нормализует их у каждого элемента пути (аудит: обход блок-листа)
+            // нормализует их у каждого элемента пути
             r"C:\Windows.\evil.json",
             r"C:\Windows \evil.json",
             r"C:\ProgramData.\evil.json",
@@ -1752,7 +1754,8 @@ mod tests {
     #[test]
     fn unix_dotdot_and_relative_fail_closed() {
         // Подъём уводил проверку топ-уровня мимо целевого каталога, а
-        // относительный путь резолвился в cwd (аудит: Windows-ветка
+        // относительный путь резолвился в cwd (Windows-ветка
+
         // отвергала и то, и другое, Unix — нет)
         assert!(rejects_sensitive_path("/home/me/proj/../../etc/cron.d/x.json").is_err());
         assert!(rejects_sensitive_path("../settings-export.json").is_err());
@@ -1793,7 +1796,7 @@ mod tests {
     fn mask_secrets_blanks_every_secret_branch() {
         // Золотой вектор на КАЖДУЮ ветку mask_secrets (правило 7): опечатка
         // в имени поля новой ветки не должна проходить молча — регресс
-        // маскирования не ловился бы ничем (аудит 2026-10-04)
+        // маскирования не ловился бы ничем
         let mut settings = serde_json::json!({ "api_key": "sk-topsecret", "encrypt_keys": true });
         mask_secrets("settings.json", &mut settings);
         assert_eq!(settings["api_key"], "");
@@ -1831,7 +1834,8 @@ mod tests {
         assert!(!starts_dir(&format!("c:{sep}cfg-backup{sep}f.json"), &dir));
     }
 
-    // --- rekey_staged_bytes: ядро миграции PBKDF2→Argon2id (№2 аудита v5) ---
+    // --- rekey_staged_bytes: ядро миграции PBKDF2→Argon2id ---
+
 
     fn enc_with(key: &[u8], plain: &str) -> String {
         crypto::encrypt_with(key, plain).expect("encrypt in test")
@@ -1922,7 +1926,7 @@ mod tests {
 mod config_toml_tests {
     use super::*;
 
-    /// Пример из запроса владельца (скриншот config.toml): responses-wire,
+    /// Пример реального config.toml: responses-wire,
     /// токен — ссылка на env (ключом НЕ импортируется)
     #[test]
     fn parses_codex_screenshot_sample() {
@@ -1999,7 +2003,7 @@ wire_api = "responses"
 mod verbatim_guard_regression {
     use super::*;
 
-    /// Регресс репорта владельца: канонизированный путь (fs::canonicalize
+    /// Регресс: канонизированный путь (fs::canonicalize
     /// всегда возвращает `\?\`-префикс) отвергался как «NTFS stream
     /// specifier» — is_unc считался ДО срезания префикса
     #[cfg(windows)]

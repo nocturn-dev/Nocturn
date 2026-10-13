@@ -11,7 +11,7 @@ interface SearchModalProps {
 
 /** Haystack сессии кэшируется по ССЫЛКЕ объекта: пересборка корпуса
  *  «все сообщения всех сессий» на каждый флеш стрима при открытом Ctrl+K
- *  давала полный проход по корпусу без нужды (аудит 2026-10-04). Новая
+ *  давала полный проход по корпусу без нужды. Новая
  *  ссылка сессии (новое сообщение) пересчитывается один раз */
 const haystackCache = new WeakMap<Session, string>();
 function haystackOf(s: Session): string {
@@ -31,7 +31,7 @@ export default function SearchModal({
 }: SearchModalProps) {
   const { t } = useLang();
   const [query, setQuery] = useState("");
-  // D10: debounce 250 мс — дорогой полнотекстовый проход по ВСЕМ сообщениям
+  // Debounce 250 мс — дорогой полнотекстовый проход по ВСЕМ сообщениям
   // ВСЕХ сессий раньше гонялся на каждое нажатие клавиши (инпут «заикался»
   // на больших корпусах)
   const [searchQuery, setSearchQuery] = useState("");

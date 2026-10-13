@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 import { splitMarkdownTail } from "./markdownTail";
 import { StreamMarkdown } from "./components/cards/StableMarkdown";
 
-// Золотые векторы сплита стрима (волна 3а): граница — последняя пустая
+// Золотые векторы сплита стрима: граница — последняя пустая
 // строка вне code-fence, не продолжающая рыхлый список
 describe("splitMarkdownTail — границы", () => {
   it("два абзаца: хвост начинается с нового блока", () => {

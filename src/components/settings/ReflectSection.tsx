@@ -111,7 +111,7 @@ export function ReflectSection({
         d.getMinutes(),
       ).padStart(2, "0")}`;
       // Паддинг часов/минут обязателен: 02:30 и 23:00 без него давали
-      // один файл «-230» и тихо перезаписывали друг друга (аудит 2026-10-04)
+      // один файл «-230» и тихо перезаписывали друг друга
       const hh = String(d.getHours()).padStart(2, "0");
       const mm = String(d.getMinutes()).padStart(2, "0");
       await notesWrite(`reflect-${dayKeyLocal(d)}-${hh}${mm}.md`, `# ${t("settings.reflect")} ${stamp}\n\n${result}\n`);

@@ -195,7 +195,8 @@ function AssistantCardBase({
   onQuoteSource?: (text: string) => void;
 }) {
   // Плавная печать — общий модуль (RunCard обязан использовать ту же
-  // формулу; раньше жило двумя копиями и копии разошлись — №13 аудита v5)
+  // формулу; раньше жило двумя копиями и копии разошлись)
+
   const displayContent = useSmoothText(
     message.content,
     isStreaming,
@@ -223,7 +224,7 @@ function AssistantCardBase({
   // Озвучка этого ответа: индикатор на кнопке динамика (гаснет сам по
   // завершении речи — tts_speak разрешается в конце)
   const [speaking, setSpeaking] = useState(false);
-  // Волна GUI-fix: копирование всего ответа — кнопка вернулась в шапку
+  // копирование всего ответа — кнопка вернулась в шапку
   // (пропала при рефакторке ленты хода)
   const [copiedMsg, setCopiedMsg] = useState(false);
   const copyMessage = async () => {
@@ -242,7 +243,7 @@ function AssistantCardBase({
     }
   }, [showReasoning, message.thought]);
   // Автоскрытие: пришёл финальный ответ — раздумия сворачиваются сами
-  // (требование владельца). Один раз, и только если блок был раскрыт
+  // Один раз, и только если блок был раскрыт
   // авто-защёлкой: вручную открытый пользователь не теряет
   const answerSeen = useRef(false);
   useEffect(() => {
@@ -350,7 +351,7 @@ function AssistantCardBase({
             Прецедент честного скрытия фичи — keep-awake в AutomationsModal */}
         {!isStreaming && message.content.trim() !== "" && (
           <span className="ml-auto flex shrink-0 items-center gap-0.5">
-            {/* Волна GUI-fix: копирование всего ответа — вернули кнопку */}
+            {/* Копирование всего ответа — вернули кнопку */}
             <button
               onClick={() => void copyMessage()}
               title={t("cp.copy")}
@@ -459,7 +460,7 @@ function AssistantCardBase({
 
       <div className="markdown text-sm leading-relaxed text-halo-text">
         {/* stream-tail только на тексте: каретка ниже остаётся чёткой.
-            Волна 3а: стабильный префикс парсится один раз (StableMarkdown
+            Стабильный префикс парсится один раз (StableMarkdown
             memo по md), на каждом тике ре-парсится только хвост. react-
             markdown рендерит фрагмент блоков — соседи в одном .markdown,
             поэтому .markdown > :first/:last-child верны как и раньше;

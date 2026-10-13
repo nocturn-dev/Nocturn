@@ -181,7 +181,6 @@ fn read_message(r: &mut dyn BufRead) -> std::io::Result<Option<Vec<u8>>> {
     /// Суммарный потолок заголовочной секции: построчный 4 КБ ограничивает
     /// память одной строки, но сервер, льющий мусор без '\n' или бесконечную
     /// серию заголовков, раньше крутил поток-читатель в CPU-цикле до EOF
-    /// (аудит 07.10 A2-12)
     const HEADER_SECTION_CAP: usize = 64 * 1024;
     let mut content_length: Option<usize> = None;
     let mut header_bytes: usize = 0;
@@ -635,7 +634,7 @@ fn spawn_handle(entry: &LspServerEntry, root: &str) -> Result<Arc<ServerHandle>,
             }
         }))
         .map_err(|e| {
-            // Гашение деревом (аудит 07.10 A2-10): npx-обёртки и cmd-шим
+            // Гашение деревом: npx-обёртки и cmd-шим
             // порождают внуков, std Child::kill сигналит только прямому
             // потомку — выживший внук держал пайпы и reader-поток
             let pid = handle.child.lock().unwrap_or_else(|p| p.into_inner()).id();
@@ -650,7 +649,8 @@ fn spawn_handle(entry: &LspServerEntry, root: &str) -> Result<Arc<ServerHandle>,
 fn ensure_server(entry: &LspServerEntry, root: &str) -> Result<Arc<ServerHandle>, String> {
     let key = format!("{}\u{1}{}", entry.command, entry.args.join("\u{1}"));
     let mut reg = registry().lock().map_err(|e| e.to_string())?;
-    // A2-9 (аудит 07.10): мёртвые записи выносим ДО поиска — раньше мёртвая
+ // мёртвые записи выносим ДО поиска — раньше мёртвая
+
     // same-key запись навсегда заслоняла живой хендл (find брал первую по
     // порядку), и каждый вызов diagnostics пересоздавал сервер с полной
     // индексацией, пока мёртвую не выселял LRU (до MAX_SERVERS спавнов)
@@ -941,7 +941,7 @@ mod tests {
     /// Глобалы lsp (CONFIG/REGISTRY) общие на процесс тестов: set_config при
     /// смене команд дренажит реестр через kill_all — тесты, трогающие глобалы,
     /// сериализуются, иначе чужой set_config убивал живой хендл посреди теста
-    /// (класс «глобал-стейт в параллельных тестах», правило 26 промта аудита)
+    /// (класс «глобал-стейт в параллельных тестах», правило 26)
     static GLOBALS_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     #[test]
@@ -978,7 +978,7 @@ mod tests {
 
     #[test]
     fn read_message_rejects_header_flood() {
-        // A2-12 (аудит 07.10): сервер, льющий заголовки без пустой строки,
+        // сервер, льющий заголовки без пустой строки,
         // раньше крутил читатель вечно — суммарный потолок секции рвёт
         let mut buf = Vec::new();
         for i in 0..4096 {
@@ -1009,7 +1009,8 @@ mod tests {
 
     #[test]
     fn ensure_server_replaces_dead_entry_without_respawn_loop() {
-        // A2-9 (аудит 07.10): мёртвая same-key запись не должна заслонять
+        // мёртвая same-key запись не должна заслонять
+
         // живой хендл — ensure_server обязан заменить её ровно один раз,
         // а живой переиспользовать (раньше каждый вызов спавнил новый сервер)
         let _globals = GLOBALS_LOCK.lock().unwrap_or_else(|p| p.into_inner());
