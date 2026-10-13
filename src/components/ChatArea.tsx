@@ -47,7 +47,7 @@ import { ToolStepCard } from "./cards/ToolStepCard";
 import { TypingBubble } from "./cards/TypingBubble";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { UserCard } from "./cards/UserCard";
-import { BookIcon, ChevronDownIcon, CornerUpLeftIcon, CorrectIcon, FolderIcon, GitBranchIcon, MicIcon, PlusIcon, PermModeIcon, QueueIcon, QuoteIcon, RobotIcon, ScalesIcon, ShieldIcon, SlidersIcon, SparkIcon, StopCircleIcon, SystemPromptIcon, TerminalIcon, TrashIcon, WarnIcon, WrenchIcon, XSmallIcon } from "./cards/icons";
+import { BookIcon, ChevronDownIcon, CornerDownLeftIcon, CorrectIcon, FolderIcon, GitBranchIcon, MicIcon, PlusIcon, PermModeIcon, QueueIcon, QuoteIcon, RobotIcon, ScalesIcon, ShieldIcon, SlidersIcon, SparkIcon, StopCircleIcon, SystemPromptIcon, TerminalIcon, TrashIcon, WarnIcon, WrenchIcon, XSmallIcon } from "./cards/icons";
 import { fmtInt, fmtK } from "./cards/util";
 import { CHART_COLORS } from "../chartColors";
 
@@ -2871,7 +2871,7 @@ export default function ChatArea({
                       : "scale-100 rotate-0 opacity-100"
                   }`}
                 >
-                  <CornerUpLeftIcon />
+                  <CornerDownLeftIcon />
                 </span>
                 <span
                   className={`absolute flex transition-[transform,opacity] duration-200 ${

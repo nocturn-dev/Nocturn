@@ -499,9 +499,9 @@ export function ArrowUpIcon() {
   );
 }
 
-/** Отправка как у Claude: «голая» стрелка-уголок (клавиша ⏎) без заливки —
- *  кнопка читается иконкой, а не цветным пятном */
-export function CornerUpLeftIcon({ size = 18 }: { size?: number }) {
+/** Отправка как у Claude: «клавиша Enter» (↵) — хвост спускается справа
+ *  сверху, скруглённый угол, головка влево; «голая» иконка без заливки */
+export function CornerDownLeftIcon({ size = 17 }: { size?: number }) {
   return (
     <svg
       width={size}
@@ -513,8 +513,8 @@ export function CornerUpLeftIcon({ size = 18 }: { size?: number }) {
       strokeLinecap="round"
       strokeLinejoin="round"
     >
-      <polyline points="9 14 4 9 9 5" />
-      <path d="M20 18v-7a4 4 0 0 0-4-4H4" />
+      <polyline points="9 10 4 15 9 20" />
+      <path d="M20 4v7a4 4 0 0 1-4 4H4" />
     </svg>
   );
 }

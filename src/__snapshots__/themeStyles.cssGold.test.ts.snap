@@ -28,18 +28,18 @@ html.light[data-style="carbon"] { --halo-bg: #f6f6f6; --halo-deep: #ececec; --ha
 exports[`css generator goldens > fullClaudeCss — important-блок и оled/contrast-переменные 1`] = `
 ":root.full-claude {
   --halo-bg: #24150F !important;
-  --halo-deep: #1B0F0A !important;
-  --halo-surface: #2E1B11 !important;
-  --halo-raised: #322013 !important;
-  --halo-line: rgba(255, 226, 200, 0.10) !important;
-  --halo-text: #F3EAE1 !important;
-  --halo-muted: #B4A295 !important;
-  --halo-hover: rgba(255, 226, 200, 0.06) !important;
-  --halo-hover-strong: rgba(255, 226, 200, 0.1) !important;
-  --halo-code-bg: #1D100A !important;
-  --halo-code-text: #F3EAE1 !important;
+  --halo-deep: #1C100C !important;
+  --halo-surface: #2D1A13 !important;
+  --halo-raised: #331E15 !important;
+  --halo-line: rgba(255, 255, 255, 0.09) !important;
+  --halo-text: #F2EDE8 !important;
+  --halo-muted: #A3968D !important;
+  --halo-hover: rgba(255, 255, 255, 0.06) !important;
+  --halo-hover-strong: rgba(255, 255, 255, 0.1) !important;
+  --halo-code-bg: #1E120C !important;
+  --halo-code-text: #F2EDE8 !important;
   --halo-accent: #D96B27 !important;
-  --halo-accent-deep: #A9521B !important;
+  --halo-accent-deep: #B25820 !important;
   --halo-on-accent: #ffffff !important;
   --halo-blur: 14px !important;
   --halo-radius-scale: 1 !important;
@@ -64,24 +64,24 @@ html.full-claude aside .uppercase:hover {
   color: var(--halo-text) !important;
 }
 html.full-claude:not(.glass) .glass-pane {
-  background: #2E1B11;
+  background: #2D1A13;
 }
 html.full-claude.glass .glass-pane {
-  background: #2E1B11;
+  background: #2D1A13;
 }
 html.full-claude.glass .bg-halo-deep.shadow-2xl {
-  background: #2E1B11;
+  background: #2D1A13;
 }
 @supports (background: color-mix(in srgb, red, transparent)) {
   html.full-claude.glass .glass-pane {
-    background: color-mix(in srgb, #2E1B11 70%, transparent);
+    background: color-mix(in srgb, #2D1A13 70%, transparent);
   }
   html.full-claude.glass .bg-halo-deep.shadow-2xl {
-    background: color-mix(in srgb, #2E1B11 70%, transparent);
+    background: color-mix(in srgb, #2D1A13 70%, transparent);
   }
 }
 html.full-claude:not(.glass) .bg-halo-deep.shadow-2xl {
-  background: #2E1B11;
+  background: #2D1A13;
 }
 html.full-claude:not(.glass) .glass-pane,
 html.full-claude:not(.glass) .msg-glass {
