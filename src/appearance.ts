@@ -331,6 +331,22 @@ export function saveAppearance(a: Appearance) {
   localStorage.setItem(LS_KEY, JSON.stringify(a));
 }
 
+/** Фирменные акценты стилей: смена стиля увозит акцент с собой — иначе
+ *  поверхности новой темы ездят со старым акцентом (синие заголовки
+ *  «PROJECTS/FILES» на нейтральном кварце, скрин владельца). Стиль без
+ *  записи в таблице акцент пользователя не трогает */
+const STYLE_ACCENTS: Partial<Record<DarkStyle, string>> = {
+  claude: "#d97757",
+  quartz: "#c88e9b",
+};
+
+/** Патч appearance при переключении стиля: подставляет фирменный акцент,
+ *  если у стиля он есть (кастомные стили из конструктора — никогда) */
+export function withStyleAccent(a: Appearance, style: Appearance["style"]): Appearance {
+  const sig = STYLE_ACCENTS[style as DarkStyle];
+  return sig ? { ...a, style, accent: sig } : { ...a, style };
+}
+
 function clamp(v: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, v));
 }

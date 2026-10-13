@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { ACCENT_PRESETS } from "../appearance";
+import { ACCENT_PRESETS, withStyleAccent } from "../appearance";
 import { loadCustomStyles } from "../themeStyles";
 import type { ModelInfo } from "../api";
 import { PROVIDERS } from "../api";
@@ -209,7 +209,7 @@ export default function QuickSettings({
                         key={st.id}
                         onClick={() => {
                           onThemeChange("dark");
-                          onAppearanceChange({ ...appearance, style: st.id });
+                          onAppearanceChange(withStyleAccent(appearance, st.id));
                         }}
                         className={`rounded-lg border px-2 py-1.5 text-xs transition-colors ${
                           active
