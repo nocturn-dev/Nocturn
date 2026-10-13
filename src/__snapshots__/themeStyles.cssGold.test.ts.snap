@@ -63,6 +63,15 @@ html.full-claude aside .uppercase {
 html.full-claude aside .uppercase:hover {
   color: var(--halo-text) !important;
 }
+@supports (background: color-mix(in srgb, red, blue)) {
+  html.full-claude.glass {
+    background:
+      radial-gradient(700px 450px at 12% 18%, color-mix(in srgb, var(--halo-accent) 8%, transparent), transparent 70%),
+      radial-gradient(800px 550px at 88% 85%, color-mix(in srgb, var(--halo-deep) 55%, transparent), transparent 70%),
+      radial-gradient(500px 350px at 70% 10%, color-mix(in srgb, var(--halo-accent) 4%, transparent), transparent 70%),
+      var(--halo-bg) !important;
+  }
+}
 html.full-claude:not(.glass) .glass-pane {
   background: #2D1A13;
 }
