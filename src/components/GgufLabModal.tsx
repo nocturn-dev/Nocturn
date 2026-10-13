@@ -242,7 +242,7 @@ export default function GgufLabModal({
 
   // Отмена активной операции (бекенд гасит циклы, tmp подчищается)
   const doCancel = () => {
-    void ggufCancel();
+    void ggufCancel().catch(() => {});
   };
 
   const hybrid = inspect

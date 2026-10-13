@@ -72,7 +72,7 @@ export async function saveProfiles(
 /** Включить/выключить шифрование ключей: перезаписывает settings.json
     и profiles.json на диске (шифрует или расшифровывает ключи) */
 export async function setKeyEncryption(enable: boolean): Promise<void> {
-  if (!inTauri) return;
+  if (!inTauri) throw nativeOnly("Управление шифрованием ключей");
   return invoke("set_key_encryption", { enable });
 }
 
@@ -124,7 +124,7 @@ export async function loadProjectsStore(): Promise<unknown> {
 }
 
 export async function saveProjectsStore(projects: unknown): Promise<void> {
-  if (!inTauri) return;
+  if (!inTauri) throw nativeOnly("Сохранение проектов");
   return invoke("save_projects", { projects });
 }
 
@@ -267,7 +267,7 @@ export async function permSet(
    *  snake_case always_ask — контракт serde-структуры perm.rs */
   rules?: { allow: string[]; deny: string[]; always_ask: string[] },
 ): Promise<void> {
-  if (!inTauri) return;
+  if (!inTauri) throw nativeOnly("Смена режима прав");
   return invoke("perm_set", { mode, roots, rules });
 }
 
@@ -278,6 +278,14 @@ export type { ToolCallInfo };
 
 /** В браузерном превью (npm run dev) Tauri недоступен — храним в localStorage */
 const inTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+
+/** Единый контракт превью: чтение отдаёт пустое значение, запись бросает.
+ *  Раньше часть записей молча «сохранялась» — пользователь в превью видел
+ *  успех при ненаписанных данных. Подсказка про нативный запуск — в одном
+ *  месте, а не в десятках строк */
+export function nativeOnly(what: string): Error {
+  return new Error(`${what} работает только в нативном приложении (npm run tauri dev)`);
+}
 
 const LS_SETTINGS = "haloui-api";
 const LS_SESSIONS = "haloui-sessions";
@@ -566,6 +574,8 @@ export async function chatStream(opts: {
 
 /** Реальное прерывание: Rust поднимает флаг отмены, поток гаснет */
 export async function abortChat(requestId: string): Promise<void> {
+  // Превью: abort зовётся из cleanup/остановки — бросок давал бы
+  // необработанный reject там, где никто не ждёт ошибки
   if (!inTauri) return;
   return invoke("chat_abort", { requestId });
 }
@@ -661,7 +671,7 @@ export interface GgufSurgeryReport {
 
 /** Скачать модель через Ollama (resume — повторным вызовом; Ollama запущен?) */
 export async function ggufPull(model: string): Promise<void> {
-  if (!inTauri) return;
+  if (!inTauri) throw nativeOnly("Загрузка GGUF");
   await invoke("gguf_pull", { model });
 }
 
@@ -685,7 +695,7 @@ export async function ggufCut(
 
 /** Отмена активной операции GGUF Lab (pull/export/surgery) */
 export async function ggufCancel(): Promise<void> {
-  if (!inTauri) return;
+  if (!inTauri) throw nativeOnly("Отмена загрузки GGUF");
   await invoke("gguf_cancel");
 }
 
@@ -723,7 +733,7 @@ export async function ggufLlamaStatus(): Promise<GgufLlamaStatus> {
 
 /** Задать путь к llama-server (null — оставить как есть) */
 export async function ggufLlamaSetPath(path: string | null): Promise<void> {
-  if (!inTauri) return;
+  if (!inTauri) throw nativeOnly("Выбор llama.cpp");
   await invoke("gguf_llama_set_path", { path });
 }
 
@@ -738,7 +748,7 @@ export async function ggufServeStart(
 
 /** Остановить тест-сервер (kill_tree) */
 export async function ggufServeStop(): Promise<void> {
-  if (!inTauri) return;
+  if (!inTauri) throw nativeOnly("Остановка llama-server");
   await invoke("gguf_serve_stop");
 }
 
@@ -881,7 +891,7 @@ export async function loadProjectSessionsDetailed(
 
 /** Сессии проекта: атомарная запись в <root>/.nocturn/sessions.json */
 export async function saveProjectSessions(root: string, data: string): Promise<void> {
-  if (!inTauri) return;
+  if (!inTauri) throw nativeOnly("Сохранение истории проекта");
   return invoke("save_project_sessions", { root, data });
 }
 
@@ -972,6 +982,7 @@ export interface BranchDiff {
 }
 
 export async function gitBranchDiff(root: string, base: string): Promise<BranchDiff> {
+  if (!inTauri) throw nativeOnly("Просмотр diff веток");
   // Ошибки (не-repo, нет базы) — наверх: кнопка показывает тост
   return await invoke<BranchDiff>("git_branch_diff", { root, base });
 }
@@ -1092,7 +1103,7 @@ export async function storageCleanup(kind: string): Promise<number> {
 
 /** Ремап глобального комбо; формат плагина — "ctrl+shift+space" */
 export async function quickentrySetBind(combo: string): Promise<void> {
-  if (!inTauri) return;
+  if (!inTauri) throw nativeOnly("Настройка быстрого ввода");
   await invoke("quickentry_set_bind", { combo });
 }
 
@@ -1104,6 +1115,7 @@ export async function quickentryStatus(): Promise<boolean> {
 
 /** Enter в Quick Entry: спрятать окно, сфокусировать главное, отдать текст */
 export async function quickentrySubmit(text: string): Promise<void> {
+  if (!inTauri) throw nativeOnly("Быстрый ввод");
   await invoke("quickentry_submit", { text });
 }
 
@@ -1208,6 +1220,7 @@ export interface NetworkConfig {
 
 /** Сменить иконку трея (bold | classic); no-op вне Tauri */
 export async function setTrayVariant(kind: "bold" | "classic"): Promise<void> {
+  // Превью: вызывается автоматом при смене темы, не по действию юзера
   if (!inTauri) return;
   await invoke("set_tray_variant", { kind });
 }
@@ -1218,7 +1231,7 @@ export async function networkGetConfig(): Promise<NetworkConfig> {
 }
 
 export async function networkSetConfig(cfg: NetworkConfig): Promise<void> {
-  if (!inTauri) return;
+  if (!inTauri) throw nativeOnly("Сохранение сетевой конфигурации");
   await invoke("network_set_config", { config: cfg });
 }
 
@@ -1239,6 +1252,7 @@ export async function ptyCreate(
 }
 
 export async function ptyWrite(id: string, data: string): Promise<void> {
+  // Превью: pty-канал пишется из обработчиков вывода — fire-and-forget
   if (!inTauri) return;
   return invoke("pty_write", { id, data });
 }
@@ -1249,11 +1263,13 @@ export async function ptyResize(
   cols: number,
   rows: number,
 ): Promise<void> {
+  // Превью: pty-канал пишется из обработчиков вывода — fire-and-forget
   if (!inTauri) return;
   return invoke("pty_resize", { id, cols, rows });
 }
 
 export async function ptyKill(id: string): Promise<void> {
+  // Превью: pty-канал гасится из cleanup — бросок ломал бы размонтирование
   if (!inTauri) return;
   return invoke("pty_kill", { id });
 }
@@ -1277,12 +1293,12 @@ export async function notesRead(file: string): Promise<string> {
 }
 
 export async function notesWrite(file: string, content: string): Promise<void> {
-  if (!inTauri) return;
+  if (!inTauri) throw nativeOnly("Сохранение заметок");
   return invoke("notes_write", { file, content });
 }
 
 export async function notesDelete(file: string): Promise<void> {
-  if (!inTauri) return;
+  if (!inTauri) throw nativeOnly("Удаление заметки");
   return invoke("notes_delete", { file });
 }
 
@@ -1384,7 +1400,7 @@ export async function mcpListServers(): Promise<McpServerCfg[]> {
 }
 
 export async function mcpSaveServers(servers: McpServerCfg[]): Promise<void> {
-  if (!inTauri) return;
+  if (!inTauri) throw nativeOnly("Сохранение MCP-серверов");
   return invoke("mcp_save_servers", { servers });
 }
 
@@ -1397,7 +1413,7 @@ export async function mcpConnect(name: string): Promise<McpToolInfo[]> {
 }
 
 export async function mcpDisconnect(name: string): Promise<void> {
-  if (!inTauri) return;
+  if (!inTauri) throw nativeOnly("Отключение MCP-сервера");
   return invoke("mcp_disconnect", { name });
 }
 
@@ -1443,23 +1459,25 @@ export interface ComputerConfig {
 }
 
 export async function browserGetConfig(): Promise<BrowserConfig> {
+  // Дефолт совпадает с Rust (disabled): превью не должно показывать
+  // включённую интеграцию, которой в нативе нет до явного включения
   if (!inTauri)
-    return { enabled: true, headless: true, executable: "", allowPrivateNetworks: false };
+    return { enabled: false, headless: true, executable: "", allowPrivateNetworks: false };
   return invoke<BrowserConfig>("browser_get_config");
 }
 
 export async function browserSetConfig(config: BrowserConfig): Promise<void> {
-  if (!inTauri) return;
+  if (!inTauri) throw nativeOnly("Сохранение настроек браузера");
   return invoke("browser_set_config", { config });
 }
 
 export async function computerGetConfig(): Promise<ComputerConfig> {
-  if (!inTauri) return { enabled: true };
+  if (!inTauri) return { enabled: false };
   return invoke<ComputerConfig>("computer_get_config");
 }
 
 export async function computerSetConfig(config: ComputerConfig): Promise<void> {
-  if (!inTauri) return;
+  if (!inTauri) throw nativeOnly("Сохранение настроек Computer Use");
   return invoke("computer_set_config", { config });
 }
 
@@ -1577,7 +1595,7 @@ export async function telegramStatus(): Promise<TelegramStatus> {
 }
 
 export async function telegramUnbind(): Promise<void> {
-  if (!inTauri) return;
+  if (!inTauri) throw nativeOnly("Отвязка Telegram");
   return invoke("telegram_unbind");
 }
 
@@ -1599,6 +1617,7 @@ export async function telegramNotify(
   text: string,
   buttons: TgButton[] = [],
 ): Promise<void> {
+  // Превью: notify fire-and-forget по дизайну (см. telegram.ts)
   if (!inTauri) return;
   return invoke("telegram_notify", { kind, text, buttons });
 }
@@ -1698,12 +1717,13 @@ export async function soundData(): Promise<string | null> {
 }
 
 export async function soundDelete(): Promise<void> {
-  if (!inTauri) return;
+  if (!inTauri) throw nativeOnly("Удаление звука");
   return invoke("sound_delete");
 }
 
 /** Не давать компьютеру уснуть (Automations) */
 export async function keepAwake(enable: boolean): Promise<void> {
+  // Превью: keep-awake перевзводится таймером — бросок рвал бы цепочку
   if (!inTauri) return;
   return invoke("keep_awake", { enable });
 }
@@ -1717,17 +1737,19 @@ export interface BrowserFrame {
 }
 
 export async function browserViewStart(): Promise<void> {
-  if (!inTauri) return;
+  if (!inTauri) throw nativeOnly("Просмотр страницы в браузере");
   return invoke("browser_view_start");
 }
 
 export async function browserViewStop(): Promise<void> {
+  // Превью: stop зовётся из cleanup — бросок ломал бы размонтирование
   if (!inTauri) return;
   return invoke("browser_view_stop");
 }
 
 /** Размер вьюпорта агентовского браузера (null/null — как есть) */
 export async function browserViewSetSize(w: number | null, h: number | null): Promise<void> {
+  // Превью: размер шлётся из обработчика resize — fire-and-forget
   if (!inTauri) return;
   return invoke("browser_view_size", { w, h });
 }
@@ -1868,7 +1890,7 @@ export async function hooksLoad(): Promise<HookFile> {
 }
 
 export async function hooksSave(file: HookFile): Promise<void> {
-  if (!inTauri) return;
+  if (!inTauri) throw nativeOnly("Сохранение хуков");
   return invoke("hooks_save", { file });
 }
 
@@ -1894,7 +1916,7 @@ export async function shortcutsLoad(): Promise<Record<string, string>> {
 }
 
 export async function shortcutsSave(binds: unknown): Promise<void> {
-  if (!inTauri) return;
+  if (!inTauri) throw nativeOnly("Сохранение горячих клавиш");
   return invoke("shortcuts_save", { binds });
 }
 
@@ -1906,7 +1928,7 @@ export async function usageColorsLoad(): Promise<Record<string, string>> {
 }
 
 export async function usageColorsSave(colors: Record<string, string>): Promise<void> {
-  if (!inTauri) return;
+  if (!inTauri) throw nativeOnly("Сохранение цветов использования");
   return invoke("usage_colors_save", { colors });
 }
 
@@ -1918,7 +1940,7 @@ export async function subagentsLoad(): Promise<Record<string, unknown>> {
 }
 
 export async function subagentsSave(config: unknown): Promise<void> {
-  if (!inTauri) return;
+  if (!inTauri) throw nativeOnly("Сохранение субагентов");
   return invoke("subagents_save", { config });
 }
 
@@ -1938,7 +1960,7 @@ export async function commandsLoad(): Promise<UserCommand[]> {
 }
 
 export async function commandsSave(commands: UserCommand[]): Promise<void> {
-  if (!inTauri) return;
+  if (!inTauri) throw nativeOnly("Сохранение команд");
   return invoke("commands_save", { file: { commands } });
 }
 
@@ -1993,7 +2015,7 @@ export async function pluginsLoad(): Promise<Plugin[]> {
 }
 
 export async function pluginsSave(installed: Plugin[]): Promise<void> {
-  if (!inTauri) return;
+  if (!inTauri) throw nativeOnly("Сохранение плагинов");
   return invoke("plugins_save", { file: { installed } });
 }
 
@@ -2005,6 +2027,7 @@ export async function checkForUpdate(opts: {
   available: (version: string) => boolean;
   installed: () => void;
 }): Promise<void> {
+  // Превью: авто-проверка обновлений фоновая; ручная — см. opts ниже
   if (!inTauri) return;
   try {
     const { check } = await import("@tauri-apps/plugin-updater");
@@ -2245,7 +2268,7 @@ export async function pickJsonFile(): Promise<string | null> {
  * фильтров: CUDA/Vulkan-сборки называются по-разному и живут где угодно */
 export async function pickBinaryFile(): Promise<string | null> {
   if (!inTauri) {
-    throw new Error("Выбор файла работает в нативном приложении");
+    throw nativeOnly("Выбор файла");
   }
   const { open } = await import("@tauri-apps/plugin-dialog");
   const picked = await open({ multiple: false });
@@ -2272,13 +2295,13 @@ export async function dictationStatus(): Promise<DictationStatus> {
 
 /** Скачать модель whisper (~57 МБ, Hugging Face → appdata) */
 export async function dictationDownloadModel(): Promise<void> {
-  if (!inTauri) return;
+  if (!inTauri) throw nativeOnly("Загрузка модели диктовки");
   await invoke("dictation_download_model");
 }
 
 /** Сохранить путь к whisper-cli (null — искать в PATH) */
 export async function dictationSetConfig(cliPath: string | null): Promise<void> {
-  if (!inTauri) return;
+  if (!inTauri) throw nativeOnly("Настройка диктовки");
   await invoke("dictation_set_config", { cliPath });
 }
 
@@ -2309,7 +2332,7 @@ export async function voiceStatus(wakeModel: string): Promise<VoiceStatus> {
 
 /** Скачать недостающие модели (~3-5 МБ суммарно, GitHub Releases → appdata) */
 export async function voiceDownloadModels(wakeModel: string): Promise<void> {
-  if (!inTauri) return;
+  if (!inTauri) throw nativeOnly("Загрузка wake-моделей");
   await invoke("voice_download_models", { wakeModel });
 }
 
@@ -2336,6 +2359,7 @@ export async function audioOutputs(): Promise<string[]> {
 
 /** Остановить текущую озвучку (idempotent) */
 export async function ttsStop(): Promise<void> {
+  // Превью: stop зовётся из cleanup проигрывания — бросок ломал бы размонтирование
   if (!inTauri) return;
   await invoke("tts_stop");
 }
@@ -2388,7 +2412,7 @@ export async function kbList(): Promise<KbMeta[]> {
 
 /** Удалить базу целиком */
 export async function kbDelete(id: string): Promise<void> {
-  if (!inTauri) return;
+  if (!inTauri) throw nativeOnly("Удаление базы знаний");
   await invoke("kb_delete", { id });
 }
 
@@ -2400,7 +2424,7 @@ export async function kbAddDocument(id: string, path: string): Promise<number> {
 
 /** Убрать документ из базы */
 export async function kbRemoveDocument(id: string, docId: number): Promise<void> {
-  if (!inTauri) return;
+  if (!inTauri) throw nativeOnly("Удаление документа");
   await invoke("kb_remove_document", { id, docId });
 }
 
@@ -2412,7 +2436,7 @@ export async function kbDocuments(id: string): Promise<KbDoc[]> {
 
 /** Поиск по базе: топ-k фрагментов (локальный bm25 + префиксная морфология) */
 export async function kbQuery(id: string, query: string, topK = 6): Promise<KbHit[]> {
-  if (!inTauri) return [];
+  if (!inTauri) throw nativeOnly("Поиск по базе знаний");
   return invoke<KbHit[]>("kb_query", { id, query, topK });
 }
 
@@ -2460,18 +2484,21 @@ export async function gitAutocommit(root: string, message: string): Promise<bool
 /** Разворот/восстановление окна: кастомная анимация в Rust — нативный
  *  maximize для безрамочного окна ломает циклы maximize↔restore (tao#471) */
 export async function windowToggleMaximize(): Promise<void> {
+  // Превью: управление окном из хоткеев — бросок давал бы необработанный reject
   if (!inTauri) return;
   await invoke("window_toggle_maximize");
 }
 
 /** Полный экран (назначаемое действие в «Горячих клавишах») */
 export async function windowToggleFullscreen(): Promise<void> {
+  // Превью: управление окном из хоткеев — бросок давал бы необработанный reject
   if (!inTauri) return;
   await invoke("window_toggle_fullscreen");
 }
 
 /** Скрыть окно в трей (крестик при «сворачивать в трей») */
 export async function hideToTray(): Promise<void> {
+  // Превью: управление окном из хоткеев — бросок давал бы необработанный reject
   if (!inTauri) return;
   await invoke("hide_to_tray");
 }
