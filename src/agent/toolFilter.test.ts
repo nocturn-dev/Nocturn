@@ -99,7 +99,7 @@ describe("isMutatingTool — механическое зеркало perm.rs", (
 describe("isMutatingTool — золотой список perm.rs", () => {
   it("мутирующие точные имена", () => {
     expect(
-      ["shell_run", "fs_write", "fs_delete", "vault_write", "memory_save", "image_generate"].every(
+      ["shell_run", "fs_write", "fs_delete", "vault_write", "image_generate"].every(
         (n) => isMutatingTool(n),
       ),
     ).toBe(true);
@@ -178,7 +178,6 @@ describe("isConcurrencySafe — батчи параллельных чтений
       "fs_write",
       "fs_delete",
       "vault_write",
-      "memory_save",
       "image_generate",
       "subagent_run",
       "subagent_status",

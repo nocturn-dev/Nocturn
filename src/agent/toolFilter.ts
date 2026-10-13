@@ -36,7 +36,6 @@ export function isMutatingTool(name: string): boolean {
     name === "fs_write" ||
     name === "fs_delete" ||
     name === "vault_write" ||
-    name === "memory_save" ||
     name === "image_generate" ||
     name === "gguf_cut" ||
     name === "gguf_test" ||
