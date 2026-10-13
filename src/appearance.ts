@@ -494,23 +494,28 @@ export function officialCss(oled: boolean, contrast: boolean): string {
 
 /**
  * Палитра Full Claude в одном месте: генератор CSS и витрина-превью читают
- * одни и те же значения. Ребрендинг (решение владельца): тёплый кофейный
- * уголь — основной #24150F, доп. акцент #D96B27; оранжевый сознательно не
- * форсируется (акцент живёт в мелких деталях, не в заливках). Производные
- * поверхности — та же тёплая гамма шагами яркости: сайдбар темнее фона,
- * композер/карточки светлее, пузырь — ещё на полшага.
+ * одни и те же значения. Ребрендинг (решение владельца): основной фон —
+ * тёмно-коричневый почти чёрный #24150F, акцент — ржаво-оранжевый #D96B27,
+ * ТОЛЬКО на мелких деталях/ховерах, без оранжевых заливок. Правило палитры:
+ * никаких новых цветов — производные поверхности это #24150F шагами яркости
+ * (сайдбар темнее, композер/карточки и пузыри светлее), остальное —
+ * альфа-наложения белого и тёплый почти-белый текст.
  */
 export const FULL_CLAUDE_PALETTE = {
   bg: "#24150F",
-  deep: "#1B0F0A",
-  surface: "#2E1B11",
-  raised: "#322013",
-  line: "rgba(255, 226, 200, 0.10)",
-  text: "#F3EAE1",
-  muted: "#B4A295",
+  /** #24150F, темнее на ~15% — сайдбар */
+  deep: "#1C100C",
+  /** #24150F, светлее на ~10% — композер/карточки */
+  surface: "#2D1A13",
+  /** ещё полшага светлее — пузыри */
+  raised: "#331E15",
+  line: "rgba(255, 255, 255, 0.09)",
+  text: "#F2EDE8",
+  muted: "#A3968D",
   accent: "#D96B27",
-  accentDeep: "#A9521B",
-  codeBg: "#1D100A",
+  /** #D96B27 x 0.82 — hover/pressed акцента */
+  accentDeep: "#B25820",
+  codeBg: "#1E120C",
   /** Inline-код: ink = cds-red-200, подложка = 5% белого (cds-alpha-1) */
   codeInk: "#F4ABAB",
 } as const;
@@ -561,8 +566,8 @@ export function fullClaudeCss(a: Appearance): string {
       `  --halo-line: ${FULL_CLAUDE_PALETTE.line} !important;`,
       `  --halo-text: ${FULL_CLAUDE_PALETTE.text} !important;`,
       `  --halo-muted: ${FULL_CLAUDE_PALETTE.muted} !important;`,
-      "  --halo-hover: rgba(255, 226, 200, 0.06) !important;",
-      "  --halo-hover-strong: rgba(255, 226, 200, 0.1) !important;",
+      "  --halo-hover: rgba(255, 255, 255, 0.06) !important;",
+      "  --halo-hover-strong: rgba(255, 255, 255, 0.1) !important;",
       `  --halo-code-bg: ${FULL_CLAUDE_PALETTE.codeBg} !important;`,
       `  --halo-code-text: ${FULL_CLAUDE_PALETTE.text} !important;`,
       `  --halo-accent: ${FULL_CLAUDE_PALETTE.accent} !important;`,
