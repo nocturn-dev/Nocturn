@@ -2783,6 +2783,8 @@ export default function App() {
             gradFrom={appearance.ambientGradFrom}
             gradTo={appearance.ambientGradTo}
             gradAngle={appearance.ambientGradAngle}
+            // Смена стиля/темы перекрашивает небо сцены (canvas не видит CSS-переменных)
+            paletteKey={`${appearance.style}:${theme}`}
           />
         )}
         {/* Ambient Lyrics: лента строк лирики — режим Spotify/YouTube-
