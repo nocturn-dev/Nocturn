@@ -19,6 +19,34 @@ const WAKE_FILES: &[(&str, &str)] = &[
     ("hey_jarvis", "hey_jarvis_v0.1.onnx"),
     ("hey_mycroft", "hey_mycroft_v0.1.onnx"),
 ];
+/// SHA-256 эталонных файлов (релиз v0.5.1, хэши сняты с самих ассетов).
+/// GitHub не отдаёт digest для старых релизов, поэтому сверка локальная:
+/// без неё обрезанный/подменённый ответ переименовывался в «модель»
+const MODEL_SHA256: &[(&str, &str)] = &[
+    (
+        "melspectrogram.onnx",
+        "ba2b0e0f8b7b875369a2c89cb13360ff53bac436f2895cced9f479fa65eb176f",
+    ),
+    (
+        "embedding_model.onnx",
+        "70d164290c1d095d1d4ee149bc5e00543250a7316b59f31d056cff7bd3075c1f",
+    ),
+    (
+        "hey_jarvis_v0.1.onnx",
+        "94a13cfe60075b132f6a472e7e462e8123ee70861bc3fb58434a73712ee0d2cb",
+    ),
+    (
+        "hey_mycroft_v0.1.onnx",
+        "c2a311e8fa1338de89c31b3b46dc4dffd4af2f9a8d6ddead48893c2d301b1f18",
+    ),
+];
+
+fn expected_sha256(name: &str) -> Option<&'static str> {
+    MODEL_SHA256
+        .iter()
+        .find(|(file, _)| *file == name)
+        .map(|(_, hash)| *hash)
+}
 
 static DOWNLOADING: AtomicBool = AtomicBool::new(false);
 
@@ -200,6 +228,29 @@ async fn do_download(app: &tauri::AppHandle, wake_model: &str) -> Result<(), Str
                     "model download {name} incomplete: {received} of {total} bytes"
                 ));
             }
+            // Дайджест сверяется ДО rename: битый файл остаётся .tmp-мусором,
+            // а не «моделью», которую вебвью молча загрузит в ONNX-сессию
+            let digest = tauri::async_runtime::spawn_blocking({
+                let tmp = tmp.clone();
+                move || crate::fsutil::sha256_file_hex(&tmp)
+            })
+            .await
+            .map_err(|e| format!("voice download task failed: {e}"))??;
+            match expected_sha256(name) {
+                Some(expected) if digest != expected => {
+                    let _ = std::fs::remove_file(&tmp);
+                    return Err(format!(
+                        "model download {name}: sha256 mismatch (got {digest}, expected {expected})"
+                    ));
+                }
+                Some(_) => {}
+                None => {
+                    // Имени нет в таблице хэшей — белый список файлов шире
+                    // таблицы не должен быть; отказ вместо тихой загрузки
+                    let _ = std::fs::remove_file(&tmp);
+                    return Err(format!("model download {name}: no pinned sha256"));
+                }
+            }
             std::fs::rename(&tmp, &final_path).map_err(|e| e.to_string())?;
             let _ = app.emit_to(
                 "main",
@@ -258,5 +309,17 @@ mod tests {
         assert_eq!(wake_file("hey_jarvis"), Some("hey_jarvis_v0.1.onnx"));
         assert_eq!(wake_file("hey_mycroft"), Some("hey_mycroft_v0.1.onnx"));
         assert_eq!(wake_file("alexa"), None);
+    }
+
+    /// Каждый скачиваемый файл обязан иметь эталонный дайджест: появление
+    /// нового файла без хэша в таблице — провал сборки, а не тихая загрузка
+    #[test]
+    fn every_downloaded_model_has_pinned_sha256() {
+        for f in FEATURE_FILES {
+            assert!(expected_sha256(f).is_some(), "{f} has no pinned sha256");
+        }
+        for (_, f) in WAKE_FILES {
+            assert!(expected_sha256(f).is_some(), "{f} has no pinned sha256");
+        }
     }
 }

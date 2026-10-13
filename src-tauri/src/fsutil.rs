@@ -3,10 +3,32 @@
 //! после которого load_* постоянно возвращали «file corrupted».
 
 use std::fs;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
 use serde::Serialize;
+
+/// SHA-256 файла стримом (sync — вызывать под spawn_blocking). Общий
+/// хелпер для скачиваний моделей: без сверки дайджеста обрезанный или
+/// подменённый ответ становился «скачанной моделью»
+pub(crate) fn sha256_file_hex(path: &Path) -> Result<String, String> {
+    use sha2::{Digest, Sha256};
+    let mut f = fs::File::open(path).map_err(|e| format!("sha256: open: {e}"))?;
+    let mut hasher = Sha256::new();
+    let mut buf = vec![0u8; 1 << 20];
+    loop {
+        let n = f.read(&mut buf).map_err(|e| format!("sha256: read: {e}"))?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
+    Ok(hasher
+        .finalize()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect())
+}
 
 /// Открыть файл записи с верификацией адреса (symlink TOCTOU, SECURITY.md).
 /// perm-слой канонизует путь и проверяет его ДО вызова инструмента, но между

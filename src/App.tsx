@@ -203,12 +203,13 @@ function sanitizeUsageEvents(raw: string): UsageEvent[] {
   return out;
 }
 
-/** Текстовое решение по подтверждению из Telegram (фаза 2): «да/нет/всегда»
- *  на ru/en + утилитарные (1/2/0, +/-). Не-решение (null) — текст пойдёт
- *  как задача/поправка */
-function confirmDecisionFromText(text: string): "once" | "always" | "deny" | null {
+/** Текстовое решение по подтверждению из Telegram (фаза 2): «да/нет» на
+ *  ru/en + утилитарные (1/2/0, +/-). Удалённый чат не выдаёт постоянных
+ *  правил: «всегда/always/2» считается одноразовым «да». Не-решение
+ *  (null) — текст пойдёт как задача/поправка */
+function confirmDecisionFromText(text: string): "once" | "deny" | null {
   const s = text.trim().toLowerCase();
-  if (/^(всегда|always|2)\s*[!.]*$/.test(s)) return "always";
+  if (/^(всегда|always|2)\s*[!.]*$/.test(s)) return "once";
   if (/^(нет|no|n|отклонить|deny|0|-)\s*[!.]*$/.test(s)) return "deny";
   if (/^(да|yes|y|ок|ok|окей|разрешить|1|\+)\s*[!.]*$/.test(s)) return "once";
   return null;
@@ -1303,7 +1304,9 @@ export default function App() {
         if (cmd.data.startsWith("confirm:")) {
           const d = cmd.data.slice("confirm:".length);
           if (
-            (d === "once" || d === "always" || d === "deny") &&
+            // «always» из удалённого чата не принимаем: постоянное правило
+            // прав выдаётся только из настольного интерфейса
+            (d === "once" || d === "deny") &&
             interactions.some((i) => i.kind === "confirm")
           ) {
             handleConfirmDecision(d);

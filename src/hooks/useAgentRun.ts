@@ -1090,14 +1090,16 @@ export function useAgentRun(deps: AgentRunDeps) {
     }
 
     // Правила проекта (паттерн CLAUDE.md/.cursor/rules): AGENTS.md или
-    // CLAUDE.md из корня проекта — в контекст каждой отправки
+    // CLAUDE.md из корня проекта — в контекст каждой отправки. Роль user
+    // и явная пометка недоверия: файл приезжает из репозитория, которому
+    // мы не обязаны верить, и не должен звучать как системный промпт
     const rulesRoot = projectRootRef.current;
     if (rulesRoot) {
       const rules = await projectRulesRead(rulesRoot).catch(() => null);
       if (rules && rules.trim() !== "") {
         history.push({
-          role: "system",
-          content: `${t("agent.rulesBlock")}\n\n${rules}`,
+          role: "user",
+          content: `${t("agent.rulesBlock")}\n\n${t("agent.rulesUntrusted")}\n\n${rules}`,
         });
       }
     }
@@ -1371,9 +1373,10 @@ export function useAgentRun(deps: AgentRunDeps) {
             return call.name;
           }
         })();
+        // Постоянное правило («всегда») удалённый чат не выдаёт: кнопка
+        // «всегда» живёт только в настольной карточке, из TG — да/нет
         telegramNotify("confirm", t("tg.confirm", { what: confirmWhat }), [
           { label: t("agent.allow"), data: "confirm:once" },
-          { label: t("agent.allowAlways"), data: "confirm:always" },
           { label: t("agent.deny"), data: "confirm:deny" },
         ]);
         openInteraction(

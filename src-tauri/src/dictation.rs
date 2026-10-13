@@ -18,6 +18,10 @@ use tauri::{Emitter, Manager};
 const MODEL_URL: &str =
     "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base-q5_1.bin";
 const MODEL_FILE: &str = "ggml-base-q5_1.bin";
+/// Эталонный дайджест pinned-версии (LFS oid из Hugging Face, репозиторий
+/// ggerganov/whisper.cpp): модель транскрибирует пользовательский звук,
+/// подменённый бинарник недопустим — сверка обязательна до rename
+const MODEL_SHA256: &str = "422f1ae452ade6f30a004d7e5c6a43195e4433bc370bf23fac9cc591f01a8898";
 /// ~6,6 минуты звука 16 кГц int16 (12 МиБ / 2 байта / 16000 Гц) — потолок
 /// на один запрос диктовки. Цифра в recording_too_long_error считается от
 /// того же значения (комментарий говорил 6,5,
@@ -260,6 +264,19 @@ async fn do_download(app: &tauri::AppHandle) -> Result<(), String> {
     if total > 0 && received != total {
         return Err(format!(
             "model download incomplete: {received} of {total} bytes"
+        ));
+    }
+    // Дайджест до rename: битый tmp остаётся мусором под guard'ом,
+    // а не «моделью», которую получит whisper-cli
+    let digest = tauri::async_runtime::spawn_blocking({
+        let tmp = tmp.clone();
+        move || crate::fsutil::sha256_file_hex(&tmp)
+    })
+    .await
+    .map_err(|e| format!("dictation download task failed: {e}"))??;
+    if digest != MODEL_SHA256 {
+        return Err(format!(
+            "model download: sha256 mismatch (got {digest}, expected {MODEL_SHA256})"
         ));
     }
     std::mem::forget(tmp_guard); // успех: tmp переименован, guard не удаляет

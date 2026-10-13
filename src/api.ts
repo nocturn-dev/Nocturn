@@ -366,6 +366,13 @@ export interface ReasoningItem {
  * "chat-chunk" (текст), "chat-thought" (reasoning) и "chat-usage" (токены).
  * Команда разрешается при успешном завершении потока и отклоняется при ошибке.
  */
+// Потерянные события стрима (пропуск seq): копится на живую сессию
+// приложения, диагностика читает его и в релизе
+let streamSeqGaps = 0;
+export function getStreamSeqGaps(): number {
+  return streamSeqGaps;
+}
+
 export async function chatStream(opts: {
   requestId: string;
   baseUrl: string;
@@ -382,7 +389,7 @@ export async function chatStream(opts: {
   provider?: string;
   onDelta: (delta: string, seq?: number) => void;
   onThought: (thought: string, seq?: number) => void;
-  /** Барьер (паттерн-референс, блок 12): событие-финал — обработчик обязан
+  /** Барьер: событие-финал — обработчик обязан
    *  дренировать батч-буфер дельт до обработки барьера */
   onUsage: (usage: ChatUsage, barrier?: boolean, seq?: number) => void;
   onToolCalls?: (calls: ToolCallInfo[], barrier?: boolean, seq?: number) => void;
@@ -395,98 +402,106 @@ export async function chatStream(opts: {
     throw new Error("Чат работает в нативном приложении (npm run tauri dev)");
   }
 
-  // FIX [HIGH]: все 4 регистрации теперь внутри try и через Promise.all —
-  // если любая упадёт, finally снимет уже установленные. Раньше упавший
-  // 3-й/4-й listen терял unlisten-функции первых двух: вечная утечка слушателей
-  // на каждый неудавшийся send.
+  // Каждая listen регистрируется по одной, её unlisten сразу попадает
+  // в offs: если очередная упадёт, finally снимет уже установленные.
+  // Promise.all здесь терял unlisten'ы успешных подписок при отказе любой
+  // из остальных — утечка слушателей на каждый неудавшийся send
   const offs: Array<() => void> = [];
-  // Гэп-детект: seq идёт сквозь все каналы потока; пропуск в DEV — сигнал
-  // потерянного события (в релизе молча, чтобы не шуметь)
+  // Гэп-детект: seq идёт сквозь все каналы потока. Гэп — потерянное
+  // событие, считаем его и в релизе (счётчик читается диагностикой),
+  // не только в DEV-консоли
   let lastSeq = -1;
   const checkSeq = (seq?: number) => {
     if (seq === undefined) return;
     if (isSeqGap(lastSeq, seq)) {
-      if (import.meta.env.DEV) {
-        console.warn(`[feed] seq gap: ${lastSeq} -> ${seq}`);
-      }
+      streamSeqGaps++;
+      console.warn(`[feed] seq gap: ${lastSeq} -> ${seq}`);
     }
     lastSeq = seq;
   };
   try {
     offs.push(
-      ...(await Promise.all([
-        listen<{ requestId: string; delta: string; seq?: number }>("chat-chunk", (e) => {
+      await listen<{ requestId: string; delta: string; seq?: number }>("chat-chunk", (e) => {
+        if (e.payload.requestId === opts.requestId) {
+          checkSeq(e.payload.seq);
+          opts.onDelta(e.payload.delta, e.payload.seq);
+        }
+      }),
+    );
+    offs.push(
+      await listen<{ requestId: string; thought: string; seq?: number }>("chat-thought", (e) => {
+        if (e.payload.requestId === opts.requestId) {
+          checkSeq(e.payload.seq);
+          opts.onThought(e.payload.thought, e.payload.seq);
+        }
+      }),
+    );
+    offs.push(
+      await listen<{
+        requestId: string;
+        promptTokens: number;
+        completionTokens: number;
+        totalTokens: number;
+        stopReason?: string;
+        cacheRead?: number;
+        cacheCreation?: number;
+        barrier?: boolean;
+        seq?: number;
+      }>("chat-usage", (e) => {
+        if (e.payload.requestId === opts.requestId) {
+          checkSeq(e.payload.seq);
+          opts.onUsage(
+            {
+              prompt: e.payload.promptTokens,
+              completion: e.payload.completionTokens,
+              total: e.payload.totalTokens,
+              stopReason: e.payload.stopReason,
+              cacheRead: e.payload.cacheRead,
+              cacheCreation: e.payload.cacheCreation,
+            },
+            e.payload.barrier,
+            e.payload.seq,
+          );
+        }
+      }),
+    );
+    offs.push(
+      await listen<{ requestId: string; calls: ToolCallInfo[]; barrier?: boolean; seq?: number }>(
+        "chat-tool-calls",
+        (e) => {
           if (e.payload.requestId === opts.requestId) {
             checkSeq(e.payload.seq);
-            opts.onDelta(e.payload.delta, e.payload.seq);
+            opts.onToolCalls?.(e.payload.calls, e.payload.barrier, e.payload.seq);
           }
-        }),
-        listen<{ requestId: string; thought: string; seq?: number }>("chat-thought", (e) => {
-          if (e.payload.requestId === opts.requestId) {
-            checkSeq(e.payload.seq);
-            opts.onThought(e.payload.thought, e.payload.seq);
-          }
-        }),
-        listen<{
-          requestId: string;
-          promptTokens: number;
-          completionTokens: number;
-          totalTokens: number;
-          stopReason?: string;
-          cacheRead?: number;
-          cacheCreation?: number;
-          barrier?: boolean;
-          seq?: number;
-        }>("chat-usage", (e) => {
-          if (e.payload.requestId === opts.requestId) {
-            checkSeq(e.payload.seq);
-            opts.onUsage(
-              {
-                prompt: e.payload.promptTokens,
-                completion: e.payload.completionTokens,
-                total: e.payload.totalTokens,
-                stopReason: e.payload.stopReason,
-                cacheRead: e.payload.cacheRead,
-                cacheCreation: e.payload.cacheCreation,
-              },
-              e.payload.barrier,
-              e.payload.seq,
-            );
-          }
-        }),
-        listen<{ requestId: string; calls: ToolCallInfo[]; barrier?: boolean; seq?: number }>(
-          "chat-tool-calls",
-          (e) => {
-            if (e.payload.requestId === opts.requestId) {
-              checkSeq(e.payload.seq);
-              opts.onToolCalls?.(e.payload.calls, e.payload.barrier, e.payload.seq);
-            }
-          },
-        ),
-        listen<{
-          requestId: string;
-          thinking: string;
-          signature: string;
-          redacted: string[];
-          seq?: number;
-        }>("chat-thinking", (e) => {
-          if (e.payload.requestId === opts.requestId) {
-            checkSeq(e.payload.seq);
-            opts.onThinkingBlock?.(e.payload, e.payload.seq);
-          }
-        }),
-        listen<{
-          requestId: string;
-          items: ReasoningItem[];
-          barrier?: boolean;
-          seq?: number;
-        }>("chat-reasoning-items", (e) => {
-          if (e.payload.requestId === opts.requestId) {
-            checkSeq(e.payload.seq);
-            opts.onReasoningItems?.(e.payload.items, e.payload.barrier, e.payload.seq);
-          }
-        }),
-      ])),
+        },
+      ),
+    );
+    offs.push(
+      await listen<{
+        requestId: string;
+        thinking: string;
+        signature: string;
+        redacted: string[];
+        seq?: number;
+      }>("chat-thinking", (e) => {
+        if (e.payload.requestId === opts.requestId) {
+          checkSeq(e.payload.seq);
+          opts.onThinkingBlock?.(e.payload, e.payload.seq);
+        }
+      }),
+    );
+    offs.push(
+      await listen<{
+        requestId: string;
+        items: ReasoningItem[];
+        barrier?: boolean;
+        seq?: number;
+      }>("chat-reasoning-items", (e) => {
+        if (e.payload.requestId === opts.requestId) {
+          checkSeq(e.payload.seq);
+          opts.onReasoningItems?.(e.payload.items, e.payload.barrier, e.payload.seq);
+        }
+      }),
     );
     await invoke("chat_stream", {
       requestId: opts.requestId,

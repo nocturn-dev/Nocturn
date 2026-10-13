@@ -1,10 +1,16 @@
 /**
- * Pyodide-воркер: изолированный рантайм Python для инструмента code_run.
+ * Pyodide-воркер: рантайм Python для инструмента code_run.
  * Classic worker + importScripts — Pyodide грузится из public/pyodide/
- * (та же origin-статика, без CDN). У воркера нет Tauri-IPC и localStorage:
- * модельный код не может тронуть ни приложение, ни диск — это и есть песочница.
+ * (та же origin-статика, без CDN). У воркера нет Tauri-IPC и localStorage;
+ * сетевые и storage-глобалы вырезаются сразу после загрузки рантайма —
+ * модельный код через js-модуль не получает ни сеть, ни хранилища, а ФС
+ * Pyodide — виртуальная in-memory, реального диска не видно. Граница —
+ * гигиена, а не защита от злонамеренного кода: рантайм живёт в том же
+ * процессе, изоляции процессов тут нет.
  *
  * Протокол: { id, code } → { id, ok, stdout, stderr, error?, result? }
+ * Прогоны сериализуются цепочкой промисов: setStdout/setStderr — глобальные
+ * накопители общего инстанса, параллельные прогоны путали бы вывод.
  * Хост гасит зависшие прогоны через terminate + перезапуск воркера.
  */
 
@@ -12,9 +18,43 @@
 
 let pyodide = null;
 let loading = null;
+// Очередь прогонов: следующий код стартует только после завершения
+// предыдущего, иначе сброс setStdout одного прогона режет чужой вывод
+let runChain = Promise.resolve();
 
 function emit(msg) {
   self.postMessage(msg);
+}
+
+// Сетевые и storage-поверхности, добираемые из Python через js-модуль.
+// importScripts и Worker тоже здесь: первый — путь к динамическому коду,
+// второй — вложенные воркеры в обход вырезания глобалов
+const BLOCKED_GLOBALS = [
+  "fetch",
+  "XMLHttpRequest",
+  "WebSocket",
+  "EventSource",
+  "indexedDB",
+  "caches",
+  "importScripts",
+  "Worker",
+];
+
+function blockNetworkAndStorage() {
+  for (const name of BLOCKED_GLOBALS) {
+    try {
+      // Часть свойств живёт на прототипе скоупа, delete их не снимает —
+      // поэтому после delete ещё затираем собственным теневым значением
+      delete self[name];
+      Object.defineProperty(self, name, {
+        value: undefined,
+        writable: false,
+        configurable: false,
+      });
+    } catch {
+      // Неконфигурируемый глобал — переживаем: основная поверхность срезана
+    }
+  }
 }
 
 async function ensurePyodide() {
@@ -22,20 +62,10 @@ async function ensurePyodide() {
   if (!loading) {
     loading = (async () => {
       importScripts("/pyodide/pyodide.js");
-      // stdout/stderr собираем целиком — хост сам режет потолок
-      let out = "";
-      let err = "";
       pyodide = await self.loadPyodide({
         indexURL: "/pyodide/",
-        stdout: (line) => {
-          out += line + "\n";
-        },
-        stderr: (line) => {
-          err += line + "\n";
-        },
       });
-      pyodide._stdoutBuffer = out;
-      pyodide._stderrBuffer = err;
+      blockNetworkAndStorage();
       return pyodide;
     })();
     loading.catch(() => {
@@ -47,13 +77,12 @@ async function ensurePyodide() {
   return loading;
 }
 
-self.onmessage = async (event) => {
-  const { id, code } = event.data;
+async function runOne(id, code) {
   let out = "";
   let err = "";
   try {
     const py = await ensurePyodide();
-    // Сбрасываем накопители stdout: setStdout batched отдаёт строки построчно
+    // Накопители stdout/stderr — на каждый прогон свои, хост сам режет потолок
     let result;
     py.setStdout({ batched: (line) => (out += line + "\n") });
     py.setStderr({ batched: (line) => (err += line + "\n") });
@@ -66,9 +95,22 @@ self.onmessage = async (event) => {
     }
     let serializable = null;
     if (result !== undefined && result !== null) {
-      // Pyodide-объекты (PyProxy) не переживают postMessage — приводим к str
-      serializable =
-        typeof result.toString === "function" ? result.toString() : String(result);
+      try {
+        // Pyodide-объекты (PyProxy) не переживают postMessage — приводим к str
+        serializable = String(result);
+      } catch {
+        // str(result) упал — не роняем успешный прогон, отдаём заглушку
+        serializable = "<unrepresentable result>";
+      } finally {
+        // PyProxy держит память WASM-кучи: без destroy она утекает на прогон
+        if (typeof result.destroy === "function") {
+          try {
+            result.destroy();
+          } catch {
+            // Уже уничтожен — не важно
+          }
+        }
+      }
     }
     emit({ id, ok: true, stdout: out, stderr: err, result: serializable });
   } catch (e) {
@@ -76,4 +118,9 @@ self.onmessage = async (event) => {
     // инструмента — она сама её исправит
     emit({ id, ok: false, stdout: out, stderr: err, error: String(e) });
   }
+}
+
+self.onmessage = (event) => {
+  const { id, code } = event.data;
+  runChain = runChain.then(() => runOne(id, code));
 };
