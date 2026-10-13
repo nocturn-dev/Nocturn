@@ -969,8 +969,12 @@ export async function gitStatus(path: string): Promise<GitEntry[] | null> {
   if (!inTauri) return null;
   try {
     return await invoke<GitEntry[]>("git_status", { path });
-  } catch {
-    return null; // не-repo или git отсутствует — просто без подсветки
+  } catch (e) {
+    // Не-repo — штатный случай: папка просто без подсветки. Остальное
+    // (права, поломанный git) наверх — молчаливый null прятал поломку
+    if (String(e).includes("not a git repository")) return null;
+    console.warn("git_status failed:", e);
+    throw e;
   }
 }
 
@@ -997,7 +1001,7 @@ export interface CheckpointMeta {
   label: string;
   files: number;
   bytes: number;
-  /** SHA коммита git-журнала (opt-in режим, блок 12 шаг 4) */
+  /** SHA коммита git-журнала (opt-in режим) */
   git?: string;
 }
 
@@ -1011,24 +1015,19 @@ export async function checkpointSave(
   useGit?: boolean,
 ): Promise<CheckpointMeta | null> {
   if (!inTauri) return null;
-  try {
-    return await invoke<CheckpointMeta>("checkpoint_save", {
-      path,
-      label,
-      useGit: useGit === true,
-    });
-  } catch {
-    return null; // нет доступа к папке — пропускаем, не мешая задаче
-  }
+  // Ошибки наверх: движок ловит их и тостит — чекпоинт страховка, а не
+  // условие работы, но молчаливый null делал тост мёртвым кодом
+  return await invoke<CheckpointMeta>("checkpoint_save", {
+    path,
+    label,
+    useGit: useGit === true,
+  });
 }
 
 export async function checkpointList(path: string): Promise<CheckpointMeta[]> {
   if (!inTauri) return [];
-  try {
-    return await invoke<CheckpointMeta[]>("checkpoint_list", { path });
-  } catch {
-    return [];
-  }
+  // Ошибки наверх: вызывающий различает «пусто» и «не прочиталось»
+  return invoke<CheckpointMeta[]>("checkpoint_list", { path });
 }
 
 /** Восстановить файлы из снимка; возвращает число восстановленных файлов */
@@ -1319,11 +1318,15 @@ export async function notesDelete(file: string): Promise<void> {
     Актуальные крупные окна учитывает; для неизвестных — консервативные 128k. */
 function heuristicContextLimit(model: string): number {
   const m = model.toLowerCase();
-  if (m.includes("1m") || m.includes("-1m")) return 1_000_000;
+  // Короткие ключи ("1m", "o3", "o4") сверяем по токенам, а не по
+  // подстроке: "o3" внутри "proto3" получал чужой лимит и ломал
+  // автокомпакт
+  const tokens = new Set(m.split(/[^a-z0-9]+/).filter(Boolean));
+  if (tokens.has("1m")) return 1_000_000;
   if (m.includes("gemini")) return 1_000_000;
   if (m.includes("gpt-6") || m.includes("astra") || m.includes("gpt 6"))
     return 400_000;
-  if (m.includes("gpt-5") || m.includes("o3") || m.includes("o4"))
+  if (m.includes("gpt-5") || tokens.has("o3") || tokens.has("o4"))
     return 256_000;
   if (m.includes("claude")) return 200_000;
   if (m.includes("grok")) return 131_072;
@@ -1345,14 +1348,21 @@ export function contextLimitFor(
   const withCtx = (models ?? []).filter(
     (m) => typeof m.context === "number" && m.context > 0,
   );
-  const hit =
-    withCtx.find((m) => m.id === model) ??
-    withCtx.find(
-      (m) =>
-        m.id.toLowerCase().includes(model.toLowerCase()) ||
-        model.toLowerCase().includes(m.id.toLowerCase()),
-    );
+  const hit = withCtx.find((m) => m.id === model);
   if (hit?.context) return hit.context;
+  // Нечёткий матч — только для непустой модели: includes("") совпадает
+  // с любым id. Из совпавших берём самый длинный id (самый специфичный),
+  // порядок выдачи /models не решает
+  const q = model.toLowerCase();
+  if (q) {
+    const fuzzy = withCtx
+      .filter(
+        (m) =>
+          m.id.toLowerCase().includes(q) || q.includes(m.id.toLowerCase()),
+      )
+      .sort((a, b) => b.id.length - a.id.length);
+    if (fuzzy[0]?.context) return fuzzy[0].context;
+  }
   // "…-256k" / "128k" прямо в имени модели
   const km = /(?:^|[^a-z0-9])(\d{2,4})\s*k(?:[a-z]|$)/i.exec(model);
   if (km) {

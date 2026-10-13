@@ -1802,7 +1802,7 @@ export function useAgentRun(deps: AgentRunDeps) {
         // клинился навечно. Теперь — тост и работа продолжается
         let cp: Awaited<ReturnType<typeof checkpointSave>> | null = null;
         try {
-          // Opt-in git-журнал (блок 12 шаг 4): преф в поповере чекпоинтов
+          // Opt-in git-журнал: преф в поповере чекпоинтов
           cp = await checkpointSave(
             root,
             label,

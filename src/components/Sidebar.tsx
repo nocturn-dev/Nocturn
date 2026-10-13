@@ -1341,13 +1341,15 @@ const FileTree = memo(function FileTree({
   useEffect(() => {
     let alive = true;
     setGitMap(null);
-    void gitStatus(root).then((entries) => {
-      if (!alive) return;
-      if (!entries) return;
-      const m = new Map<string, string>();
-      for (const e of entries) m.set(normalizePath(e.path), e.code);
-      setGitMap(m);
-    });
+    void gitStatus(root)
+      .then((entries) => {
+        if (!alive) return;
+        if (!entries) return;
+        const m = new Map<string, string>();
+        for (const e of entries) m.set(normalizePath(e.path), e.code);
+        setGitMap(m);
+      })
+      .catch((e) => console.warn("git status failed:", e));
     return () => {
       alive = false;
     };
