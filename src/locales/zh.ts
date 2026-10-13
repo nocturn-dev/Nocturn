@@ -843,6 +843,8 @@ export const zh = {
     "main.exportBtn": "导出",
     "error.noteSaveFailed": "保存笔记失败——内容未写入磁盘。",
     "error.saveFailed": "聊天记录写入磁盘失败。将自动重试；若持续失败，请检查磁盘空间和权限。",
+    "error.settingsCorrupted": "设置文件无法读取（{e}）。已冻结自动保存以避免覆盖数据；请显式保存设置或手动修复该文件。",
+    "error.sessionsCorrupted": "聊天记录文件无法读取（{e}）。已冻结对该文件的写入以避免数据丢失。",
     "main.exportSecrets": "在导出文件中包含 API 密钥",
     "main.exportSecretsWarn": "导出文件将以明文形式包含 API 密钥：任何获得该文件的人都能访问您的服务商账户。确定要包含吗？",
     "main.importBtn": "导入",

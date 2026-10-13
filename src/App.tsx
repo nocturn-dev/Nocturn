@@ -662,7 +662,7 @@ export default function App() {
     handleDeleteProfile,
     handleUseLocalModel,
     handleUseGgufServe,
-  } = useApiSettings({ activeId, sessions, setSessions, appearance });
+  } = useApiSettings({ activeId, sessions, setSessions, appearance, addToast });
   // Hard Limit: лимиты расхода на задачу (localStorage) — реф синхронный,
   // его читает handleSend, который живёт в замыкании
   const [limits, setLimits] = useState<HardLimits>(loadLimits);

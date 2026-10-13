@@ -15,6 +15,7 @@ import {
   detectLocalRuntimes,
   loadProfiles,
   loadSettings,
+  loadSettingsDetailed,
   providerFromBaseUrl,
   saveProfiles,
   saveSettings,
@@ -42,8 +43,9 @@ export function useApiSettings(opts: {
   setSessions: Dispatch<SetStateAction<Session[]>>;
   /** Текущее оформление — снапшот уходит в профиль при «Сохранить текущие» */
   appearance: Appearance;
+  addToast: (text: string) => void;
 }) {
-  const { activeId, sessions, setSessions, appearance } = opts;
+  const { activeId, sessions, setSessions, appearance, addToast } = opts;
   const { t } = useLang();
 
   const [apiSettings, setApiSettings] = useState<ApiSettings>({
@@ -60,6 +62,10 @@ export function useApiSettings(opts: {
   const profilesLoadedRef = useRef(false);
   // Настройки ещё не загружены с диска — автосейв ждёт, чтобы не затереть файл
   const settingsLoadedRef = useRef(false);
+  // Чтение настроек упало (битый/нечитаемый settings.json): автосейв
+  // заморожен до явного «Сохранить» — иначе дефолты затирают файл,
+  // из которого можно было бы вытащить данные руками
+  const settingsBrokenRef = useRef(false);
   // Гейт мастер-пароля: loading → none / unlock / create.
   // Пока не «none» — автосейвы ключей заблокированы (защита от затирания)
   const [cryptoGate, setCryptoGate] = useState<
@@ -74,8 +80,14 @@ export function useApiSettings(opts: {
 
   /** Первичная загрузка: настройки + профили + гейт пароля. Один вызов */
   const loadInitial = useCallback(() => {
-    const settingsReady = loadSettings()
-      .then((s) => {
+    const settingsReady = loadSettingsDetailed()
+      .then((r) => {
+        if (r.status === "error") {
+          settingsBrokenRef.current = true;
+          addToast(t("error.settingsCorrupted", { e: r.error }));
+          return;
+        }
+        const s = r.status === "ok" ? r.data : { ...DEFAULT_SETTINGS };
         if (s.api_key || s.base_url || s.model) {
           // Старые настройки без метки провайдера — восстанавливаем по URL
           if (!s.provider) s.provider = providerFromBaseUrl(s.base_url);
@@ -94,9 +106,6 @@ export function useApiSettings(opts: {
               .catch((e) => setApiStatus({ kind: "error", message: String(e) }));
           }
         }
-      })
-      .catch(() => {
-        // Настроек ещё нет — остаёмся с дефолтами
       })
       .finally(() => {
         settingsLoadedRef.current = true;
@@ -138,13 +147,13 @@ export function useApiSettings(opts: {
       })
       .catch(() => setCryptoGate("none"));
     return Promise.all([settingsReady, profilesReady]);
-  }, [t]);
+  }, [t, addToast]);
 
   // Автосохранение настроек API: любое изменение (включая смену профиля
   // из чата) попадает на диск без кнопки «Сохранить».
   // Пока гейт пароля не пройден — не пишем (не затираем зашифрованные поля)
   useEffect(() => {
-    if (!settingsLoadedRef.current || cryptoGate !== "none") return;
+    if (!settingsLoadedRef.current || settingsBrokenRef.current || cryptoGate !== "none") return;
     const timer = window.setTimeout(() => {
       saveSettings(apiSettings).catch(() => {});
     }, 500);
@@ -178,6 +187,9 @@ export function useApiSettings(opts: {
 
   const handleSaveSettings = async () => {
     await saveSettings(apiSettings);
+    // Явное сохранение переписывает файл целиком — блокировка автосейва
+    // снята, битое состояние больше не читается
+    settingsBrokenRef.current = false;
   };
 
   /** Перечитать ключи с диска (после разблокировки/смены шифрования) */

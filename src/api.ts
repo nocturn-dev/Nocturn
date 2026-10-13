@@ -303,6 +303,35 @@ export async function loadSettings(): Promise<ApiSettings> {
   return invoke<ApiSettings>("load_settings");
 }
 
+/** Итог чтения хранилища: missing («файла ещё нет» — автосейв разрешён)
+ *  отделён от error (чтение/разбор упали — затирать файл нельзя) */
+export type LoadResult<T> =
+  | { status: "ok"; data: T }
+  | { status: "missing" }
+  | { status: "error"; error: string };
+
+/** loadSettings с различением «нет файла» и «ошибка чтения»: вызывающий
+ *  код обязан блокировать автосейв на error, иначе дефолты затрут битый
+ *  (а возможно и читаемый) файл на диске */
+export async function loadSettingsDetailed(): Promise<LoadResult<ApiSettings>> {
+  if (!inTauri) {
+    const raw = localStorage.getItem(LS_SETTINGS);
+    if (!raw) return { status: "missing" };
+    try {
+      return { status: "ok", data: JSON.parse(raw) as ApiSettings };
+    } catch (e) {
+      return { status: "error", error: String(e) };
+    }
+  }
+  try {
+    // Rust: файл отсутствует → дефолты (неотличимо от ok, автосейв безопасен);
+    // битый/нечитаемый файл → Err, сюда попадает как error
+    return { status: "ok", data: await invoke<ApiSettings>("load_settings") };
+  } catch (e) {
+    return { status: "error", error: String(e) };
+  }
+}
+
 export async function saveSettings(settings: ApiSettings): Promise<void> {
   if (!inTauri) {
     localStorage.setItem(LS_SETTINGS, JSON.stringify(settings));
@@ -805,6 +834,22 @@ export async function loadSessions(): Promise<string | null> {
   return invoke<string | null>("load_sessions");
 }
 
+/** loadSessions с различением «нет файла» и «ошибка чтения» (см.
+ *  loadSettingsDetailed): на error вызывающий блокирует автосейв,
+ *  иначе пустой стор перезаписывает sessions.json */
+export async function loadSessionsDetailed(): Promise<LoadResult<string>> {
+  if (!inTauri) {
+    const raw = localStorage.getItem(LS_SESSIONS);
+    return raw === null ? { status: "missing" } : { status: "ok", data: raw };
+  }
+  try {
+    const data = await invoke<string | null>("load_sessions");
+    return data === null ? { status: "missing" } : { status: "ok", data };
+  } catch (e) {
+    return { status: "error", error: String(e) };
+  }
+}
+
 export async function saveSessions(data: string): Promise<void> {
   if (!inTauri) {
     localStorage.setItem(LS_SESSIONS, data);
@@ -818,6 +863,20 @@ export async function saveSessions(data: string): Promise<void> {
 export async function loadProjectSessions(root: string): Promise<string | null> {
   if (!inTauri) return null;
   return invoke<string | null>("load_project_sessions", { root });
+}
+
+/** loadProjectSessions с различением «нет файла» и «ошибка чтения»
+ *  (см. loadSettingsDetailed) */
+export async function loadProjectSessionsDetailed(
+  root: string,
+): Promise<LoadResult<string>> {
+  if (!inTauri) return { status: "missing" };
+  try {
+    const data = await invoke<string | null>("load_project_sessions", { root });
+    return data === null ? { status: "missing" } : { status: "ok", data };
+  } catch (e) {
+    return { status: "error", error: String(e) };
+  }
 }
 
 /** Сессии проекта: атомарная запись в <root>/.nocturn/sessions.json */

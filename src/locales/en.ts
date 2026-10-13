@@ -932,6 +932,10 @@ export const en = {
     "error.noteSaveFailed": "Failed to save the note — the content was not written to disk.",
     "error.saveFailed":
       "Failed to save chat history to disk. Changes will be retried; if this persists, check disk space and permissions.",
+    "error.settingsCorrupted":
+      "The settings file cannot be read ({e}). Autosave is frozen to avoid wiping your data; save the settings explicitly or repair the file manually.",
+    "error.sessionsCorrupted":
+      "The chat history file cannot be read ({e}). Writing to it is frozen to avoid data loss.",
     "main.exportSecrets":
       "Include API keys in the export file",
     "main.exportSecretsWarn":

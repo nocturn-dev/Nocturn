@@ -11,8 +11,8 @@ import {
 } from "react";
 import {
   chatExportWrite,
-  loadProjectSessions,
-  loadSessions,
+  loadProjectSessionsDetailed,
+  loadSessionsDetailed,
   pickSaveFile,
   saveProjectSessions,
   saveSessions,
@@ -132,13 +132,20 @@ export function useSessions(opts: {
    *  Партиции: глобальный sessions.json + <root>/.nocturn/sessions.json
    *  каждого проекта с папкой (проектный файл переопределяет глобальный —
    *  так мигрируют легаси-сессии проектов из глобала) */
+  // Чтение упало — соответствующая партиция заморожена для записи:
+  // пустой стор поверх нечитаемого файла уничтожал бы историю навсегда
+  const brokenGlobalRef = useRef(false);
+  const brokenRootsRef = useRef<Set<string>>(new Set());
   const loadHistory = useCallback(() => {
     const historyReady = (async () => {
-      const globalData = await loadSessions().catch(() => null);
       const parsed: Session[] = [];
-      if (globalData) {
+      const globalData = await loadSessionsDetailed();
+      if (globalData.status === "error") {
+        brokenGlobalRef.current = true;
+        addToast(t("error.sessionsCorrupted", { e: globalData.error }));
+      } else if (globalData.status === "ok") {
         try {
-          const raw: unknown = JSON.parse(globalData);
+          const raw: unknown = JSON.parse(globalData.data);
           const parsedGlobal = Array.isArray(raw)
             ? raw.map(sanitizeSession).filter((s): s is Session => s !== null)
             : [];
@@ -151,10 +158,15 @@ export function useSessions(opts: {
       // с тем же id (миграция легаси: глобал → папка проекта при первом сейве)
       for (const p of projectsRef.current) {
         if (!p.root) continue;
-        const data = await loadProjectSessions(p.root).catch(() => null);
-        if (!data) continue;
+        const data = await loadProjectSessionsDetailed(p.root);
+        if (data.status === "error") {
+          brokenRootsRef.current.add(p.root);
+          addToast(t("error.sessionsCorrupted", { e: data.error }));
+          continue;
+        }
+        if (data.status !== "ok") continue;
         try {
-          const raw: unknown = JSON.parse(data);
+          const raw: unknown = JSON.parse(data.data);
           const parsedP = Array.isArray(raw)
             ? raw.map(sanitizeSession).filter((s): s is Session => s !== null)
             : [];
@@ -297,8 +309,12 @@ export function useSessions(opts: {
           globalList.push(s);
         }
       }
-      enqueueSave(() => saveSessions(JSON.stringify(globalList)));
+      enqueueSave(() => {
+        if (brokenGlobalRef.current) return Promise.resolve();
+        return saveSessions(JSON.stringify(globalList));
+      });
       for (const [root, items] of byRoot) {
+        if (brokenRootsRef.current.has(root)) continue;
         enqueueSave(() => saveProjectSessions(root, JSON.stringify(items)));
       }
     };
