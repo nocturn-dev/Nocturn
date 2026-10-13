@@ -47,7 +47,7 @@ import { ToolStepCard } from "./cards/ToolStepCard";
 import { TypingBubble } from "./cards/TypingBubble";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { UserCard } from "./cards/UserCard";
-import { ArrowUpIcon, BookIcon, ChevronDownIcon, CorrectIcon, FolderIcon, GitBranchIcon, MicIcon, PaperclipIcon, PermModeIcon, QueueIcon, QuoteIcon, RobotIcon, ScalesIcon, ShieldIcon, SlidersIcon, SparkIcon, StopIcon, SystemPromptIcon, TerminalIcon, TrashIcon, WarnIcon, WrenchIcon, XSmallIcon } from "./cards/icons";
+import { BookIcon, ChevronDownIcon, CornerUpLeftIcon, CorrectIcon, FolderIcon, GitBranchIcon, MicIcon, PlusIcon, PermModeIcon, QueueIcon, QuoteIcon, RobotIcon, ScalesIcon, ShieldIcon, SlidersIcon, SparkIcon, StopCircleIcon, SystemPromptIcon, TerminalIcon, TrashIcon, WarnIcon, WrenchIcon, XSmallIcon } from "./cards/icons";
 import { fmtInt, fmtK } from "./cards/util";
 import { CHART_COLORS } from "../chartColors";
 
@@ -2550,7 +2550,7 @@ export default function ChatArea({
               Пропорции по референс: компактный радиус, тонкая рамка, без тени —
               композер не должен перетягивать фокус с ленты */}
           <>
-          <div className="glass-pane relative z-[var(--halo-z-panel-raised)] rounded-xl border border-halo-line/70 bg-halo-surface/80 p-2 transition duration-200">
+          <div className="glass-pane relative z-[var(--halo-z-panel-raised)] rounded-xl border border-halo-line/60 bg-halo-surface/80 p-1.5 transition duration-200">
             {/* Нок: сидит на углу шелла (сторона — преф, переносится драгом);
                 в Hard Mode шелл не рендерится — маскот скрыт вместе с ним.
                 Спрятанный через ПКМ-меню не рендерится до рестарта */}
@@ -2785,7 +2785,7 @@ export default function ChatArea({
                 ))}
               </div>
             )}
-            <div className="flex items-end gap-2">
+            <div className="flex items-end gap-1">
               <input
                 ref={fileInputRef}
                 type="file"
@@ -2797,12 +2797,14 @@ export default function ChatArea({
                   e.target.value = "";
                 }}
               />
+              {/* Иконки композера — как у Claude: «+» слева, мик и стрелка
+                  отправки справа; кнопки без заливок и рамок (ghost) */}
               <button
                 onClick={() => fileInputRef.current?.click()}
                 title={t("composer.attach")}
-                className="flex size-9 shrink-0 items-center justify-center rounded-xl text-halo-muted transition duration-150 hover:bg-halo-hover hover:text-halo-text"
+                className="flex size-8 shrink-0 items-center justify-center rounded-lg text-halo-muted transition duration-150 hover:bg-halo-hover hover:text-halo-text"
               >
-                <PaperclipIcon />
+                <PlusIcon size={17} />
               </button>
               <textarea
                 ref={textareaRef}
@@ -2814,7 +2816,7 @@ export default function ChatArea({
                 }}
                 onKeyDown={handleKeyDown}
                 placeholder={t("composer.placeholder")}
-                className="scroll-slim max-h-44 flex-1 resize-none bg-transparent px-2 py-1.5 text-sm leading-relaxed text-halo-text outline-none placeholder:text-halo-muted"
+                className="scroll-slim max-h-44 flex-1 resize-none bg-transparent px-1 py-1 text-sm leading-relaxed text-halo-text outline-none placeholder:text-halo-muted"
               />
               <button
                 onClick={() => {
@@ -2826,7 +2828,7 @@ export default function ChatArea({
                 }}
                 disabled={dictBusy}
                 title={t("dictation.button")}
-                className={`flex size-9 shrink-0 items-center justify-center rounded-lg transition duration-150 hover:bg-halo-hover ${
+                className={`flex size-8 shrink-0 items-center justify-center rounded-lg transition duration-150 hover:bg-halo-hover ${
                   recording
                     ? "bg-red-400/15 text-red-400"
                     : dictBusy
@@ -2841,23 +2843,25 @@ export default function ChatArea({
                 <button
                   onClick={submit}
                   title={t("composer.correct")}
-                  className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-halo-line text-halo-text transition duration-150 hover:border-halo-line hover:text-halo-text active:scale-95"
+                  className="flex size-8 shrink-0 items-center justify-center rounded-lg text-halo-muted transition duration-150 hover:bg-halo-hover hover:text-halo-text active:scale-95"
                 >
                   <CorrectIcon />
                 </button>
               )}
               {/* Морф отправка ↔ стоп: одна кнопка, обе иконки живут в ней
                   и меняются transform'ом (клодовский «перелив» состояния).
-                  transition только по transform/opacity — конвенция дома */}
+                  Отправка — «голая» стрелка-⏎ без заливки: цветное пятно
+                  перетягивало фокус с ленты; transition только по
+                  transform/цветам — конвенция дома */}
               <button
                 onClick={streamingMsgId ? onStop : submit}
                 disabled={!streamingMsgId && !draft.trim() && pendingImages.length === 0}
                 title={t(streamingMsgId ? "composer.stop" : "composer.send")}
                 aria-label={t(streamingMsgId ? "composer.stop" : "composer.send")}
-                className={`relative flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-lg border transition-[background-color,border-color,color] duration-200 active:scale-95 ${
+                className={`relative flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-lg transition-[background-color,color] duration-200 active:scale-95 ${
                   streamingMsgId
-                    ? "border-halo-line bg-transparent text-halo-text hover:border-red-400/60 hover:text-red-400"
-                    : "border-transparent bg-halo-accent text-halo-on-accent hover:bg-halo-accent-deep disabled:cursor-not-allowed disabled:opacity-40"
+                    ? "text-halo-text hover:bg-halo-hover hover:text-red-400"
+                    : "text-halo-text hover:bg-halo-hover disabled:cursor-not-allowed disabled:text-halo-muted/60 disabled:hover:bg-transparent"
                 }`}
               >
                 <span
@@ -2867,7 +2871,7 @@ export default function ChatArea({
                       : "scale-100 rotate-0 opacity-100"
                   }`}
                 >
-                  <ArrowUpIcon />
+                  <CornerUpLeftIcon />
                 </span>
                 <span
                   className={`absolute flex transition-[transform,opacity] duration-200 ${
@@ -2876,7 +2880,7 @@ export default function ChatArea({
                       : "scale-0 rotate-90 opacity-0"
                   }`}
                 >
-                  <StopIcon />
+                  <StopCircleIcon />
                 </span>
               </button>
             </div>
