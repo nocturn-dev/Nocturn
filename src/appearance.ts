@@ -609,6 +609,23 @@ export function fullClaudeCss(a: Appearance): string {
       "  color: var(--halo-text) !important;",
       "}",
     ],
+    // Стекло внутри темы: «рабочий стол» html.glass берёт radial-пятна из
+    // --halo-accent (22% в углу), и после ребрендинга насыщенный #D96B27
+    // просвечивал сквозь полупрозрачный сайдбар ржавым налётом (пипетка со
+    // скрина владельца: пик #2B150C у центра пятна 12%/18%). Акцент —
+    // шёпотом (8%/4%), основа пятна — deep поверх bg. color-mix — под
+    // @supports (конвенция C5: WebKitGTK < 2.40 отбрасывает декларацию)
+    [
+      "@supports (background: color-mix(in srgb, red, blue)) {",
+      "  html.full-claude.glass {",
+      "    background:",
+      "      radial-gradient(700px 450px at 12% 18%, color-mix(in srgb, var(--halo-accent) 8%, transparent), transparent 70%),",
+      "      radial-gradient(800px 550px at 88% 85%, color-mix(in srgb, var(--halo-deep) 55%, transparent), transparent 70%),",
+      "      radial-gradient(500px 350px at 70% 10%, color-mix(in srgb, var(--halo-accent) 4%, transparent), transparent 70%),",
+      "      var(--halo-bg) !important;",
+      "  }",
+      "}",
+    ],
     // Поверхности «наполнения»: в Nocturn сайдбар и модалки делят
     // --halo-deep, а в референсе сайдбар темнее фона, модалки — светлее.
     // deep остаётся сайдбару (aside.bg-halo-deep), модалки/панели
