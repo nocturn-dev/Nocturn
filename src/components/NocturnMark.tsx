@@ -32,14 +32,16 @@ export default function NocturnMark({ size = 16 }: { size?: number }) {
     >
       <defs>
         {/* Цвет знака переопределяется кастомизацией (--halo-mark-from/-to,
-            Кастомизация → Брендинг); пусто — фирменный градиент циан → синий */}
+            Кастомизация → Брендинг); пусто — градиент из акцента темы:
+            фирменный циан→синий был зашит и конфликтовал с любой темой,
+            кроме «синих» (знак оставался голубым на зелёном/розовом) */}
         <linearGradient id={boldId} x1="0" y1="1" x2="1" y2="0">
-          <stop offset="0" stopColor="var(--halo-mark-from, #38C7EE)" />
-          <stop offset="1" stopColor="var(--halo-mark-to, #254EE1)" />
+          <stop offset="0" stopColor="var(--halo-mark-from, var(--halo-accent))" />
+          <stop offset="1" stopColor="var(--halo-mark-to, var(--halo-accent-deep))" />
         </linearGradient>
         <linearGradient id={classicId} x1="0" y1="1" x2="1" y2="0">
-          <stop offset="0" stopColor="var(--halo-mark-from, #38C7EE)" />
-          <stop offset="1" stopColor="var(--halo-mark-to, #254EE1)" />
+          <stop offset="0" stopColor="var(--halo-mark-from, var(--halo-accent))" />
+          <stop offset="1" stopColor="var(--halo-mark-to, var(--halo-accent-deep))" />
         </linearGradient>
         {/* Маска порезов: чёрные полосы вырезают штрих насквозь */}
         <mask id={`${boldId}-mask`} maskUnits="userSpaceOnUse" x="0" y="0" width="24" height="24">
