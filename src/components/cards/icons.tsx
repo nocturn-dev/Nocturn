@@ -249,11 +249,11 @@ export function ChevronDownIcon({ className }: { className?: string }) {
   );
 }
 
-export function PlusIcon() {
+export function PlusIcon({ size = 12 }: { size?: number }) {
   return (
     <svg
-      width="12"
-      height="12"
+      width={size}
+      height={size}
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
@@ -498,6 +498,38 @@ export function ArrowUpIcon() {
     </svg>
   );
 }
+
+/** Отправка как у Claude: «голая» стрелка-уголок (клавиша ⏎) без заливки —
+ *  кнопка читается иконкой, а не цветным пятном */
+export function CornerUpLeftIcon({ size = 18 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <polyline points="9 14 4 9 9 5" />
+      <path d="M20 18v-7a4 4 0 0 0-4-4H4" />
+    </svg>
+  );
+}
+
+/** Стоп как у Claude: кольцо с залитым квадратом внутри (иконка прерывания
+ *  в композере во время прогона) */
+export function StopCircleIcon({ size = 18 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2" />
+      <rect x="9" y="9" width="6" height="6" rx="1" fill="currentColor" />
+    </svg>
+  );
+}
+
 export function MicIcon() {
   return (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
