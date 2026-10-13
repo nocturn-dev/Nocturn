@@ -25,6 +25,37 @@ impl AbortRegistry {
     }
 }
 
+/// Поллинг abort-флага 100 мс — тот же паттерн, что wait_for_abort в
+/// tooling.rs. Общая ветка select'а: и для цикла чтения, и для send()
+async fn abort_wait(flag: &AtomicBool) {
+    loop {
+        if flag.load(Ordering::Relaxed) {
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+}
+
+/// send() с отменой по abort-флагу. Раньше флаг проверялся только в цикле
+/// чтения, который начинается ПОСЛЕ send(): reasoning-модели и шлюзы держат
+/// заголовки ответа до первого токена, и Stop во время «долгого размышления»
+/// был no-op — через минуту стрим всё равно стартовал и доливал ответ в
+/// карточку. select рвёт незавершённый запрос (drop future закрывает
+/// соединение — это и есть штатный сигнал отмены провайдеру) и возвращает
+/// None: вызывающая сторона гасит поток так же, как прерывание чтения
+async fn send_with_abort(
+    build: impl FnOnce() -> reqwest::RequestBuilder,
+    flag: &AtomicBool,
+) -> Result<Option<reqwest::Response>, String> {
+    tokio::select! {
+        biased;
+        _ = abort_wait(flag) => Ok(None),
+        resp = build().send() => {
+            resp.map(Some).map_err(|e| format!("failed to connect: {e}"))
+        }
+    }
+}
+
 /// RAII-guard: удаляет запись из AbortRegistry при выходе из любого пути
 /// (ранний return по abort-флагу, "[DONE]", все "?"-выходы). Ручной remove
 /// в конце функции больше не нужен — Drop чистит автоматически. Чистит
@@ -597,15 +628,24 @@ async fn chat_stream_impl(
         let payload = serde_json::to_string(&body)
             .map_err(|e| format!("failed to serialize body: {e}"))?;
         prompt_chars = payload.chars().count();
-        client
-            .post(format!("{base}/messages"))
-            .header("x-api-key", api_key.trim())
-            .header("anthropic-version", "2023-06-01")
-            .header(reqwest::header::CONTENT_TYPE, "application/json")
-            .body(payload)
-            .send()
-            .await
-            .map_err(|e| format!("failed to connect: {e}"))?
+        let Some(resp) = send_with_abort(
+            || {
+                client
+                    .post(format!("{base}/messages"))
+                    .header("x-api-key", api_key.trim())
+                    .header("anthropic-version", "2023-06-01")
+                    .header(reqwest::header::CONTENT_TYPE, "application/json")
+                    .body(payload.clone())
+            },
+            &flag,
+        )
+        .await?
+        else {
+            // Stop пришёл, пока запрос ещё висел без заголовков: гасим поток,
+            // не начиная чтение
+            return Ok(());
+        };
+        resp
     } else if responses_wire {
         let body = build_responses_body(
             &model,
@@ -617,14 +657,21 @@ async fn chat_stream_impl(
         let payload = serde_json::to_string(&body)
             .map_err(|e| format!("failed to serialize body: {e}"))?;
         prompt_chars = payload.chars().count();
-        client
-            .post(format!("{base}/responses"))
-            .bearer_auth(api_key.trim())
-            .header(reqwest::header::CONTENT_TYPE, "application/json")
-            .body(payload)
-            .send()
-            .await
-            .map_err(|e| format!("failed to connect: {e}"))?
+        let Some(resp) = send_with_abort(
+            || {
+                client
+                    .post(format!("{base}/responses"))
+                    .bearer_auth(api_key.trim())
+                    .header(reqwest::header::CONTENT_TYPE, "application/json")
+                    .body(payload.clone())
+            },
+            &flag,
+        )
+        .await?
+        else {
+            return Ok(());
+        };
+        resp
     } else {
         let mut body = serde_json::json!({
             "model": model,
@@ -649,14 +696,21 @@ async fn chat_stream_impl(
         let payload = serde_json::to_string(built)
             .map_err(|e| format!("failed to serialize body: {e}"))?;
         prompt_chars = payload.chars().count();
-        client
-            .post(format!("{base}/chat/completions"))
-            .bearer_auth(api_key.trim())
-            .header(reqwest::header::CONTENT_TYPE, "application/json")
-            .body(payload)
-            .send()
-            .await
-            .map_err(|e| format!("failed to connect: {e}"))?
+        let Some(resp) = send_with_abort(
+            || {
+                client
+                    .post(format!("{base}/chat/completions"))
+                    .bearer_auth(api_key.trim())
+                    .header(reqwest::header::CONTENT_TYPE, "application/json")
+                    .body(payload.clone())
+            },
+            &flag,
+        )
+        .await?
+        else {
+            return Ok(());
+        };
+        resp
     };
 
     // Строгие шлюзы (старые vLLM, корпоративные прокси) не знают поле
@@ -678,14 +732,21 @@ async fn chat_stream_impl(
             let payload = serde_json::to_string(rebuilt)
                 .map_err(|e| format!("failed to serialize body: {e}"))?;
             prompt_chars = payload.chars().count();
-            resp = client
-                .post(format!("{base}/chat/completions"))
-                .bearer_auth(api_key.trim())
-                .header(reqwest::header::CONTENT_TYPE, "application/json")
-                .body(payload)
-                .send()
-                .await
-                .map_err(|e| format!("failed to connect: {e}"))?;
+            let Some(r) = send_with_abort(
+                || {
+                    client
+                        .post(format!("{base}/chat/completions"))
+                        .bearer_auth(api_key.trim())
+                        .header(reqwest::header::CONTENT_TYPE, "application/json")
+                        .body(payload.clone())
+                },
+                &flag,
+            )
+            .await?
+            else {
+                return Ok(());
+            };
+            resp = r;
         } else {
             return Err(provider_error(reqwest::StatusCode::BAD_REQUEST, &err_body));
         }
@@ -763,14 +824,7 @@ async fn chat_stream_impl(
             .unwrap_or(STREAM_IDLE_TIMEOUT);
         let chunk = tokio::select! {
             biased;
-            _ = async {
-                loop {
-                    if flag.load(Ordering::Relaxed) {
-                        return;
-                    }
-                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-                }
-            } => None,
+            _ = abort_wait(&flag) => None,
             item = tokio::time::timeout(idle, stream.next()) => match item {
                 Ok(item) => item,
                 Err(_) => {
