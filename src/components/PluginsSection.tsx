@@ -133,17 +133,25 @@ export default function PluginsSection({
         })
         .catch((e) => setError(String(e)));
     }
-    // MCP-серверы: имя совпадает — пак перезаписывает (превью предупреждает)
+    // MCP-серверы пакета: перезапись существующего по имени — отдельное
+    // подтверждение с перечнем имён, общий confirm исполняемых конфигов
+    // про совпадения не говорит
     if (packMcp && packMcp.length > 0) {
       void mcpListServers()
-        .then((current) => {
+        .then(async (current) => {
+          const overwritten = packMcp
+            .filter((s) => current.some((m) => m.name === s.name))
+            .map((s) => s.name);
+          if (overwritten.length > 0 && !window.confirm(t("plug.mcpOverwrite", { names: overwritten.join(", ") }))) {
+            return;
+          }
           const merged = [...current];
           for (const srv of packMcp) {
             const i = merged.findIndex((m) => m.name === srv.name);
             if (i >= 0) merged[i] = srv;
             else merged.push(srv);
           }
-          return mcpSaveServers(merged);
+          await mcpSaveServers(merged);
         })
         .catch((e) => setError(String(e)));
     }

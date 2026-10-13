@@ -33,4 +33,10 @@ export const STORAGE_KEYS = {
   // customCss: userCss.ts (запись) + MainSection (гард confirm импорта
   // CSS: переименование ключа иначе сделало бы confirm молчаливым)
   customCss: "haloui-custom-css",
+  // Зеркала данных, у которых серверный источник истины — конфиг-файлы;
+  // ключи живут в api.ts, но реестр один (гард-тест storageKeys.test.ts)
+  api: "haloui-api",
+  profiles: "haloui-profiles",
+  sessions: "haloui-sessions",
+  colibri: "haloui-colibri",
 } as const;

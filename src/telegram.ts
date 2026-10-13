@@ -15,10 +15,22 @@ import {
   type TelegramNotifyKind,
 } from "./api";
 
+/** Неудачные отправки с момента старта: диагностика «уведомления не
+ *  доходят» (сбитый токен, недоступный бот) без раскопок консоли */
+let failures = 0;
+export function telegramNotifyFailures(): number {
+  return failures;
+}
+
 export function telegramNotify(
   kind: TelegramNotifyKind,
   text: string,
   buttons: TgButton[] = [],
 ): void {
-  void notifyInvoke(kind, text, buttons).catch(() => {});
+  void notifyInvoke(kind, text, buttons).catch((e) => {
+    // Чат от сбоя не зависит, но полная тишина прятала сам факт, что
+    // уведомления не уходят
+    failures++;
+    console.warn(`telegram notify (${kind}) failed:`, e);
+  });
 }

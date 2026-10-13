@@ -494,6 +494,7 @@ export const en = {
     "plug.roles": "roles",
     "plug.exportPack": "Export pack",
     "plug.execConfirm": "This pack contains executable hooks and/or MCP servers — they will be able to run commands on this machine. Install?",
+    "plug.mcpOverwrite": "MCP servers with these names already exist and will be overwritten from the pack: {names}. Continue?",
     "plug.bringsHooks": "Executable hooks: {n}",
     "plug.bringsMcp": "MCP servers: {n}",
     "plug.install": "Install",
@@ -930,6 +931,7 @@ export const en = {
     "main.exportHint":
       "Providers, keys, prompts, themes, automations and chats in one file. Encrypted keys revive only with the same master password.",
     "main.exportBtn": "Export",
+    "error.nativeOnly": "{what} is only available in the native app (npm run tauri dev)",
     "error.noteSaveFailed": "Failed to save the note — the content was not written to disk.",
     "error.saveFailed":
       "Failed to save chat history to disk. Changes will be retried; if this persists, check disk space and permissions.",

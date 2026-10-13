@@ -151,6 +151,16 @@ pub async fn dictation_set_config(
     // read/save_json_config — sync-диск, в blocking-пул
 
     tauri::async_runtime::spawn_blocking(move || {
+        // Путь станет аргументом запуска процесса (whisper-cli): файл
+        // обязан существовать, иначе транскрипция падала загадочной
+        // ошибкой запуска где-то в глубине конвертации
+        if let Some(p) = &cli_path {
+            crate::settings::rejects_sensitive_path(p)?;
+            let meta = fs::metadata(p).map_err(|e| format!("whisper-cli: {e}"))?;
+            if !meta.is_file() {
+                return Err(format!("whisper-cli: not a file: {p}"));
+            }
+        }
         let mut cur = crate::settings::read_json_config(&app, "dictation.json")
             .ok()
             .and_then(|v| v.as_object().cloned())

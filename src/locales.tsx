@@ -82,8 +82,20 @@ const LangContext = createContext<{
   dictTick: number;
 }>({ lang: "ru", setLang: () => {}, dictTick: 0 });
 
+// Зеркало текущего языка вне React: не-React модули (api.ts) переводят
+// свои ошибки через getLang() + translate. Старт с ru — до монтирования
+// провайдера ошибки словаря не нужны, а detectLang() здесь звать нельзя:
+// он трогает localStorage и падает в node-окружении тестов
+let currentLang: Lang = "ru";
+export function getLang(): Lang {
+  return currentLang;
+}
+
 export function LangProvider({ children }: { children: ReactNode }) {
   const [lang, setLang] = useState<Lang>(detectLang);
+  useEffect(() => {
+    currentLang = lang;
+  }, [lang]);
   const [dictTick, setDictTick] = useState(0);
   useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.lang, lang);

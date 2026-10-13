@@ -722,6 +722,21 @@ pub async fn settings_read_all(
     .map_err(|e| format!("settings read task failed: {e}"))?
 }
 
+/// URL без учётных данных (user:pass@host): None — кредов нет, строка
+/// остаётся как есть
+fn strip_url_credentials(url: &str) -> Option<String> {
+    let (scheme, rest) = url.split_once("://")?;
+    let authority_end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
+    let authority = &rest[..authority_end];
+    let at = authority.rfind('@')?;
+    let userinfo = &authority[..at];
+    if userinfo.contains(':') {
+        Some(format!("{scheme}://{}{}", &authority[at + 1..], &rest[authority_end..]))
+    } else {
+        None
+    }
+}
+
 /// Маскирование API-ключей в экспорте (пустая строка: обратный импорт
 /// даёт рабочие, но пустые поля — без «мусорных» полуключей)
 fn mask_secrets(file: &str, v: &mut serde_json::Value) {
@@ -754,6 +769,15 @@ fn mask_secrets(file: &str, v: &mut serde_json::Value) {
         "websearch.json" => {
             if let Some(k) = v.get_mut("brave_key") {
                 *k = blank();
+            }
+            // SearXNG-URL с вшитыми кредами (http://user:pass@host) —
+            // тот же класс секрета, что и токен в поле
+            if let Some(u) = v.get_mut("searxng_url") {
+                if let Some(url) = u.as_str() {
+                    if let Some(cleaned) = strip_url_credentials(url) {
+                        *u = serde_json::Value::String(cleaned);
+                    }
+                }
             }
         }
         // Токен Telegram-бота — та же категория секрета (на диске enc:v1:…):
@@ -1764,6 +1788,15 @@ mod tests {
     }
 
     #[test]
+    fn strip_url_credentials_cuts_userinfo() {
+        assert_eq!(
+            strip_url_credentials("http://user:pass@searx.lan:8080/search?q=1"),
+            Some("http://searx.lan:8080/search?q=1".to_string())
+        );
+        assert_eq!(strip_url_credentials("http://searx.lan:8080/search"), None);
+        assert_eq!(strip_url_credentials("not a url"), None);
+    }
+
     fn mask_secrets_blanks_mcp_headers_and_env() {
         // «Поделенный» экспорт не должен уносить токены MCP-серверов:
         // headers (Authorization: Bearer …) и env (API-ключи серверов)

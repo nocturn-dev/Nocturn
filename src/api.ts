@@ -3,6 +3,10 @@ import { reasoningLevels } from "./reasoning";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { isSeqGap } from "./hooks/streamBuffer";
+import { getLang, translate } from "./locales";
+import type { Appearance } from "./appearance";
+import type { Role, ToolCallInfo } from "./types";
+import type { CustomShortcut } from "./shortcuts";
 
 /** Сохранённый профиль ключа: связка «ключ + провайдер + модель» для быстрого
     переключения. Живёт внутри ApiSettings (settings.json). */
@@ -38,7 +42,7 @@ export interface ProfilesStore {
   active: string;
 }
 
-const LS_PROFILES = "haloui-profiles";
+const LS_PROFILES = STORAGE_KEYS.profiles;
 
 export async function loadProfiles(): Promise<ProfilesStore> {
   if (!inTauri) {
@@ -97,7 +101,7 @@ export async function cryptoStatus(): Promise<CryptoStatus> {
 /** Первое создание мастер-пароля (минимум 8 символов) */
 export async function cryptoSetup(password: string): Promise<void> {
   if (!inTauri) {
-    throw new Error("Хранилище ключей работает в нативном приложении (npm run tauri dev)");
+    throw nativeOnly("Хранилище ключей");
   }
   return invoke("crypto_setup", { password });
 }
@@ -105,7 +109,7 @@ export async function cryptoSetup(password: string): Promise<void> {
 /** Разблокировка существующим паролем */
 export async function cryptoUnlock(password: string): Promise<void> {
   if (!inTauri) {
-    throw new Error("Хранилище ключей работает в нативном приложении (npm run tauri dev)");
+    throw nativeOnly("Хранилище ключей");
   }
   return invoke("crypto_unlock", { password });
 }
@@ -113,7 +117,7 @@ export async function cryptoUnlock(password: string): Promise<void> {
 /** Полный сброс: зашифрованные ключи будут утеряны (confirm="RESET") */
 export async function cryptoReset(confirm = "RESET"): Promise<void> {
   if (!inTauri) {
-    throw new Error("Хранилище ключей работает в нативном приложении (npm run tauri dev)");
+    throw nativeOnly("Хранилище ключей");
   }
   return invoke("crypto_reset", { confirm });
 }
@@ -130,8 +134,6 @@ export async function saveProjectsStore(projects: unknown): Promise<void> {
 
 /** Пресеты провайдеров: клик подставляет Base URL, нужен только API-ключ.
     kind "anthropic" — нативный протокол (адаптер выбирается в Rust по URL). */
-import type { Appearance } from "./appearance";
-
 export interface ProviderPreset {
   id: string;
   label: string;
@@ -222,7 +224,7 @@ let cachedSchemas: unknown = null;
     Кэш сбрасывается при изменении набора соединений — вызов дешёвый. */
 export async function getToolSchemas(): Promise<unknown> {
   if (!inTauri) {
-    throw new Error("Agent mode works in the native app (npm run tauri dev)");
+    throw nativeOnly("Agent mode");
   }
   // FIX: кэш существовал, но никогда не читался (write-only) — каждый агентный
   // send платил лишний IPC-раундтрип. Читаем до invoke; invalidateToolSchemas
@@ -250,7 +252,7 @@ export async function runTool(
   disabledTools?: string[],
 ): Promise<string> {
   if (!inTauri) {
-    throw new Error("Agent mode works in the native app (npm run tauri dev)");
+    throw nativeOnly("Agent mode");
   }
   return invoke<string>("run_tool", {
     name,
@@ -274,8 +276,6 @@ export async function permSet(
 
 // FIX: ToolCallInfo определялся здесь И в types.ts (дублирующие контракты —
 // рассинхрон не ловил компилятор). Единый контракт — в types.ts
-import type { Role, ToolCallInfo } from "./types";
-import type { CustomShortcut } from "./shortcuts";
 export type { ToolCallInfo };
 
 /** В браузерном превью (npm run dev) Tauri недоступен — храним в localStorage */
@@ -284,13 +284,14 @@ const inTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window
 /** Единый контракт превью: чтение отдаёт пустое значение, запись бросает.
  *  Раньше часть записей молча «сохранялась» — пользователь в превью видел
  *  успех при ненаписанных данных. Подсказка про нативный запуск — в одном
- *  месте, а не в десятках строк */
+ *  месте, текст ошибки через словарь: язык интерфейса меняется, ошибки
+ *  идут вдоль за ним */
 export function nativeOnly(what: string): Error {
-  return new Error(`${what} работает только в нативном приложении (npm run tauri dev)`);
+  return new Error(translate(getLang(), "error.nativeOnly", { what }));
 }
 
-const LS_SETTINGS = "haloui-api";
-const LS_SESSIONS = "haloui-sessions";
+const LS_SETTINGS = STORAGE_KEYS.api;
+const LS_SESSIONS = STORAGE_KEYS.sessions;
 
 export const DEFAULT_SETTINGS: ApiSettings = {
   api_key: "",
@@ -364,9 +365,7 @@ export async function testConnection(
   provider?: string,
 ): Promise<ModelInfo[]> {
   if (!inTauri) {
-    throw new Error(
-      "Проверка подключения работает в нативном приложении (npm run tauri dev)",
-    );
+    throw nativeOnly("Проверка подключения");
   }
   // Метка провайдера идёт в бекенд: выбор адаптера авторизации по URL
   // ломался на прокси вида https://gw.corp/api.anthropic.com/v1 (x-api-key
@@ -438,7 +437,7 @@ export async function chatStream(opts: {
   onReasoningItems?: (items: ReasoningItem[], barrier?: boolean, seq?: number) => void;
 }): Promise<void> {
   if (!inTauri) {
-    throw new Error("Чат работает в нативном приложении (npm run tauri dev)");
+    throw nativeOnly("Чат");
   }
 
   // Каждая listen регистрируется по одной, её unlisten сразу попадает
@@ -679,7 +678,7 @@ export async function ggufPull(model: string): Promise<void> {
 
 /** Экспорт модели из хранилища Ollama в GGUF (MLX/split — отказ бекенда) */
 export async function ggufExport(model: string): Promise<GgufExported> {
-  if (!inTauri) throw new Error("GGUF Lab is only available in the native app");
+  if (!inTauri) throw nativeOnly("GGUF Lab");
   return invoke<GgufExported>("gguf_export", { model });
 }
 
@@ -691,7 +690,7 @@ export async function ggufCut(
   srcName: string,
   remove: number[],
 ): Promise<GgufSurgeryReport> {
-  if (!inTauri) throw new Error("GGUF Lab is only available in the native app");
+  if (!inTauri) throw nativeOnly("GGUF Lab");
   return invoke<GgufSurgeryReport>("gguf_cut", { srcName, remove });
 }
 
@@ -744,7 +743,7 @@ export async function ggufServeStart(
   srcName: string,
   ctxSize?: number,
 ): Promise<GgufServeInfo> {
-  if (!inTauri) throw new Error("GGUF Lab is only available in the native app");
+  if (!inTauri) throw nativeOnly("GGUF Lab");
   return invoke<GgufServeInfo>("gguf_serve_start", { srcName, ctxSize });
 }
 
@@ -756,7 +755,7 @@ export async function ggufServeStop(): Promise<void> {
 
 /** Скачать последний CPU-релиз llama.cpp и прописать бинарь в конфиг */
 export async function ggufLlamaDownload(): Promise<string> {
-  if (!inTauri) throw new Error("GGUF Lab is only available in the native app");
+  if (!inTauri) throw nativeOnly("GGUF Lab");
   return invoke<string>("gguf_llama_download");
 }
 
@@ -765,7 +764,7 @@ export async function ggufOllamaImport(
   srcName: string,
   model: string,
 ): Promise<void> {
-  if (!inTauri) throw new Error("GGUF Lab is only available in the native app");
+  if (!inTauri) throw nativeOnly("GGUF Lab");
   await invoke("gguf_ollama_import", { srcName, model });
 }
 
@@ -835,7 +834,7 @@ export async function ggufLabFiles(): Promise<GgufLabFile[]> {
 
 /** Инспектор: разбор файла хранилища (слои, флаги, предупреждения) */
 export async function ggufInspect(srcName: string): Promise<GgufInspect> {
-  if (!inTauri) throw new Error("GGUF Lab is only available in the native app");
+  if (!inTauri) throw nativeOnly("GGUF Lab");
   return invoke<GgufInspect>("gguf_inspect", { srcName });
 }
 
@@ -911,7 +910,7 @@ export interface FileEntry {
  *  null — пользователь отменил */
 export async function pickVideoFile(): Promise<string | null> {
   if (!inTauri) {
-    throw new Error("Выбор видео работает в нативном приложении (npm run tauri dev)");
+    throw nativeOnly("Выбор видео");
   }
   const { open } = await import("@tauri-apps/plugin-dialog");
   const picked = await open({
@@ -928,7 +927,7 @@ export async function pickVideoFile(): Promise<string | null> {
  *  скоуп расширяется ровно на этот файл) */
 export async function ambientRegisterVideo(path: string): Promise<void> {
   if (!inTauri) {
-    throw new Error("Ambient-видео работает в нативном приложении (npm run tauri dev)");
+    throw nativeOnly("Ambient-видео");
   }
   return invoke("ambient_video_register", { path });
 }
@@ -944,7 +943,7 @@ export async function pickAnyFile(): Promise<string | null> {
 
 export async function pickFolder(): Promise<string | null> {
   if (!inTauri) {
-    throw new Error("Выбор папки работает в нативном приложении (npm run tauri dev)");
+    throw nativeOnly("Выбор папки");
   }
   const { open } = await import("@tauri-apps/plugin-dialog");
   const picked = await open({ directory: true, multiple: false });
@@ -954,7 +953,7 @@ export async function pickFolder(): Promise<string | null> {
 /** Содержимое папки для дерева файлов (папки первыми) */
 export async function listDir(path: string): Promise<FileEntry[]> {
   if (!inTauri) {
-    throw new Error("Файловый менеджер работает в нативном приложении (npm run tauri dev)");
+    throw nativeOnly("Файловый менеджер");
   }
   return invoke<FileEntry[]>("list_dir", { path });
 }
@@ -1033,14 +1032,14 @@ export async function checkpointList(path: string): Promise<CheckpointMeta[]> {
 /** Восстановить файлы из снимка; возвращает число восстановленных файлов */
 export async function checkpointRestore(path: string, id: string): Promise<number> {
   if (!inTauri) {
-    throw new Error("Откат чекпоинта работает в нативном приложении (npm run tauri dev)");
+    throw nativeOnly("Откат чекпоинта");
   }
   return invoke<number>("checkpoint_restore", { path, id });
 }
 
 export async function checkpointDelete(path: string, id: string): Promise<void> {
   if (!inTauri) {
-    throw new Error("Удаление чекпоинта работает в нативном приложении (npm run tauri dev)");
+    throw nativeOnly("Удаление чекпоинта");
   }
   await invoke("checkpoint_delete", { path, id });
 }
@@ -1079,7 +1078,7 @@ export async function autostartIsEnabled(): Promise<boolean> {
 
 export async function autostartSet(enable: boolean): Promise<void> {
   if (!inTauri) {
-    throw new Error("Автозапуск работает в нативном приложении (npm run tauri dev)");
+    throw nativeOnly("Автозапуск");
   }
   return invoke(enable ? "plugin:autostart|enable" : "plugin:autostart|disable");
 }
@@ -1105,7 +1104,7 @@ export type StorageCleanupKind = "checkpoints" | "images" | "gguf";
 /** Возвращает число удалённых записей */
 export async function storageCleanup(kind: StorageCleanupKind): Promise<number> {
   if (!inTauri) {
-    throw new Error("Очистка хранилища работает в нативном приложении (npm run tauri dev)");
+    throw nativeOnly("Очистка хранилища");
   }
   return invoke<number>("storage_cleanup", { kind });
 }
@@ -1135,7 +1134,6 @@ export async function onQuickEntryTask(
   cb: (text: string) => void,
 ): Promise<() => void> {
   if (!inTauri) return () => {};
-  const { listen } = await import("@tauri-apps/api/event");
   return await listen<string>("quickentry-task", (e) => cb(e.payload));
 }
 
@@ -1150,7 +1148,6 @@ export async function onTelegramCommand(
   cb: (cmd: TelegramCommand) => void,
 ): Promise<() => void> {
   if (!inTauri) return () => {};
-  const { listen } = await import("@tauri-apps/api/event");
   return await listen<TelegramCommand>("telegram-command", (e) => cb(e.payload));
 }
 
@@ -1170,21 +1167,21 @@ export async function memoryList(): Promise<MemoryFact[]> {
 
 export async function memoryAdd(text: string): Promise<void> {
   if (!inTauri) {
-    throw new Error("Память работает в нативном приложении (npm run tauri dev)");
+    throw nativeOnly("Память");
   }
   await invoke("memory_add", { text });
 }
 
 export async function memoryDelete(id: string): Promise<void> {
   if (!inTauri) {
-    throw new Error("Память работает в нативном приложении (npm run tauri dev)");
+    throw nativeOnly("Память");
   }
   await invoke("memory_delete", { id });
 }
 
 export async function memoryClear(): Promise<void> {
   if (!inTauri) {
-    throw new Error("Память работает в нативном приложении (npm run tauri dev)");
+    throw nativeOnly("Память");
   }
   await invoke("memory_clear");
 }
@@ -1202,7 +1199,7 @@ export async function chatOnce(opts: {
   maxTokens?: number;
 }): Promise<string> {
   if (!inTauri) {
-    throw new Error("Вызов модели работает в нативном приложении (npm run tauri dev)");
+    throw nativeOnly("Вызов модели");
   }
   return invoke<string>("chat_once", {
     baseUrl: opts.baseUrl,
@@ -1258,7 +1255,7 @@ export async function ptyCreate(
   shell?: "cmd" | "gitbash" | "powershell",
 ): Promise<void> {
   if (!inTauri) {
-    throw new Error("Консоль работает в нативном приложении (npm run tauri dev)");
+    throw nativeOnly("Консоль");
   }
   return invoke("pty_create", { id, cwd, cols, rows, shell });
 }
@@ -1430,7 +1427,7 @@ export async function mcpSaveServers(servers: McpServerCfg[]): Promise<void> {
 /** Подключить сервер: возвращает обнаруженные инструменты */
 export async function mcpConnect(name: string): Promise<McpToolInfo[]> {
   if (!inTauri) {
-    throw new Error("MCP works in the native app (npm run tauri dev)");
+    throw nativeOnly("MCP");
   }
   return invoke<McpToolInfo[]>("mcp_connect", { name });
 }
@@ -1448,7 +1445,7 @@ export async function mcpStatus(): Promise<McpServerStatus[]> {
 /** авторизация oauth-сервера (единственный триггер сети) */
 export async function mcpOauthAuthorize(name: string): Promise<string> {
   if (!inTauri) {
-    throw new Error("OAuth работает в нативном приложении (npm run tauri dev)");
+    throw nativeOnly("OAuth");
   }
   return invoke<string>("mcp_oauth_authorize", { name });
 }
@@ -1456,7 +1453,7 @@ export async function mcpOauthAuthorize(name: string): Promise<string> {
 /** отозвать доступ (revoke + очистка локальных токенов) */
 export async function mcpOauthRevoke(name: string): Promise<void> {
   if (!inTauri) {
-    throw new Error("OAuth работает в нативном приложении (npm run tauri dev)");
+    throw nativeOnly("OAuth");
   }
   return invoke("mcp_oauth_revoke", { name });
 }
@@ -1522,7 +1519,7 @@ export async function imageGenGetConfig(): Promise<ImageGenConfig> {
 
 export async function imageGenSetConfig(config: ImageGenConfig): Promise<void> {
   if (!inTauri) {
-    throw new Error("Настройка генерации картинок работает в нативном приложении (npm run tauri dev)");
+    throw nativeOnly("Настройка генерации картинок");
   }
   return invoke("imagegen_set_config", { config });
 }
@@ -1544,7 +1541,7 @@ export async function webSearchGetConfig(): Promise<WebSearchConfig> {
 
 export async function webSearchSetConfig(config: WebSearchConfig): Promise<void> {
   if (!inTauri) {
-    throw new Error("Настройка веб-поиска работает в нативном приложении (npm run tauri dev)");
+    throw nativeOnly("Настройка веб-поиска");
   }
   return invoke("websearch_set_config", { config });
 }
@@ -1573,7 +1570,7 @@ export async function lspGetConfig(): Promise<LspConfig> {
 
 export async function lspSetConfig(config: LspConfig): Promise<void> {
   if (!inTauri) {
-    throw new Error("Настройка LSP работает в нативном приложении (npm run tauri dev)");
+    throw nativeOnly("Настройка LSP");
   }
   return invoke("lsp_set_config", { config });
 }
@@ -1607,7 +1604,7 @@ export async function telegramGetConfig(): Promise<TelegramConfig> {
 
 export async function telegramSetConfig(config: TelegramConfig): Promise<void> {
   if (!inTauri) {
-    throw new Error("Настройка Telegram работает в нативном приложении (npm run tauri dev)");
+    throw nativeOnly("Настройка Telegram");
   }
   return invoke("telegram_set_config", { config });
 }
@@ -1650,7 +1647,7 @@ export async function telegramNotify(
 /** Диалог выбора файла шрифта; null — пользователь отменил */
 export async function pickFontFile(): Promise<string | null> {
   if (!inTauri) {
-    throw new Error("Импорт шрифта работает в нативном приложении (npm run tauri dev)");
+    throw nativeOnly("Импорт шрифта");
   }
   const { open } = await import("@tauri-apps/plugin-dialog");
   const picked = await open({
@@ -1673,7 +1670,7 @@ export interface CustomFont {
 
 export async function fontImport(src: string): Promise<CustomFont> {
   if (!inTauri) {
-    throw new Error("Импорт шрифта работает в нативном приложении (npm run tauri dev)");
+    throw nativeOnly("Импорт шрифта");
   }
   return invoke<CustomFont>("font_import", { src });
 }
@@ -1685,7 +1682,7 @@ export async function fontList(): Promise<CustomFont[]> {
 
 export async function fontDelete(id: string): Promise<void> {
   if (!inTauri) {
-    throw new Error("Удаление шрифта работает в нативном приложении (npm run tauri dev)");
+    throw nativeOnly("Удаление шрифта");
   }
   return invoke("font_delete", { id });
 }
@@ -1693,7 +1690,7 @@ export async function fontDelete(id: string): Promise<void> {
 /** Диалог выбора картинки (обои чата); null — отмена */
 export async function pickImageFile(): Promise<string | null> {
   if (!inTauri) {
-    throw new Error("Выбор картинки работает в нативном приложении (npm run tauri dev)");
+    throw nativeOnly("Выбор картинки");
   }
   const { open } = await import("@tauri-apps/plugin-dialog");
   const picked = await open({
@@ -1713,7 +1710,7 @@ export async function wallpaperRegister(path: string): Promise<void> {
 
 export async function pickAudioFile(): Promise<string | null> {
   if (!inTauri) {
-    throw new Error("Импорт звука работает в нативном приложении (npm run tauri dev)");
+    throw nativeOnly("Импорт звука");
   }
   const { open } = await import("@tauri-apps/plugin-dialog");
   const picked = await open({
@@ -1728,7 +1725,7 @@ export async function pickAudioFile(): Promise<string | null> {
 /** Импортировать файл; возвращает "имя|расширение" */
 export async function soundImport(src: string): Promise<string> {
   if (!inTauri) {
-    throw new Error("Импорт звука работает в нативном приложении (npm run tauri dev)");
+    throw nativeOnly("Импорт звука");
   }
   return invoke<string>("sound_import", { src });
 }
@@ -1782,14 +1779,12 @@ export async function listenBrowserFrame(
   cb: (f: BrowserFrame) => void,
 ): Promise<() => void> {
   if (!inTauri) return () => {};
-  const { listen } = await import("@tauri-apps/api/event");
   return await listen<BrowserFrame>("browser-frame", (e) => cb(e.payload));
 }
 
 /** Пункт «Clear All Data» в трее: окно показано, фронт просит подтверждение */
 export async function onClearDataRequest(cb: () => void): Promise<() => void> {
   if (!inTauri) return () => {};
-  const { listen } = await import("@tauri-apps/api/event");
   return await listen("clear-data-request", () => cb());
 }
 
@@ -1798,7 +1793,7 @@ export async function onClearDataRequest(cb: () => void): Promise<() => void> {
  *  серверный гардал (паритет с crypto_reset): фронтовой модалки недостаточно. */
 export async function factoryReset(): Promise<void> {
   if (!inTauri) {
-    throw new Error("Полный сброс работает в нативном приложении (npm run tauri dev)");
+    throw nativeOnly("Полный сброс");
   }
   return invoke("factory_reset", { confirm: "RESET" });
 }
@@ -1821,14 +1816,14 @@ export interface ColibriLaunch {
 /** Запустить сервер; если уже запущен — возвращает его статус без второго процесса */
 export async function colibriStart(launch: ColibriLaunch): Promise<ColibriStatus> {
   if (!inTauri) {
-    throw new Error("Запуск coli serve работает в нативном приложении (npm run tauri dev)");
+    throw nativeOnly("Запуск coli serve");
   }
   return invoke<ColibriStatus>("colibri_start", { launch });
 }
 
 export async function colibriStop(): Promise<ColibriStatus> {
   if (!inTauri) {
-    throw new Error("Остановка coli serve работает в нативном приложении (npm run tauri dev)");
+    throw nativeOnly("Остановка coli serve");
   }
   return invoke<ColibriStatus>("colibri_stop");
 }
@@ -1842,7 +1837,6 @@ export async function colibriStatus(): Promise<ColibriStatus> {
 /** Поток логов сервера (stdout как есть, stderr с префиксом "[err] ") */
 export async function listenColibriLog(cb: (line: string) => void): Promise<() => void> {
   if (!inTauri) return () => {};
-  const { listen } = await import("@tauri-apps/api/event");
   return await listen<string>("colibri-log", (e) => cb(e.payload));
 }
 
@@ -1859,7 +1853,7 @@ export function loadColibriLocal(): ColibriLocal {
   try {
     return {
       ...COLIBRI_DEFAULT,
-      ...(JSON.parse(localStorage.getItem("haloui-colibri") ?? "{}") as Partial<ColibriLocal>),
+      ...(JSON.parse(localStorage.getItem(STORAGE_KEYS.colibri) ?? "{}") as Partial<ColibriLocal>),
     };
   } catch {
     return { ...COLIBRI_DEFAULT };
@@ -1867,7 +1861,7 @@ export function loadColibriLocal(): ColibriLocal {
 }
 
 export function saveColibriLocal(c: ColibriLocal): void {
-  localStorage.setItem("haloui-colibri", JSON.stringify(c));
+  localStorage.setItem(STORAGE_KEYS.colibri, JSON.stringify(c));
 }
 
 // ---------- Хуки (пользовательские команды на событиях агента) ----------
@@ -1911,7 +1905,14 @@ export const HOOK_EVENTS = [
 
 export async function hooksLoad(): Promise<HookFile> {
   if (!inTauri) return { hooks: [] };
-  return invoke<HookFile>("hooks_load");
+  const file = await invoke<HookFile>("hooks_load");
+  // На хуки с диска не верим: сбитый timeout (0/отрицательный/не число)
+  // на фронте чиним дефолтом, пока Rust не отсёк его при исполнении
+  file.hooks = file.hooks.map((h) => ({
+    ...h,
+    timeout: Number.isFinite(h.timeout) && h.timeout > 0 ? h.timeout : 15,
+  }));
+  return file;
 }
 
 export async function hooksSave(file: HookFile): Promise<void> {
@@ -1922,7 +1923,7 @@ export async function hooksSave(file: HookFile): Promise<void> {
 /** Прогнать хук на пробном payload (кнопка «Тест») */
 export async function hooksTest(hook: Hook, payload: unknown): Promise<HookOutcome> {
   if (!inTauri) {
-    throw new Error("Тест хуков работает в нативном приложении (npm run tauri dev)");
+    throw nativeOnly("Тест хуков");
   }
   return invoke<HookOutcome>("hooks_test", { hook, payload });
 }
@@ -2038,7 +2039,7 @@ export interface PluginPackFile {
 
 export async function pluginRead(path: string): Promise<Partial<Plugin>> {
   if (!inTauri) {
-    throw new Error("Чтение плагина работает в нативном приложении (npm run tauri dev)");
+    throw nativeOnly("Чтение плагина");
   }
   return invoke("plugin_read", { path });
 }
@@ -2056,23 +2057,41 @@ export async function pluginsSave(installed: Plugin[]): Promise<void> {
 
 // ---------- Автообновление (tauri-plugin-updater) ----------
 
-/** Проверить обновление; предложить установку. Ошибки молча (нет сети/
-    не настроен pubkey/браузерное превью). */
+/** Проверить обновление; предложить установку. Сбой проверки (нет сети/
+    не настроен pubkey) уходит в onError — полностью молчаливый catch прятал
+    исход проверки от дождавшегося пользователя. */
 export async function checkForUpdate(opts: {
   available: (version: string) => boolean;
   installed: () => void;
+  /** Сбой проверки или установки; не задан — console.warn */
+  onError?: (e: unknown) => void;
 }): Promise<void> {
-  // Превью: авто-проверка обновлений фоновая; ручная — см. opts ниже
+  // Превью: авто-проверка обновлений фоновая
   if (!inTauri) return;
   try {
     const { check } = await import("@tauri-apps/plugin-updater");
     const update = await check();
     if (!update) return;
-    if (!opts.available(update.version ?? "")) return;
+    // Колбэки UI — в отдельных try: их ошибки принадлежат интерфейсу,
+    // а не проверке, и не должны маскироваться под сбой сети
+    let proceed = false;
+    try {
+      proceed = opts.available(update.version ?? "");
+    } catch (e) {
+      console.error("update available callback failed:", e);
+      return;
+    }
+    if (!proceed) return;
     await update.downloadAndInstall();
-    opts.installed();
-  } catch {
-    // тихо: обновление не критично
+    try {
+      opts.installed();
+    } catch (e) {
+      console.error("update installed callback failed:", e);
+    }
+  } catch (e) {
+    // Проверка фоновая — не критично, но исход обязан быть виден
+    if (opts.onError) opts.onError(e);
+    else console.warn("update check failed:", e);
   }
 }
 
@@ -2087,13 +2106,13 @@ const LS_EXCLUDE_KEYS: ReadonlySet<string> = new Set([
   // Зеркала браузер-превью: истина в settings.json/profiles.json на бекенде
   // (там работает маскирование) — сырые ключи в «поделенный» файл не должны
   // утекать через localStorage
-  "haloui-api",
-  "haloui-profiles",
-  "haloui-sessions",
+  STORAGE_KEYS.api,
+  STORAGE_KEYS.profiles,
+  STORAGE_KEYS.sessions,
   // Машинно-специфичное: абсолютные пути и железо другой машины бессмысленны
   STORAGE_KEYS.projectRoot,
   STORAGE_KEYS.micDevice,
-  "haloui-colibri",
+  STORAGE_KEYS.colibri,
   // Состояние, а не настройка: журнал расхода токенов, кэш аватара,
   // флаг онбординга (свежая машина должна пройти онбординг заново)
   STORAGE_KEYS.usage,
@@ -2114,10 +2133,17 @@ export function collectLocal(): Record<string, string> {
 }
 
 export function restoreLocal(data: Record<string, string>): void {
-  // Только наше пространство имён: чужой/сбитый файл импорта не должен
-  // засорять localStorage произвольными ключами
+  // Только наше пространство имён, и каждое значение должно разбираться
+  // как JSON-объект/массив/примитив: сбитая строка из чужого файла,
+  // записанная как есть, рвала чтение настройки на старте
   for (const [k, v] of Object.entries(data)) {
     if (!k.startsWith("haloui-") || LS_EXCLUDE_KEYS.has(k)) continue;
+    try {
+      JSON.parse(v);
+    } catch {
+      console.warn(`settings import: skipped malformed value for ${k}`);
+      continue;
+    }
     localStorage.setItem(k, v);
   }
 }
@@ -2135,14 +2161,14 @@ export async function settingsWriteAll(
   allowExecutableConfigs = false,
 ): Promise<number> {
   if (!inTauri) {
-    throw new Error("Импорт настроек работает в нативном приложении (npm run tauri dev)");
+    throw nativeOnly("Импорт настроек");
   }
   return invoke<number>("settings_write_all", { files, allowExecutableConfigs });
 }
 
 export async function settingsExportWrite(path: string, content: string): Promise<void> {
   if (!inTauri) {
-    throw new Error("Экспорт настроек работает в нативном приложении (npm run tauri dev)");
+    throw nativeOnly("Экспорт настроек");
   }
   return invoke("settings_export_write", { path, content });
 }
@@ -2150,7 +2176,7 @@ export async function settingsExportWrite(path: string, content: string): Promis
 /** Сохранить файл экспорта чата (.md/.json) — те же гарды пути, что у настроек */
 export async function chatExportWrite(path: string, content: string): Promise<void> {
   if (!inTauri) {
-    throw new Error("Экспорт чата работает в нативном приложении (npm run tauri dev)");
+    throw nativeOnly("Экспорт чата");
   }
   return invoke("chat_export_write", { path, content });
 }
@@ -2161,7 +2187,7 @@ export async function chatExportWrite(path: string, content: string): Promise<vo
 // на месте вызова, здесь тип сознательно unknown
 export async function settingsImportRead(path: string): Promise<unknown> {
   if (!inTauri) {
-    throw new Error("Импорт настроек работает в нативном приложении (npm run tauri dev)");
+    throw nativeOnly("Импорт настроек");
   }
   return invoke("settings_import_read", { path });
 }
@@ -2170,12 +2196,11 @@ export async function settingsImportRead(path: string): Promise<unknown> {
  * (SSRF-гардалы в Rust; текст запроса пользователя в URL не входит) */
 export async function importFetchUrl(url: string): Promise<string> {
   if (!inTauri) {
-    throw new Error("Живой поиск работает в нативном приложении (npm run tauri dev)");
+    throw nativeOnly("Живой поиск");
   }
   return invoke<string>("import_fetch_url", { url });
 }
 
-/** Диалог «Сохранить как» для экспорта; null — отмена */
 /** Открыть ссылку в системном браузере (plugin opener): вебвью приложения —
  *  не навигационная поверхность, внешние URL в него не пускаем (фишинг).
  *  capability opener:default разрешает только http/https/mailto — экзотические
@@ -2264,7 +2289,7 @@ export function openFileExternal(
   mode: "open" | "explorer" | "vscode" = "open",
 ): Promise<void> {
   if (!inTauri) {
-    throw new Error("Открытие файлов работает в нативном приложении (npm run tauri dev)");
+    throw nativeOnly("Открытие файлов");
   }
   return invoke("open_file_external", { root, path, mode });
 }
@@ -2275,7 +2300,7 @@ export async function pickSaveFile(
   ext: "json" | "md" | "txt" = "json",
 ): Promise<string | null> {
   if (!inTauri) {
-    throw new Error("Экспорт работает в нативном приложении (npm run tauri dev)");
+    throw nativeOnly("Экспорт");
   }
   const { save } = await import("@tauri-apps/plugin-dialog");
   const filterName = { json: "JSON", md: "Markdown", txt: "Text" }[ext];
@@ -2289,7 +2314,7 @@ export async function pickSaveFile(
 /** Диалог выбора JSON-файла для импорта; null — отмена */
 export async function pickJsonFile(): Promise<string | null> {
   if (!inTauri) {
-    throw new Error("Импорт работает в нативном приложении (npm run tauri dev)");
+    throw nativeOnly("Импорт");
   }
   const { open } = await import("@tauri-apps/plugin-dialog");
   const picked = await open({
@@ -2342,7 +2367,7 @@ export async function dictationSetConfig(cliPath: string | null): Promise<void> 
 
 /** Транскрибировать запись: base64(int16 LE PCM, 16 кГц моно) → текст */
 export async function dictationTranscribe(audioBase64: string): Promise<string> {
-  if (!inTauri) throw new Error("Диктовка работает в нативном приложении (npm run tauri dev)");
+  if (!inTauri) throw nativeOnly("Диктовка");
   return invoke<string>("dictation_transcribe", { audioBase64 });
 }
 
@@ -2374,7 +2399,7 @@ export async function voiceDownloadModels(wakeModel: string): Promise<void> {
 /** Байты модели (base64) для инференса в вебвью: ort-web строит сессию
  *  из ArrayBuffer. Имя — строго из белого списка на бекенде */
 export async function voiceReadModel(name: string): Promise<string> {
-  if (!inTauri) throw new Error("Voice Wake работает в нативном приложении (npm run tauri dev)");
+  if (!inTauri) throw nativeOnly("Voice Wake");
   return invoke<string>("voice_read_model", { name });
 }
 
@@ -2382,7 +2407,7 @@ export async function voiceReadModel(name: string): Promise<string> {
  *  разрешается по завершении речи — индикатор карточки гаснет сам.
  *  output — имя устройства вывода (audio_outputs); null — системное */
 export async function ttsSpeak(text: string, output?: string | null): Promise<void> {
-  if (!inTauri) throw new Error("Озвучка работает в нативном приложении (npm run tauri dev)");
+  if (!inTauri) throw nativeOnly("Озвучка");
   await invoke("tts_speak", { text, output: output || null });
 }
 

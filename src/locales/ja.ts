@@ -523,6 +523,7 @@ export const ja = {
     "plug.roles": "ロール",
     "plug.exportPack": "パックをエクスポート",
     "plug.execConfirm": "このパックには実行可能なフックおよび/または MCP サーバーが含まれます——このマシンでコマンドを実行可能になります。インストールしますか？",
+    "plug.mcpOverwrite": "同じ名前の MCP サーバーが既に存在し、パックの内容で上書きされます：{names}。続行しますか？",
     "plug.bringsHooks": "実行可能なフック:{n}",
     "plug.bringsMcp": "MCP サーバー:{n}",
     "plug.install": "インストール",
@@ -842,6 +843,7 @@ export const ja = {
     "main.exportHint":
       "プロバイダー、キー、プロンプト、テーマ、自動化、チャットを 1 ファイルに。暗号化キーの復元には同じマスターパスワードが必要です。",
     "main.exportBtn": "エクスポート",
+    "error.nativeOnly": "「{what}」はネイティブアプリでのみ利用できます（npm run tauri dev）",
     "error.noteSaveFailed": "ノートの保存に失敗しました——内容はディスクに書き込まれていません。",
     "error.saveFailed": "チャット履歴のディスクへの保存に失敗しました。自動で再試行します。繰り返す場合はディスク容量と権限を確認してください。",
     "error.settingsCorrupted": "設定ファイルを読み取れません（{e}）。データ保護のため自動保存を停止しました。設定を明示的に保存するか、ファイルを手動で修復してください。",

@@ -523,6 +523,7 @@ export const zh = {
     "plug.roles": "个角色",
     "plug.exportPack": "导出插件包",
     "plug.execConfirm": "该插件包含可执行的钩子和/或 MCP 服务器——它们将能在这台机器上运行命令。确定安装？",
+    "plug.mcpOverwrite": "以下名称的 MCP 服务器已存在，并将被插件包覆盖：{names}。继续？",
     "plug.bringsHooks": "可执行钩子：{n}",
     "plug.bringsMcp": "MCP 服务器：{n}",
     "plug.install": "安装",
@@ -842,6 +843,7 @@ export const zh = {
     "main.exportHint":
       "服务商、密钥、提示词、主题、自动化和聊天打包为一个文件。加密密钥需相同的主密码才能恢复。",
     "main.exportBtn": "导出",
+    "error.nativeOnly": "{what}仅在原生应用中可用（npm run tauri dev）",
     "error.noteSaveFailed": "保存笔记失败——内容未写入磁盘。",
     "error.saveFailed": "聊天记录写入磁盘失败。将自动重试；若持续失败，请检查磁盘空间和权限。",
     "error.settingsCorrupted": "设置文件无法读取（{e}）。已冻结自动保存以避免覆盖数据；请显式保存设置或手动修复该文件。",
