@@ -19,7 +19,13 @@
 
 import { useEffect, useRef, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { ambientGradientDefaults } from "../appearance";
+import {
+  ambientGradientDefaults,
+  cssVarColor,
+  mixRgb,
+  sceneTint,
+  type Rgb,
+} from "../appearance";
 
 export type AmbientScene = "fog" | "snow" | "city" | "stars" | "video" | "gradient";
 
@@ -65,19 +71,23 @@ function rng(seed: number) {
   };
 }
 
-/** Зашитые палитры сцен — ambient не зависит от темы («свой цвет»).
- *  Небо полупрозрачное: в «Поверх интерфейса» UI обязан просвечивать
- *  сквозь слой, в «За интерфейсом» под слой CSS кладёт тёмную подложку */
-const FOG_TONES = [
-  "rgba(148,170,200,",
-  "rgba(118,142,176,",
-  "rgba(92,112,142,",
-  "rgba(164,184,214,",
-] as const;
+/** Зашитые детали сцен (снежинки, звёзды, окна, неон) — нейтральные и
+ *  тёплые акценты, не конфликтующие с палитрами. Небо и туманы темой
+ *  управляются (см. skyTone / fogTones) */
 const SNOW_FLAKE = "#eef3fb";
 const STAR_COLOR = "#eef2ff";
 const WINDOW_WARM = "rgba(255,211,140,"; // тёплые окна города, фикс
 const NEON_CYAN = "rgba(84,200,255,"; // неон мегаполиса, фикс
+
+/** Тона тумана выводятся из живой палитры (см. skyTone): зашитые синие
+ *  пятна конфликтовали с любой темой, кроме «синих» — при смене стиля
+ *  поверх нейтральных поверхностей висел чужой синий слой. Префикс
+ *  "rgba(r, g, b, " — spriteFor дописывает альфу сам */
+const fogTones = (tint: Rgb): string[] =>
+  [0.52, 0.38, 0.24, 0.64].map((l) => {
+    const c = mixRgb(tint, [255, 255, 255] as Rgb, l);
+    return `rgba(${c[0]}, ${c[1]}, ${c[2]},`;
+  });
 
 export function AmbientLayer({
   scene,
@@ -87,6 +97,7 @@ export function AmbientLayer({
   gradFrom,
   gradTo,
   gradAngle,
+  paletteKey,
 }: {
   scene: AmbientScene;
   videoPath: string;
@@ -97,6 +108,9 @@ export function AmbientLayer({
   /** Плотность сцены: множитель числа частиц/пятен/окон, 0.3–1.5 */
   density: number;
   paused: boolean;
+  /** Отпечаток палитры (стиль+тема): смена темы пересобирает небо сцены —
+   *  canvas не видит CSS-переменных, без ключа остаётся чужой цвет */
+  paletteKey: string;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -167,6 +181,18 @@ export function AmbientLayer({
     let buildings: Building[] = [];
     let stars: Star[] = [];
 
+    // Живая палитра на момент сборки кадра: небо сцен выводится из deep/bg
+    // темы, а не из зашитых синих ночей — те конфликтовали с любой темой,
+    // кроме «синих», и при смене стиля оставались чужим слоем поверх
+    // нейтральных поверхностей (скрин владельца: кварц + синее небо снега)
+    const skyTone = () => {
+      const deep = cssVarColor("--halo-deep", "#111111");
+      const bg = cssVarColor("--halo-bg", "#151515");
+      const accent = cssVarColor("--halo-accent", "#d97757");
+      return { deep, bg, accent, tint: sceneTint(deep, bg, accent) };
+    };
+    const rgba = (c: Rgb, a: number) => `rgba(${c[0]}, ${c[1]}, ${c[2]}, ${a})`;
+
     // Статичный фон сцены (небо, дымки, фонари, дома) кэшируется в
     // оффскрин-canvas и пересобирается только на resize: раньше градиенты
     // и полнозкранные заливки пересоздавались каждый кадр (fog — до 11
@@ -180,23 +206,27 @@ export function AmbientLayer({
       const octx = off.getContext("2d");
       if (!octx) return;
       octx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      const { deep, bg, accent, tint } = skyTone();
+      // Небо — ступени deep→bg темы (чуть темнее поверхностей), дымки —
+      // подтон сцены: смена стиля перекрашивает сцену вместе с UI
+      const night = mixRgb(deep, [0, 0, 0] as Rgb, 0.3);
       if (scene === "fog") {
         const g = octx.createLinearGradient(0, 0, 0, h);
-        g.addColorStop(0, "rgba(13,18,27,0.5)");
-        g.addColorStop(0.55, "rgba(8,11,17,0.55)");
-        g.addColorStop(1, "rgba(14,19,29,0.5)");
+        g.addColorStop(0, rgba(mixRgb(deep, [0, 0, 0] as Rgb, 0.18), 0.5));
+        g.addColorStop(0.55, rgba(night, 0.55));
+        g.addColorStop(1, rgba(mixRgb(bg, deep, 0.45), 0.5));
         octx.fillStyle = g;
         octx.fillRect(0, 0, w, h);
-        // холодная дымка у горизонта
+        // дымка у горизонта — подтон сцены
         const haze = octx.createLinearGradient(0, h * 0.7, 0, h);
-        haze.addColorStop(0, "rgba(140,170,210,0)");
-        haze.addColorStop(1, "rgba(140,170,210,0.07)");
+        haze.addColorStop(0, rgba(mixRgb(tint, [255, 255, 255] as Rgb, 0.5), 0));
+        haze.addColorStop(1, rgba(mixRgb(tint, [255, 255, 255] as Rgb, 0.5), 0.07));
         octx.fillStyle = haze;
         octx.fillRect(0, h * 0.7, w, h * 0.3);
       } else if (scene === "snow") {
         const g = octx.createLinearGradient(0, 0, 0, h);
-        g.addColorStop(0, "rgba(11,16,32,0.5)");
-        g.addColorStop(1, "rgba(26,36,54,0.45)");
+        g.addColorStop(0, rgba(night, 0.5));
+        g.addColorStop(1, rgba(mixRgb(bg, deep, 0.35), 0.45));
         octx.fillStyle = g;
         octx.fillRect(0, 0, w, h);
         // фонари: два тёплых пятна (янтарь зашит, не из темы)
@@ -209,18 +239,18 @@ export function AmbientLayer({
         }
       } else if (scene === "city") {
         const g = octx.createLinearGradient(0, 0, 0, h);
-        g.addColorStop(0, "rgba(10,15,28,0.55)");
-        g.addColorStop(1, "rgba(22,34,56,0.5)");
+        g.addColorStop(0, rgba(night, 0.55));
+        g.addColorStop(1, rgba(mixRgb(bg, deep, 0.3), 0.5));
         octx.fillStyle = g;
         octx.fillRect(0, 0, w, h);
-        // синяя дымка над городом
+        // дымка над городом — подтон сцены
         const haze = octx.createLinearGradient(0, h * 0.35, 0, h);
-        haze.addColorStop(0, "rgba(96,150,230,0)");
-        haze.addColorStop(1, "rgba(96,150,230,0.09)");
+        haze.addColorStop(0, rgba(mixRgb(tint, [255, 255, 255] as Rgb, 0.35), 0));
+        haze.addColorStop(1, rgba(mixRgb(tint, [255, 255, 255] as Rgb, 0.35), 0.09));
         octx.fillStyle = haze;
         octx.fillRect(0, 0, w, h);
         for (const b of buildings) {
-          octx.fillStyle = "rgba(9,14,23,0.62)";
+          octx.fillStyle = rgba(mixRgb(deep, [0, 0, 0] as Rgb, 0.35), 0.62);
           octx.fillRect(b.x, h - b.h, b.w, b.h);
         }
         // неоновое свечение самого высокого здания (позиция статична)
@@ -243,10 +273,15 @@ export function AmbientLayer({
           octx.fillRect(0, 0, w, h);
         }
       } else {
-        // stars: космос — почти прозрачный, туманности синий/фиолетовый
-        octx.fillStyle = "rgba(5,7,13,0.5)";
+        // stars: космос — почти прозрачный; туманности — подтон темы и
+        // шёпот акцента вместо зашитых синего/фиолетового
+        octx.fillStyle = rgba(mixRgb(deep, [0, 0, 0] as Rgb, 0.5), 0.5);
         octx.fillRect(0, 0, w, h);
-        for (const nebulaColor of ["rgba(88,124,255,0.05)", "rgba(168,120,255,0.045)"]) {
+        const nebulas = [
+          rgba(mixRgb(tint, [255, 255, 255] as Rgb, 0.45), 0.05),
+          rgba(mixRgb(accent, [255, 255, 255] as Rgb, 0.3), 0.045),
+        ];
+        for (const nebulaColor of nebulas) {
           const grad = octx.createRadialGradient(
             w * 0.7,
             h * 0.25,
@@ -294,8 +329,9 @@ export function AmbientLayer({
 
       if (scene === "fog") {
         const fogColor = (i: number): string =>
-          // Префикс "rgba(r, g, b, " — spriteFor дописывает альфу сам
-          FOG_TONES[i % FOG_TONES.length] ?? FOG_TONES[0]!;
+          // Тона из живой палитры темы; префикс "rgba(r, g, b, " —
+          // spriteFor дописывает альфу сам
+          fogTones(skyTone().tint)[i % 4] ?? fogTones(skyTone().tint)[0]!;
         blobs = Array.from({ length: Math.max(3, Math.round(6 * density)) }, (_, i) => ({
           x: rand() * w,
           y: rand() * h,
@@ -451,7 +487,7 @@ export function AmbientLayer({
       cancelAnimationFrame(raf);
       window.removeEventListener("resize", onResize);
     };
-  }, [scene, isVideo, density]);
+  }, [scene, isVideo, density, paletteKey]);
 
   if (isVideo) {
     if (!src) return null;

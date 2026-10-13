@@ -1392,16 +1392,16 @@ html.glass body {
 @supports (background: color-mix(in srgb, red, blue)) {
   html.glass {
     background:
-      radial-gradient(700px 450px at 12% 18%, color-mix(in srgb, var(--halo-accent) 22%, transparent), transparent 70%),
+      radial-gradient(700px 450px at 12% 18%, color-mix(in srgb, color-mix(in srgb, var(--halo-accent) 45%, var(--halo-deep)) 30%, transparent), transparent 70%),
       radial-gradient(800px 550px at 88% 85%, color-mix(in srgb, var(--halo-deep) 55%, transparent), transparent 70%),
-      radial-gradient(500px 350px at 70% 10%, color-mix(in srgb, var(--halo-accent) 10%, transparent), transparent 70%),
+      radial-gradient(500px 350px at 70% 10%, color-mix(in srgb, color-mix(in srgb, var(--halo-accent) 45%, var(--halo-deep)) 14%, transparent), transparent 70%),
       var(--halo-bg);
   }
   html.light.glass {
     background:
-      radial-gradient(700px 450px at 12% 18%, color-mix(in srgb, var(--halo-accent) 14%, transparent), transparent 70%),
+      radial-gradient(700px 450px at 12% 18%, color-mix(in srgb, color-mix(in srgb, var(--halo-accent) 45%, var(--halo-deep)) 20%, transparent), transparent 70%),
       radial-gradient(800px 550px at 88% 85%, color-mix(in srgb, var(--halo-deep) 22%, transparent), transparent 70%),
-      radial-gradient(500px 350px at 70% 10%, color-mix(in srgb, var(--halo-accent) 7%, transparent), transparent 70%),
+      radial-gradient(500px 350px at 70% 10%, color-mix(in srgb, color-mix(in srgb, var(--halo-accent) 45%, var(--halo-deep)) 10%, transparent), transparent 70%),
       var(--halo-bg);
   }
 }
