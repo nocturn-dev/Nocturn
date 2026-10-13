@@ -72,6 +72,7 @@ export default function QuickSettings({
     { id: "abyss", label: t("themes.styleAbyss") },
     { id: "storm", label: t("themes.styleStorm") },
     { id: "dusk", label: t("themes.styleDusk") },
+    { id: "quartz", label: t("themes.styleQuartz") },
     // Конструктор (идея №3): свои стили всегда под рукой во вкладке «Вид»
     ...customStyles.map((s) => ({ id: s.id as Appearance["style"], label: s.name })),
   ];

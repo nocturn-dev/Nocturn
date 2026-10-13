@@ -1249,6 +1249,7 @@ export const zh = {
     "themes.styleAmethyst": "紫水晶",
     "themes.styleEspresso": "意式浓缩",
     "themes.styleCarbon": "石墨",
+    "themes.styleQuartz": "粉晶",
     // Авто-тема и чтение (кастомизация)
     "themes.auto": "自动主题",
     "themes.autoHint": "主题自动切换：跟随系统或按时间表。手动选择会保留到下一次自动检查。",

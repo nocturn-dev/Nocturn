@@ -1223,6 +1223,7 @@ export const en = {
     "themes.styleAmethyst": "Amethyst",
     "themes.styleEspresso": "Espresso",
     "themes.styleCarbon": "Carbon",
+    "themes.styleQuartz": "Rose Quartz",
     // Авто-тема и чтение (кастомизация)
     "themes.auto": "Auto theme",
     "themes.autoHint": "The theme switches itself: follow the system or a schedule. A manual pick lasts until the next check.",

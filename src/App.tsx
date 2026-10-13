@@ -1448,7 +1448,7 @@ export default function App() {
   useEffect(() => {
     document.documentElement.classList.toggle(
       "has-wallpaper",
-      Boolean(appearance.chatWallpaper) && !appearance.fullClaude,
+      Boolean(appearance.chatWallpaper),
     );
   }, [appearance.chatWallpaper, appearance.fullClaude]);
 
@@ -2753,8 +2753,9 @@ export default function App() {
     >
         {/* Обои на уровне окна: за сайдбаром и чатом (кастомизация) —
             раньше жили только в колонке чата и «не уходили» за сайдбар.
-            В Full Claude не рисуются: чистые монолитные заливки темы */}
-        {appearance.chatWallpaper && !appearance.fullClaude && (
+            В Full Claude тоже работают: панели темы полупрозрачны только
+            в стекле, поверх обоих режимов обои подложка-фон */}
+        {appearance.chatWallpaper && (
           <div
             aria-hidden
             className="pointer-events-none fixed inset-0 z-0 overflow-hidden"

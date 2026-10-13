@@ -22,22 +22,24 @@ html.light[data-style="amethyst"] { --halo-bg: #f4f0f9; --halo-deep: #ebe4f4; --
 html[data-style="espresso"]:not(.light) { --halo-bg: #1b1410; --halo-deep: #140f0c; --halo-surface: #271d16; --halo-raised: #32261d; --halo-line: #403024; --halo-text: #f0e7de; --halo-muted: #ab9884; --halo-code-bg: #150f0b; --halo-hover: rgba(255, 255, 255, 0.055); --halo-hover-strong: rgba(255, 255, 255, 0.085); }
 html.light[data-style="espresso"] { --halo-bg: #f7f2ec; --halo-deep: #efe7de; --halo-surface: #fffbf7; --halo-raised: #eadfd2; --halo-line: #ded0bf; --halo-text: #2a2018; --halo-muted: #8d7b66; --halo-code-bg: #150f0b; --halo-hover: rgba(0, 0, 0, 0.05); --halo-hover-strong: rgba(0, 0, 0, 0.085); }
 html[data-style="carbon"]:not(.light) { --halo-bg: #171717; --halo-deep: #121212; --halo-surface: #1f1f1f; --halo-raised: #292929; --halo-line: #363636; --halo-text: #eaeaea; --halo-muted: #9a9a9a; --halo-code-bg: #0e0e0e; --halo-hover: rgba(255, 255, 255, 0.055); --halo-hover-strong: rgba(255, 255, 255, 0.085); }
-html.light[data-style="carbon"] { --halo-bg: #f6f6f6; --halo-deep: #ececec; --halo-surface: #ffffff; --halo-raised: #e4e4e4; --halo-line: #d6d6d6; --halo-text: #232323; --halo-muted: #7a7a7a; --halo-code-bg: #0e0e0e; --halo-hover: rgba(0, 0, 0, 0.05); --halo-hover-strong: rgba(0, 0, 0, 0.085); }"
+html.light[data-style="carbon"] { --halo-bg: #f6f6f6; --halo-deep: #ececec; --halo-surface: #ffffff; --halo-raised: #e4e4e4; --halo-line: #d6d6d6; --halo-text: #232323; --halo-muted: #7a7a7a; --halo-code-bg: #0e0e0e; --halo-hover: rgba(0, 0, 0, 0.05); --halo-hover-strong: rgba(0, 0, 0, 0.085); }
+html[data-style="quartz"]:not(.light) { --halo-bg: #292929; --halo-deep: #222222; --halo-surface: #323232; --halo-raised: #3a3a3a; --halo-line: #454545; --halo-text: #ecebe9; --halo-muted: #9d9699; --halo-code-bg: #1e1e1e; --halo-hover: rgba(255, 255, 255, 0.055); --halo-hover-strong: rgba(255, 255, 255, 0.085); }
+html.light[data-style="quartz"] { --halo-bg: #f7f4f5; --halo-deep: #efe9eb; --halo-surface: #fffefe; --halo-raised: #ece3e6; --halo-line: #e0d4d8; --halo-text: #2b2427; --halo-muted: #8d7f85; --halo-code-bg: #242424; --halo-hover: rgba(0, 0, 0, 0.05); --halo-hover-strong: rgba(0, 0, 0, 0.085); }"
 `;
 
 exports[`css generator goldens > fullClaudeCss — important-блок и оled/contrast-переменные 1`] = `
 ":root.full-claude {
-  --halo-bg: #24150F !important;
-  --halo-deep: #1C100C !important;
-  --halo-surface: #2D1A13 !important;
-  --halo-raised: #331E15 !important;
-  --halo-line: rgba(255, 255, 255, 0.09) !important;
-  --halo-text: #F2EDE8 !important;
-  --halo-muted: #A3968D !important;
-  --halo-hover: rgba(255, 255, 255, 0.06) !important;
-  --halo-hover-strong: rgba(255, 255, 255, 0.1) !important;
-  --halo-code-bg: #1E120C !important;
-  --halo-code-text: #F2EDE8 !important;
+  --halo-bg: #151515 !important;
+  --halo-deep: #111111 !important;
+  --halo-surface: #20201f !important;
+  --halo-raised: #212121 !important;
+  --halo-line: rgba(255, 255, 255, 0.08) !important;
+  --halo-text: #f0efec !important;
+  --halo-muted: #a5a49a !important;
+  --halo-hover: rgba(36, 21, 15, 0.65) !important;
+  --halo-hover-strong: rgba(36, 21, 15, 0.95) !important;
+  --halo-code-bg: #1b1b1d !important;
+  --halo-code-text: #f0efec !important;
   --halo-accent: #D96B27 !important;
   --halo-accent-deep: #B25820 !important;
   --halo-on-accent: #ffffff !important;
@@ -51,7 +53,7 @@ exports[`css generator goldens > fullClaudeCss — important-блок и оled/c
 html.full-claude .markdown code:not(pre code) {
   background: rgba(255, 255, 255, 0.05);
   border: 0.5px solid rgba(255, 255, 255, 0.2);
-  color: #F4ABAB;
+  color: #f4abab;
   border-radius: 0.3rem;
 }
 html.full-claude .markdown pre {
@@ -66,31 +68,31 @@ html.full-claude aside .uppercase:hover {
 @supports (background: color-mix(in srgb, red, blue)) {
   html.full-claude.glass {
     background:
-      radial-gradient(700px 450px at 12% 18%, color-mix(in srgb, var(--halo-accent) 8%, transparent), transparent 70%),
+      radial-gradient(700px 450px at 12% 18%, color-mix(in srgb, #24150F 38%, transparent), transparent 70%),
       radial-gradient(800px 550px at 88% 85%, color-mix(in srgb, var(--halo-deep) 55%, transparent), transparent 70%),
-      radial-gradient(500px 350px at 70% 10%, color-mix(in srgb, var(--halo-accent) 4%, transparent), transparent 70%),
+      radial-gradient(500px 350px at 70% 10%, color-mix(in srgb, #24150F 16%, transparent), transparent 70%),
       var(--halo-bg) !important;
   }
 }
 html.full-claude:not(.glass) .glass-pane {
-  background: #2D1A13;
+  background: #20201f;
 }
 html.full-claude.glass .glass-pane {
-  background: #2D1A13;
+  background: #20201f;
 }
 html.full-claude.glass .bg-halo-deep.shadow-2xl {
-  background: #2D1A13;
+  background: #20201f;
 }
 @supports (background: color-mix(in srgb, red, transparent)) {
   html.full-claude.glass .glass-pane {
-    background: color-mix(in srgb, #2D1A13 70%, transparent);
+    background: color-mix(in srgb, #20201f 70%, transparent);
   }
   html.full-claude.glass .bg-halo-deep.shadow-2xl {
-    background: color-mix(in srgb, #2D1A13 70%, transparent);
+    background: color-mix(in srgb, #20201f 70%, transparent);
   }
 }
 html.full-claude:not(.glass) .bg-halo-deep.shadow-2xl {
-  background: #2D1A13;
+  background: #20201f;
 }
 html.full-claude:not(.glass) .glass-pane,
 html.full-claude:not(.glass) .msg-glass {
