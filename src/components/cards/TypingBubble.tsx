@@ -1,19 +1,18 @@
-import { StarburstIcon } from "./icons";
+import { ThinkingOrbs } from "./ThinkingOrbs";
 
 /**
- * Статус «работаю» (паттерн claude.ai): старбёрст на акценте с медленным
- * линейным вращением + дышащий текст. Анимации живут в index.css
- * (.work-status-star / .work-status-text) — там же гасятся reduce-motion'ом
+ * Статус «работаю» — капсула как в референсе Claude: шар из орбитальных
+ * точек (порт Thinking Orbs) + моно-метка. Точки красятся токеном темы,
+ * капсула живёт на стекле ленты (glass-pane + msg-glass: в стекле —
+ * полупрозрачная с блюром, без стекла — плотный deep, как у карточек).
  */
 export function TypingBubble({ label }: { label: string }) {
   return (
-    <div className="anim-fade-up mr-auto w-fit rounded-xl border border-halo-line/70 bg-halo-surface/70 px-4 py-3.5 shadow-sm">
-      <div className="flex items-center gap-2">
-        <span className="shrink-0 text-halo-accent">
-          <StarburstIcon />
-        </span>
-        <span className="work-status-text text-xs text-halo-muted">{label}</span>
-      </div>
+    <div className="glass-pane msg-glass anim-fade-up mr-auto flex w-fit items-center gap-2.5 rounded-full border border-halo-line/70 bg-halo-surface/70 py-2 pl-2.5 pr-5 shadow-sm">
+      <span className="shrink-0">
+        <ThinkingOrbs size={30} />
+      </span>
+      <span className="font-mono text-[0.8125rem] text-halo-text/75">{label}</span>
     </div>
   );
 }
