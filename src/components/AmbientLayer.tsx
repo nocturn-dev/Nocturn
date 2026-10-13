@@ -212,21 +212,21 @@ export function AmbientLayer({
       const night = mixRgb(deep, [0, 0, 0] as Rgb, 0.3);
       if (scene === "fog") {
         const g = octx.createLinearGradient(0, 0, 0, h);
-        g.addColorStop(0, rgba(mixRgb(deep, [0, 0, 0] as Rgb, 0.18), 0.5));
-        g.addColorStop(0.55, rgba(night, 0.55));
-        g.addColorStop(1, rgba(mixRgb(bg, deep, 0.45), 0.5));
+        g.addColorStop(0, rgba(mixRgb(deep, [0, 0, 0] as Rgb, 0.18), 0.25));
+        g.addColorStop(0.55, rgba(night, 0.28));
+        g.addColorStop(1, rgba(mixRgb(bg, deep, 0.45), 0.25));
         octx.fillStyle = g;
         octx.fillRect(0, 0, w, h);
         // дымка у горизонта — подтон сцены
         const haze = octx.createLinearGradient(0, h * 0.7, 0, h);
         haze.addColorStop(0, rgba(mixRgb(tint, [255, 255, 255] as Rgb, 0.5), 0));
-        haze.addColorStop(1, rgba(mixRgb(tint, [255, 255, 255] as Rgb, 0.5), 0.07));
+        haze.addColorStop(1, rgba(mixRgb(tint, [255, 255, 255] as Rgb, 0.5), 0.035));
         octx.fillStyle = haze;
         octx.fillRect(0, h * 0.7, w, h * 0.3);
       } else if (scene === "snow") {
         const g = octx.createLinearGradient(0, 0, 0, h);
-        g.addColorStop(0, rgba(night, 0.5));
-        g.addColorStop(1, rgba(mixRgb(bg, deep, 0.35), 0.45));
+        g.addColorStop(0, rgba(night, 0.25));
+        g.addColorStop(1, rgba(mixRgb(bg, deep, 0.35), 0.22));
         octx.fillStyle = g;
         octx.fillRect(0, 0, w, h);
         // фонари: два тёплых пятна (янтарь зашит, не из темы)
@@ -239,14 +239,14 @@ export function AmbientLayer({
         }
       } else if (scene === "city") {
         const g = octx.createLinearGradient(0, 0, 0, h);
-        g.addColorStop(0, rgba(night, 0.55));
-        g.addColorStop(1, rgba(mixRgb(bg, deep, 0.3), 0.5));
+        g.addColorStop(0, rgba(night, 0.28));
+        g.addColorStop(1, rgba(mixRgb(bg, deep, 0.3), 0.25));
         octx.fillStyle = g;
         octx.fillRect(0, 0, w, h);
         // дымка над городом — подтон сцены
         const haze = octx.createLinearGradient(0, h * 0.35, 0, h);
         haze.addColorStop(0, rgba(mixRgb(tint, [255, 255, 255] as Rgb, 0.35), 0));
-        haze.addColorStop(1, rgba(mixRgb(tint, [255, 255, 255] as Rgb, 0.35), 0.09));
+        haze.addColorStop(1, rgba(mixRgb(tint, [255, 255, 255] as Rgb, 0.35), 0.045));
         octx.fillStyle = haze;
         octx.fillRect(0, 0, w, h);
         for (const b of buildings) {
@@ -275,11 +275,11 @@ export function AmbientLayer({
       } else {
         // stars: космос — почти прозрачный; туманности — подтон темы и
         // шёпот акцента вместо зашитых синего/фиолетового
-        octx.fillStyle = rgba(mixRgb(deep, [0, 0, 0] as Rgb, 0.5), 0.5);
+        octx.fillStyle = rgba(mixRgb(deep, [0, 0, 0] as Rgb, 0.5), 0.25);
         octx.fillRect(0, 0, w, h);
         const nebulas = [
-          rgba(mixRgb(tint, [255, 255, 255] as Rgb, 0.45), 0.05),
-          rgba(mixRgb(accent, [255, 255, 255] as Rgb, 0.3), 0.045),
+          rgba(mixRgb(tint, [255, 255, 255] as Rgb, 0.45), 0.03),
+          rgba(mixRgb(accent, [255, 255, 255] as Rgb, 0.3), 0.027),
         ];
         for (const nebulaColor of nebulas) {
           const grad = octx.createRadialGradient(
