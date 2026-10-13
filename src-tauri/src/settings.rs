@@ -1797,6 +1797,7 @@ mod tests {
         assert_eq!(strip_url_credentials("not a url"), None);
     }
 
+    #[test]
     fn mask_secrets_blanks_mcp_headers_and_env() {
         // «Поделенный» экспорт не должен уносить токены MCP-серверов:
         // headers (Authorization: Bearer …) и env (API-ключи серверов)
