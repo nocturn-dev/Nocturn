@@ -307,7 +307,11 @@ fn shell_command_hits_sensitive(cmd: &str) -> bool {
 pub(crate) fn decide(state: &PermState, name: &str, path: Option<&str>) -> Result<(), String> {
     let mutating = match name {
         "shell_run" | "fs_write" | "fs_delete" | "vault_write" | "image_generate"
-        | "memory_save" | "gguf_cut" | "gguf_test" => true,
+        | "gguf_cut" | "gguf_test" => true,
+        // memory_save НЕ mutating: «ИИ сам делает слепки» — проактивные
+        // сохранения в Ask-режиме заваливали пользователя подтверждениями.
+        // Запись — в локальный memory.json под потолками и фильтром секретов
+        // (аудит memory 307); Plan по-прежнему запрещает (нет в PLAN_READ_ONLY)
         n if n.starts_with("mcp__") => true,
         // Чтение и скриншот безопасны — mutating только действия
         n if n.starts_with("browser_") => !matches!(n, "browser_read" | "browser_screenshot"),
