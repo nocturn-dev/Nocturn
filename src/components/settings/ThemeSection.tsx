@@ -290,6 +290,7 @@ export function ThemeSection({
     { id: "amethyst", key: "themes.styleAmethyst" },
     { id: "espresso", key: "themes.styleEspresso" },
     { id: "carbon", key: "themes.styleCarbon" },
+    { id: "quartz", key: "themes.styleQuartz" },
   ];
   // Активный профиль: theme и appearance полностью совпадают с текущими.
   // D18: поэлементная сверка вместо JSON.stringify — порядок ключей объекта

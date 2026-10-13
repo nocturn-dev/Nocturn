@@ -1249,6 +1249,7 @@ export const ja = {
     "themes.styleAmethyst": "アメジスト",
     "themes.styleEspresso": "エスプレッソ",
     "themes.styleCarbon": "カーボン",
+    "themes.styleQuartz": "ローズクォーツ",
     // Авто-тема и чтение (кастомизация)
     "themes.auto": "自動テーマ",
     "themes.autoHint": "テーマが自動で切り替わります：システムに合わせるか、スケジュールで。手動選択は次の確認まで有効です。",

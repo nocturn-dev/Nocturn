@@ -1235,6 +1235,7 @@ export const ru = {
     "themes.styleAmethyst": "Аметист",
     "themes.styleEspresso": "Эспрессо",
     "themes.styleCarbon": "Графит",
+    "themes.styleQuartz": "Розовый кварц",
     // Авто-тема и чтение (кастомизация)
     "themes.auto": "Авто-тема",
     "themes.autoHint": "Тема переключается сама: как в системе или по расписанию. Ручной выбор действует до следующей проверки.",

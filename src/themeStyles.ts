@@ -148,6 +148,13 @@ export const STYLE_PALETTES: Record<DarkStyle, ThemeStyleDef> = {
     dark: dark("#171717", "#121212", "#1f1f1f", "#292929", "#363636", "#eaeaea", "#9a9a9a", "#0e0e0e"),
     light: light("#f6f6f6", "#ececec", "#ffffff", "#e4e4e4", "#d6d6d6", "#232323", "#7a7a7a", "#0e0e0e"),
   },
+  // Розовый кварц — дефолт при запуске: графит #292929 + пыльная роза
+  // #C88E9B (акцент задаётся DEFAULT_APPEARANCE.accent, вне палитры)
+  quartz: {
+    dark: dark("#292929", "#222222", "#323232", "#3a3a3a", "#454545", "#ecebe9", "#9d9699", "#1e1e1e"),
+    // Светлый кварц: тёплая пепельная роза
+    light: light("#f7f4f5", "#efe9eb", "#fffefe", "#ece3e6", "#e0d4d8", "#2b2427", "#8d7f85", "#242424"),
+  },
 };
 
 /** Все стили кроме базового claude получают data-style и сгенерированный CSS */
