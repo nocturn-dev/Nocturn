@@ -14,10 +14,11 @@ describe("css generator goldens", () => {
     expect(css).toMatchSnapshot();
   });
 
-  it("officialCss — монохром с !important (палитра бьёт data-style)", () => {
+  it("officialCss — монохром выше палитр стилей, без important", () => {
     const css = officialCss(false, false);
-    expect(css).toContain(":root.official");
-    expect(css).toContain("!important");
+    expect(css).toContain(":root.official:not(.light)");
+    expect(css).toContain("--halo-bg: #0a0a0a;");
+    expect(css).not.toContain("!important");
     expect(css).toMatchSnapshot();
   });
 

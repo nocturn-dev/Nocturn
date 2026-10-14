@@ -483,12 +483,11 @@ export function ambientGradientDefaults(): { from: string; to: string } {
  * а НЕ инлайном на корне: инлайн-палитру сносила зачистка
  * предпросмотных переменных в редакторе кастомных стилей (ThemeSection,
  * PALETTE_VAR_NAMES) — тема «сбрасывалась» при каждом входе в настройки,
- * оставляя смесь чёрного/серого/синего/белого. Специфичности: палитры
- * стилей — html[data-style]:not(.light) = 0-2-1, :root.official — 0-2-0,
- * поэтому без !important палитра стиля закономерно била бы тег (урок
- * каскада); !important + перенос тега в конец head — последняя
-
- * инстанция каскада.
+ * оставляя смесь чёрного/серого/синего/белого. Селектор
+ * :root.official:not(.light) = 0-3-0 — выше палитр стилей (0-2-1):
+ * Storm/Midnight не перебивают монохром («в Official темы не меняются»),
+ * и !important не нужен; перенос тега в конец head — последняя инстанция
+ * при равной специфичности.
  */
 export function officialCss(oled: boolean, contrast: boolean): string {
   const line = oled
@@ -504,26 +503,21 @@ export function officialCss(oled: boolean, contrast: boolean): string {
   const surface = oled ? "#0d0d0d" : "#141414";
   const raised = oled ? "#161616" : "#1d1d1d";
   const codeBg = oled ? "#050505" : "#0f0f0f";
-  // !important обязателен: правила стилей (buildThemeCss) идут селектором
-  // html[data-style="…"]:not(.light) — специфичность 0-2-1, ВЫШЕ :root.official
-  // (0-2-0), и без important Storm/Midnight перекрывали монохром целиком
-  // («в Official темы не меняются»). Редактор кастомных стилей при Official
-  // скрыт, конфликтов с превью нет.
   return [
-    ":root.official {",
-    `  --halo-bg: ${bg} !important;`,
-    `  --halo-deep: ${deep} !important;`,
-    `  --halo-surface: ${surface} !important;`,
-    `  --halo-raised: ${raised} !important;`,
-    `  --halo-line: ${line} !important;`,
-    "  --halo-text: #fafafa !important;",
-    `  --halo-muted: ${muted} !important;`,
-    "  --halo-hover: rgba(255, 255, 255, 0.06) !important;",
-    "  --halo-hover-strong: rgba(255, 255, 255, 0.1) !important;",
-    `  --halo-code-bg: ${codeBg} !important;`,
-    "  --halo-accent: #ececec !important;",
-    "  --halo-accent-deep: #8f8f8f !important;",
-    "  --halo-on-accent: #111111 !important;",
+    ":root.official:not(.light) {",
+    `  --halo-bg: ${bg};`,
+    `  --halo-deep: ${deep};`,
+    `  --halo-surface: ${surface};`,
+    `  --halo-raised: ${raised};`,
+    `  --halo-line: ${line};`,
+    "  --halo-text: #fafafa;",
+    `  --halo-muted: ${muted};`,
+    "  --halo-hover: rgba(255, 255, 255, 0.06);",
+    "  --halo-hover-strong: rgba(255, 255, 255, 0.1);",
+    `  --halo-code-bg: ${codeBg};`,
+    "  --halo-accent: #ececec;",
+    "  --halo-accent-deep: #8f8f8f;",
+    "  --halo-on-accent: #111111;",
     "  color-scheme: dark;",
     "}",
   ].join("\n");
@@ -800,8 +794,8 @@ export function applyAppearance(a: Appearance) {
   root.style.setProperty("--halo-term-opacity", String(a.termOpacity ?? 1));
   // Фон код-блоков независимо от темы: инлайном только при переопределении,
   // иначе палитра стиля (data-style) продолжает управлять --halo-code-bg.
-  // В Full Claude фон даёт тег темы — инлайн не пишем
-  if (a.codeStyle === "light" && !a.fullClaude) {
+  // Жёсткие темы фиксируют свою подсветку — инлайн не пишем
+  if (a.codeStyle === "light" && !a.official && !a.fullClaude) {
     root.style.setProperty("--halo-code-bg", "#f0eee6");
     root.style.setProperty("--halo-code-text", "#2a2926");
   } else {

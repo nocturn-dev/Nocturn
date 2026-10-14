@@ -103,21 +103,21 @@ html.full-claude:not(.glass) .msg-glass {
 }"
 `;
 
-exports[`css generator goldens > officialCss — монохром с !important (палитра бьёт data-style) 1`] = `
-":root.official {
-  --halo-bg: #0a0a0a !important;
-  --halo-deep: #060606 !important;
-  --halo-surface: #141414 !important;
-  --halo-raised: #1d1d1d !important;
-  --halo-line: #262626 !important;
-  --halo-text: #fafafa !important;
-  --halo-muted: #a3a3a3 !important;
-  --halo-hover: rgba(255, 255, 255, 0.06) !important;
-  --halo-hover-strong: rgba(255, 255, 255, 0.1) !important;
-  --halo-code-bg: #0f0f0f !important;
-  --halo-accent: #ececec !important;
-  --halo-accent-deep: #8f8f8f !important;
-  --halo-on-accent: #111111 !important;
+exports[`css generator goldens > officialCss — монохром выше палитр стилей, без important 1`] = `
+":root.official:not(.light) {
+  --halo-bg: #0a0a0a;
+  --halo-deep: #060606;
+  --halo-surface: #141414;
+  --halo-raised: #1d1d1d;
+  --halo-line: #262626;
+  --halo-text: #fafafa;
+  --halo-muted: #a3a3a3;
+  --halo-hover: rgba(255, 255, 255, 0.06);
+  --halo-hover-strong: rgba(255, 255, 255, 0.1);
+  --halo-code-bg: #0f0f0f;
+  --halo-accent: #ececec;
+  --halo-accent-deep: #8f8f8f;
+  --halo-on-accent: #111111;
   color-scheme: dark;
 }"
 `;
