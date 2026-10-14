@@ -562,12 +562,14 @@ export const FULL_CLAUDE_PALETTE = {
  * см. FULL_CLAUDE_PALETTE), акцент #D97757 только в мелких деталях,
  * hover — светло-серые заливки белого поверх фона. Всегда тёмная.
  *
- * Механика — точная копия officialCss: отдельный тег <style id=
- * "halo-full-claude"> в конце head, все палитровые переменные с !important
- * (data-style палитры 0-2-1 и инлайн на корне иначе пробивали бы :root,
- * см. урок Official). Тема вне каскада кастомизации: переменные «Чтения»
- * (масштаб/плотность/ширина), радиус и шрифты фиксируются в скоупе —
- * глобальные слайдеры и выборы шрифтов на неё не действуют.
+ * Механика — отдельный тег <style id="halo-full-claude"> в конце head,
+ * ПОСЛЕДНИЙ автор палитры, без !important: специфичность селектора
+ * :root.full-claude:not(.light) = 0-3-0 выше палитр стилей (0-2-1), а
+ * инлайн-значения кастомизации под темой не пишутся вовсе (applyAppearance
+ * снимает её var'ы — инлайн сильнее любого селектора). Тема вне каскада
+ * кастомизации: переменные «Чтения» (масштаб/плотность/ширина), радиус и
+ * шрифты фиксируются в скоупе — глобальные слайдеры и выборы шрифтов на
+ * неё не действуют.
  */
 export function fullClaudeCss(a: Appearance): string {
   const r = clamp(a.fullClaudeRadius ?? 1, 0.4, 1.6);
@@ -577,10 +579,10 @@ export function fullClaudeCss(a: Appearance): string {
   // гарантированно разъезжается. Непустое — пресет темы + фолбэки
   const fontVars = [
     a.fullClaudeUiFont
-      ? `  --halo-font-ui: ${a.fullClaudeUiFont}, ui-sans-serif, system-ui, sans-serif !important;`
+      ? `  --halo-font-ui: ${a.fullClaudeUiFont}, ui-sans-serif, system-ui, sans-serif;`
       : null,
     a.fullClaudeMonoFont
-      ? `  --halo-font-mono: ${a.fullClaudeMonoFont}, ui-monospace, Menlo, Consolas, "Liberation Mono", monospace !important;`
+      ? `  --halo-font-mono: ${a.fullClaudeMonoFont}, ui-monospace, Menlo, Consolas, "Liberation Mono", monospace;`
       : null,
   ].filter((l): l is string => l !== null);
   // Чат-ответы серифом — фирменный приём Claude (user sans / assistant serif,
@@ -595,26 +597,26 @@ export function fullClaudeCss(a: Appearance): string {
     : [];
   return [
     [
-      ":root.full-claude {",
-      `  --halo-bg: ${FULL_CLAUDE_PALETTE.bg} !important;`,
-      `  --halo-deep: ${FULL_CLAUDE_PALETTE.deep} !important;`,
-      `  --halo-surface: ${FULL_CLAUDE_PALETTE.surface} !important;`,
-      `  --halo-raised: ${FULL_CLAUDE_PALETTE.raised} !important;`,
-      `  --halo-line: ${FULL_CLAUDE_PALETTE.line} !important;`,
-      `  --halo-text: ${FULL_CLAUDE_PALETTE.text} !important;`,
-      `  --halo-muted: ${FULL_CLAUDE_PALETTE.muted} !important;`,
-      "  --halo-hover: rgba(255, 255, 255, 0.1) !important;",
-      "  --halo-hover-strong: rgba(255, 255, 255, 0.15) !important;",
-      `  --halo-code-bg: ${FULL_CLAUDE_PALETTE.codeBg} !important;`,
-      `  --halo-code-text: ${FULL_CLAUDE_PALETTE.text} !important;`,
-      `  --halo-accent: ${FULL_CLAUDE_PALETTE.accent} !important;`,
-      `  --halo-accent-deep: ${FULL_CLAUDE_PALETTE.accentDeep} !important;`,
-      "  --halo-on-accent: #ffffff !important;",
-      "  --halo-blur: 14px !important;",
-      `  --halo-radius-scale: ${r} !important;`,
-      "  --halo-msg-scale: 1 !important;",
-      "  --halo-density: 1 !important;",
-      "  --halo-content-width: 48rem !important;",
+      ":root.full-claude:not(.light) {",
+      `  --halo-bg: ${FULL_CLAUDE_PALETTE.bg};`,
+      `  --halo-deep: ${FULL_CLAUDE_PALETTE.deep};`,
+      `  --halo-surface: ${FULL_CLAUDE_PALETTE.surface};`,
+      `  --halo-raised: ${FULL_CLAUDE_PALETTE.raised};`,
+      `  --halo-line: ${FULL_CLAUDE_PALETTE.line};`,
+      `  --halo-text: ${FULL_CLAUDE_PALETTE.text};`,
+      `  --halo-muted: ${FULL_CLAUDE_PALETTE.muted};`,
+      "  --halo-hover: rgba(255, 255, 255, 0.1);",
+      "  --halo-hover-strong: rgba(255, 255, 255, 0.15);",
+      `  --halo-code-bg: ${FULL_CLAUDE_PALETTE.codeBg};`,
+      `  --halo-code-text: ${FULL_CLAUDE_PALETTE.text};`,
+      `  --halo-accent: ${FULL_CLAUDE_PALETTE.accent};`,
+      `  --halo-accent-deep: ${FULL_CLAUDE_PALETTE.accentDeep};`,
+      "  --halo-on-accent: #ffffff;",
+      "  --halo-blur: 14px;",
+      `  --halo-radius-scale: ${r};`,
+      "  --halo-msg-scale: 1;",
+      "  --halo-density: 1;",
+      "  --halo-content-width: 48rem;",
       ...fontVars,
       "  color-scheme: dark;",
       "}",
@@ -659,7 +661,7 @@ export function fullClaudeCss(a: Appearance): string {
       "      radial-gradient(700px 450px at 12% 18%, color-mix(in srgb, #2d2d2d 38%, transparent), transparent 70%),",
       "      radial-gradient(800px 550px at 88% 85%, color-mix(in srgb, var(--halo-deep) 55%, transparent), transparent 70%),",
       "      radial-gradient(500px 350px at 70% 10%, color-mix(in srgb, #2d2d2d 16%, transparent), transparent 70%),",
-      "      var(--halo-bg) !important;",
+      "      var(--halo-bg);",
       "  }",
       "}",
     ],
@@ -708,6 +710,33 @@ export function fullClaudeCss(a: Appearance): string {
 }
 
 /** Применяем кастомизацию к <html>; theme нужен дляrem-масштаба (не конфликтует) */
+/** Инлайн-значения «Чтения» (кастомизация): дефолты vars = текущий дизайн.
+ *  Под Full Claude не вызывается — эти var'ы принадлежат теме */
+function applyReadingPrefs(a: Appearance) {
+  const root = document.documentElement;
+  root.style.setProperty("--halo-blur", `${a.glassBlur}px`);
+  root.style.setProperty("--halo-msg-scale", String(a.msgScale ?? 1));
+  root.style.setProperty("--halo-radius-scale", String(a.radius ?? 1));
+  // Шрифты: стеки дополняются системными фолбэками, пусто = не переопределяем
+  if (a.uiFont) {
+    root.style.setProperty("--halo-font-ui", `${a.uiFont}, ui-sans-serif, system-ui, sans-serif`);
+  } else {
+    root.style.removeProperty("--halo-font-ui");
+  }
+  if (a.monoFont) {
+    // Фолбэк кроссплатформенный: Consolas — только Windows, Menlo — macOS,
+    // Liberation Mono — Linux; ui-monospace ловит системный моно везде
+    root.style.setProperty(
+      "--halo-font-mono",
+      `${a.monoFont}, ui-monospace, Menlo, Consolas, "Liberation Mono", monospace`,
+    );
+  } else {
+    root.style.removeProperty("--halo-font-mono");
+  }
+  root.style.setProperty("--halo-density", String(a.density ?? 1));
+  root.style.setProperty("--halo-content-width", `${a.contentWidth ?? 768}px`);
+}
+
 export function applyAppearance(a: Appearance) {
   const root = document.documentElement;
   // Снимаем инлайн-фон, поставленный boot-theme.js (анти-FOUC до загрузки
@@ -746,32 +775,29 @@ export function applyAppearance(a: Appearance) {
     root.style.setProperty("--halo-accent-deep", darken(a.accent, 0.82));
   }
   root.style.setProperty("--halo-term-font", `${a.termFont}px`);
-  root.style.setProperty("--halo-blur", `${a.glassBlur}px`);
-  // Чтение (кастомизация): дефолты vars = текущий дизайн
-  root.style.setProperty("--halo-msg-scale", String(a.msgScale ?? 1));
-  root.style.setProperty("--halo-radius-scale", String(a.radius ?? 1));
-  // Шрифты: стеки дополняются системными фолбэками, пусто = не переопределяем
-  if (a.uiFont) {
-    root.style.setProperty("--halo-font-ui", `${a.uiFont}, ui-sans-serif, system-ui, sans-serif`);
-  } else {
-    root.style.removeProperty("--halo-font-ui");
-  }
-  if (a.monoFont) {
-    // Фолбэк кроссплатформенный: Consolas — только Windows, Menlo — macOS,
-    // Liberation Mono — Linux; ui-monospace ловит системный моно везде
-    root.style.setProperty(
+  // Var'ы, которыми владеет Full Claude: под темой инлайн не пишется вовсе —
+  // инлайн сильнее любого селектора, и тег темы был вынужден воевать
+  // !important'ом за каждый var. Тема даёт свои значения; при выключении
+  // инлайн возвращается (ветка else)
+  if (a.fullClaude) {
+    for (const v of [
+      "--halo-blur",
+      "--halo-msg-scale",
+      "--halo-radius-scale",
+      "--halo-density",
+      "--halo-content-width",
+      "--halo-font-ui",
       "--halo-font-mono",
-      `${a.monoFont}, ui-monospace, Menlo, Consolas, "Liberation Mono", monospace`,
-    );
+    ]) {
+      root.style.removeProperty(v);
+    }
   } else {
-    root.style.removeProperty("--halo-font-mono");
+    applyReadingPrefs(a);
   }
   // Палитра подсветки кода + терминал: прозрачность/блюр (дефолты = как было).
   // Full Claude фиксирует свою подсветку — выбор codeTheme в теме не действует
   applyCodeTheme(a.fullClaude ? "midnight" : (a.codeTheme ?? "midnight"));
   root.style.setProperty("--halo-term-opacity", String(a.termOpacity ?? 1));
-  root.style.setProperty("--halo-density", String(a.density ?? 1));
-  root.style.setProperty("--halo-content-width", `${a.contentWidth ?? 768}px`);
   // Фон код-блоков независимо от темы: инлайном только при переопределении,
   // иначе палитра стиля (data-style) продолжает управлять --halo-code-bg.
   // В Full Claude фон даёт тег темы — инлайн не пишем

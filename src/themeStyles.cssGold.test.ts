@@ -21,10 +21,14 @@ describe("css generator goldens", () => {
     expect(css).toMatchSnapshot();
   });
 
-  it("fullClaudeCss — important-блок и оled/contrast-переменные", () => {
+  it("fullClaudeCss — палитра без important (специфичность 0-3-0 против палитр 0-2-1)", () => {
     const css = fullClaudeCss(DEFAULT_APPEARANCE);
     expect(css).toContain("html.full-claude");
-    expect(css).toContain("!important");
+    // Селектор темы выше палитр стилей — important в var-блоке не нужен;
+    // остаются только бои с инлайном (header-color сайдбара)
+    expect(css).toContain(":root.full-claude:not(.light)");
+    expect(css).toContain("--halo-bg: #151515;");
+    expect(css).not.toContain("#151515 !important");
     expect(css).toMatchSnapshot();
     // поле, которое читает генератор, меняет вывод — детерминизм по аргументам
     expect(fullClaudeCss({ ...DEFAULT_APPEARANCE, fullClaudeRadius: 1.4 })).not.toBe(css);

@@ -27,29 +27,29 @@ html[data-style="quartz"]:not(.light) { --halo-bg: #292929; --halo-deep: #222222
 html.light[data-style="quartz"] { --halo-bg: #f7f4f5; --halo-deep: #efe9eb; --halo-surface: #fffefe; --halo-raised: #ece3e6; --halo-line: #e0d4d8; --halo-text: #2b2427; --halo-muted: #8d7f85; --halo-code-bg: #242424; --halo-hover: rgba(0, 0, 0, 0.05); --halo-hover-strong: rgba(0, 0, 0, 0.085); }"
 `;
 
-exports[`css generator goldens > fullClaudeCss — important-блок и оled/contrast-переменные 1`] = `
-":root.full-claude {
-  --halo-bg: #151515 !important;
-  --halo-deep: #111111 !important;
-  --halo-surface: #20201f !important;
-  --halo-raised: #212121 !important;
-  --halo-line: rgba(255, 255, 255, 0.08) !important;
-  --halo-text: #f0efec !important;
-  --halo-muted: #a1a098 !important;
-  --halo-hover: rgba(255, 255, 255, 0.1) !important;
-  --halo-hover-strong: rgba(255, 255, 255, 0.15) !important;
-  --halo-code-bg: #1b1b1b !important;
-  --halo-code-text: #f0efec !important;
-  --halo-accent: #D97757 !important;
-  --halo-accent-deep: #B26247 !important;
-  --halo-on-accent: #ffffff !important;
-  --halo-blur: 14px !important;
-  --halo-radius-scale: 1 !important;
-  --halo-msg-scale: 1 !important;
-  --halo-density: 1 !important;
-  --halo-content-width: 48rem !important;
-  --halo-font-ui: Nocturn Sans, ui-sans-serif, system-ui, sans-serif !important;
-  --halo-font-mono: Nocturn Mono, ui-monospace, Menlo, Consolas, "Liberation Mono", monospace !important;
+exports[`css generator goldens > fullClaudeCss — палитра без important (специфичность 0-3-0 против палитр 0-2-1) 1`] = `
+":root.full-claude:not(.light) {
+  --halo-bg: #151515;
+  --halo-deep: #111111;
+  --halo-surface: #20201f;
+  --halo-raised: #212121;
+  --halo-line: rgba(255, 255, 255, 0.08);
+  --halo-text: #f0efec;
+  --halo-muted: #a1a098;
+  --halo-hover: rgba(255, 255, 255, 0.1);
+  --halo-hover-strong: rgba(255, 255, 255, 0.15);
+  --halo-code-bg: #1b1b1b;
+  --halo-code-text: #f0efec;
+  --halo-accent: #D97757;
+  --halo-accent-deep: #B26247;
+  --halo-on-accent: #ffffff;
+  --halo-blur: 14px;
+  --halo-radius-scale: 1;
+  --halo-msg-scale: 1;
+  --halo-density: 1;
+  --halo-content-width: 48rem;
+  --halo-font-ui: Nocturn Sans, ui-sans-serif, system-ui, sans-serif;
+  --halo-font-mono: Nocturn Mono, ui-monospace, Menlo, Consolas, "Liberation Mono", monospace;
   color-scheme: dark;
 }
 html.full-claude .markdown code:not(pre code) {
@@ -73,7 +73,7 @@ html.full-claude aside .uppercase:hover {
       radial-gradient(700px 450px at 12% 18%, color-mix(in srgb, #2d2d2d 38%, transparent), transparent 70%),
       radial-gradient(800px 550px at 88% 85%, color-mix(in srgb, var(--halo-deep) 55%, transparent), transparent 70%),
       radial-gradient(500px 350px at 70% 10%, color-mix(in srgb, #2d2d2d 16%, transparent), transparent 70%),
-      var(--halo-bg) !important;
+      var(--halo-bg);
   }
 }
 html.full-claude:not(.glass) .glass-pane {
