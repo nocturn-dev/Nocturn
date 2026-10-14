@@ -12,7 +12,7 @@ import type { WakeModel } from "../../voice/wake";
 import { parseChatGptExport, parseGeminiExport } from "../../external/importChats";
 import type { Session } from "../../types";
 import { quickentryComboFromEvent, prettyQuickentryCombo } from "../../shortcuts";
-import { Dropdown, LangSwitch, Row, Segmented, ToggleRow } from "./parts";
+import { Dropdown, Group, LangSwitch, Row, Segmented, ToggleRow } from "./parts";
 import { isWindows } from "../../platform";
 import { XSmallIcon } from "../cards/icons";
 
@@ -103,30 +103,6 @@ function StorageRow({
           </button>
         )}
       </span>
-    </div>
-  );
-}
-
-/** Подгруппа настроек: заголовок + описание (структура «Основного») */
-function Group({
-  title,
-  desc,
-  gap = "space-y-1",
-  children,
-}: {
-  title: string;
-  desc: string;
-  /** Шаг между блоками: рядам хватает 4px, крупным карточкам — 12px */
-  gap?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="mt-5">
-      <p className="px-2.5 text-[0.625rem] font-semibold uppercase tracking-[0.14em] text-halo-muted/60">
-        {title}
-      </p>
-      <p className="mb-1 mt-0.5 px-2.5 text-xs leading-relaxed text-halo-muted">{desc}</p>
-      <div className={gap}>{children}</div>
     </div>
   );
 }

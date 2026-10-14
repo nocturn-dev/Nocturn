@@ -295,6 +295,35 @@ export function LangSwitch() {
 }
 
 /**
+ * Подгруппа страницы: заголовок-капс + описание + стек строк.
+ * gap="space-y-0" — если внутри только Row/ToggleRow (сепараторы у строк
+ * сами держат ритм), иначе передавайте свой шаг.
+ */
+export function Group({
+  title,
+  desc,
+  gap = "space-y-0",
+  children,
+}: {
+  title: string;
+  desc?: string;
+  gap?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="mt-5">
+      <p className="px-2.5 text-[0.625rem] font-semibold uppercase tracking-[0.14em] text-halo-muted/60">
+        {title}
+      </p>
+      {desc && (
+        <p className="mb-1 mt-0.5 px-2.5 text-xs leading-relaxed text-halo-muted">{desc}</p>
+      )}
+      <div className={gap}>{children}</div>
+    </div>
+  );
+}
+
+/**
  * Строка настроек: заголовок + описание слева, контрол справа.
  * Волосинная линия снизу отделяет строку от соседней — контейнер обязан
  * держать строки прямыми сиблингами (без обёрток-карточек между ними).
