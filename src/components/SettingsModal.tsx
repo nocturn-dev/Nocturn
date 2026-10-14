@@ -35,7 +35,8 @@ import { DocsSection } from "./settings/DocsSection";
 import { MemorySection } from "./settings/MemorySection";
 import { ThemeSection } from "./settings/ThemeSection";
 import { MascotSection } from "./settings/MascotSection";
-import { AgentSection, PromptsSection } from "./settings/AgentSection";
+import { PromptsSection } from "./settings/AgentSection";
+import { JailbreaksCard } from "./settings/JailbreaksCard";
 import { ApiSection } from "./settings/ApiSection";
 import { SectionIcon, ExpandWinIcon, CollapseWinIcon, XIcon } from "./settings/parts";
 import type { Section, ApiStatus } from "./settings/types";
@@ -194,14 +195,7 @@ interface SettingsModalProps {
   onChangeJailbreaks: (list: JailbreakEntry[]) => void;
   onApplyJailbreak: (entry: JailbreakEntry) => "task" | "new";
   localRuntimes: LocalRuntimes;
-  /** Allowlist активной задачи + её название */
-  allowedCommands: string[];
-  allowedCommandsTitle: string | null;
-  /** Разрешённые команды всех задач — глобальный просмотр на вкладке Agent */
-  agentAllowlists: { id: string; title: string; commands: string[] }[];
-  onSessionAllowedChange: (id: string, list: string[]) => void;
   onPromptLibraryChange: (list: PromptPreset[]) => void;
-  onAllowedCommandsChange: (list: string[]) => void;
   onThemeChange: (theme: Theme) => void;
   onGlassChange: (glass: boolean) => void;
   onApiChange: (settings: ApiSettings) => void;
@@ -238,10 +232,14 @@ const NAV: {
     id: "agent",
     key: "nav.agent",
     items: [
-      { id: "agentCore", key: "settings.coreSpecs", icon: "brain" },
+      { id: "memory", key: "settings.memory", icon: "brain" },
+      { id: "prompts", key: "settings.prompts", icon: "skill" },
+      { id: "jailbreaks", key: "settings.jailbreaks", icon: "anchor" },
+      { id: "skills", key: "settings.skills", icon: "spark" },
       { id: "subs", key: "settings.subagents", icon: "users" },
       { id: "plugins", key: "settings.plugins", icon: "grid" },
-      { id: "agentTools", key: "settings.systemTools", icon: "anchor" },
+      { id: "mcp", key: "settings.mcp", icon: "plug" },
+      { id: "agent", key: "settings.agent", icon: "monitor" },
     ],
   },
   {
@@ -376,12 +374,7 @@ export default function SettingsModal({
   onChangeJailbreaks,
   onApplyJailbreak,
   localRuntimes,
-  allowedCommands,
-  allowedCommandsTitle,
-  agentAllowlists,
-  onSessionAllowedChange,
   onPromptLibraryChange,
-  onAllowedCommandsChange,
   voice,
   onVoiceChange,
   onThemeChange,
@@ -824,30 +817,33 @@ export default function SettingsModal({
               availableCommands={availableCommands}
             />
           )}
-          {/* Core Specs: память, промпты, скилы — «мозг» агента */}
-          {section === "agentCore" && (
-            <>
-              <div className="settings-part">
-                <MemorySection
-                  enabled={memoryEnabled}
-                  onChange={onMemoryChange}
-                />
-              </div>
-              <div className="settings-part">
-                <PromptsSection
-                  library={promptLibrary}
-                  onChangeLibrary={onPromptLibraryChange}
-                  jailbreaks={jailbreaks}
-                  onChangeJailbreaks={onChangeJailbreaks}
-                  onApplyJailbreak={onApplyJailbreak}
-                />
-              </div>
-              <div className="settings-part">
-                <SkillsSection
-                  extra={plugins.filter((p) => p.enabled).flatMap((p) => p.skills ?? [])}
-                />
-              </div>
-            </>
+          {/* Core specs, распиленный на самостоятельные пункты */}
+          {section === "memory" && (
+            <MemorySection
+              enabled={memoryEnabled}
+              onChange={onMemoryChange}
+            />
+          )}
+          {section === "prompts" && (
+            <PromptsSection
+              library={promptLibrary}
+              onChangeLibrary={onPromptLibraryChange}
+              jailbreaks={jailbreaks}
+              onChangeJailbreaks={onChangeJailbreaks}
+              onApplyJailbreak={onApplyJailbreak}
+            />
+          )}
+          {section === "jailbreaks" && (
+            <JailbreaksCard
+              entries={jailbreaks}
+              onChange={onChangeJailbreaks}
+              onApply={onApplyJailbreak}
+            />
+          )}
+          {section === "skills" && (
+            <SkillsSection
+              extra={plugins.filter((p) => p.enabled).flatMap((p) => p.skills ?? [])}
+            />
           )}
           {/* Subagents: состав и роли субагентов */}
           {section === "subs" && (
@@ -857,41 +853,30 @@ export default function SettingsModal({
               pluginIds={new Set(plugins.filter((p) => p.enabled).flatMap((p) => p.roles ?? []).map((r) => r.id))}
             />
           )}
-          {/* Plugins + MCP: оба про подключения расширений */}
+          {/* Plugins: пакетный менеджер расширений */}
           {section === "plugins" && (
-            <>
-              <PluginsSection plugins={plugins} onChange={onPluginsChange} />
-              <div className="settings-part">
-                <McpSection />
-              </div>
-            </>
+            <PluginsSection plugins={plugins} onChange={onPluginsChange} />
           )}
-          {/* System Tools: мощные инструменты с правами — «руки» агента */}
-          {section === "agentTools" && (
+          {/* MCP: серверы stdio и remote */}
+          {section === "mcp" && <McpSection />}
+          {/* Agent: сильные инструменты с правами. Иерархия по референсу:
+              браузер → компьютер → веб-поиск → хуки (временно) → команды.
+              Allowlist-диагностика «Always for this task» удалена по решению
+              владельца (была склеена с командами, см. git-историю) */}
+          {section === "agent" && (
             <>
-              <div className="settings-part">
-                <BrowserUseSection />
-                {/* Веб-поиск живёт рядом с Browser Use: один theme-блок
-                    «сеть» — поиск даёт сниппеты, браузер — полные страницы */}
-                <WebSearchSection />
-              </div>
+              <BrowserUseSection />
               <div className="settings-part">
                 <ComputerUseSection />
+              </div>
+              <div className="settings-part">
+                <WebSearchSection />
               </div>
               <div className="settings-part">
                 <HooksSection />
               </div>
               <div className="settings-part">
                 <CommandsSection />
-                {/* Allowlist'ы «Всегда для задачи»: диагностика разрешений,
-                    накопленных из диалогов агента */}
-                <AgentSection
-                  commands={allowedCommands}
-                  sessionTitle={allowedCommandsTitle}
-                  onChange={onAllowedCommandsChange}
-                  allowlists={agentAllowlists}
-                  onSessionChange={onSessionAllowedChange}
-                />
               </div>
             </>
           )}
@@ -957,7 +942,6 @@ export default function SettingsModal({
           {/* Support-группа: документация; кнопка поддержки — в шапке
               навигации (оттуда её видно из любого раздела и находит поиск) */}
           {section === "docs" && <DocsSection />}
-          {section === "profile" && <ProfileSection />}
           {section === "main" && (
             <MainSection
               sidebarSide={sidebarSide}

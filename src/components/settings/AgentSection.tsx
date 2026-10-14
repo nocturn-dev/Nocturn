@@ -126,19 +126,24 @@ export function AgentSection({
   );
 }
 
-/** Библиотека системных промтов: свои роли для быстрых вызовов */
+/** Библиотека системных промтов: свои роли для быстрых вызовов.
+ *  Джейлбрейки — отдельная страница настроек, здесь рендерятся только
+ *  когда showJailbreaks (.compat: старое цельное место) */
 export function PromptsSection({
   library,
   onChangeLibrary,
   jailbreaks,
   onChangeJailbreaks,
   onApplyJailbreak,
+  showJailbreaks = false,
 }: {
   library: PromptPreset[];
   onChangeLibrary: (list: PromptPreset[]) => void;
   jailbreaks: JailbreakEntry[];
   onChangeJailbreaks: (list: JailbreakEntry[]) => void;
   onApplyJailbreak: (entry: JailbreakEntry) => "task" | "new";
+  /** Рендер JailbreaksCard под библиотекой (историческое место) */
+  showJailbreaks?: boolean;
 }) {
   const { t } = useLang();
   const [name, setName] = useState("");
@@ -286,11 +291,13 @@ export function PromptsSection({
         </div>
       </div>
 
-      <JailbreaksCard
-        entries={jailbreaks}
-        onChange={onChangeJailbreaks}
-        onApply={onApplyJailbreak}
-      />
+      {showJailbreaks && (
+        <JailbreaksCard
+          entries={jailbreaks}
+          onChange={onChangeJailbreaks}
+          onApply={onApplyJailbreak}
+        />
+      )}
     </div>
   );
 }

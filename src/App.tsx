@@ -593,13 +593,10 @@ export default function App() {
     loadHistory,
     notifyModelChanged,
     archiveOldNow,
-    agentAllowlists,
     handleSetSystemPrompt,
     handleToggleAgent,
     handleSetPermissionMode,
     handleToggleDisabledTool,
-    handleSetSessionAllowed,
-    handleSetAllowedCommands,
     handleTogglePin,
     handleDuplicate,
     handleArchiveSession,
@@ -624,13 +621,6 @@ export default function App() {
         .length === 0,
     [activeSession, showUserMsgs],
   );
-  // Стабильный пропс sticky-настроек: `?? []` создавал новый массив каждый
-  // рендер и пробивал memo
-  const allowedCommands = useMemo(
-    () => activeSession?.allowedCommands ?? [],
-    [activeSession?.allowedCommands],
-  );
-
   // Pre-toggle «Agent» до создания чата: без него клик по чипу создавал
   // сессию и стирал набранный черновик (запрос при этом не отправлялся).
   // Сбрасывается, когда появляется активная сессия (режим поглощён ей)
@@ -3175,12 +3165,7 @@ export default function App() {
         onChangeJailbreaks={handleSaveJailbreaks}
         onApplyJailbreak={handleApplyJailbreak}
         localRuntimes={localRuntimes}
-        allowedCommands={allowedCommands}
-        allowedCommandsTitle={activeSession?.title ?? null}
-        agentAllowlists={agentAllowlists}
-        onSessionAllowedChange={handleSetSessionAllowed}
         onPromptLibraryChange={handleSavePromptLibrary}
-        onAllowedCommandsChange={handleSetAllowedCommands}
         onThemeChange={setTheme}
         onGlassChange={setGlass}
         onApiChange={setApiSettings}

@@ -38,18 +38,22 @@ export type Section =
  *  страницу */
 
 /** Страница настроек: пункт второго уровня аккордеона. Технические
- *  разделы склеены по смыслу (coreSpecs/agentTools/apiKeys/integrations);
- *  содержимое секций не менялось — страницы стэкают их блоками */
+ *  разделы склеены по смыслу (agentTools/apiKeys/integrations); содержимое
+ *  секций не менялось — страницы стэкают их блоками */
 export type SettingsPage =
   | "main"
   | "profile"
   | "theme"
   | "mascot"
   | "shortcuts"
-  | "agentCore"
+  | "memory"
+  | "prompts"
+  | "jailbreaks"
+  | "skills"
   | "subs"
   | "plugins"
-  | "agentTools"
+  | "mcp"
+  | "agent"
   | "apiKeys"
   | "integrations"
   | "permissions"
@@ -59,23 +63,24 @@ export type SettingsPage =
   | "docs";
 
 /** Старый Section → страница, на которой теперь живёт его блок.
- *  MCP живёт на странице Plugins: оба про подключения расширений */
+ *  MCP — самостоятельный пункт; сильные инструменты (браузер/компьютер/
+ *  веб-поиск/хуки/команды) — на странице Agent */
 export const PAGE_FOR_SECTION: Record<Section, SettingsPage> = {
   main: "main",
   profile: "profile",
   theme: "theme",
   mascot: "mascot",
   shortcuts: "shortcuts",
-  memory: "agentCore",
-  prompts: "agentCore",
-  skills: "agentCore",
+  memory: "memory",
+  prompts: "prompts",
+  skills: "skills",
   subagents: "subs",
   plugins: "plugins",
-  mcp: "plugins",
-  browser: "agentTools",
-  computer: "agentTools",
-  hooks: "agentTools",
-  commands: "agentTools",
+  mcp: "mcp",
+  browser: "agent",
+  computer: "agent",
+  hooks: "agent",
+  commands: "agent",
   api: "apiKeys",
   imagegen: "apiKeys",
   integrations: "integrations",
