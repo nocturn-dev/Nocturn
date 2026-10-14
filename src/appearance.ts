@@ -168,8 +168,10 @@ export const DEFAULT_APPEARANCE: Appearance = {
   fullClaudeSerif: false, // claude.ai — sans-serif; serif остаётся опцией
   fullClaudeGlass: false,
   fullClaudeRadius: 1,
-  fullClaudeUiFont: "",
-  fullClaudeMonoFont: "",
+  // Фирменные шрифты — дефолт приложения (регистрируются в fonts.ts):
+  // пустая строка в значении пользователя означает «системный» сознательно
+  fullClaudeUiFont: "Nocturn Sans",
+  fullClaudeMonoFont: "Nocturn Mono",
   serifChat: false,
   inlineCodeClaude: false,
   textShimmer: false,
@@ -259,9 +261,14 @@ export function loadAppearance(): Appearance {
         0.4,
         1.6,
       ),
-      fullClaudeUiFont: typeof p.fullClaudeUiFont === "string" ? p.fullClaudeUiFont : "",
+      fullClaudeUiFont:
+        typeof p.fullClaudeUiFont === "string"
+          ? p.fullClaudeUiFont
+          : "Nocturn Sans",
       fullClaudeMonoFont:
-        typeof p.fullClaudeMonoFont === "string" ? p.fullClaudeMonoFont : "",
+        typeof p.fullClaudeMonoFont === "string"
+          ? p.fullClaudeMonoFont
+          : "Nocturn Mono",
       serifChat: p.serifChat ?? DEFAULT_APPEARANCE.serifChat,
       inlineCodeClaude:
         p.inlineCodeClaude ?? DEFAULT_APPEARANCE.inlineCodeClaude,
@@ -306,8 +313,8 @@ export function loadAppearance(): Appearance {
       ambientGradFrom: typeof p.ambientGradFrom === "string" ? p.ambientGradFrom : "#16213e",
       ambientGradTo: typeof p.ambientGradTo === "string" ? p.ambientGradTo : "#0f3460",
       ambientGradAngle: clamp(p.ambientGradAngle ?? 135, 0, 360),
-      uiFont: typeof p.uiFont === "string" ? p.uiFont : "",
-      monoFont: typeof p.monoFont === "string" ? p.monoFont : "",
+      uiFont: typeof p.uiFont === "string" ? p.uiFont : "Nocturn Sans",
+      monoFont: typeof p.monoFont === "string" ? p.monoFont : "Nocturn Mono",
       codeTheme: CODE_THEME_IDS.includes(p.codeTheme as string)
         ? (p.codeTheme as string)
         : "midnight",

@@ -48,6 +48,8 @@ exports[`css generator goldens > fullClaudeCss — important-блок и оled/c
   --halo-msg-scale: 1 !important;
   --halo-density: 1 !important;
   --halo-content-width: 48rem !important;
+  --halo-font-ui: Nocturn Sans, ui-sans-serif, system-ui, sans-serif !important;
+  --halo-font-mono: Nocturn Mono, ui-monospace, Menlo, Consolas, "Liberation Mono", monospace !important;
   color-scheme: dark;
 }
 html.full-claude .markdown code:not(pre code) {
