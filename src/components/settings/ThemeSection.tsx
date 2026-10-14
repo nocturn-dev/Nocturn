@@ -503,67 +503,29 @@ export function ThemeSection({
 
       {/* Тема Official: строгий монохром одним тумблером. Включённой теме
           принадлежат только её настройки ниже; обычные контролы темы скрыты */}
-      <div className="mt-2.5 flex items-center justify-between rounded-xl border border-halo-line px-3.5 py-3">
-        <div className="min-w-0 pr-3">
-          <p className="text-sm text-halo-text">{t("themes.official")}</p>
-          <p className="mt-0.5 text-xs leading-relaxed text-halo-muted">
-            {t("themes.officialDesc")}
-          </p>
-        </div>
-        <button
-          onClick={() =>
-            // Жёсткие темы взаимоисключимы: включение одной выключает другую
-            onAppearanceChange({
-              ...appearance,
-              official: !appearance.official,
-              fullClaude: false,
-            })
-          }
-          title={t("themes.official")}
-          className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${
-            appearance.official ? "bg-halo-accent" : "bg-halo-line"
-          }`}
-        >
-          <span
-            className={`absolute top-0.5 size-4 rounded-full bg-halo-on-accent transition ${
-              appearance.official ? "left-4.5" : "left-0.5"
-            }`}
-          />
-        </button>
-      </div>
+      <ToggleRow
+        label={t("themes.official")}
+        desc={t("themes.officialDesc")}
+        on={appearance.official}
+        onChange={(v) =>
+          // Жёсткие темы взаимоисключимы: включение одной выключает другую
+          onAppearanceChange({ ...appearance, official: v, fullClaude: false })
+        }
+      />
 
       {/* Full Claude — третья жёсткая тема (вне каскада кастомизации): класс
           html.full-claude + тег #halo-full-claude с палитрой и пинами
           (appearance.ts, fullClaudeCss). Настройки темы — в карточке ниже;
           глобальные контролы и Official на неё не действуют */}
-      <div className="mt-1.5 mb-4 flex items-center justify-between rounded-xl border border-halo-line px-3.5 py-3">
-        <div className="min-w-0 pr-3">
-          <p className="text-sm text-halo-text">{t("themes.fullClaude")}</p>
-          <p className="mt-0.5 text-xs leading-relaxed text-halo-muted">
-            {t("themes.fullClaudeDesc")}
-          </p>
-        </div>
-        <button
-          onClick={() =>
-            // Включение Full Claude гасит Official (и наоборот — см. выше)
-            onAppearanceChange({
-              ...appearance,
-              fullClaude: !appearance.fullClaude,
-              official: false,
-            })
-          }
-          title={t("themes.fullClaude")}
-          className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${
-            appearance.fullClaude ? "bg-halo-accent" : "bg-halo-line"
-          }`}
-        >
-          <span
-            className={`absolute top-0.5 size-4 rounded-full bg-halo-on-accent transition ${
-              appearance.fullClaude ? "left-4.5" : "left-0.5"
-            }`}
-          />
-        </button>
-      </div>
+      <ToggleRow
+        label={t("themes.fullClaude")}
+        desc={t("themes.fullClaudeDesc")}
+        on={appearance.fullClaude}
+        onChange={(v) =>
+          // Включение Full Claude гасит Official (и наоборот — см. выше)
+          onAppearanceChange({ ...appearance, fullClaude: v, official: false })
+        }
+      />
 
       {/* Витрина Full Claude: мини-макет СТРУКТУРЫ Claude Desktop —
           тёмный сайдбар-полоска, лента с пузырём пользователя и композер.
@@ -740,35 +702,15 @@ export function ThemeSection({
               },
             ] as const
           ).map((row) => (
-            <div
+            <ToggleRow
               key={row.key}
-              className="mt-1 flex items-center justify-between gap-3 rounded-lg px-1 py-2"
-            >
-              <div className="min-w-0">
-                <p className="text-sm text-halo-text">{row.label}</p>
-                <p className="mt-0.5 text-xs leading-relaxed text-halo-muted">
-                  {row.desc}
-                </p>
-              </div>
-              <button
-                onClick={() =>
-                  onAppearanceChange({
-                    ...appearance,
-                    [row.key]: !appearance[row.key],
-                  })
-                }
-                title={row.label}
-                className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${
-                  appearance[row.key] ? "bg-halo-accent" : "bg-halo-line"
-                }`}
-              >
-                <span
-                  className={`absolute top-0.5 size-4 rounded-full bg-halo-on-accent transition ${
-                    appearance[row.key] ? "left-4.5" : "left-0.5"
-                  }`}
-                />
-              </button>
-            </div>
+              label={row.label}
+              desc={row.desc}
+              on={appearance[row.key]}
+              onChange={(v) =>
+                onAppearanceChange({ ...appearance, [row.key]: v })
+              }
+            />
           ))}
         </div>
       )}
@@ -1277,27 +1219,12 @@ export function ThemeSection({
       {!hardTheme && (
       <>
       <p className="mb-2 mt-6 text-[0.625rem] font-semibold uppercase tracking-[0.14em] text-halo-muted/60">{t("themes.gEffects")}</p>
-      <div className="mt-4 flex items-center justify-between rounded-xl border border-halo-line px-3.5 py-3">
-        <div>
-          <p className="text-sm text-halo-text">{t("themes.glass")}</p>
-          <p className="mt-0.5 text-xs text-halo-muted">
-            {t("themes.glassDesc")}
-          </p>
-        </div>
-        <button
-          onClick={() => onGlassChange(!glass)}
-          title={glass ? t("themes.glassOff") : t("themes.glassOn")}
-          className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${
-            glass ? "bg-halo-accent" : "bg-halo-line"
-          }`}
-        >
-          <span
-            className={`absolute top-0.5 size-4 rounded-full bg-halo-on-accent transition ${
-              glass ? "left-4.5" : "left-0.5"
-            }`}
-          />
-        </button>
-      </div>
+      <ToggleRow
+        label={t("themes.glass")}
+        desc={t("themes.glassDesc")}
+        on={glass}
+        onChange={onGlassChange}
+      />
 
       {glass && (
         <div className="mt-2.5 flex items-center gap-3 rounded-xl border border-halo-line px-3.5 py-3">
@@ -1325,75 +1252,28 @@ export function ThemeSection({
       )}
 
       {/* Отдельное стекло на сайдбаре */}
-      <div className="mt-2.5 flex items-center justify-between rounded-xl border border-halo-line px-3.5 py-3">
-        <div>
-          <p className="text-sm text-halo-text">{t("themes.sidebarGlass")}</p>
-          <p className="mt-0.5 text-xs text-halo-muted">
-            {t("themes.sidebarGlassDesc")}
-          </p>
-        </div>
-        <button
-          onClick={() =>
-            onAppearanceChange({ ...appearance, sidebarGlass: !appearance.sidebarGlass })
-          }
-          title={t("themes.sidebarGlass")}
-          className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${
-            appearance.sidebarGlass ? "bg-halo-accent" : "bg-halo-line"
-          }`}
-        >
-          <span
-            className={`absolute top-0.5 size-4 rounded-full bg-halo-on-accent transition ${
-              appearance.sidebarGlass ? "left-4.5" : "left-0.5"
-            }`}
-          />
-        </button>
-      </div>
+      <ToggleRow
+        label={t("themes.sidebarGlass")}
+        desc={t("themes.sidebarGlassDesc")}
+        on={appearance.sidebarGlass}
+        onChange={(v) => onAppearanceChange({ ...appearance, sidebarGlass: v })}
+      />
 
-      <div className="mt-2.5 flex items-center justify-between rounded-xl border border-halo-line px-3.5 py-3">
-        <div>
-          <p className="text-sm text-halo-text">{t("themes.msgGlass")}</p>
-          <p className="mt-0.5 text-xs text-halo-muted">
-            {t("themes.msgGlassDesc")}
-          </p>
-        </div>
-        <button
-          onClick={() => onMsgGlassChange(!msgGlass)}
-          className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${
-            msgGlass ? "bg-halo-accent" : "bg-halo-line"
-          }`}
-        >
-          <span
-            className={`absolute top-0.5 size-4 rounded-full bg-halo-on-accent transition ${
-              msgGlass ? "left-4.5" : "left-0.5"
-            }`}
-          />
-        </button>
-      </div>
+      <ToggleRow
+        label={t("themes.msgGlass")}
+        desc={t("themes.msgGlassDesc")}
+        on={msgGlass}
+        onChange={onMsgGlassChange}
+      />
 
       {/* Шиммер-переливание текста: медленный градиентный сдвиг по
           background-clip: text (эпический эффект на строгих тёмных тонах) */}
-      <div className="mt-2.5 flex items-center justify-between rounded-xl border border-halo-line px-3.5 py-3">
-        <div>
-          <p className="text-sm text-halo-text">{t("themes.textShimmer")}</p>
-          <p className="mt-0.5 text-xs text-halo-muted">
-            {t("themes.textShimmerDesc")}
-          </p>
-        </div>
-        <button
-          onClick={() =>
-            onAppearanceChange({ ...appearance, textShimmer: !appearance.textShimmer })
-          }
-          className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${
-            appearance.textShimmer ? "bg-halo-accent" : "bg-halo-line"
-          }`}
-        >
-          <span
-            className={`absolute top-0.5 size-4 rounded-full bg-halo-on-accent transition ${
-              appearance.textShimmer ? "left-4.5" : "left-0.5"
-            }`}
-          />
-        </button>
-      </div>
+      <ToggleRow
+        label={t("themes.textShimmer")}
+        desc={t("themes.textShimmerDesc")}
+        on={appearance.textShimmer}
+        onChange={(v) => onAppearanceChange({ ...appearance, textShimmer: v })}
+      />
 
       {/* Пара цветов переливания: от → к (поток гоняет эти два цвета) */}
       {appearance.textShimmer && (
@@ -1429,29 +1309,12 @@ export function ThemeSection({
 
       {/* Motion/Reduced: форс-глушение анимаций поверх системной настройки
           (canvas-сцены ставит на паузу App через paused у AmbientLayer) */}
-      <div className="mt-2.5 flex items-center justify-between rounded-xl border border-halo-line px-3.5 py-3">
-        <div className="min-w-0 pr-3">
-          <p className="text-sm text-halo-text">{t("themes.reduceMotion")}</p>
-          <p className="mt-0.5 text-xs leading-relaxed text-halo-muted">
-            {t("themes.reduceMotionHint")}
-          </p>
-        </div>
-        <button
-          onClick={() =>
-            onAppearanceChange({ ...appearance, reduceMotion: !(appearance.reduceMotion ?? false) })
-          }
-          title={t("themes.reduceMotion")}
-          className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${
-            appearance.reduceMotion ? "bg-halo-accent" : "bg-halo-line"
-          }`}
-        >
-          <span
-            className={`absolute top-0.5 size-4 rounded-full bg-halo-on-accent transition ${
-              appearance.reduceMotion ? "left-4.5" : "left-0.5"
-            }`}
-          />
-        </button>
-      </div>
+      <ToggleRow
+        label={t("themes.reduceMotion")}
+        desc={t("themes.reduceMotionHint")}
+        on={appearance.reduceMotion ?? false}
+        onChange={(v) => onAppearanceChange({ ...appearance, reduceMotion: v })}
+      />
 
       {/* Подсветка кода: компактный блок — темы с мини-превью реальных цветов
           вместо двух громоздких карточек. В Full Claude
@@ -1616,26 +1479,12 @@ export function ThemeSection({
         />
       </div>
 
-      <div className="mt-2.5 flex items-center justify-between rounded-xl border border-halo-line px-3.5 py-3">
-        <div>
-          <p className="text-sm text-halo-text">{t("themes.chatMark")}</p>
-          <p className="mt-0.5 text-xs text-halo-muted">
-            {t("themes.chatMarkDesc")}
-          </p>
-        </div>
-        <button
-          onClick={() => onChatMarkChange(!chatMark)}
-          className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${
-            chatMark ? "bg-halo-accent" : "bg-halo-line"
-          }`}
-        >
-          <span
-            className={`absolute top-0.5 size-4 rounded-full bg-halo-on-accent transition ${
-              chatMark ? "left-4.5" : "left-0.5"
-            }`}
-          />
-        </button>
-      </div>
+      <ToggleRow
+        label={t("themes.chatMark")}
+        desc={t("themes.chatMarkDesc")}
+        on={chatMark}
+        onChange={onChatMarkChange}
+      />
 
       {/* Обои чата: картинка за лентой, opt-in. Работают и под жёсткими
           темами: правила has-wallpaper красят через color-mix палитровых
@@ -1668,29 +1517,12 @@ export function ThemeSection({
           скрыт и не действует — тема держит чистые монолитные заливки */}
       {!appearance.fullClaude && (
         <>
-      <div className="mt-2.5 flex items-center justify-between rounded-xl border border-halo-line px-3.5 py-3">
-        <div className="min-w-0 pr-3">
-          <p className="text-sm text-halo-text">{t("themes.ambient")}</p>
-          <p className="mt-0.5 text-xs leading-relaxed text-halo-muted">
-            {t("themes.ambientDesc")}
-          </p>
-        </div>
-        <button
-          onClick={() =>
-            onAppearanceChange({ ...appearance, ambient: !appearance.ambient })
-          }
-          title={t("themes.ambient")}
-          className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${
-            appearance.ambient ? "bg-halo-accent" : "bg-halo-line"
-          }`}
-        >
-          <span
-            className={`absolute top-0.5 size-4 rounded-full bg-halo-on-accent transition ${
-              appearance.ambient ? "left-4.5" : "left-0.5"
-            }`}
-          />
-        </button>
-      </div>
+      <ToggleRow
+        label={t("themes.ambient")}
+        desc={t("themes.ambientDesc")}
+        on={appearance.ambient}
+        onChange={(v) => onAppearanceChange({ ...appearance, ambient: v })}
+      />
 
       {appearance.ambient && (
         <div className="mt-2.5 space-y-2.5 rounded-xl border border-halo-line px-3.5 py-3">
