@@ -9,7 +9,9 @@ export function PlanPanel({ plan }: { plan: PlanTask[] }) {
   const done = plan.filter((p) => p.status === "done").length;
 
   return (
-    <div className="anim-fade-up absolute left-0 top-0 z-[var(--halo-z-panel)] m-3 max-w-xs rounded-xl border border-halo-line bg-halo-deep/85 p-3 shadow-lg backdrop-blur">
+    // Панель непрозрачная: это рабочий чек-лист поверх ленты чата, сквозь
+    // полупрозрачный фон просвечивает лирика/ambient и текст нечитаем
+    <div className="anim-fade-up absolute left-0 top-0 z-[var(--halo-z-panel)] m-3 max-w-xs rounded-xl border border-halo-line bg-halo-deep p-3 shadow-lg">
       {/* Заголовок-строка: сворачивание, «Прогресс», счётчик done/total */}
       <div className="flex items-center gap-1.5">
         <button

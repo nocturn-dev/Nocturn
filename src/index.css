@@ -1797,6 +1797,21 @@ html[data-media-ribbon="1"][data-ambient-render="behind"].ambient:not(.glass)
   .chat-surface {
   background: color-mix(in srgb, var(--halo-bg) 55%, transparent);
 }
+/* Рабочие карточки ленты чата (шаги инструментов, субагенты, вопрос
+   пользователю, отчёты) полупрозрачны (surface/40–50) — сквозь них текст
+   лирики читается внутри чек-листов. При включённой ленте уплотняем их до
+   рецепта ai-card-solid (surface 40% + bg): лирика видна в пустом поле,
+   но не в рабочей поверхности */
+html[data-media-ribbon="1"]:not(.glass) .chat-surface .bg-halo-surface\/40,
+html[data-media-ribbon="1"]:not(.glass) .chat-surface .bg-halo-surface\/50 {
+  background: var(--halo-surface);
+}
+@supports (background: color-mix(in srgb, red 50%, blue)) {
+  html[data-media-ribbon="1"]:not(.glass) .chat-surface .bg-halo-surface\/40,
+  html[data-media-ribbon="1"]:not(.glass) .chat-surface .bg-halo-surface\/50 {
+    background: color-mix(in srgb, var(--halo-surface) 40%, var(--halo-bg));
+  }
+}
 
 /* Стекло выключено → карточка ответа строго плотная: html.glass-правила
    (.bg-halo-surface и пр.) не должны делать её полупрозрачной без blur.
