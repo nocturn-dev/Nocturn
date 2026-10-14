@@ -1,7 +1,7 @@
 import { useLang, type MsgKey } from "../../locales";
 import { Nok } from "../mascot/Nok";
 import { NOK_ROWS } from "../mascot/nokSprites";
-import { Segmented, ToggleRow } from "./parts";
+import { Row, Segmented, ToggleRow } from "./parts";
 
 /**
  * Секция «Маскот»: живая карточка с настоящим Ноком (клики
@@ -167,29 +167,35 @@ export function MascotSection({
           </p>
         </div>
 
-        <div className="mb-2.5 rounded-xl border border-halo-line px-3.5 py-3">
-          <p className="text-sm text-halo-text">{t("mascot.size")}</p>
-          <Segmented
-            className="mt-2"
-            value={String(size) as "0.8" | "1" | "1.3"}
-            onChange={(v) => onSizeChange(Number(v))}
-            options={SIZES.map((v, i) => ({
-              value: String(v) as "0.8" | "1" | "1.3",
-              label: t(i === 0 ? "mascot.sizeS" : i === 1 ? "mascot.sizeM" : "mascot.sizeL"),
-            }))}
+        <div className="mb-2.5 rounded-xl border border-halo-line px-3.5 py-1.5">
+          <Row
+            label={t("mascot.size")}
+            extra={
+              <Segmented
+                value={String(size) as "0.8" | "1" | "1.3"}
+                onChange={(v) => onSizeChange(Number(v))}
+                options={SIZES.map((v, i) => ({
+                  value: String(v) as "0.8" | "1" | "1.3",
+                  label: t(i === 0 ? "mascot.sizeS" : i === 1 ? "mascot.sizeM" : "mascot.sizeL"),
+                }))}
+              />
+            }
           />
         </div>
 
-        <div className="mb-2.5 rounded-xl border border-halo-line px-3.5 py-3">
-          <p className="text-sm text-halo-text">{t("mascot.glow")}</p>
-          <Segmented
-            className="mt-2"
-            value={String(glow) as "0.7" | "1" | "1.5"}
-            onChange={(v) => onGlowChange(Number(v))}
-            options={GLOWS.map((v, i) => ({
-              value: String(v) as "0.7" | "1" | "1.5",
-              label: t(i === 0 ? "mascot.glowDim" : i === 1 ? "mascot.glowNormal" : "mascot.glowBright"),
-            }))}
+        <div className="mb-2.5 rounded-xl border border-halo-line px-3.5 py-1.5">
+          <Row
+            label={t("mascot.glow")}
+            extra={
+              <Segmented
+                value={String(glow) as "0.7" | "1" | "1.5"}
+                onChange={(v) => onGlowChange(Number(v))}
+                options={GLOWS.map((v, i) => ({
+                  value: String(v) as "0.7" | "1" | "1.5",
+                  label: t(i === 0 ? "mascot.glowDim" : i === 1 ? "mascot.glowNormal" : "mascot.glowBright"),
+                }))}
+              />
+            }
           />
         </div>
 

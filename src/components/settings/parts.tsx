@@ -336,7 +336,8 @@ export function Row({
 }: {
   label: string;
   desc?: string;
-  value: string;
+  /** Текст справа, когда контрол не нужен (с extra игнорируется) */
+  value?: string;
   extra?: React.ReactNode;
 }) {
   return (
