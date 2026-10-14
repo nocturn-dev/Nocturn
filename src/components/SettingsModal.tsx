@@ -39,6 +39,7 @@ import { AgentSection, PromptsSection } from "./settings/AgentSection";
 import { ApiSection } from "./settings/ApiSection";
 import { SectionIcon, ExpandWinIcon, CollapseWinIcon, XIcon } from "./settings/parts";
 import type { Section, ApiStatus } from "./settings/types";
+import { PAGE_FOR_SECTION, type SettingsPage } from "./settings/types";
 import type { Appearance } from "../appearance";
 import type { ThemeProfile } from "../themeProfiles";
 import type { NotifyPrefs, RunSoundPrefs } from "../notify";
@@ -212,60 +213,18 @@ interface SettingsModalProps {
   onClose: () => void;
 }
 
-const NAV: {
-  group: MsgKey;
-  items: { id: Section | null; key: MsgKey; icon: string }[];
-}[] = [
-  {
-    group: "nav.basics",
-    items: [
-      { id: "main", key: "settings.main", icon: "gear" },
-      { id: "profile", key: "settings.profile", icon: "users" },
-      { id: "theme", key: "settings.themes", icon: "palette" },
-      { id: "mascot", key: "settings.mascot", icon: "spark" },
-      { id: "api", key: "settings.api", icon: "box" },
-      { id: "browser", key: "settings.browser", icon: "globe" },
-      { id: "computer", key: "settings.computer", icon: "monitor" },
-      { id: "shortcuts", key: "settings.shortcuts", icon: "keyboard" },
-    ],
-  },
-  {
-    group: "nav.agent",
-    items: [
-      { id: "memory", key: "settings.memory", icon: "brain" },
-      { id: "subagents", key: "settings.subagents", icon: "users" },
-      { id: "plugins", key: "settings.plugins", icon: "grid" },
-      { id: "mcp", key: "settings.mcp", icon: "plug" },
-      { id: "permissions", key: "settings.permissions", icon: "shield" },
-      { id: "lsp", key: "settings.lsp", icon: "terminal" },
-      { id: "imagegen", key: "settings.imagegen", icon: "image" },
-      { id: "prompts", key: "settings.prompts", icon: "skill" },
-      { id: "skills", key: "settings.skills", icon: "spark" },
-      // «Агент» (allowlist'ы) слит с «Командами»: страница была тонкой,
-      // а управление агентом и так живёт в чате
-      { id: "commands", key: "settings.commands", icon: "command" },
-      { id: "hooks", key: "settings.hooks", icon: "anchor" },
-    ],
-  },
-  {
-    group: "nav.data",
-    items: [
-      { id: "network", key: "settings.network", icon: "globe" },
-      { id: "reflect", key: "settings.reflect", icon: "chart" },
-    ],
-  },
-  {
-    group: "nav.rest",
-    items: [{ id: "rest", key: "settings.rest", icon: "gamepad" }],
-  },
-  {
-    group: "nav.integrations",
-    items: [{ id: "integrations", key: "settings.integrations", icon: "spotify" }],
-  },
-  {
-    group: "nav.help",
-    items: [{ id: "docs", key: "settings.docs", icon: "book" }],
-  },
+/** Плоская навигация из 7 страниц: самостоятельные разделы (General,
+ *  Profile, Customization, API) не тронуты, технические склеены по смыслу
+ *  в agent/tools/system (состав блоков — в Content ниже). Двухуровневая
+ *  вложенность внутри страниц — на потом */
+const NAV: { id: SettingsPage; key: MsgKey; icon: string }[] = [
+  { id: "main", key: "settings.main", icon: "gear" },
+  { id: "profile", key: "settings.profile", icon: "users" },
+  { id: "theme", key: "settings.themes", icon: "palette" },
+  { id: "api", key: "settings.api", icon: "box" },
+  { id: "agent", key: "nav.agent", icon: "command" },
+  { id: "tools", key: "settings.tools", icon: "plug" },
+  { id: "system", key: "settings.system", icon: "monitor" },
 ];
 
 /** Фирменный узор тёмного стиля — плоский 2D-рисунок (fill, currentColor) */
@@ -394,19 +353,27 @@ export default function SettingsModal({
   onClose,
 }: SettingsModalProps) {
   const { t } = useLang();
-  const [section, setSection] = useState<Section>("main");
+  const [section, setSection] = useState<SettingsPage>("main");
   // История навигации: назад — по шагам, куда пользователь заходил
-  const [navStack, setNavStack] = useState<Section[]>([]);
-  const sectionTitle = (s: Section) => {
-    const item = NAV.flatMap((g) => g.items).find((i) => i.id === s);
+  const [navStack, setNavStack] = useState<SettingsPage[]>([]);
+  const sectionTitle = (s: SettingsPage) => {
+    const item = NAV.find((i) => i.id === s);
     return item ? t(item.key) : t("settings.title");
   };
-  const goto = (s: Section) => {
-    if (s !== section) {
+  // Глубокие ссылки (App/ChatArea/поиск) приходят старыми Section-идами:
+  // их блок теперь живёт на merged-странице — маппим и открываем её.
+  // Новый айди страницы проходит насквозь
+  const gotoSection = (s: Section | SettingsPage) => {
+    const page: SettingsPage =
+      s === "agent" || s === "tools" || s === "system"
+        ? s
+        : PAGE_FOR_SECTION[s];
+    if (page !== section) {
       setNavStack((prev) => (section !== "main" ? [...prev, section] : prev));
-      setSection(s);
+      setSection(page);
     }
   };
+  const goto = (p: SettingsPage) => gotoSection(p);
   const goBack = () => {
     const prev = navStack[navStack.length - 1] ?? "main";
     setNavStack((p) => p.slice(0, -1));
@@ -442,27 +409,24 @@ export default function SettingsModal({
     if (query === "") return null;
     const out: { section: Section; label: string; sectionTitle: string }[] = [];
     const seen = new Set<string>();
-    // Сами разделы — тоже результаты (по названию)
-    for (const g of NAV) {
-      for (const item of g.items) {
-        if (item.id === null) continue;
-        if (searchScope === "custom" && item.id !== "theme") continue;
-        const title = t(item.key);
-        if (title.toLowerCase().includes(query)) {
-          const id = `s:${item.id}`;
-          if (!seen.has(id)) {
-            seen.add(id);
-            out.push({ section: item.id, label: title, sectionTitle: t("settings.title") });
-          }
+    // Сами страницы — тоже результаты (по названию)
+    for (const item of NAV) {
+      if (searchScope === "custom" && item.id !== "theme") continue;
+      const title = t(item.key);
+      if (title.toLowerCase().includes(query)) {
+        const id = `s:${item.id}`;
+        if (!seen.has(id)) {
+          seen.add(id);
+          out.push({ section: item.id as Section, label: title, sectionTitle: t("settings.title") });
         }
       }
     }
-    // Строки настроек внутри секций
+    // Строки настроек внутри секций (индекс ведёт старыми Section-идами:
+    // результат открывает merged-страницу через gotoSection)
     for (const group of SETTINGS_SEARCH_INDEX) {
       if (searchScope === "custom" && group.section !== "theme") continue;
-      const navItem = NAV.flatMap((x) => x.items).find((i) => i.id === group.section);
-      if (!navItem) continue;
-      const sectionTitle = t(navItem.key);
+      const pageTitle = t(NAV.find((i) => i.id === PAGE_FOR_SECTION[group.section])?.key ?? "settings.title");
+      const sectionTitle = pageTitle;
       for (const key of group.keys) {
         // Ключи индекса типизированы MsgKey: протухший ключ не собирается
         const label = t(key);
@@ -489,9 +453,10 @@ export default function SettingsModal({
   const closing = !open && renderOpen;
 
   // Сброс на первый раздел при открытии — но программное открытие
-  // (initialSection, например «Плагины» из сайдбара) имеет приоритет
+  // (initialSection, например «Плагины» из сайдбара) имеет приоритет:
+  // старые ид-ы маппятся на merged-страницы
   useEffect(() => {
-    if (open) setSection(initialSection ?? "main");
+    if (open) setSection(initialSection ? PAGE_FOR_SECTION[initialSection] : "main");
   }, [open, initialSection]);
 
   // Скролл к найденному пункту: после рендера секции ищем в контенте
@@ -646,7 +611,7 @@ export default function SettingsModal({
                 <button
                   key={`${r.section}-${i}`}
                   onClick={() => {
-                    withViewTransition(() => goto(r.section));
+                    withViewTransition(() => gotoSection(r.section));
                     setPendingItem(r.label);
                     setSearchQ("");
                   }}
@@ -658,46 +623,24 @@ export default function SettingsModal({
               ))}
             </div>
           ) : (
-          <nav className="scroll-slim min-h-0 flex-1 space-y-3 overflow-y-auto pr-0.5">
-            {NAV.map((g) => (
-              <div key={g.group}>
-                <p className="mb-1 px-2.5 text-[0.625rem] font-medium uppercase tracking-wider text-halo-muted/50">
-                  {t(g.group)}
-                </p>
-                <div className="space-y-0.5">
-                  {g.items.map((s) => {
-                    const active = s.id !== null && section === s.id;
-                    const cls = `flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-sm transition-colors ${
-                      active
-                        ? "bg-halo-hover-strong text-halo-text"
-                        : s.id === null
-                          ? "cursor-default text-halo-muted/40"
-                          : "text-halo-muted hover:bg-halo-hover hover:text-halo-text"
-                    }`;
-                    return s.id === null ? (
-                      <button
-                        key={s.key}
-                        disabled
-                        title={t("settings.soon")}
-                        className={cls}
-                      >
-                        <SectionIcon name={s.icon} />
-                        {t(s.key)}
-                      </button>
-                    ) : (
-                      <button
-                        key={s.id}
-                        onClick={() => goto(s.id as Section)}
-                        className={cls}
-                      >
-                        <SectionIcon name={s.icon} />
-                        {t(s.key)}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
+          <nav className="scroll-slim min-h-0 flex-1 space-y-0.5 overflow-y-auto pr-0.5">
+            {NAV.map((s) => {
+              const active = section === s.id;
+              return (
+                <button
+                  key={s.id}
+                  onClick={() => goto(s.id)}
+                  className={`flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-sm transition-colors ${
+                    active
+                      ? "bg-halo-hover-strong text-halo-text"
+                      : "text-halo-muted hover:bg-halo-hover hover:text-halo-text"
+                  }`}
+                >
+                  <SectionIcon name={s.icon} />
+                  {t(s.key)}
+                </button>
+              );
+            })}
           </nav>
           )}
         </div>
@@ -720,6 +663,193 @@ export default function SettingsModal({
               <span className="text-halo-muted/40">/</span>
               <span className="font-medium text-halo-text">{sectionTitle(section)}</span>
             </div>
+          )}
+          {/* Страница Customization: тема + маскот (визуальная кастомизация
+              по смыслу — один пункт навигации, два блока с разделителем) */}
+          {section === "theme" && (
+            <>
+              <div className="settings-part">
+                <ThemeSection
+                  theme={theme}
+                  glass={glass}
+                  appearance={appearance}
+                  onAppearanceChange={onAppearanceChange}
+                  termShell={termShell}
+                  onTermShellChange={onTermShellChange}
+                  themeProfiles={themeProfiles}
+                  onThemeProfilesChange={onThemeProfilesChange}
+                  onApplyThemeProfile={onApplyThemeProfile}
+                  onThemeChange={onThemeChange}
+                  onGlassChange={onGlassChange}
+                  chatMark={chatMark}
+                  onChatMarkChange={onChatMarkChange}
+                  msgGlass={msgGlass}
+                  onMsgGlassChange={onMsgGlassChange}
+                />
+              </div>
+              <div className="settings-part">
+                <MascotSection
+                  mascot={mascot}
+                  onMascotChange={onMascotChange}
+                  size={mascotSize}
+                  onSizeChange={onMascotSizeChange}
+                  glow={mascotGlow}
+                  onGlowChange={onMascotGlowChange}
+                  easter={mascotEaster}
+                  onEasterChange={onMascotEasterChange}
+                  selfActivity={mascotSelf}
+                  onSelfActivityChange={onMascotSelfChange}
+                  colors={mascotColors}
+                  onColorChange={onMascotColorChange}
+                  mascotName={mascotName}
+                  onNameChange={onMascotNameChange}
+                  themeKey={theme}
+                />
+              </div>
+            </>
+          )}
+          {section === "api" && (
+            <ApiSection
+              settings={apiSettings}
+              status={apiStatus}
+              profiles={profiles}
+              activeProfileId={activeProfileId}
+              onAddProfile={onAddProfile}
+              onApplyProfile={onApplyProfile}
+              onDeleteProfile={onDeleteProfile}
+              onEncryptionToggle={onEncryptionToggle}
+              localRuntimes={localRuntimes}
+              onChange={onApiChange}
+              onTest={onTestConnection}
+              onSave={onSaveSettings}
+              onRescanLocal={onRescanLocal}
+              onUseLocalModel={onUseLocalModel}
+              onOpenGgufLab={onOpenGgufLab}
+            />
+          )}
+          {/* Agent capabilities: поведение агента — промпты/скилы/субагенты,
+              команды+allowlist'ы, хуки, память, права. Блоки самозаголовочные */}
+          {section === "agent" && (
+            <>
+              <div className="settings-part">
+                <PromptsSection
+                  library={promptLibrary}
+                  onChangeLibrary={onPromptLibraryChange}
+                  jailbreaks={jailbreaks}
+                  onChangeJailbreaks={onChangeJailbreaks}
+                  onApplyJailbreak={onApplyJailbreak}
+                />
+              </div>
+              <div className="settings-part">
+                <SkillsSection
+                  extra={plugins.filter((p) => p.enabled).flatMap((p) => p.skills ?? [])}
+                />
+              </div>
+              <div className="settings-part">
+                <SubagentsSection
+                  config={subConfig}
+                  onChange={onSubConfigChange}
+                  pluginIds={new Set(plugins.filter((p) => p.enabled).flatMap((p) => p.roles ?? []).map((r) => r.id))}
+                />
+              </div>
+              <div className="settings-part">
+                <CommandsSection />
+                {/* Allowlist'ы «Всегда для задачи»: диагностика разрешений,
+                    накопленных из диалогов агента */}
+                <AgentSection
+                  commands={allowedCommands}
+                  sessionTitle={allowedCommandsTitle}
+                  onChange={onAllowedCommandsChange}
+                  allowlists={agentAllowlists}
+                  onSessionChange={onSessionAllowedChange}
+                />
+              </div>
+              <div className="settings-part">
+                <HooksSection />
+              </div>
+              <div className="settings-part">
+                <MemorySection
+                  enabled={memoryEnabled}
+                  onChange={onMemoryChange}
+                />
+              </div>
+              <div className="settings-part">
+                <PermissionsSection />
+              </div>
+            </>
+          )}
+          {/* Tools & connections: инструменты агента и внешние связи */}
+          {section === "tools" && (
+            <>
+              <div className="settings-part">
+                <BrowserUseSection />
+                {/* Веб-поиск живёт рядом с Browser Use: один theme-блок
+                    «сеть» — поиск даёт сниппеты, браузер — полные страницы */}
+                <WebSearchSection />
+              </div>
+              <div className="settings-part">
+                <ComputerUseSection />
+              </div>
+              <div className="settings-part">
+                <LspSection />
+              </div>
+              <div className="settings-part">
+                <ImageGenSection />
+              </div>
+              <div className="settings-part">
+                <McpSection />
+              </div>
+              <div className="settings-part">
+                <PluginsSection plugins={plugins} onChange={onPluginsChange} />
+              </div>
+            </>
+          )}
+          {/* System & data: сеть, статистика, сервисные разделы */}
+          {section === "system" && (
+            <>
+              <div className="settings-part">
+                <NetworkSection />
+              </div>
+              {/* Единоразовое предупреждение «Локальный хардкор»: пока не принято
+                  (сессия) или пока не отмечено «не показывать» (навсегда) */}
+              <div className="settings-part">
+                {mediaWarnAccepted || mediaWarnAcceptedRef.current ? (
+                  <IntegrationsSection
+                    mediaPrefs={mediaPrefs}
+                    onMediaPrefsChange={onMediaPrefsChange}
+                  />
+                ) : (
+                  <IntegrationWarning
+                    onAccept={(dontShow) => {
+                      if (dontShow) {
+                        saveMediaAccepted();
+                        mediaWarnAcceptedRef.current = true;
+                      }
+                      setMediaWarnAccepted(true);
+                    }}
+                    onCancel={onWarnCancel}
+                  />
+                )}
+              </div>
+              <div className="settings-part">
+                <ReflectSection sessions={sessions} usage={usageLog} apiSettings={apiSettings} />
+              </div>
+              <div className="settings-part">
+                <RestSection game={restGame} onGameChange={setRestGame} />
+              </div>
+              <div className="settings-part">
+                <ShortcutsSection
+                  binds={binds}
+                  onChange={onBindsChange}
+                  custom={customShortcuts}
+                  onCustomChange={onCustomShortcutsChange}
+                  availableCommands={availableCommands}
+                />
+              </div>
+              <div className="settings-part">
+                <DocsSection />
+              </div>
+            </>
           )}
           {section === "profile" && <ProfileSection />}
           {section === "main" && (
@@ -775,158 +905,6 @@ export default function SettingsModal({
               onVoiceChange={onVoiceChange}
             />
           )}
-          {section === "mascot" && (
-            <MascotSection
-              mascot={mascot}
-              onMascotChange={onMascotChange}
-              size={mascotSize}
-              onSizeChange={onMascotSizeChange}
-              glow={mascotGlow}
-              onGlowChange={onMascotGlowChange}
-              easter={mascotEaster}
-              onEasterChange={onMascotEasterChange}
-              selfActivity={mascotSelf}
-              onSelfActivityChange={onMascotSelfChange}
-              colors={mascotColors}
-              onColorChange={onMascotColorChange}
-              mascotName={mascotName}
-              onNameChange={onMascotNameChange}
-              themeKey={theme}
-            />
-          )}
-          {section === "theme" && (
-            <ThemeSection
-              theme={theme}
-              glass={glass}
-              appearance={appearance}
-              onAppearanceChange={onAppearanceChange}
-              termShell={termShell}
-              onTermShellChange={onTermShellChange}
-              themeProfiles={themeProfiles}
-              onThemeProfilesChange={onThemeProfilesChange}
-              onApplyThemeProfile={onApplyThemeProfile}
-              onThemeChange={onThemeChange}
-              onGlassChange={onGlassChange}
-              chatMark={chatMark}
-              onChatMarkChange={onChatMarkChange}
-              msgGlass={msgGlass}
-              onMsgGlassChange={onMsgGlassChange}
-            />
-          )}
-          {section === "api" && (
-            <ApiSection
-              settings={apiSettings}
-              status={apiStatus}
-              profiles={profiles}
-              activeProfileId={activeProfileId}
-              onAddProfile={onAddProfile}
-              onApplyProfile={onApplyProfile}
-              onDeleteProfile={onDeleteProfile}
-              onEncryptionToggle={onEncryptionToggle}
-              localRuntimes={localRuntimes}
-              onChange={onApiChange}
-              onTest={onTestConnection}
-              onSave={onSaveSettings}
-              onRescanLocal={onRescanLocal}
-              onUseLocalModel={onUseLocalModel}
-              onOpenGgufLab={onOpenGgufLab}
-            />
-          )}
-          {section === "prompts" && (
-            <PromptsSection
-              library={promptLibrary}
-              onChangeLibrary={onPromptLibraryChange}
-              jailbreaks={jailbreaks}
-              onChangeJailbreaks={onChangeJailbreaks}
-              onApplyJailbreak={onApplyJailbreak}
-            />
-          )}
-          {section === "commands" && (
-            <>
-              <CommandsSection />
-              {/* Allowlist'ы «Всегда для задачи»: диагностика разрешений,
-                  накопленных из диалогов агента */}
-              <AgentSection
-                commands={allowedCommands}
-                sessionTitle={allowedCommandsTitle}
-                onChange={onAllowedCommandsChange}
-                allowlists={agentAllowlists}
-                onSessionChange={onSessionAllowedChange}
-              />
-            </>
-          )}
-          {section === "memory" && (
-            <MemorySection
-              enabled={memoryEnabled}
-              onChange={onMemoryChange}
-            />
-          )}
-          {section === "reflect" && (
-            <ReflectSection sessions={sessions} usage={usageLog} apiSettings={apiSettings} />
-          )}
-          {section === "network" && <NetworkSection />}
-          {section === "rest" && (
-            <RestSection game={restGame} onGameChange={setRestGame} />
-          )}
-          {/* Единоразовое предупреждение «Локальный хардкор»: пока не принято
-              (сессия) или пока не отмечено «не показывать» (навсегда) */}
-          {section === "integrations" &&
-            (mediaWarnAccepted || mediaWarnAcceptedRef.current ? (
-              <IntegrationsSection
-                mediaPrefs={mediaPrefs}
-                onMediaPrefsChange={onMediaPrefsChange}
-              />
-            ) : (
-              <IntegrationWarning
-                onAccept={(dontShow) => {
-                  if (dontShow) {
-                    saveMediaAccepted();
-                    mediaWarnAcceptedRef.current = true;
-                  }
-                  setMediaWarnAccepted(true);
-                }}
-                onCancel={onWarnCancel}
-              />
-            ))}
-          {section === "docs" && <DocsSection />}
-          {section === "mcp" && <McpSection />}
-          {section === "permissions" && <PermissionsSection />}
-          {section === "lsp" && <LspSection />}
-          {section === "imagegen" && <ImageGenSection />}
-          {section === "hooks" && <HooksSection />}
-          {section === "shortcuts" && (
-            <ShortcutsSection
-              binds={binds}
-              onChange={onBindsChange}
-              custom={customShortcuts}
-              onCustomChange={onCustomShortcutsChange}
-              availableCommands={availableCommands}
-            />
-          )}
-          {section === "skills" && (
-            <SkillsSection
-              extra={plugins.filter((p) => p.enabled).flatMap((p) => p.skills ?? [])}
-            />
-          )}
-          {section === "subagents" && (
-            <SubagentsSection
-              config={subConfig}
-              onChange={onSubConfigChange}
-              pluginIds={new Set(plugins.filter((p) => p.enabled).flatMap((p) => p.roles ?? []).map((r) => r.id))}
-            />
-          )}
-          {section === "plugins" && (
-            <PluginsSection plugins={plugins} onChange={onPluginsChange} />
-          )}
-          {/* Веб-поиск живёт в разделе Browser Use: один theme-блок «сеть» —
-              поиск даёт сниппеты, браузер — полные страницы */}
-          {section === "browser" && (
-            <>
-              <BrowserUseSection />
-              <WebSearchSection />
-            </>
-          )}
-          {section === "computer" && <ComputerUseSection />}
         </div>
       </div>
       {/* Окно поддержки: адреса + QR кошельков, поверх настроек */}

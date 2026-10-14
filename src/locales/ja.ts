@@ -396,6 +396,8 @@ export const ja = {
     "card.editSend": "送信",
     "card.editCancel": "キャンセル",
     "settings.main": "一般",
+    "settings.tools": "ツールと接続",
+    "settings.system": "システムとデータ",
     "settings.profile": "ユーザープロフィール",
     "profile.desc": "すべてこの端末にのみ保存されます。「モデルに送る」を有効にしたフィールドだけが送信され、既定では何も送られません。",
     "profile.who": "あなたについて",

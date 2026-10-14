@@ -431,6 +431,15 @@ html.zen.voice-listening body::after {
   animation: search-hit 1.6s ease both;
   border-radius: 12px;
 }
+
+/* Merged-страницы настроек (agent/tools/system/theme): блоки-секции
+   стэкаются с волосяным разделителем — каждая секция самозаголовочная
+   (свой h3), так что от обёртки нужен только отступ и линия */
+.settings-part + .settings-part {
+  margin-top: 2rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--halo-line);
+}
 @keyframes search-hit {
   0%, 60% {
     outline: 1px solid var(--halo-accent);

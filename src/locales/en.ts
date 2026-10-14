@@ -368,6 +368,8 @@ export const en = {
     "card.editSend": "Send",
     "card.editCancel": "Cancel",
     "settings.main": "General",
+    "settings.tools": "Tools & connections",
+    "settings.system": "System & data",
     "settings.profile": "User profile",
     "profile.desc": "Everything stays on this device. Only fields where you enabled “for the model” are sent — nothing is shared by default.",
     "profile.who": "Who you are",

@@ -396,6 +396,8 @@ export const zh = {
     "card.editSend": "发送",
     "card.editCancel": "取消",
     "settings.main": "通用",
+    "settings.tools": "工具与连接",
+    "settings.system": "系统与数据",
     "settings.profile": "用户资料",
     "profile.desc": "一切仅保存在本设备上。只有你开启了「发给模型」的字段才会发送 — 默认不发送任何内容。",
     "profile.who": "你是谁",
