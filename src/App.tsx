@@ -621,6 +621,9 @@ export default function App() {
         .length === 0,
     [activeSession, showUserMsgs],
   );
+  // План задач открыт (панель «Прогресс») — лента гаснет: строки лирики
+  // в прозрачных полях вокруг панели сталкивались с чек-листом
+  const planOpenForRibbon = (activeSession?.plan?.length ?? 0) > 0;
   // Pre-toggle «Agent» до создания чата: без него клик по чипу создавал
   // сессию и стирал набранный черновик (запрос при этом не отправлялся).
   // Сбрасывается, когда появляется активная сессия (режим поглощён ей)
@@ -2795,6 +2798,7 @@ export default function App() {
             scale={mediaPrefs.ribbonScale}
             composerCentered={chatEmptyForRibbon && !typing && !terminalOpen}
             contentLeft={sidebarWidth}
+            dimmed={planOpenForRibbon}
           />
         )}
         <button

@@ -40,8 +40,8 @@ exports[`css generator goldens > fullClaudeCss — палитра без importa
   --halo-hover-strong: rgba(255, 255, 255, 0.15);
   --halo-code-bg: #1b1b1b;
   --halo-code-text: #f0efec;
-  --halo-accent: #D97757;
-  --halo-accent-deep: #B26247;
+  --halo-accent: #c88e9b;
+  --halo-accent-deep: #a4747f;
   --halo-on-accent: #ffffff;
   --halo-blur: 14px;
   --halo-radius-scale: 1;
@@ -100,6 +100,9 @@ html.full-claude:not(.glass) .glass-pane,
 html.full-claude:not(.glass) .msg-glass {
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
+}
+html.full-claude.glass .settings-vt {
+  background: #20201f;
 }"
 `;
 

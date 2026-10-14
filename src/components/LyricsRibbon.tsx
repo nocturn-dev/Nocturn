@@ -26,6 +26,7 @@ export function LyricsRibbon({
   scale,
   composerCentered,
   contentLeft,
+  dimmed,
 }: {
   snap: MediaLyricsSnapshot | null;
   /** Размер строк 0.3–1.0: от компактной полоски до «на весь экран» */
@@ -34,6 +35,9 @@ export function LyricsRibbon({
   composerCentered: boolean;
   /** Ширина сайдбара — строки центрируются по зоне чата */
   contentLeft: number;
+  /** Рабочая панель поверх ленты (план задач): строки гаснут, чтобы
+   *  текст лирики не сталкивался с чек-листом в прозрачных полях */
+  dimmed?: boolean;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   // Кроссфейд смены активной строки: старая догорает на якоре, новая
@@ -224,7 +228,11 @@ export function LyricsRibbon({
   }, [snap, scale, composerCentered, contentLeft, repaint]);
 
   return (
-    <div className="lyrics-ribbon pointer-events-none fixed inset-0" aria-hidden>
+    <div
+      className="lyrics-ribbon pointer-events-none fixed inset-0 transition-opacity duration-500"
+      style={{ opacity: dimmed ? 0.12 : 1 }}
+      aria-hidden
+    >
       <canvas ref={canvasRef} className="h-full w-full" />
     </div>
   );

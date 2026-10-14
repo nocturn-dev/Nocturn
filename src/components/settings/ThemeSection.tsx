@@ -594,7 +594,7 @@ export function ThemeSection({
             <span className="text-sm text-halo-text">{t("themes.fullClaudeShort")}</span>
             <span
               className="size-2.5 rounded-full"
-              style={{ background: FULL_CLAUDE_PALETTE.accent }}
+              style={{ background: appearance.accent }}
             />
           </div>
         </button>

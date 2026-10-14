@@ -528,10 +528,11 @@ export function officialCss(oled: boolean, contrast: boolean): string {
  * одни и те же значения. Все значения сняты пипеткой с эталонных скринов
  * Claude Desktop (тёмная тема), без собственных оттенков. Поверхности —
  * нейтральные чёрный/бледно-чёрный/серый: сайдбар #111111 темнее фона
- * #151515, композер #20201f светлее, чипы inline-кода #212121. Акцент —
- * терракота #D97757 со скрина (звезда-астериск приветствия), используется
- * только в мелких деталях; hover-состояния — светло-серые заливки
- * (#2d2d2d/#343434 на скринах = 10%/15% белого поверх фона), не тёмные.
+ * #151515, композер #20201f светлее, чипы inline-кода #212121. Акцент теме
+ * не принадлежит — берётся из темы пользователя (fullClaudeCss); поля
+ * accent/accentDeep оставлены как референс снятого значения. Hover —
+ * светло-серые заливки (#2d2d2d/#343434 на скринах = 10%/15% белого
+ * поверх фона), не тёмные.
  */
 export const FULL_CLAUDE_PALETTE = {
   bg: "#151515",
@@ -541,7 +542,7 @@ export const FULL_CLAUDE_PALETTE = {
   line: "rgba(255, 255, 255, 0.08)",
   text: "#f0efec",
   muted: "#a1a098",
-  /** Акцент-детали: терракота Claude (снята со звезды приветствия) */
+  /** Референс снятого акцента; в теме действует акцент пользователя */
   accent: "#D97757",
   /** #D97757 x 0.82 — hover/pressed акцента (та же формула, что darken) */
   accentDeep: "#B26247",
@@ -603,8 +604,10 @@ export function fullClaudeCss(a: Appearance): string {
       "  --halo-hover-strong: rgba(255, 255, 255, 0.15);",
       `  --halo-code-bg: ${FULL_CLAUDE_PALETTE.codeBg};`,
       `  --halo-code-text: ${FULL_CLAUDE_PALETTE.text};`,
-      `  --halo-accent: ${FULL_CLAUDE_PALETTE.accent};`,
-      `  --halo-accent-deep: ${FULL_CLAUDE_PALETTE.accentDeep};`,
+      // Акцент — из темы пользователя, не фирменный: кнопки и детали темы
+      // выглядят так же, как в остальном приложении (смена акцента живая)
+      `  --halo-accent: ${a.accent};`,
+      `  --halo-accent-deep: ${darken(a.accent, 0.82)};`,
       "  --halo-on-accent: #ffffff;",
       "  --halo-blur: 14px;",
       `  --halo-radius-scale: ${r};`,
@@ -698,6 +701,12 @@ export function fullClaudeCss(a: Appearance): string {
       "html.full-claude:not(.glass) .msg-glass {",
       "  backdrop-filter: none;",
       "  -webkit-backdrop-filter: none;",
+      "}",
+      // Настройки — рабочая поверхность: плотная панель и в стекле
+      // (сквозь стеклянный тинт читался чат за модалкой). Правило — последнее
+      // в блоке: при равной специфичности побеждает порядок
+      "html.full-claude.glass .settings-vt {",
+      `  background: ${FULL_CLAUDE_PALETTE.surface};`,
       "}",
     ],
   ].flat().join("\n");

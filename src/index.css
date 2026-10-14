@@ -1449,6 +1449,14 @@ html.glass .bg-halo-deep,
 html.glass .glass-pane {
   background: color-mix(in srgb, var(--halo-deep) 70%, transparent);
 }
+/* Настройки — рабочая поверхность: панель плотная даже в стекле. Сквозь
+   стеклянный тинт читался чат за модалкой (призрак приветствия поверх
+   страницы API) — стеклу остаётся размытие фона за панелью, чтению
+   страницы оно мешать не должно. Специфичность выше full-claude правила
+   .bg-halo-deep.shadow-2xl (тема даёт модалкам surface) */
+html.glass .settings-vt.bg-halo-deep.shadow-2xl {
+  background: var(--halo-deep);
+}
 html.glass .bg-halo-surface {
   background: color-mix(in srgb, var(--halo-surface) 72%, transparent);
 }
