@@ -240,8 +240,8 @@ export function Dropdown({
         className="flex w-full items-center justify-between gap-2 rounded-lg border border-halo-line bg-halo-surface px-3 py-2 text-left text-xs text-halo-text outline-none transition-colors hover:border-halo-muted/50"
       >
         <span className="min-w-0 truncate">{current?.label ?? ""}</span>
-        <span className={`shrink-0 text-[0.625rem] text-halo-muted transition-transform ${open ? "rotate-180" : ""}`}>
-          ▼
+        <span className={`shrink-0 text-halo-muted transition-transform ${open ? "rotate-180" : ""}`}>
+          <ChevronDownIcon />
         </span>
       </button>
       {open && (
@@ -280,28 +280,17 @@ export function Dropdown({
 export function LangSwitch() {
   const lang = useLangState();
   const setLang = useLangSetter();
-  const langs = [
-    { id: "ru", label: "Русский" },
-    { id: "en", label: "English" },
-    { id: "zh", label: "中文" },
-    { id: "ja", label: "日本語" },
-  ] as const;
   return (
-    <div className="flex flex-wrap rounded-lg border border-halo-line p-0.5">
-      {langs.map(({ id, label }) => (
-        <button
-          key={id}
-          onClick={() => setLang(id)}
-          className={`rounded-md px-2 py-1 text-xs transition duration-150 ${
-            lang === id
-              ? "bg-halo-accent/15 font-medium text-halo-accent"
-              : "text-halo-muted hover:text-halo-text"
-          }`}
-        >
-          {label}
-        </button>
-      ))}
-    </div>
+    <Segmented
+      value={lang}
+      onChange={setLang}
+      options={[
+        { value: "ru", label: "Русский" },
+        { value: "en", label: "English" },
+        { value: "zh", label: "中文" },
+        { value: "ja", label: "日本語" },
+      ]}
+    />
   );
 }
 
@@ -539,6 +528,23 @@ export function XIcon() {
       strokeLinecap="round"
     >
       <path d="M18 6 6 18M6 6l12 12" />
+    </svg>
+  );
+}
+
+export function ChevronDownIcon() {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="m6 9 6 6 6-6" />
     </svg>
   );
 }
