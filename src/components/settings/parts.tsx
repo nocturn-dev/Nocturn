@@ -305,6 +305,11 @@ export function LangSwitch() {
   );
 }
 
+/**
+ * Строка настроек: заголовок + описание слева, контрол справа.
+ * Волосинная линия снизу отделяет строку от соседней — контейнер обязан
+ * держать строки прямыми сиблингами (без обёрток-карточек между ними).
+ */
 export function Row({ 
   label,
   desc,
@@ -317,7 +322,7 @@ export function Row({
   extra?: React.ReactNode;
 }) {
   return (
-    <div className="flex items-center justify-between rounded-lg px-2.5 py-2.5 text-sm">
+    <div className="flex items-center justify-between gap-4 border-b border-halo-line/60 px-2.5 py-3 text-sm last:border-b-0">
       <span className="min-w-0">
         <span className="text-halo-text">{label}</span>
         {desc && (
@@ -326,7 +331,44 @@ export function Row({
           </span>
         )}
       </span>
-      {extra ?? <span className="text-halo-muted">{value}</span>}
+      {extra ?? <span className="shrink-0 text-halo-muted">{value}</span>}
+    </div>
+  );
+}
+
+/** Переключатель «несколько в ряд»: выбранный сегмент — приподнятая
+ * нейтральная плашка (без акцентной заливки — цвет только для действий) */
+export function Segmented<T extends string>({
+  value,
+  options,
+  onChange,
+  className = "",
+}: {
+  value: T;
+  options: { value: T; label: string }[];
+  onChange: (v: T) => void;
+  className?: string;
+}) {
+  return (
+    <div
+      role="radiogroup"
+      className={`inline-flex items-center rounded-lg border border-halo-line p-0.5 ${className}`}
+    >
+      {options.map((o) => (
+        <button
+          key={o.value}
+          role="radio"
+          aria-checked={o.value === value}
+          onClick={() => onChange(o.value)}
+          className={`rounded-md px-2.5 py-1 text-xs transition-colors duration-150 ${
+            o.value === value
+              ? "bg-halo-hover font-medium text-halo-text"
+              : "text-halo-muted hover:text-halo-text"
+          }`}
+        >
+          {o.label}
+        </button>
+      ))}
     </div>
   );
 }
@@ -363,7 +405,7 @@ export function ToggleRow({
     // РОВНО у всех строк независимо от длины описания (фикс «уезжающего
 
     // тумблера» в Browser Use)
-    <div className="flex w-full items-center justify-between gap-3 rounded-lg px-2.5 py-2.5 text-sm">
+    <div className="flex w-full items-center justify-between gap-3 border-b border-halo-line/60 px-2.5 py-3 text-sm last:border-b-0">
       <span className="min-w-0 flex-1">
         <span className={disabled ? "text-halo-muted" : "text-halo-text"}>
           {label}
@@ -377,14 +419,17 @@ export function ToggleRow({
       <button
         onClick={toggle}
         disabled={disabled}
-        className={`relative shrink-0 rounded-full transition-colors ${
+        role="switch"
+        aria-checked={value}
+        aria-label={label}
+        className={`relative shrink-0 rounded-full transition-colors duration-200 ${
           big ? "h-6 w-11" : "h-5 w-9"
         } ${value ? "bg-halo-accent" : "bg-halo-line"} ${
           disabled ? "cursor-not-allowed opacity-50" : ""
         }`}
       >
         <span
-          className={`absolute top-0.5 rounded-full bg-halo-on-accent transition ${
+          className={`absolute top-0.5 rounded-full bg-halo-on-accent transition-[left] duration-200 ease-[var(--ease-standard)] ${
             big ? "size-5" : "size-4"
           } ${
             value ? (big ? "left-[22px]" : "left-4.5") : "left-0.5"
