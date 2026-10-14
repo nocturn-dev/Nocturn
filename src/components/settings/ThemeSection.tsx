@@ -38,7 +38,7 @@ import { isWindows } from "../../platform";
 import { registerCustomFonts, UI_FONT_PRESETS, MONO_FONT_PRESETS } from "../../fonts";
 import { CODE_THEMES, CODE_THEME_IDS } from "../../codeThemes";
 import { TERMINAL_PALETTES } from "../../vt";
-import { StylePattern, Dropdown, CheckIcon, ToggleRow, Row, Segmented } from "./parts";
+import { StylePattern, Dropdown, CheckIcon, ToggleRow, Row, Segmented, Group } from "./parts";
 import { XSmallIcon } from "../cards/icons";
 
 const SHELL_LABELS: Record<"powershell" | "cmd" | "gitbash", string> = {
@@ -678,10 +678,7 @@ export function ThemeSection({
 
       {/* Настройки самой Official: только то, что относится к ней */}
       {appearance.official && (
-        <div className="mt-1.5 mb-4 space-y-1 rounded-xl border border-halo-line px-3.5 py-3">
-          <p className="text-xs font-medium text-halo-muted">
-            {t("themes.officialSettings")}
-          </p>
+        <Group title={t("themes.officialSettings")}>
           {(
             [
               {
@@ -711,7 +708,7 @@ export function ThemeSection({
               }
             />
           ))}
-        </div>
+        </Group>
       )}
 
       {!hardTheme && (
