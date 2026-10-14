@@ -35,13 +35,13 @@ exports[`css generator goldens > fullClaudeCss — important-блок и оled/c
   --halo-raised: #212121 !important;
   --halo-line: rgba(255, 255, 255, 0.08) !important;
   --halo-text: #f0efec !important;
-  --halo-muted: #a5a49a !important;
-  --halo-hover: rgba(36, 21, 15, 0.65) !important;
-  --halo-hover-strong: rgba(36, 21, 15, 0.95) !important;
-  --halo-code-bg: #1b1b1d !important;
+  --halo-muted: #a1a098 !important;
+  --halo-hover: rgba(255, 255, 255, 0.1) !important;
+  --halo-hover-strong: rgba(255, 255, 255, 0.15) !important;
+  --halo-code-bg: #1b1b1b !important;
   --halo-code-text: #f0efec !important;
-  --halo-accent: #D96B27 !important;
-  --halo-accent-deep: #B25820 !important;
+  --halo-accent: #D97757 !important;
+  --halo-accent-deep: #B26247 !important;
   --halo-on-accent: #ffffff !important;
   --halo-blur: 14px !important;
   --halo-radius-scale: 1 !important;
@@ -60,7 +60,7 @@ html.full-claude .markdown pre {
   border-radius: 0.5rem;
 }
 html.full-claude aside .uppercase {
-  color: rgba(165, 164, 154, 0.55) !important;
+  color: rgba(161, 160, 152, 0.55) !important;
 }
 html.full-claude aside .uppercase:hover {
   color: var(--halo-text) !important;
@@ -68,9 +68,9 @@ html.full-claude aside .uppercase:hover {
 @supports (background: color-mix(in srgb, red, blue)) {
   html.full-claude.glass {
     background:
-      radial-gradient(700px 450px at 12% 18%, color-mix(in srgb, #24150F 38%, transparent), transparent 70%),
+      radial-gradient(700px 450px at 12% 18%, color-mix(in srgb, #2d2d2d 38%, transparent), transparent 70%),
       radial-gradient(800px 550px at 88% 85%, color-mix(in srgb, var(--halo-deep) 55%, transparent), transparent 70%),
-      radial-gradient(500px 350px at 70% 10%, color-mix(in srgb, #24150F 16%, transparent), transparent 70%),
+      radial-gradient(500px 350px at 70% 10%, color-mix(in srgb, #2d2d2d 16%, transparent), transparent 70%),
       var(--halo-bg) !important;
   }
 }

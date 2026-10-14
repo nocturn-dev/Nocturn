@@ -524,11 +524,13 @@ export function officialCss(oled: boolean, contrast: boolean): string {
 
 /**
  * Палитра Full Claude в одном месте: генератор CSS и витрина-превью читают
- * одни и те же значения. Роли цветов: #24150F — ГЛАВНЫЙ
- * акцент, заливает «всё» — тинты наведения, активные состояния, подложку
- * стекла; #D96B27 — дополнение, только мелкие текстовые акценты и детали.
- * Поверхности — нейтральный тёмный референс Claude (cds-gray): сайдбар
- * темнее фона, композер/карточки светлее, пузырь на полшага выше surface.
+ * одни и те же значения. Все значения сняты пипеткой с эталонных скринов
+ * Claude Desktop (тёмная тема), без собственных оттенков. Поверхности —
+ * нейтральные чёрный/бледно-чёрный/серый: сайдбар #111111 темнее фона
+ * #151515, композер #20201f светлее, чипы inline-кода #212121. Акцент —
+ * терракота #D97757 со скрина (звезда-астериск приветствия), используется
+ * только в мелких деталях; hover-состояния — светло-серые заливки
+ * (#2d2d2d/#343434 на скринах = 10%/15% белого поверх фона), не тёмные.
  */
 export const FULL_CLAUDE_PALETTE = {
   bg: "#151515",
@@ -537,20 +539,21 @@ export const FULL_CLAUDE_PALETTE = {
   raised: "#212121",
   line: "rgba(255, 255, 255, 0.08)",
   text: "#f0efec",
-  muted: "#a5a49a",
-  /** Доп. акцент: мелкие детали, текстовые подцветки (не заливки) */
-  accent: "#D96B27",
-  /** #D96B27 x 0.82 — hover/pressed доп. акцента */
-  accentDeep: "#B25820",
-  codeBg: "#1b1b1d",
+  muted: "#a1a098",
+  /** Акцент-детали: терракота Claude (снята со звезды приветствия) */
+  accent: "#D97757",
+  /** #D97757 x 0.82 — hover/pressed акцента (та же формула, что darken) */
+  accentDeep: "#B26247",
+  codeBg: "#1b1b1b",
   /** Inline-код: ink = cds-red-200, подложка = 5% белого (cds-alpha-1) */
   codeInk: "#f4abab",
 } as const;
 
 /**
  * Палитра и базовые блоки темы Full Claude — реплика Claude Desktop:
- * нейтральные поверхности, главный акцент #24150F (тинты, подложки,
- * стекло), доп. акцент #D96B27 только в мелких деталях. Всегда тёмная.
+ * нейтральные чёрно-серые поверхности (сняты пипеткой с эталонных скринов,
+ * см. FULL_CLAUDE_PALETTE), акцент #D97757 только в мелких деталях,
+ * hover — светло-серые заливки белого поверх фона. Всегда тёмная.
  *
  * Механика — точная копия officialCss: отдельный тег <style id=
  * "halo-full-claude"> в конце head, все палитровые переменные с !important
@@ -593,8 +596,8 @@ export function fullClaudeCss(a: Appearance): string {
       `  --halo-line: ${FULL_CLAUDE_PALETTE.line} !important;`,
       `  --halo-text: ${FULL_CLAUDE_PALETTE.text} !important;`,
       `  --halo-muted: ${FULL_CLAUDE_PALETTE.muted} !important;`,
-      "  --halo-hover: rgba(36, 21, 15, 0.65) !important;",
-      "  --halo-hover-strong: rgba(36, 21, 15, 0.95) !important;",
+      "  --halo-hover: rgba(255, 255, 255, 0.1) !important;",
+      "  --halo-hover-strong: rgba(255, 255, 255, 0.15) !important;",
       `  --halo-code-bg: ${FULL_CLAUDE_PALETTE.codeBg} !important;`,
       `  --halo-code-text: ${FULL_CLAUDE_PALETTE.text} !important;`,
       `  --halo-accent: ${FULL_CLAUDE_PALETTE.accent} !important;`,
@@ -627,28 +630,28 @@ export function fullClaudeCss(a: Appearance): string {
     ],
     // Заголовки секций сайдбара (Файлы/Заметки/Проекты): пользовательский
     // header-color применяется инлайном — нейтрализуем его в теме (!important
-    // бьёт инлайн), серый вторичного текста как у Claude (cds-gray-300 @ 55%)
+    // бьёт инлайн), серый вторичного текста как у Claude (#a1a098 @ 55%)
     [
       "html.full-claude aside .uppercase {",
-      "  color: rgba(165, 164, 154, 0.55) !important;",
+      "  color: rgba(161, 160, 152, 0.55) !important;",
       "}",
       "html.full-claude aside .uppercase:hover {",
       "  color: var(--halo-text) !important;",
       "}",
     ],
     // Стекло внутри темы: «рабочий стол» html.glass раньше брал radial-пятна
-    // из --halo-accent (22% в углу) — после ребрендинга насыщенный #D96B27
-    // просвечивал сквозь полупрозрачный сайдбар ржавым налётом (пипеткой
-    // снят пик #2B150C у центра пятна 12%/18%). Главный цвет
-    // темы #24150F даёт тёплый кофейный тон без рыжины; color-mix — под
-    // @supports (конвенция C5: WebKitGTK < 2.40 отбрасывает декларацию)
+    // из --halo-accent (22% в углу) — насыщенный акцент просвечивал сквозь
+    // полупрозрачный сайдбар цветным налётом. В референсе стекло нейтральное:
+    // пятна из серого #2d2d2d (фон круглых кнопок на скринах) дают тёплый
+    // графитовый тон без рыжины; color-mix — под @supports (конвенция C5:
+    // WebKitGTK < 2.40 отбрасывает декларацию)
     [
       "@supports (background: color-mix(in srgb, red, blue)) {",
       "  html.full-claude.glass {",
       "    background:",
-      "      radial-gradient(700px 450px at 12% 18%, color-mix(in srgb, #24150F 38%, transparent), transparent 70%),",
+      "      radial-gradient(700px 450px at 12% 18%, color-mix(in srgb, #2d2d2d 38%, transparent), transparent 70%),",
       "      radial-gradient(800px 550px at 88% 85%, color-mix(in srgb, var(--halo-deep) 55%, transparent), transparent 70%),",
-      "      radial-gradient(500px 350px at 70% 10%, color-mix(in srgb, #24150F 16%, transparent), transparent 70%),",
+      "      radial-gradient(500px 350px at 70% 10%, color-mix(in srgb, #2d2d2d 16%, transparent), transparent 70%),",
       "      var(--halo-bg) !important;",
       "  }",
       "}",
