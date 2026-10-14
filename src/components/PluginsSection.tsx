@@ -170,12 +170,14 @@ export default function PluginsSection({
       </p>
 
       <div className="flex flex-wrap gap-2">
+        {plugins.length > 0 && (
         <button
           onClick={() => void pickAndRead()}
           className="rounded-lg bg-halo-accent px-3.5 py-1.5 text-sm font-medium text-halo-on-accent transition-colors hover:bg-halo-accent-deep"
         >
           {t("plug.import")}
         </button>
+        )}
         <button
           onClick={() => void exportPack()}
           disabled={plugins.length === 0}

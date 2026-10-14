@@ -873,7 +873,9 @@ export default function SettingsModal({
               с одним разделителем) */}
           {section === "agent" && (
             <>
-              <ComputerUseSection />
+              <div className="settings-part">
+                <ComputerUseSection />
+              </div>
               <div className="settings-part">
                 <BrowserUseSection />
               </div>
@@ -885,8 +887,9 @@ export default function SettingsModal({
           {/* Integration & API */}
           {section === "apiKeys" && (
             <>
-              <ApiSection
-                settings={apiSettings}
+              <div className="settings-part">
+                <ApiSection
+                  settings={apiSettings}
                 status={apiStatus}
                 profiles={profiles}
                 activeProfileId={activeProfileId}
@@ -898,9 +901,10 @@ export default function SettingsModal({
                 onChange={onApiChange}
                 onTest={onTestConnection}
                 onSave={onSaveSettings}
-                onRescanLocal={onRescanLocal}
-                onUseLocalModel={onUseLocalModel}
-              />
+                  onRescanLocal={onRescanLocal}
+                  onUseLocalModel={onUseLocalModel}
+                />
+              </div>
               {/* Отступ больше стандартного: Image gen — визуально отдельная
                   тема после плотного блока подключения */}
               <div className="settings-part" style={{ marginTop: "3rem" }}>
