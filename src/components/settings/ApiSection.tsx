@@ -14,7 +14,7 @@ import {
   saveColibriLocal,
 } from "../../api";
 
-import { MiniCheckIcon, MiniSearchIcon } from "./parts";
+import { MiniCheckIcon, MiniSearchIcon, ToggleRow } from "./parts";
 import type { ApiStatus } from "./types";
 import { CheckIcon, XSmallIcon } from "../cards/icons";
 
@@ -270,33 +270,18 @@ export function ApiSection({
       </div>
 
       {/* Шифрование ключей: мастер-ключ в Credential Manager */}
-      <div className="mb-4 flex items-center justify-between rounded-xl border border-halo-line px-3.5 py-3">
-        <div className="min-w-0 pr-3">
-          <p className="text-sm text-halo-text">{t("api.encKeys")}</p>
-          <p className="mt-0.5 text-xs leading-relaxed text-halo-muted">
-            {t("api.encKeysDesc")}
-          </p>
-        </div>
-        <button
-          onClick={async () => {
-            setEncBusy(true);
-            const ok = await onEncryptionToggle(!settings.encrypt_keys);
-            setEncBusy(false);
-            if (!ok) setEncError(true);
-            else setEncError(false);
-          }}
-          disabled={encBusy}
-          className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${
-            settings.encrypt_keys ? "bg-halo-accent" : "bg-halo-line"
-          } disabled:opacity-50`}
-        >
-          <span
-            className={`absolute top-0.5 size-4 rounded-full bg-halo-on-accent transition ${
-              settings.encrypt_keys ? "left-4.5" : "left-0.5"
-            }`}
-          />
-        </button>
-      </div>
+      <ToggleRow
+        label={t("api.encKeys")}
+        desc={t("api.encKeysDesc")}
+        disabled={encBusy}
+        on={settings.encrypt_keys}
+        onChange={async (v) => {
+          setEncBusy(true);
+          const ok = await onEncryptionToggle(v);
+          setEncBusy(false);
+          setEncError(!ok);
+        }}
+      />
       {encError && (
         <p className="mb-3 text-xs text-red-400">{t("api.encError")}</p>
       )}
