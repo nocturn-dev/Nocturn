@@ -370,7 +370,7 @@ export const en = {
     "settings.main": "General",
     "settings.jailbreaks": "Jailbreaks",
     "nav.group.general": "General",
-    "nav.group.integration": "Integration & API",
+    "nav.group.integration": "Integration & access",
     "nav.group.diagnostics": "Diagnostics & data",
     "nav.group.support": "Support",
     "settings.apiKeys": "API keys",

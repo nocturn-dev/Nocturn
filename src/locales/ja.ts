@@ -398,7 +398,7 @@ export const ja = {
     "settings.main": "一般",
     "settings.jailbreaks": "ジェイルブレイク",
     "nav.group.general": "一般",
-    "nav.group.integration": "統合とAPI",
+    "nav.group.integration": "統合とアクセス",
     "nav.group.diagnostics": "診断とデータ",
     "nav.group.support": "サポート",
     "settings.apiKeys": "APIキー",

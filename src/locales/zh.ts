@@ -398,7 +398,7 @@ export const zh = {
     "settings.main": "通用",
     "settings.jailbreaks": "越狱提示",
     "nav.group.general": "通用",
-    "nav.group.integration": "集成与 API",
+    "nav.group.integration": "集成与访问",
     "nav.group.diagnostics": "诊断与数据",
     "nav.group.support": "支持",
     "settings.apiKeys": "API 密钥",

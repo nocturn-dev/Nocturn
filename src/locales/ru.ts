@@ -381,7 +381,7 @@ export const ru = {
     "settings.main": "Основное",
     "settings.jailbreaks": "Джейлбрейки",
     "nav.group.general": "Основные",
-    "nav.group.integration": "Интеграция и API",
+    "nav.group.integration": "Интеграция и доступ",
     "nav.group.diagnostics": "Диагностика и данные",
     "nav.group.support": "Поддержка",
     "settings.apiKeys": "Ключи API",
