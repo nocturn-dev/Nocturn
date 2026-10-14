@@ -114,7 +114,7 @@ export default function SearchModal({
 
   return (
     <div
-      className="anim-fade fixed inset-0 z-[var(--halo-z-modal)] bg-black/40 p-4 backdrop-blur-sm"
+      className="anim-fade fixed inset-0 z-[var(--halo-z-modal)] bg-halo-scrim p-4 backdrop-blur-sm"
       onClick={onClose}
     >
       <div

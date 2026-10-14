@@ -62,7 +62,7 @@ export default function ContextMenu({ x, y, items, onClose }: ContextMenuProps) 
       >
         {items.map((item, i) => (
           <div key={i}>
-            {item.separator && <div className="my-1.5 h-px bg-white/5" />}
+            {item.separator && <div className="my-1.5 h-px bg-halo-hover" />}
             <button
               onClick={() => {
                 item.onSelect();
@@ -71,7 +71,7 @@ export default function ContextMenu({ x, y, items, onClose }: ContextMenuProps) 
               className={`w-full px-3.5 py-1.5 text-left text-[0.8125rem] transition-colors ${
                 item.danger
                   ? "text-red-400 hover:bg-red-500/10"
-                  : "text-halo-text hover:bg-white/5"
+                  : "text-halo-text hover:bg-halo-hover"
               }`}
             >
               {item.label}

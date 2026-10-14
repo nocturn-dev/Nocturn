@@ -45,6 +45,8 @@ html[data-mark="classic"] .nocturn-mark .mark-bold {
   --halo-on-accent: #ffffff; /* цвет контента ПОВЕРХ акцента (в Official — тёмный) */
   --halo-hover: rgba(255, 255, 255, 0.055);
   --halo-hover-strong: rgba(255, 255, 255, 0.085);
+  --halo-scrim: rgba(0, 0, 0, 0.5); /* затемнение под модалками */
+  --halo-scrim-soft: rgba(0, 0, 0, 0.3); /* лёгкий скрим внутри модального стека */
   --halo-scrollbar-thumb: rgba(255, 255, 255, 0.12);
   --halo-scrollbar-thumb-hover: rgba(255, 255, 255, 0.2);
   --halo-code-bg: #1a1918;
@@ -135,6 +137,14 @@ html.light {
   --radius-lg: calc(0.5rem * var(--halo-radius-scale, 1));
   --radius-xl: calc(0.75rem * var(--halo-radius-scale, 1));
   --radius-2xl: calc(1rem * var(--halo-radius-scale, 1));
+  /* Тени: единая лестница вместо дефолтного чёрного Tailwind — мягче и
+     короче, карточки не «вклеены» в экран. shadow-* утилиты читают эти
+     переменные, компоненты остаются на именованном масштабе */
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.14);
+  --shadow-md: 0 2px 8px rgb(0 0 0 / 0.18);
+  --shadow-lg: 0 4px 16px rgb(0 0 0 / 0.2);
+  --shadow-xl: 0 8px 28px rgb(0 0 0 / 0.26);
+  --shadow-2xl: 0 16px 48px rgb(0 0 0 / 0.32);
 }
 
 
@@ -162,6 +172,8 @@ html.light {
   --color-halo-on-accent: var(--halo-on-accent);
   --color-halo-hover: var(--halo-hover);
   --color-halo-hover-strong: var(--halo-hover-strong);
+  --color-halo-scrim: var(--halo-scrim);
+  --color-halo-scrim-soft: var(--halo-scrim-soft);
 }
 
 html,

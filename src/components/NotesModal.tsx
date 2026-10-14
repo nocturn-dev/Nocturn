@@ -90,7 +90,7 @@ export default function NotesModal({
 
   return (
     <div
-      className="anim-fade fixed inset-0 z-[var(--halo-z-modal)] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm"
+      className="anim-fade fixed inset-0 z-[var(--halo-z-modal)] flex items-center justify-center bg-halo-scrim p-4 backdrop-blur-sm"
       onClick={onClose}
     >
       <div

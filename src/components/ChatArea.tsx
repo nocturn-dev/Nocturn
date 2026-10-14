@@ -2181,7 +2181,7 @@ export default function ChatArea({
       {dragActive && (
         <div
           aria-hidden
-          className="anim-fade pointer-events-none fixed inset-0 z-[var(--halo-z-modal-top)] flex items-center justify-center bg-black/30"
+          className="anim-fade pointer-events-none fixed inset-0 z-[var(--halo-z-modal-top)] flex items-center justify-center bg-halo-scrim-soft"
         >
           <div className="anim-pop rounded-2xl border border-halo-accent/60 bg-halo-surface/95 px-6 py-4 text-sm font-medium text-halo-text shadow-2xl backdrop-blur-sm">
             {t("composer.dropFiles")}

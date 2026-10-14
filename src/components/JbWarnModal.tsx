@@ -17,7 +17,7 @@ export default function JbWarnModal({
 
   return (
     <div
-      className="fixed inset-0 z-[var(--halo-z-modal-top)] flex items-center justify-center bg-black/60 p-4"
+      className="fixed inset-0 z-[var(--halo-z-modal-top)] flex items-center justify-center bg-halo-scrim p-4"
       onClick={onCancel}
     >
       <div
