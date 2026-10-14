@@ -222,6 +222,7 @@ const NAV: {
     key: "nav.group.general",
     items: [
       { id: "main", key: "settings.main", icon: "gear" },
+      { id: "apiKeys", key: "settings.apiKeys", icon: "box" },
       { id: "profile", key: "settings.profile", icon: "users" },
       { id: "theme", key: "settings.themes", icon: "palette" },
       { id: "mascot", key: "settings.mascot", icon: "spark" },
@@ -248,7 +249,6 @@ const NAV: {
     id: "integration",
     key: "nav.group.integration",
     items: [
-      { id: "apiKeys", key: "settings.apiKeys", icon: "box" },
       { id: "integrations", key: "settings.integrations", icon: "spotify" },
       { id: "permissions", key: "settings.permissions", icon: "shield" },
     ],
