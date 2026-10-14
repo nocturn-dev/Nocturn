@@ -8,6 +8,7 @@ import { copyText } from "../clipboard";
 import { ACCENT_PRESETS } from "../appearance";
 import { useLang, type MsgKey, type Lang, type TFn } from "../locales";
 import NocturnMark from "./NocturnMark";
+import { Switch } from "./settings/parts";
 
 interface SidebarProps {
   sessions: Session[];
@@ -994,17 +995,12 @@ function Checkpoints({ root }: { root: string }) {
             {t("cp.gitJournalHint")}
           </span>
         </span>
-        <span
-          className={`relative h-4 w-7 shrink-0 rounded-full transition-colors ${
-            gitOn ? "bg-halo-accent" : "bg-halo-line"
-          }`}
-        >
-          <span
-            className={`absolute left-0.5 top-0.5 size-3 rounded-full bg-halo-on-accent transition-transform duration-200 ${
-              gitOn ? "translate-x-3" : "translate-x-0"
-            }`}
-          />
-        </span>
+        <Switch
+          size="mini"
+          on={gitOn}
+          onChange={toggleGit}
+          label={t("cp.gitJournal")}
+        />
       </button>
       {status && (
         <p className="py-1 text-[0.6875rem] text-emerald-400">{status}</p>

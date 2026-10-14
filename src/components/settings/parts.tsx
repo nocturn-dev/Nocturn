@@ -392,6 +392,53 @@ export function Segmented<T extends string>({
   );
 }
 
+/** Голый переключатель без строки: для плотных поверхностей, где анатомия
+ * Row избыточна. Слайд ручки — только transform (layout-анимация left
+ * гоняла reflow весь кадр) */
+export function Switch({
+  on,
+  onChange,
+  disabled,
+  size = "md",
+  label,
+}: {
+  on: boolean;
+  onChange: (v: boolean) => void;
+  disabled?: boolean;
+  size?: "mini" | "md" | "lg";
+  label?: string;
+}) {
+  const track = {
+    mini: "h-4 w-7",
+    md: "h-5 w-9",
+    lg: "h-6 w-11",
+  }[size];
+  const thumb = {
+    mini: "size-3 translate-x-3",
+    md: "size-4 translate-x-4",
+    lg: "size-5 translate-x-5",
+  }[size];
+  return (
+    <button
+      onClick={() => !disabled && onChange(!on)}
+      disabled={disabled}
+      role="switch"
+      aria-checked={on}
+      aria-label={label}
+      className={`relative shrink-0 rounded-full transition-colors duration-200 ${track} ${
+        on ? "bg-halo-accent" : "bg-halo-line"
+      } ${disabled ? "cursor-not-allowed opacity-50" : ""}`}
+    >
+      <span
+        className={`absolute left-0.5 top-0.5 rounded-full bg-halo-on-accent transition-transform duration-200 ease-[var(--ease-standard)] ${thumb} ${
+          on ? "" : "translate-x-0"
+        }`}
+      />
+    </button>
+  );
+}
+
+/** Строка с переключателем: Switch справа, текст слева */
 export function ToggleRow({
   label,
   desc,
@@ -435,26 +482,13 @@ export function ToggleRow({
           </span>
         )}
       </span>
-      <button
-        onClick={toggle}
+      <Switch
+        on={value}
+        onChange={toggle}
         disabled={disabled}
-        role="switch"
-        aria-checked={value}
-        aria-label={label}
-        className={`relative shrink-0 rounded-full transition-colors duration-200 ${
-          big ? "h-6 w-11" : "h-5 w-9"
-        } ${value ? "bg-halo-accent" : "bg-halo-line"} ${
-          disabled ? "cursor-not-allowed opacity-50" : ""
-        }`}
-      >
-        <span
-          // Слайд ручки через translate (transform), не через left:
-          // layout-анимация гоняла reflow весь кадр
-          className={`absolute top-0.5 left-0.5 rounded-full bg-halo-on-accent transition-transform duration-200 ease-[var(--ease-standard)] ${
-            big ? "size-5" : "size-4"
-          } ${value ? (big ? "translate-x-5" : "translate-x-4") : "translate-x-0"}`}
-        />
-      </button>
+        size={big ? "lg" : "md"}
+        label={label}
+      />
     </div>
   );
 }
