@@ -94,10 +94,12 @@ function artifactTitleFromHtml(html: string): string | null {
  *  активный акцент/25, неактивный прозрачный (толстые рамки громоздки) */
 const COMPOSER_CHIP =
   "flex h-7 shrink-0 items-center gap-1.5 rounded-lg border px-2 text-[0.6875rem] transition duration-150 disabled:cursor-not-allowed disabled:opacity-40";
-/* Строгий стиль: активный чип нейтральный (фон 6% белого, граница line),
-   акцент живёт только на кнопке отправки */
+/* Активный чип читается акцентом (включённый режим виден глазами с любого
+   расстояния), неактивный — нейтральный. Раньше активный был нейтральным
+   «6% белого» — в жёстких темах чипы неотличимо серели и акцент темы
+   не читался вовсе */
 const COMPOSER_CHIP_ON =
-  "border-halo-line/70 bg-halo-hover text-halo-text";
+  "border-halo-accent/40 bg-halo-accent/10 text-halo-accent";
 const COMPOSER_CHIP_OFF =
   "border-transparent text-halo-muted hover:bg-halo-hover hover:text-halo-text";
 
