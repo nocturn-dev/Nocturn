@@ -21,6 +21,7 @@ import { keepAwake } from "../api";
 import { useLang, type MsgKey } from "../locales";
 import { isWindows } from "../platform";
 import { XSmallIcon } from "./cards/icons";
+import { ToggleRow } from "./settings/parts";
 import {
   addOffPeakTask,
   loadOffPeak,
@@ -416,34 +417,15 @@ export default function AutomationsModal({
           )}
         </div>
 
-        {/* Не давать ПК уснуть. C4: вне Windows команда — no-op, честно
+        {/* Не давать ПК уснуть. Вне Windows команда — no-op, честно
             отключаем тумблер вместо молчаливой неработающей фичи */}
-        <div className="mt-4 flex items-center gap-3 rounded-xl border border-halo-line bg-halo-surface/30 px-4 py-3">
-          <span className="text-halo-muted"><InfoIcon /></span>
-          <div className="flex-1">
-            <p className="text-sm text-halo-muted">{t("auto.keepAwake")}</p>
-            {!isWindows() && (
-              <p className="text-[0.625rem] leading-relaxed text-halo-muted/60">
-                {t("auto.keepAwakeUnsupported")}
-              </p>
-            )}
-          </div>
-          <button
-            onClick={() => toggleKeepAwake(!keepAwakeOn)}
-            disabled={!isWindows()}
-            className={`relative h-5 w-9 shrink-0 rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
-              keepAwakeOn ? "bg-halo-accent" : "bg-halo-muted/30"
-            }`}
-          >
-            <span
-              // S8: слайд ручки через translate (transform), а не left —
-              // layout-анимация гоняла reflow весь кадр
-              className={`absolute top-0.5 left-0.5 size-4 rounded-full bg-halo-on-accent transition-transform ${
-                keepAwakeOn ? "translate-x-4" : "translate-x-0"
-              }`}
-            />
-          </button>
-        </div>
+        <ToggleRow
+          label={t("auto.keepAwake")}
+          desc={!isWindows() ? t("auto.keepAwakeUnsupported") : undefined}
+          disabled={!isWindows()}
+          on={keepAwakeOn}
+          onChange={toggleKeepAwake}
+        />
 
         {/* Идл-очередь (offpeak): задачи без расписания — исполняются, когда
             движок свободен и пользователя нет за клавиатурой */}
@@ -530,15 +512,6 @@ export default function AutomationsModal({
         </div>
       </div>
     </div>
-  );
-}
-
-function InfoIcon() {
-  return (
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
-      <circle cx="12" cy="12" r="9" />
-      <path d="M12 11v5 M12 8h.01" />
-    </svg>
   );
 }
 

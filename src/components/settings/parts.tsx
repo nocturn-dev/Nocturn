@@ -448,11 +448,11 @@ export function ToggleRow({
         }`}
       >
         <span
-          className={`absolute top-0.5 rounded-full bg-halo-on-accent transition-[left] duration-200 ease-[var(--ease-standard)] ${
+          // Слайд ручки через translate (transform), не через left:
+          // layout-анимация гоняла reflow весь кадр
+          className={`absolute top-0.5 left-0.5 rounded-full bg-halo-on-accent transition-transform duration-200 ease-[var(--ease-standard)] ${
             big ? "size-5" : "size-4"
-          } ${
-            value ? (big ? "left-[22px]" : "left-4.5") : "left-0.5"
-          }`}
+          } ${value ? (big ? "translate-x-5" : "translate-x-4") : "translate-x-0"}`}
         />
       </button>
     </div>
