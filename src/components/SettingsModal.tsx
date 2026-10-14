@@ -234,10 +234,12 @@ const NAV: {
     items: [
       { id: "memory", key: "settings.memory", icon: "brain" },
       { id: "prompts", key: "settings.prompts", icon: "skill" },
-      { id: "jailbreaks", key: "settings.jailbreaks", icon: "anchor" },
+      { id: "jailbreaks", key: "settings.jailbreaks", icon: "flask" },
       { id: "skills", key: "settings.skills", icon: "spark" },
-      { id: "subs", key: "settings.subagents", icon: "users" },
+      { id: "hooks", key: "settings.hooks", icon: "anchor" },
       { id: "plugins", key: "settings.plugins", icon: "grid" },
+      { id: "subs", key: "settings.subagents", icon: "users" },
+      { id: "commands", key: "settings.commands", icon: "command" },
       { id: "mcp", key: "settings.mcp", icon: "plug" },
       { id: "agent", key: "settings.agent", icon: "monitor" },
     ],
@@ -859,10 +861,13 @@ export default function SettingsModal({
           )}
           {/* MCP: серверы stdio и remote */}
           {section === "mcp" && <McpSection />}
-          {/* Agent: сильные инструменты с правами. Иерархия по референсу:
-              браузер → компьютер → веб-поиск → хуки (временно) → команды.
-              Allowlist-диагностика «Always for this task» удалена по решению
-              владельца (была склеена с командами, см. git-историю) */}
+          {/* Hooks: реестр и пресеты пяти событий */}
+          {section === "hooks" && <HooksSection />}
+          {/* Commands: свои slash-команды. Allowlist-диагностика «Always
+              for this task» удалена по решению владельца (см. git-историю) */}
+          {section === "commands" && <CommandsSection />}
+          {/* Agent: сильные инструменты с правами — браузер → компьютер →
+              веб-поиск. Остальные возможности агента живут своими пунктами */}
           {section === "agent" && (
             <>
               <BrowserUseSection />
@@ -871,12 +876,6 @@ export default function SettingsModal({
               </div>
               <div className="settings-part">
                 <WebSearchSection />
-              </div>
-              <div className="settings-part">
-                <HooksSection />
-              </div>
-              <div className="settings-part">
-                <CommandsSection />
               </div>
             </>
           )}

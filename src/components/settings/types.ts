@@ -50,9 +50,11 @@ export type SettingsPage =
   | "prompts"
   | "jailbreaks"
   | "skills"
+  | "hooks"
   | "subs"
   | "plugins"
   | "mcp"
+  | "commands"
   | "agent"
   | "apiKeys"
   | "integrations"
@@ -74,13 +76,13 @@ export const PAGE_FOR_SECTION: Record<Section, SettingsPage> = {
   memory: "memory",
   prompts: "prompts",
   skills: "skills",
+  hooks: "hooks",
   subagents: "subs",
   plugins: "plugins",
   mcp: "mcp",
+  commands: "commands",
   browser: "agent",
   computer: "agent",
-  hooks: "agent",
-  commands: "agent",
   api: "apiKeys",
   imagegen: "apiKeys",
   integrations: "integrations",
