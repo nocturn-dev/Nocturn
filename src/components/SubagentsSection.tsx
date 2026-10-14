@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { useLang } from "../locales";
 import { mergeRoles, type SubagentRole, type SubagentsConfig } from "../subagents";
-import { MiniTrashIcon, ToggleRow } from "./settings/parts";
+import { MiniTrashIcon, Row, Segmented, ToggleRow } from "./settings/parts";
 
 export default function SubagentsSection({
   config,
@@ -75,27 +75,22 @@ export default function SubagentsSection({
               />
             </div>
             <div className="mt-2.5 border-t border-halo-line/60 pt-3">
-              <p className="text-sm text-halo-text">{t("sub.maxParallel")}</p>
-              {/* Чипы 1-6 вместо числового поля: жёсткий потолок виден глазами,
-                  промахнуться мимо него нельзя — normalize в subagents.ts режет всё > 6 */}
-              <div className="mt-2 flex gap-1.5">
-                {[1, 2, 3, 4, 5, 6].map((n) => (
-                  <button
-                    key={n}
-                    onClick={() => onChange({ ...config, maxParallel: n })}
-                    className={`size-8 rounded-lg border text-xs transition-colors ${
-                      config.maxParallel === n
-                        ? "border-halo-accent/50 bg-halo-accent/10 font-medium text-halo-accent"
-                        : "border-halo-line text-halo-muted hover:text-halo-text"
-                    }`}
-                  >
-                    {n}
-                  </button>
-                ))}
-              </div>
-              <p className="mt-2 text-[0.625rem] leading-snug text-halo-muted/70">
-                {t("sub.maxParallelHint")}
-              </p>
+              <Row
+                label={t("sub.maxParallel")}
+                desc={t("sub.maxParallelHint")}
+                // Чипы 1-6 вместо числового поля: жёсткий потолок виден глазами,
+                // промахнуться мимо него нельзя — normalize в subagents.ts режет всё > 6
+                extra={
+                  <Segmented
+                    value={String(config.maxParallel)}
+                    onChange={(v) => onChange({ ...config, maxParallel: Number(v) })}
+                    options={[1, 2, 3, 4, 5, 6].map((n) => ({
+                      value: String(n),
+                      label: String(n),
+                    }))}
+                  />
+                }
+              />
             </div>
           </>
         )}
