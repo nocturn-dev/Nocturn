@@ -1,7 +1,7 @@
 import { useLang, type MsgKey } from "../../locales";
 import { Nok } from "../mascot/Nok";
 import { NOK_ROWS } from "../mascot/nokSprites";
-import { ToggleRow } from "./parts";
+import { Segmented, ToggleRow } from "./parts";
 
 /**
  * Секция «Маскот»: живая карточка с настоящим Ноком (клики
@@ -62,12 +62,6 @@ export function MascotSection({
 }) {
   const { t } = useLang();
   const displayName = mascotName.trim() || t("mascot.name");
-  const segBtn = (active: boolean) =>
-    `rounded-lg border px-2.5 py-1 text-xs transition-colors ${
-      active
-        ? "border-halo-accent/50 bg-halo-accent/10 text-halo-accent"
-        : "border-halo-line text-halo-muted hover:text-halo-text"
-    }`;
   const colorRow = (part: "body" | "glow" | "wing", key: MsgKey) => (
     <div className="flex items-center justify-between gap-2">
       <span className="text-sm text-halo-text">{t(key)}</span>
@@ -175,24 +169,28 @@ export function MascotSection({
 
         <div className="mb-2.5 rounded-xl border border-halo-line px-3.5 py-3">
           <p className="text-sm text-halo-text">{t("mascot.size")}</p>
-          <div className="mt-2 flex gap-1.5">
-            {SIZES.map((v, i) => (
-              <button key={v} onClick={() => onSizeChange(v)} className={segBtn(size === v)}>
-                {t(i === 0 ? "mascot.sizeS" : i === 1 ? "mascot.sizeM" : "mascot.sizeL")}
-              </button>
-            ))}
-          </div>
+          <Segmented
+            className="mt-2"
+            value={String(size) as "0.8" | "1" | "1.3"}
+            onChange={(v) => onSizeChange(Number(v))}
+            options={SIZES.map((v, i) => ({
+              value: String(v) as "0.8" | "1" | "1.3",
+              label: t(i === 0 ? "mascot.sizeS" : i === 1 ? "mascot.sizeM" : "mascot.sizeL"),
+            }))}
+          />
         </div>
 
         <div className="mb-2.5 rounded-xl border border-halo-line px-3.5 py-3">
           <p className="text-sm text-halo-text">{t("mascot.glow")}</p>
-          <div className="mt-2 flex gap-1.5">
-            {GLOWS.map((v, i) => (
-              <button key={v} onClick={() => onGlowChange(v)} className={segBtn(glow === v)}>
-                {t(i === 0 ? "mascot.glowDim" : i === 1 ? "mascot.glowNormal" : "mascot.glowBright")}
-              </button>
-            ))}
-          </div>
+          <Segmented
+            className="mt-2"
+            value={String(glow) as "0.7" | "1" | "1.5"}
+            onChange={(v) => onGlowChange(Number(v))}
+            options={GLOWS.map((v, i) => ({
+              value: String(v) as "0.7" | "1" | "1.5",
+              label: t(i === 0 ? "mascot.glowDim" : i === 1 ? "mascot.glowNormal" : "mascot.glowBright"),
+            }))}
+          />
         </div>
 
         {/* Раскраска по частям: пусто — токены темы */}

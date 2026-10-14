@@ -35,6 +35,7 @@ import {
   type StylePalette,
 } from "../../themeStyles";
 import { isWindows } from "../../platform";
+import { Segmented } from "./parts";
 import { registerCustomFonts, UI_FONT_PRESETS, MONO_FONT_PRESETS } from "../../fonts";
 import { CODE_THEMES, CODE_THEME_IDS } from "../../codeThemes";
 import { TERMINAL_PALETTES } from "../../vt";
@@ -2029,25 +2030,15 @@ export function ThemeSection({
           {t("themes.motionSpeedDesc")}
         </p>
         <div className="mt-2 flex flex-wrap gap-1.5">
-          {(
-            [
-              [0.7, "themes.motionFast"],
-              [1, "themes.motionNormal"],
-              [1.4, "themes.motionSmooth"],
-            ] as const
-          ).map(([scale, key]) => (
-            <button
-              key={key}
-              onClick={() => onAppearanceChange({ ...appearance, motionScale: scale })}
-              className={`rounded-md border px-2.5 py-1 text-xs transition-colors ${
-                (appearance.motionScale ?? 1) === scale
-                  ? "border-halo-accent/60 bg-halo-accent/10 text-halo-accent"
-                  : "border-halo-line text-halo-muted hover:text-halo-text"
-              }`}
-            >
-              {t(key)}
-            </button>
-          ))}
+          <Segmented
+            value={String(appearance.motionScale ?? 1) as "0.7" | "1" | "1.4"}
+            onChange={(v) => onAppearanceChange({ ...appearance, motionScale: Number(v) as 0.7 | 1 | 1.4 })}
+            options={[
+              { value: "0.7", label: t("themes.motionFast") },
+              { value: "1", label: t("themes.motionNormal") },
+              { value: "1.4", label: t("themes.motionSmooth") },
+            ]}
+          />
         </div>
       </div>
 

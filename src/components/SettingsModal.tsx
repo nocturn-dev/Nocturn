@@ -38,7 +38,7 @@ import { MascotSection } from "./settings/MascotSection";
 import { PromptsSection } from "./settings/AgentSection";
 import { JailbreaksCard } from "./settings/JailbreaksCard";
 import { ApiSection } from "./settings/ApiSection";
-import { SectionIcon, ExpandWinIcon, CollapseWinIcon, XIcon } from "./settings/parts";
+import { SectionIcon, ExpandWinIcon, CollapseWinIcon, XIcon, Segmented } from "./settings/parts";
 import type { Section, ApiStatus } from "./settings/types";
 import { PAGE_FOR_SECTION, type SettingsPage } from "./settings/types";
 import type { Appearance } from "../appearance";
@@ -657,26 +657,15 @@ export default function SettingsModal({
               placeholder={t("settings.searchPh")}
               className="w-full rounded-lg border border-halo-line bg-halo-surface px-2.5 py-1.5 text-xs text-halo-text outline-none transition-colors placeholder:text-halo-muted/60 focus:border-halo-accent/60"
             />
-            <div className="mt-1.5 flex gap-1">
-              {(
-                [
-                  ["all", "settings.searchAll"],
-                  ["custom", "settings.searchCustom"],
-                ] as const
-              ).map(([id, key]) => (
-                <button
-                  key={id}
-                  onClick={() => setSearchScope(id)}
-                  className={`rounded-md border px-2 py-0.5 text-[0.625rem] transition-colors ${
-                    searchScope === id
-                      ? "border-halo-accent/50 bg-halo-accent/10 text-halo-accent"
-                      : "border-halo-line text-halo-muted hover:text-halo-text"
-                  }`}
-                >
-                  {t(key)}
-                </button>
-              ))}
-            </div>
+            <Segmented
+              className="mt-1.5"
+              value={searchScope}
+              onChange={setSearchScope}
+              options={[
+                { value: "all", label: t("settings.searchAll") },
+                { value: "custom", label: t("settings.searchCustom") },
+              ]}
+            />
           </div>
           {searchResults !== null ? (
             <div className="scroll-slim min-h-0 flex-1 overflow-y-auto pr-0.5">

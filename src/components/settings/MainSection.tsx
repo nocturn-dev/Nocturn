@@ -12,7 +12,7 @@ import type { WakeModel } from "../../voice/wake";
 import { parseChatGptExport, parseGeminiExport } from "../../external/importChats";
 import type { Session } from "../../types";
 import { quickentryComboFromEvent, prettyQuickentryCombo } from "../../shortcuts";
-import { Dropdown, LangSwitch, Row, ToggleRow } from "./parts";
+import { Dropdown, LangSwitch, Row, Segmented, ToggleRow } from "./parts";
 import { isWindows } from "../../platform";
 import { XSmallIcon } from "../cards/icons";
 
@@ -507,27 +507,17 @@ export function MainSection({
       <Group title={t("main.g2")} desc={t("main.g2Desc")}>
       {/* Вид ленты по умолчанию: normal — только ответы, thinking —
           раскрывать размышления, verbose — плюс сообщения пользователя */}
-      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-halo-line bg-halo-surface/40 px-3 py-2.5">
-        <span className="text-xs text-halo-muted">{t("main.view")}:</span>
-        {(
-          [
-            ["normal", "main.viewNormal"],
-            ["thinking", "main.viewThinking"],
-            ["verbose", "main.viewVerbose"],
-          ] as const
-        ).map(([v, key]) => (
-          <button
-            key={v}
-            onClick={() => changeTranscriptView(v)}
-            className={`rounded-md border px-2.5 py-1 text-xs transition-colors ${
-              transcriptView === v
-                ? "border-halo-accent/60 bg-halo-accent/10 text-halo-accent"
-                : "border-halo-line text-halo-muted hover:text-halo-text"
-            }`}
-          >
-            {t(key)}
-          </button>
-        ))}
+      <div className="flex items-center justify-between gap-4 border-b border-halo-line/60 px-2.5 py-3 text-sm last:border-b-0">
+        <span className="text-xs text-halo-muted">{t("main.view")}</span>
+        <Segmented
+          value={transcriptView}
+          onChange={changeTranscriptView}
+          options={[
+            { value: "normal", label: t("main.viewNormal") },
+            { value: "thinking", label: t("main.viewThinking") },
+            { value: "verbose", label: t("main.viewVerbose") },
+          ]}
+        />
       </div>
       <ToggleRow
         label={t("main.showReasoning")}
@@ -567,27 +557,17 @@ export function MainSection({
       />
       {/* Скорость плавной печати: множитель догоняющего темпа карточки */}
       {streamSmooth && (
-        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-halo-line bg-halo-surface/40 px-3 py-2.5">
-          <span className="text-xs text-halo-muted">{t("main.printSpeed")}:</span>
-          {(
-            [
-              [0.5, "main.printSlow"],
-              [1, "main.printNormal"],
-              [2, "main.printFast"],
-            ] as const
-          ).map(([v, key]) => (
-            <button
-              key={key}
-              onClick={() => onPrintSpeedChange(v)}
-              className={`rounded-md border px-2.5 py-1 text-xs transition-colors ${
-                printSpeed === v
-                  ? "border-halo-accent/60 bg-halo-accent/10 text-halo-accent"
-                  : "border-halo-line text-halo-muted hover:text-halo-text"
-              }`}
-            >
-              {t(key)}
-            </button>
-          ))}
+        <div className="flex items-center justify-between gap-4 border-b border-halo-line/60 px-2.5 py-3 text-sm last:border-b-0">
+          <span className="text-xs text-halo-muted">{t("main.printSpeed")}</span>
+          <Segmented
+            value={String(printSpeed) as "0.5" | "1" | "2"}
+            onChange={(v) => onPrintSpeedChange(Number(v) as 0.5 | 1 | 2)}
+            options={[
+              { value: "0.5", label: t("main.printSlow") },
+              { value: "1", label: t("main.printNormal") },
+              { value: "2", label: t("main.printFast") },
+            ]}
+          />
         </div>
       )}
       <ToggleRow
