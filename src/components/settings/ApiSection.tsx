@@ -33,7 +33,6 @@ export function ApiSection({
   onSave,
   onRescanLocal,
   onUseLocalModel,
-  onOpenGgufLab,
 }: {
   settings: ApiSettings;
   status: ApiStatus;
@@ -49,7 +48,6 @@ export function ApiSection({
   onSave: () => Promise<void>;
   onRescanLocal: () => void;
   onUseLocalModel: (id: string, runtime: LocalRuntime) => void;
-  onOpenGgufLab: () => void;
 }) {
   // Импорт provider-конфига Codex-стиля (config.toml и подобные, волна
   // «такие API»): парс в Rust, подстановка в текущие настройки
@@ -621,20 +619,6 @@ export function ApiSection({
           </div>
         )}
       </div>
-
-      {/* GGUF Lab: тихий вход — не бросается в глаза, но не пропустить */}
-      <button
-        onClick={onOpenGgufLab}
-        className="mb-4 flex w-full items-center gap-2 rounded-lg border border-halo-line px-3 py-2 text-left transition-colors hover:bg-halo-hover"
-      >
-        <span className="text-sm font-medium text-halo-text">
-          {t("ggufLab.entry")}
-        </span>
-        <span className="min-w-0 flex-1 truncate text-[0.6875rem] text-halo-muted">
-          {t("ggufLab.entryDesc")}
-        </span>
-        <span className="shrink-0 text-halo-muted">›</span>
-      </button>
 
       {/* Локальный движок Colibri (coli serve): запуск прямо из приложения */}
       <div className="mb-4 rounded-xl border border-halo-line p-3">

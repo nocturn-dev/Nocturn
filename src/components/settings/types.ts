@@ -62,6 +62,8 @@ export type SettingsPage =
   | "network"
   | "reflect"
   | "lsp"
+  | "rest"
+  | "gguf"
   | "docs";
 
 /** Старый Section → страница, на которой теперь живёт его блок.
@@ -86,10 +88,10 @@ export const PAGE_FOR_SECTION: Record<Section, SettingsPage> = {
   api: "apiKeys",
   imagegen: "apiKeys",
   integrations: "integrations",
-  rest: "integrations",
   permissions: "permissions",
   network: "network",
   reflect: "reflect",
   lsp: "lsp",
+  rest: "rest",
   docs: "docs",
 };

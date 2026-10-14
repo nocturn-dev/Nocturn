@@ -237,11 +237,23 @@ export default function PluginsSection({
         </div>
       )}
 
-      <div className="mt-4 space-y-1.5">
+      <div className="mt-4 space-y-2">
         {plugins.length === 0 && (
-          <p className="rounded-lg border border-dashed border-halo-line bg-halo-surface/40 px-3 py-6 text-center text-xs text-halo-muted">
-            {t("plug.empty")}
-          </p>
+          <div className="rounded-xl border border-dashed border-halo-line bg-halo-surface/40 px-6 py-8 text-center">
+            <p className="text-sm font-medium text-halo-text">{t("plug.emptyTitle")}</p>
+            <p className="mx-auto mt-2 max-w-md text-xs leading-relaxed text-halo-muted">
+              {t("plug.emptyBody")}
+            </p>
+            <p className="mx-auto mt-2 max-w-md text-xs leading-relaxed text-halo-muted/70">
+              {t("plug.emptyWhat")}
+            </p>
+            <button
+              onClick={() => void pickAndRead()}
+              className="mt-4 rounded-lg bg-halo-accent px-4 py-1.5 text-sm font-medium text-halo-on-accent transition-colors hover:bg-halo-accent-deep"
+            >
+              {t("plug.import")}
+            </button>
+          </div>
         )}
         {plugins.map((p) => (
           <div

@@ -188,10 +188,12 @@ export function builtinJailbreaksFor(lang: Lang): JailbreakEntry[] {
 
 /** Все записи для пикеров: свои поверх встроенных (порядок выбора) */
 export function allJailbreaksFor(
-  lang: Lang,
+  _lang: Lang,
   userEntries: JailbreakEntry[],
 ): JailbreakEntry[] {
-  return [...userEntries, ...builtinJailbreaksFor(lang)];
+  // Встроенные пресеты удалены по решению владельца: библиотека наполняется
+  // руками; сигнатура с lang сохранена ради потребителей
+  return [...userEntries];
 }
 
 // ---------- Умный поиск (чистые функции — тесты и два потребителя) ----------

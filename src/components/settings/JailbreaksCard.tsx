@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useLang } from "../../locales";
 import {
-  builtinJailbreaksFor,
   jbModelFacets,
   jbYearFacets,
   jbWarnSuppressed,
@@ -43,7 +42,7 @@ export function JailbreaksCard({
    * настроек не виден (z-toast ниже z-modal) */
   onApply: (entry: JailbreakEntry) => "task" | "new";
 }) {
-  const { t, lang } = useLang();
+  const { t } = useLang();
   const [name, setName] = useState("");
   const [model, setModel] = useState("");
   const [year, setYear] = useState("");
@@ -151,21 +150,6 @@ export function JailbreaksCard({
     setEditingId(null);
   };
 
-  const builtins = builtinJailbreaksFor(lang);
-
-  const copyBuiltin = (b: JailbreakEntry) => {
-    const now = Date.now();
-    onChange([
-      ...entries,
-      {
-        ...b,
-        id: crypto.randomUUID(),
-        createdAt: now,
-        updatedAt: now,
-      },
-    ]);
-  };
-
   const draftFields = (
     nameV: string,
     setNameV: (v: string) => void,
@@ -212,7 +196,7 @@ export function JailbreaksCard({
     </>
   );
 
-  const entryRow = (e: JailbreakEntry, builtin: boolean) =>
+  const entryRow = (e: JailbreakEntry) =>
     editingId === e.id ? (
       <div
         key={e.id}
@@ -265,17 +249,10 @@ export function JailbreaksCard({
           </p>
         </div>
         <div className="flex shrink-0 items-start gap-0.5">
-          {builtin ? (
-            <button
-              onClick={() => copyBuiltin(e)}
-              title={t("jb.builtinCopy")}
-              className="rounded-md border border-halo-line px-2 py-1 text-[0.625rem] text-halo-muted transition-colors hover:border-halo-accent/50 hover:text-halo-text"
-            >
-              {t("jb.builtinCopy")}
-            </button>
-          ) : (
-            <>
-              <button
+          {(() => {
+            return (
+              <>
+                <button
                 onClick={() => {
                   if (jbWarnSuppressed()) {
                     setAppliedMsg(
@@ -307,28 +284,21 @@ export function JailbreaksCard({
               >
                 <MiniTrashIcon />
               </button>
-            </>
-          )}
+              </>
+            );
+          })()}
         </div>
       </div>
     );
 
   return (
-    <div className="mt-6">
+    <div>
       <h3 className="mb-1 text-sm font-semibold text-halo-text">
         {t("jb.title")}
       </h3>
       <p className="mb-3 text-xs leading-relaxed text-halo-muted">
         {t("jb.desc")}
       </p>
-
-      {/* Встроенные пресеты-образцы: только копирование, не редактируются */}
-      <p className="mb-2 text-xs font-medium text-halo-muted">
-        {t("jb.builtinTitle")}
-      </p>
-      <div className="mb-4 space-y-2">
-        {builtins.map((b) => entryRow(b, true))}
-      </div>
 
       <p className="mb-2 text-xs font-medium text-halo-muted">
         {t("jb.ownTitle")}
@@ -391,7 +361,7 @@ export function JailbreaksCard({
             {t("jb.searchEmpty")}
           </p>
         ) : (
-          shown.map((e) => entryRow(e, false))
+          shown.map((e) => entryRow(e))
         )}
         {results.length > visible && (
           <button

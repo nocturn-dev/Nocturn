@@ -7,6 +7,7 @@ export function DocsSection() {
     { title: "docs.agent.title", body: "docs.agent.body" },
     { title: "docs.terminal.title", body: "docs.terminal.body" },
     { title: "docs.notes.title", body: "docs.notes.body" },
+    { title: "docs.plugins.title", body: "docs.plugins.body" },
     { title: "docs.customize.title", body: "docs.customize.body" },
     { title: "docs.keys.title", body: "docs.keys.body" },
   ];

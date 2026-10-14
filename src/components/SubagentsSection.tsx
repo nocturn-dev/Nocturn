@@ -57,7 +57,8 @@ export default function SubagentsSection({
         {t("sub.desc")}
       </p>
 
-      <div className="space-y-1.5">
+      {/* Поведение: одной карточкой — тумблеры и лимит параллельности */}
+      <div className="rounded-xl border border-halo-line bg-halo-surface/40 px-3.5 py-2.5">
         <ToggleRow
           label={t("sub.enabled")}
           on={config.enabled}
@@ -66,28 +67,35 @@ export default function SubagentsSection({
         {config.enabled && (
           <>
             {/* Автономность: выключена — каждый запуск субагента подтверждается */}
-            <ToggleRow
-              label={t("sub.autonomous")}
-              on={config.autonomous}
-              onChange={(v) => onChange({ ...config, autonomous: v })}
-            />
-            <div className="flex items-center gap-3 rounded-lg border border-halo-line bg-halo-surface/40 px-3 py-2.5">
-              <span className="min-w-0 flex-1 text-xs text-halo-muted">
-                {t("sub.maxParallel")}
-              </span>
-              <input
-                type="number"
-                min={1}
-                max={6}
-                value={config.maxParallel}
-                onChange={(e) =>
-                  onChange({
-                    ...config,
-                    maxParallel: Math.max(1, Math.min(6, Number(e.target.value) || 1)),
-                  })
-                }
-                className="w-16 shrink-0 rounded-lg border border-halo-line bg-halo-surface px-2 py-1.5 text-center text-xs text-halo-text outline-none focus:border-halo-accent/60"
+            <div className="mt-1.5">
+              <ToggleRow
+                label={t("sub.autonomous")}
+                on={config.autonomous}
+                onChange={(v) => onChange({ ...config, autonomous: v })}
               />
+            </div>
+            <div className="mt-2.5 border-t border-halo-line/60 pt-3">
+              <p className="text-sm text-halo-text">{t("sub.maxParallel")}</p>
+              {/* Чипы 1-6 вместо числового поля: жёсткий потолок виден глазами,
+                  промахнуться мимо него нельзя — normalize в subagents.ts режет всё > 6 */}
+              <div className="mt-2 flex gap-1.5">
+                {[1, 2, 3, 4, 5, 6].map((n) => (
+                  <button
+                    key={n}
+                    onClick={() => onChange({ ...config, maxParallel: n })}
+                    className={`size-8 rounded-lg border text-xs transition-colors ${
+                      config.maxParallel === n
+                        ? "border-halo-accent/50 bg-halo-accent/10 font-medium text-halo-accent"
+                        : "border-halo-line text-halo-muted hover:text-halo-text"
+                    }`}
+                  >
+                    {n}
+                  </button>
+                ))}
+              </div>
+              <p className="mt-2 text-[0.625rem] leading-snug text-halo-muted/70">
+                {t("sub.maxParallelHint")}
+              </p>
             </div>
           </>
         )}
@@ -95,35 +103,40 @@ export default function SubagentsSection({
 
       {config.enabled && (
         <>
-          <p className="mb-2 mt-5 text-xs font-medium text-halo-muted">
+          <p className="mb-2 mt-5 text-xs font-medium uppercase tracking-wider text-halo-muted/60">
             {t("sub.roles")}
           </p>
-          <div className="space-y-1.5">
+          <div className="space-y-2">
             {roles.map((r) => {
               const isEditing = editing === r.id;
               const isCustom = storedIds.has(r.id) && !builtinIds.has(r.id);
               return (
                 <div
                   key={r.id}
-                  className="rounded-lg border border-halo-line bg-halo-surface/50 px-3 py-2.5"
+                  className={`rounded-xl border px-3.5 py-3 transition-colors ${
+                    isEditing
+                      ? "border-halo-accent/40 bg-halo-surface/70"
+                      : "border-halo-line bg-halo-surface/50"
+                  }`}
                 >
-                  <div className="flex items-center gap-2">
-                    <code className="shrink-0 rounded bg-halo-muted/10 px-1.5 py-0.5 font-mono text-[0.6875rem] text-halo-accent">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <code className="shrink-0 rounded-md bg-halo-muted/10 px-2 py-0.5 font-mono text-[0.6875rem] text-halo-accent">
                       {r.id}
                     </code>
-                    <span className="min-w-0 flex-1 truncate text-xs text-halo-muted">
-                      {lang === "ru" ? r.desc?.ru ?? "" : r.desc?.en ?? ""}
-                    </span>
                     {storedIds.has(r.id) && (
-                      <span className="shrink-0 text-[0.625rem] text-halo-muted/60">
+                      <span className="shrink-0 rounded bg-halo-accent/10 px-1.5 py-0.5 text-[0.625rem] text-halo-accent">
                         {t("sub.edited")}
                       </span>
                     )}
-                    {pluginIds?.has(r.id) ? (
-                      <span className="shrink-0 text-[0.625rem] text-halo-muted/50">
+                    {pluginIds?.has(r.id) && (
+                      <span className="shrink-0 rounded bg-halo-surface/70 px-1.5 py-0.5 text-[0.625rem] text-halo-muted">
                         {t("sub.fromPlugin")}
                       </span>
-                    ) : (
+                    )}
+                    <span className="min-w-0 flex-1 basis-48 truncate text-xs leading-relaxed text-halo-muted">
+                      {lang === "ru" ? r.desc?.ru ?? "" : r.desc?.en ?? ""}
+                    </span>
+                    {pluginIds?.has(r.id) ? null : (
                       <button
                         onClick={() => setEditing(isEditing ? null : r.id)}
                         className="shrink-0 rounded-md border border-halo-line px-2 py-0.5 text-[0.625rem] text-halo-muted transition-colors hover:border-halo-accent/50 hover:text-halo-accent"
@@ -212,14 +225,12 @@ export default function SubagentsSection({
               );
             })}
           </div>
-          <div className="mt-3">
-            <button
-              onClick={addRole}
-              className="text-xs text-halo-muted transition-colors hover:text-halo-accent"
-            >
-              + {t("sub.addRole")}
-            </button>
-          </div>
+          <button
+            onClick={addRole}
+            className="mt-3 w-full rounded-xl border border-dashed border-halo-line px-3 py-2.5 text-xs text-halo-muted transition-colors hover:border-halo-accent/50 hover:text-halo-accent"
+          >
+            + {t("sub.addRole")}
+          </button>
         </>
       )}
     </div>

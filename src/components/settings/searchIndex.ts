@@ -189,7 +189,6 @@ export const SETTINGS_SEARCH_INDEX: { section: Section; keys: MsgKey[] }[] = [
       "prompts.empty",
       "jb.title",
       "jb.desc",
-      "jb.builtinTitle",
       "jb.ownTitle",
       "jb.empty",
       "jb.add",

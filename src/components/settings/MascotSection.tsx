@@ -130,58 +130,14 @@ export function MascotSection({
         </p>
       </div>
 
-      {/* Кастомное имя: пусто — локализованное «Нок»; реплики с {name}
-          подставляют его (quip.after, лор) */}
-      <div className="mb-2.5 rounded-xl border border-halo-line px-3.5 py-3">
-        <p className="text-sm text-halo-text">{t("mascot.nameLabel")}</p>
-        <input
-          value={mascotName}
-          onChange={(e) => onNameChange(e.target.value)}
-          placeholder={t("mascot.name")}
-          maxLength={24}
-          className="mt-2 w-full rounded-lg border border-halo-line bg-halo-surface px-2.5 py-1.5 text-xs text-halo-text outline-none transition-colors placeholder:text-halo-muted/60 focus:border-halo-accent/60"
-        />
-        <p className="mt-1 text-[0.625rem] leading-snug text-halo-muted/70">
-          {t("mascot.nameHint")}
-        </p>
-      </div>
+      {/* Поведение — сразу под «Nok is here»: пасхалки и самодеятельность */}
       <ToggleRow
         label={t("mascot.enabled")}
         desc={t("mascot.enabledDesc")}
         on={mascot}
         onChange={onMascotChange}
       />
-
-      <div className="mt-2.5 rounded-xl border border-halo-line px-3.5 py-3">
-        <p className="text-sm text-halo-text">{t("mascot.size")}</p>
-        <div className="mt-2 flex gap-1.5">
-          {SIZES.map((v, i) => (
-            <button key={v} onClick={() => onSizeChange(v)} className={segBtn(size === v)}>
-              {t(i === 0 ? "mascot.sizeS" : i === 1 ? "mascot.sizeM" : "mascot.sizeL")}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div className="mt-2.5 rounded-xl border border-halo-line px-3.5 py-3">
-        <p className="text-sm text-halo-text">{t("mascot.glow")}</p>
-        <div className="mt-2 flex gap-1.5">
-          {GLOWS.map((v, i) => (
-            <button key={v} onClick={() => onGlowChange(v)} className={segBtn(glow === v)}>
-              {t(i === 0 ? "mascot.glowDim" : i === 1 ? "mascot.glowNormal" : "mascot.glowBright")}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Раскраска по частям: пусто — токены темы */}
-      <div className="mt-2.5 space-y-2.5 rounded-xl border border-halo-line px-3.5 py-3">
-        {colorRow("body", "mascot.colorBody")}
-        {colorRow("glow", "mascot.colorGlow")}
-        {colorRow("wing", "mascot.colorWing")}
-      </div>
-
-      <div className="mt-2.5">
+      <div className="mt-1.5">
         <ToggleRow
           label={t("mascot.easter")}
           desc={t("mascot.easterDesc")}
@@ -189,13 +145,62 @@ export function MascotSection({
           onChange={onEasterChange}
         />
       </div>
-      <div className="mt-2.5">
+      <div className="mt-1.5">
         <ToggleRow
           label={t("mascot.self")}
           desc={t("mascot.selfDesc")}
           on={selfActivity}
           onChange={onSelfActivityChange}
         />
+      </div>
+
+      {/* Крупные плашки внешности — вниз: имя, размер, свечение, раскраска */}
+      <div className="mt-5 border-t border-halo-line pt-4">
+        <p className="mb-2.5 text-xs font-medium uppercase tracking-wider text-halo-muted/60">
+          {t("mascot.appearance")}
+        </p>
+        <div className="mb-2.5 rounded-xl border border-halo-line px-3.5 py-3">
+          <p className="text-sm text-halo-text">{t("mascot.nameLabel")}</p>
+          <input
+            value={mascotName}
+            onChange={(e) => onNameChange(e.target.value)}
+            placeholder={t("mascot.name")}
+            maxLength={24}
+            className="mt-2 w-full rounded-lg border border-halo-line bg-halo-surface px-2.5 py-1.5 text-xs text-halo-text outline-none transition-colors placeholder:text-halo-muted/60 focus:border-halo-accent/60"
+          />
+          <p className="mt-1 text-[0.625rem] leading-snug text-halo-muted/70">
+            {t("mascot.nameHint")}
+          </p>
+        </div>
+
+        <div className="mb-2.5 rounded-xl border border-halo-line px-3.5 py-3">
+          <p className="text-sm text-halo-text">{t("mascot.size")}</p>
+          <div className="mt-2 flex gap-1.5">
+            {SIZES.map((v, i) => (
+              <button key={v} onClick={() => onSizeChange(v)} className={segBtn(size === v)}>
+                {t(i === 0 ? "mascot.sizeS" : i === 1 ? "mascot.sizeM" : "mascot.sizeL")}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="mb-2.5 rounded-xl border border-halo-line px-3.5 py-3">
+          <p className="text-sm text-halo-text">{t("mascot.glow")}</p>
+          <div className="mt-2 flex gap-1.5">
+            {GLOWS.map((v, i) => (
+              <button key={v} onClick={() => onGlowChange(v)} className={segBtn(glow === v)}>
+                {t(i === 0 ? "mascot.glowDim" : i === 1 ? "mascot.glowNormal" : "mascot.glowBright")}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Раскраска по частям: пусто — токены темы */}
+        <div className="space-y-2.5 rounded-xl border border-halo-line px-3.5 py-3">
+          {colorRow("body", "mascot.colorBody")}
+          {colorRow("glow", "mascot.colorGlow")}
+          {colorRow("wing", "mascot.colorWing")}
+        </div>
       </div>
     </div>
   );

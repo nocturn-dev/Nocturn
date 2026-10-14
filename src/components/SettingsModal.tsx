@@ -260,6 +260,8 @@ const NAV: {
       { id: "reflect", key: "settings.reflect", icon: "chart" },
       { id: "network", key: "settings.network", icon: "globe" },
       { id: "lsp", key: "settings.lsp", icon: "terminal" },
+      { id: "rest", key: "settings.rest", icon: "gamepad" },
+      { id: "gguf", key: "ggufLab.entry", icon: "box" },
     ],
   },
   {
@@ -866,13 +868,14 @@ export default function SettingsModal({
           {/* Commands: свои slash-команды. Allowlist-диагностика «Always
               for this task» удалена по решению владельца (см. git-историю) */}
           {section === "commands" && <CommandsSection />}
-          {/* Agent: сильные инструменты с правами — браузер → компьютер →
-              веб-поиск. Остальные возможности агента живут своими пунктами */}
+          {/* Agent: сильные инструменты с правами. Порядок по референсу:
+              Computer Use → Browser Use → Web search (каждый — свой блок
+              с одним разделителем) */}
           {section === "agent" && (
             <>
-              <BrowserUseSection />
+              <ComputerUseSection />
               <div className="settings-part">
-                <ComputerUseSection />
+                <BrowserUseSection />
               </div>
               <div className="settings-part">
                 <WebSearchSection />
@@ -897,39 +900,34 @@ export default function SettingsModal({
                 onSave={onSaveSettings}
                 onRescanLocal={onRescanLocal}
                 onUseLocalModel={onUseLocalModel}
-                onOpenGgufLab={onOpenGgufLab}
               />
-              <div className="settings-part">
+              {/* Отступ больше стандартного: Image gen — визуально отдельная
+                  тема после плотного блока подключения */}
+              <div className="settings-part" style={{ marginTop: "3rem" }}>
                 <ImageGenSection />
               </div>
             </>
           )}
-          {section === "integrations" && (
-            <>
-              {/* Единоразовое предупреждение «Локальный хардкор»: пока не принято
-                  (сессия) или пока не отмечено «не показывать» (навсегда) */}
-              {mediaWarnAccepted || mediaWarnAcceptedRef.current ? (
-                <IntegrationsSection
-                  mediaPrefs={mediaPrefs}
-                  onMediaPrefsChange={onMediaPrefsChange}
-                />
-              ) : (
-                <IntegrationWarning
-                  onAccept={(dontShow) => {
-                    if (dontShow) {
-                      saveMediaAccepted();
-                      mediaWarnAcceptedRef.current = true;
-                    }
-                    setMediaWarnAccepted(true);
-                  }}
-                  onCancel={onWarnCancel}
-                />
-              )}
-              <div className="settings-part">
-                <RestSection game={restGame} onGameChange={setRestGame} />
-              </div>
-            </>
-          )}
+          {/* Integrations: только медиа-интеграции; предупреждение
+              «Локальный хардкор» остаётся при входе (пока не принято) */}
+          {section === "integrations" &&
+            (mediaWarnAccepted || mediaWarnAcceptedRef.current ? (
+              <IntegrationsSection
+                mediaPrefs={mediaPrefs}
+                onMediaPrefsChange={onMediaPrefsChange}
+              />
+            ) : (
+              <IntegrationWarning
+                onAccept={(dontShow) => {
+                  if (dontShow) {
+                    saveMediaAccepted();
+                    mediaWarnAcceptedRef.current = true;
+                  }
+                  setMediaWarnAccepted(true);
+                }}
+                onCancel={onWarnCancel}
+              />
+            ))}
           {section === "permissions" && <PermissionsSection />}
           {/* Network: состояние сети и лимиты */}
           {section === "network" && <NetworkSection />}
@@ -938,6 +936,35 @@ export default function SettingsModal({
             <ReflectSection sessions={sessions} usage={usageLog} apiSettings={apiSettings} />
           )}
           {section === "lsp" && <LspSection />}
+          {/* Rest: мини-игры паузы */}
+          {section === "rest" && (
+            <RestSection game={restGame} onGameChange={setRestGame} />
+          )}
+          {/* GGUF Lab: карточка входа — сама лаборатория открывается модалкой */}
+          {section === "gguf" && (
+            <div className="mx-auto max-w-2xl">
+              <h3 className="mb-1 text-sm font-semibold text-halo-text">
+                {t("ggufLab.entry")}
+              </h3>
+              <p className="mb-4 text-xs leading-relaxed text-halo-muted">
+                {t("ggufLab.entryDesc")}
+              </p>
+              <button
+                onClick={onOpenGgufLab}
+                className="w-full rounded-xl border border-halo-line bg-halo-surface/50 px-4 py-3.5 text-left transition-colors hover:border-halo-accent/50 hover:bg-halo-hover"
+              >
+                <span className="flex items-center justify-between gap-2">
+                  <span className="text-sm font-medium text-halo-text">
+                    {t("ggufLab.title")}
+                  </span>
+                  <span className="shrink-0 text-halo-muted">›</span>
+                </span>
+                <span className="mt-1 block text-xs leading-relaxed text-halo-muted">
+                  {t("ggufLab.desc")}
+                </span>
+              </button>
+            </div>
+          )}
           {/* Support-группа: документация; кнопка поддержки — в шапке
               навигации (оттуда её видно из любого раздела и находит поиск) */}
           {section === "docs" && <DocsSection />}

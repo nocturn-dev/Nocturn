@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   appendJailbreak,
-  builtinJailbreaksFor,
   jbModelFacets,
   jbYearFacets,
   sanitizeJailbreaks,
@@ -80,22 +79,6 @@ describe("appendJailbreak", () => {
   it("существующий промт роли сохраняется, джейлбрейк добавляется после", () => {
     expect(appendJailbreak("ROLE", "JB")).toBe("ROLE\n\nJB");
     expect(appendJailbreak("  ROLE  ", "  JB  ")).toBe("ROLE\n\nJB");
-  });
-});
-
-describe("builtinJailbreaksFor", () => {
-  it("все встроенные имеют уникальные id и валидные уровни мышления", () => {
-    const ru = builtinJailbreaksFor("ru");
-    const en = builtinJailbreaksFor("en");
-    expect(ru.length).toBeGreaterThan(0);
-    const ids = new Set(ru.map((b) => b.id));
-    expect(ids.size).toBe(ru.length);
-    for (const b of ru) {
-      expect(b.name.trim()).not.toBe("");
-      expect(b.text.trim()).not.toBe("");
-      expect(["any", "off", "low", "high", "max"]).toContain(b.reasoning);
-    }
-    expect(ru.map((b) => b.id)).toEqual(en.map((b) => b.id));
   });
 });
 
