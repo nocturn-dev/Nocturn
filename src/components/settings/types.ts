@@ -38,9 +38,8 @@ export type Section =
  *  страницу */
 
 /** Страница настроек: пункт второго уровня аккордеона. Технические
- *  разделы склеены по смыслу (coreSpecs/subsPlugins/agentTools/apiKeys/
- *  integrations/network); содержимое секций не менялось — страницы
- *  стэкают их блоками с разделителями */
+ *  разделы склеены по смыслу (coreSpecs/agentTools/apiKeys/integrations);
+ *  содержимое секций не менялось — страницы стэкают их блоками */
 export type SettingsPage =
   | "main"
   | "profile"
@@ -48,16 +47,19 @@ export type SettingsPage =
   | "mascot"
   | "shortcuts"
   | "agentCore"
-  | "agentSubs"
+  | "subs"
+  | "plugins"
   | "agentTools"
   | "apiKeys"
   | "integrations"
   | "permissions"
   | "network"
+  | "reflect"
   | "lsp"
   | "docs";
 
-/** Старый Section → страница, на которой теперь живёт его блок */
+/** Старый Section → страница, на которой теперь живёт его блок.
+ *  MCP живёт на странице Plugins: оба про подключения расширений */
 export const PAGE_FOR_SECTION: Record<Section, SettingsPage> = {
   main: "main",
   profile: "profile",
@@ -67,9 +69,9 @@ export const PAGE_FOR_SECTION: Record<Section, SettingsPage> = {
   memory: "agentCore",
   prompts: "agentCore",
   skills: "agentCore",
-  subagents: "agentSubs",
-  plugins: "agentSubs",
-  mcp: "agentSubs",
+  subagents: "subs",
+  plugins: "plugins",
+  mcp: "plugins",
   browser: "agentTools",
   computer: "agentTools",
   hooks: "agentTools",
@@ -80,7 +82,7 @@ export const PAGE_FOR_SECTION: Record<Section, SettingsPage> = {
   rest: "integrations",
   permissions: "permissions",
   network: "network",
-  reflect: "network",
+  reflect: "reflect",
   lsp: "lsp",
   docs: "docs",
 };

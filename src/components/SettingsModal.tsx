@@ -239,7 +239,8 @@ const NAV: {
     key: "nav.agent",
     items: [
       { id: "agentCore", key: "settings.coreSpecs", icon: "brain" },
-      { id: "agentSubs", key: "settings.subsPlugins", icon: "grid" },
+      { id: "subs", key: "settings.subagents", icon: "users" },
+      { id: "plugins", key: "settings.plugins", icon: "grid" },
       { id: "agentTools", key: "settings.systemTools", icon: "anchor" },
     ],
   },
@@ -256,14 +257,15 @@ const NAV: {
     id: "diagnostics",
     key: "nav.group.diagnostics",
     items: [
-      { id: "network", key: "settings.networkTraffic", icon: "chart" },
+      { id: "network", key: "settings.network", icon: "chart" },
+      { id: "reflect", key: "settings.reflect", icon: "globe" },
       { id: "lsp", key: "settings.lsp", icon: "terminal" },
     ],
   },
   {
     id: "support",
     key: "nav.group.support",
-    items: [{ id: "docs", key: "settings.docsSupport", icon: "book" }],
+    items: [{ id: "docs", key: "settings.docs", icon: "book" }],
   },
 ];
 
@@ -631,8 +633,26 @@ export default function SettingsModal({
               </button>
             </div>
           </div>
-          {/* Поиск по настройкам: область «везде» / «только кастомизация» */}
+          {/* Поиск по настройкам: область «везде» / «только кастомизация».
+              Поддержать проект — сразу над поиском: видно из любого раздела,
+              и через поиск по слову «поддержать» находится */}
           <div className="px-1 pb-2">
+            <button
+              onClick={() => setSupportOpen(true)}
+              className="mb-2 flex w-full cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-halo-line bg-halo-surface/60 px-2.5 py-1.5 text-xs transition-colors hover:border-halo-accent/50 hover:bg-halo-accent/10"
+            >
+              <svg
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="currentColor"
+                aria-hidden
+                className="text-halo-muted"
+              >
+                <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" />
+              </svg>
+              <span className="text-halo-muted">{t("settings.support")}</span>
+            </button>
             <input
               type="text"
               value={searchQ}
@@ -829,19 +849,18 @@ export default function SettingsModal({
               </div>
             </>
           )}
-          {/* Subagents & Plugins: расширение состава агента */}
-          {section === "agentSubs" && (
+          {/* Subagents: состав и роли субагентов */}
+          {section === "subs" && (
+            <SubagentsSection
+              config={subConfig}
+              onChange={onSubConfigChange}
+              pluginIds={new Set(plugins.filter((p) => p.enabled).flatMap((p) => p.roles ?? []).map((r) => r.id))}
+            />
+          )}
+          {/* Plugins + MCP: оба про подключения расширений */}
+          {section === "plugins" && (
             <>
-              <div className="settings-part">
-                <SubagentsSection
-                  config={subConfig}
-                  onChange={onSubConfigChange}
-                  pluginIds={new Set(plugins.filter((p) => p.enabled).flatMap((p) => p.roles ?? []).map((r) => r.id))}
-                />
-              </div>
-              <div className="settings-part">
-                <PluginsSection plugins={plugins} onChange={onPluginsChange} />
-              </div>
+              <PluginsSection plugins={plugins} onChange={onPluginsChange} />
               <div className="settings-part">
                 <McpSection />
               </div>
@@ -928,39 +947,16 @@ export default function SettingsModal({
             </>
           )}
           {section === "permissions" && <PermissionsSection />}
-          {/* Diagnostics & data */}
-          {section === "network" && (
-            <>
-              <NetworkSection />
-              <div className="settings-part">
-                <ReflectSection sessions={sessions} usage={usageLog} apiSettings={apiSettings} />
-              </div>
-            </>
+          {/* Network: состояние сети и лимиты */}
+          {section === "network" && <NetworkSection />}
+          {/* Overview: статистика и журнал прогонов */}
+          {section === "reflect" && (
+            <ReflectSection sessions={sessions} usage={usageLog} apiSettings={apiSettings} />
           )}
           {section === "lsp" && <LspSection />}
-          {/* Support: документация + кнопка поддержки проекта (переехала
-              из шапки навигации — донаты живут в своей группе) */}
-          {section === "docs" && (
-            <div className="settings-part">
-              <DocsSection />
-              <button
-                onClick={() => setSupportOpen(true)}
-                className="mt-4 flex w-full cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-halo-line bg-halo-surface/60 px-2.5 py-1.5 text-xs transition-colors hover:border-halo-accent/50 hover:bg-halo-accent/10"
-              >
-                <svg
-                  width="12"
-                  height="12"
-                  viewBox="0 0 24 24"
-                  fill="currentColor"
-                  aria-hidden
-                  className="text-halo-muted"
-                >
-                  <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" />
-                </svg>
-                <span className="text-halo-muted">{t("settings.support")}</span>
-              </button>
-            </div>
-          )}
+          {/* Support-группа: документация; кнопка поддержки — в шапке
+              навигации (оттуда её видно из любого раздела и находит поиск) */}
+          {section === "docs" && <DocsSection />}
           {section === "profile" && <ProfileSection />}
           {section === "main" && (
             <MainSection
