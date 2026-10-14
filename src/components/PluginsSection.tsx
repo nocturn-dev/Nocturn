@@ -169,23 +169,24 @@ export default function PluginsSection({
         {t("plug.desc")}
       </p>
 
-      <div className="flex flex-wrap gap-2">
-        {plugins.length > 0 && (
-        <button
-          onClick={() => void pickAndRead()}
-          className="rounded-lg bg-halo-accent px-3.5 py-1.5 text-sm font-medium text-halo-on-accent transition-colors hover:bg-halo-accent-deep"
-        >
-          {t("plug.import")}
-        </button>
-        )}
-        <button
-          onClick={() => void exportPack()}
-          disabled={plugins.length === 0}
-          className="rounded-lg border border-halo-line px-3.5 py-1.5 text-sm text-halo-text transition-colors hover:border-halo-accent/60 hover:text-halo-accent disabled:opacity-50"
-        >
-          {t("plug.exportPack")}
-        </button>
-      </div>
+      {/* Действия — по схеме ZCode: при непустом списке тулбар сверху,
+          при пустом обе кнопки живут внутри карточки-пустого-состояния */}
+      {plugins.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={() => void pickAndRead()}
+            className="rounded-lg bg-halo-accent px-3.5 py-1.5 text-sm font-medium text-halo-on-accent transition-colors hover:bg-halo-accent-deep"
+          >
+            {t("plug.import")}
+          </button>
+          <button
+            onClick={() => void exportPack()}
+            className="rounded-lg border border-halo-line px-3.5 py-1.5 text-sm text-halo-text transition-colors hover:border-halo-accent/60 hover:text-halo-accent"
+          >
+            {t("plug.exportPack")}
+          </button>
+        </div>
+      )}
 
       {/* Предпросмотр перед установкой */}
       {imported && (
@@ -249,12 +250,22 @@ export default function PluginsSection({
             <p className="mx-auto mt-2 max-w-md text-xs leading-relaxed text-halo-muted/70">
               {t("plug.emptyWhat")}
             </p>
-            <button
-              onClick={() => void pickAndRead()}
-              className="mt-4 rounded-lg bg-halo-accent px-4 py-1.5 text-sm font-medium text-halo-on-accent transition-colors hover:bg-halo-accent-deep"
-            >
-              {t("plug.import")}
-            </button>
+            <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+              <button
+                onClick={() => void pickAndRead()}
+                className="rounded-lg bg-halo-accent px-4 py-1.5 text-sm font-medium text-halo-on-accent transition-colors hover:bg-halo-accent-deep"
+              >
+                {t("plug.import")}
+              </button>
+              {/* Экспорт пустого пака валиден: валидный json с plugins: [] —
+                  удобно как шаблон для ручной сборки пака */}
+              <button
+                onClick={() => void exportPack()}
+                className="rounded-lg border border-halo-line px-4 py-1.5 text-sm text-halo-text transition-colors hover:border-halo-accent/60 hover:text-halo-accent"
+              >
+                {t("plug.exportPack")}
+              </button>
+            </div>
           </div>
         )}
         {plugins.map((p) => (
