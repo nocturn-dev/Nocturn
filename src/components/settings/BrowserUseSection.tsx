@@ -44,7 +44,7 @@ export function BrowserUseSection() {
         {t("bu.desc")}
       </p>
 
-      <div className="space-y-1">
+      <div>
         <ToggleRow
           label={t("bu.enabled")}
           desc={t("bu.enabledDesc")}

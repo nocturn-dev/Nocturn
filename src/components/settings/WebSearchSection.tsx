@@ -50,7 +50,7 @@ export function WebSearchSection() {
         {t("ws.desc")}
       </p>
 
-      <div className="space-y-1">
+      <div>
         <ToggleRow
           label={t("ws.enabled")}
           desc={t("ws.enabledDesc")}

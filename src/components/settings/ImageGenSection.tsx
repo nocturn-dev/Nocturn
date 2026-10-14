@@ -48,7 +48,7 @@ export function ImageGenSection() {
         {t("ig.fallbackHint")}
       </p>
 
-      <div className="space-y-1">
+      <div>
         <ToggleRow
           label={t("ig.enabled")}
           desc={t("ig.enabledDesc")}

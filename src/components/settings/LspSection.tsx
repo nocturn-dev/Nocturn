@@ -149,7 +149,7 @@ export function LspSection() {
         {t("lsp.desc")}
       </p>
 
-      <div className="space-y-1">
+      <div>
         <ToggleRow
           label={t("lsp.enabled")}
           desc={t("lsp.enabledDesc")}
