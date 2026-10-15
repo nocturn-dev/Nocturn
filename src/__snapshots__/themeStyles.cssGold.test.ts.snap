@@ -100,9 +100,6 @@ html.full-claude:not(.glass) .glass-pane,
 html.full-claude:not(.glass) .msg-glass {
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
-}
-html.full-claude.glass .settings-vt {
-  background: #20201f;
 }"
 `;
 

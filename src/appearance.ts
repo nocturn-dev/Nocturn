@@ -713,12 +713,6 @@ export function fullClaudeCss(a: Appearance): string {
       "  backdrop-filter: none;",
       "  -webkit-backdrop-filter: none;",
       "}",
-      // Настройки — рабочая поверхность: плотная панель и в стекле
-      // (сквозь стеклянный тинт читался чат за модалкой). Правило — последнее
-      // в блоке: при равной специфичности побеждает порядок
-      "html.full-claude.glass .settings-vt {",
-      `  background: ${FULL_CLAUDE_PALETTE.surface};`,
-      "}",
     ],
   ].flat().join("\n");
 }

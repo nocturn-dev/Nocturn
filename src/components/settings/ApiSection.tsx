@@ -521,6 +521,47 @@ export function ApiSection({
         </span>
       </label>
 
+      {/* Статус проверки + действия — сразу за конфигом провайдера:
+          тест/сохранение относятся к связке Base URL/ключ/модель, а не к
+          локальным рантаймам ниже (иерархия страницы API) */}
+      {status.kind === "checking" && (
+        <p className="mb-3 flex items-center gap-2 text-xs text-halo-muted">
+          <span className="typing-dot size-1.5 rounded-full bg-halo-accent" />
+          {t("api.checking")}
+        </p>
+      )}
+      {status.kind === "ok" && (
+        <p className="mb-3 flex items-center gap-2 text-xs text-emerald-400">
+          <span className="size-1.5 rounded-full bg-emerald-400" />
+          {status.message}
+        </p>
+      )}
+      {status.kind === "error" && (
+        <p className="mb-3 flex items-start gap-2 text-xs text-red-400">
+          <span className="mt-1 size-1.5 shrink-0 rounded-full bg-red-400" />
+          {status.message}
+        </p>
+      )}
+
+      <div className="mb-4 flex items-center gap-2">
+        <button
+          onClick={() => {
+            lastTestedRef.current = null;
+            onTest();
+          }}
+          disabled={!canTest || status.kind === "checking"}
+          className="rounded-lg border border-halo-line px-3.5 py-2 text-sm text-halo-text transition-colors hover:border-halo-accent/50 hover:bg-halo-hover disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          {t("api.refresh")}
+        </button>
+        <button
+          onClick={handleSave}
+          className="rounded-lg bg-halo-accent px-3.5 py-2 text-sm font-medium text-halo-on-accent transition-colors hover:bg-halo-accent-deep"
+        >
+          {saved ? t("api.saved") : t("api.save")}
+        </button>
+      </div>
+
       {/* Локальные модели: Ollama (11434) + LM Studio (1234) — один скан,
           клик подключает модель как провайдера с правильным портом */}
       <div className="mb-4 rounded-xl border border-halo-line p-3">
@@ -691,45 +732,6 @@ export function ApiSection({
             </pre>
           </details>
         )}
-      </div>
-
-      {/* Статус проверки */}
-      {status.kind === "checking" && (
-        <p className="mb-3 flex items-center gap-2 text-xs text-halo-muted">
-          <span className="typing-dot size-1.5 rounded-full bg-halo-accent" />
-          {t("api.checking")}
-        </p>
-      )}
-      {status.kind === "ok" && (
-        <p className="mb-3 flex items-center gap-2 text-xs text-emerald-400">
-          <span className="size-1.5 rounded-full bg-emerald-400" />
-          {status.message}
-        </p>
-      )}
-      {status.kind === "error" && (
-        <p className="mb-3 flex items-start gap-2 text-xs text-red-400">
-          <span className="mt-1 size-1.5 shrink-0 rounded-full bg-red-400" />
-          {status.message}
-        </p>
-      )}
-
-      <div className="flex items-center gap-2">
-        <button
-          onClick={() => {
-            lastTestedRef.current = null;
-            onTest();
-          }}
-          disabled={!canTest || status.kind === "checking"}
-          className="rounded-lg border border-halo-line px-3.5 py-2 text-sm text-halo-text transition-colors hover:border-halo-accent/50 hover:bg-halo-hover disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          {t("api.refresh")}
-        </button>
-        <button
-          onClick={handleSave}
-          className="rounded-lg bg-halo-accent px-3.5 py-2 text-sm font-medium text-halo-on-accent transition-colors hover:bg-halo-accent-deep"
-        >
-          {saved ? t("api.saved") : t("api.save")}
-        </button>
       </div>
     </div>
   );
