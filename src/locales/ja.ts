@@ -1222,7 +1222,7 @@ export const ja = {
     "themes.officialMonoCode": "モノクロのコードハイライト",
     "themes.officialMonoCodeDesc": "コードをグレースケールに。シンタックスカラーは消え、ハイライト構造は残ります。",
     "themes.fullClaude": "Nocturnテーマ — Claude Desktop再現",
-    "themes.fullClaudeDesc": "Claude Desktopの外観を完全再現：チャコールのパレット、セリフ体の応答、グラファイトのカード、アクセントは使用中のテーマに従います。常にダーク。有効な間は通常のテーマ設定を非表示にし、テーマ独自の設定を使用します。",
+    "themes.fullClaudeDesc": "Claude Desktopの外観を完全再現：チャコールのパレット、セリフ体の応答、グラファイトのカード、グレーの枠。アクセントはテーマ設定で選べます。常にダーク。有効な間は通常のテーマ設定を非表示にし、テーマ独自の設定を使用します。",
     "themes.fcSettings": "Nocturnテーマの設定",
     "themes.fcSerif": "回答をセリフ体に",
     "themes.fcSerifDesc": "アシスタントの回答にセリフ体を使用（Claude Desktopと同様）。オフ——システムのサンセリフ。",

@@ -1198,7 +1198,7 @@ export const en = {
     "themes.officialMonoCode": "Monochrome code highlighting",
     "themes.officialMonoCodeDesc": "Code in greyscale: syntax colors fade, the highlight structure remains.",
     "themes.fullClaude": "Nocturn theme — Claude Desktop replica",
-    "themes.fullClaudeDesc": "A complete Claude Desktop look: charcoal palette, serif responses, graphite cards, the accent follows your theme. Always dark; regular theme controls are hidden while enabled — the theme has its own.",
+    "themes.fullClaudeDesc": "A complete Claude Desktop look: charcoal palette, serif responses, graphite cards, grey borders; the accent is chosen in the theme settings. Always dark; regular theme controls are hidden while enabled — the theme has its own.",
     "themes.fcSettings": "Nocturn theme settings",
     "themes.fcSerif": "Serif responses",
     "themes.fcSerifDesc": "Serif stack for assistant replies, like Claude Desktop. Off — system sans.",

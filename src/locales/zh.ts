@@ -1222,7 +1222,7 @@ export const zh = {
     "themes.officialMonoCode": "黑白代码高亮",
     "themes.officialMonoCodeDesc": "代码以灰阶显示：语法色淡出，高亮结构保留。",
     "themes.fullClaude": "Nocturn 主题 — 复刻 Claude Desktop",
-    "themes.fullClaudeDesc": "完整的 Claude Desktop 外观：炭黑配色、衬线回复、石墨卡片，强调色沿用你的主题。始终为深色；启用期间隐藏常规主题设置——主题有自己的设置。",
+    "themes.fullClaudeDesc": "完整的 Claude Desktop 外观：炭黑配色、衬线回复、石墨卡片、灰色描边；强调色可在主题设置中选择。始终为深色；启用期间隐藏常规主题设置——主题有自己的设置。",
     "themes.fcSettings": "Nocturn 主题设置",
     "themes.fcSerif": "衬线回复字体",
     "themes.fcSerifDesc": "助手回复使用衬线字体，如同 Claude Desktop。关闭——系统无衬线。",
