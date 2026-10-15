@@ -40,8 +40,8 @@ exports[`css generator goldens > fullClaudeCss — палитра без importa
   --halo-hover-strong: rgba(255, 255, 255, 0.15);
   --halo-code-bg: #1b1b1b;
   --halo-code-text: #f0efec;
-  --halo-accent: #c88e9b;
-  --halo-accent-deep: #a4747f;
+  --halo-accent: #a1a098;
+  --halo-accent-deep: #84837d;
   --halo-on-accent: #ffffff;
   --halo-blur: 14px;
   --halo-radius-scale: 1;

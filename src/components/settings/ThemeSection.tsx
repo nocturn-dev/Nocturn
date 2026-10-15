@@ -500,31 +500,34 @@ export function ThemeSection({
         />
       )}
 
-      {/* Тема Official: строгий монохром одним тумблером. Включённой теме
-          принадлежат только её настройки ниже; обычные контролы темы скрыты */}
-      <ToggleRow
-        label={t("themes.official")}
-        desc={t("themes.officialDesc")}
-        on={appearance.official}
-        onChange={(v) =>
-          // Жёсткие темы взаимоисключимы: включение одной выключает другую
-          onAppearanceChange({ ...appearance, official: v, fullClaude: false })
-        }
-      />
-
-      {/* Full Claude — третья жёсткая тема (вне каскада кастомизации): класс
-          html.full-claude + тег #halo-full-claude с палитрой и пинами
-          (appearance.ts, fullClaudeCss). Настройки темы — в карточке ниже;
-          глобальные контролы и Official на неё не действуют */}
-      <ToggleRow
-        label={t("themes.fullClaude")}
-        desc={t("themes.fullClaudeDesc")}
-        on={appearance.fullClaude}
-        onChange={(v) =>
-          // Включение Full Claude гасит Official (и наоборот — см. выше)
-          onAppearanceChange({ ...appearance, fullClaude: v, official: false })
-        }
-      />
+      {/* Жёсткие темы — карточкой с обводкой: это переключатели ЦЕЛЫХ тем,
+          не рядовые строки; рамка отделяет их от потока обычных настроек */}
+      <div className="mt-2.5 rounded-xl border border-halo-line px-3.5 py-1.5">
+        {/* Official: строгий монохром одним тумблером. Включённой теме
+            принадлежат только её настройки ниже; обычные контролы скрыты */}
+        <ToggleRow
+          label={t("themes.official")}
+          desc={t("themes.officialDesc")}
+          on={appearance.official}
+          onChange={(v) =>
+            // Жёсткие темы взаимоисключимы: включение одной выключает другую
+            onAppearanceChange({ ...appearance, official: v, fullClaude: false })
+          }
+        />
+        {/* Nocturn Theme — жёсткая тема (вне каскада кастомизации): класс
+            html.full-claude + тег #halo-full-claude с палитрой и пинами
+            (appearance.ts, fullClaudeCss). Настройки темы — в карточке ниже;
+            глобальные контролы и Official на неё не действуют */}
+        <ToggleRow
+          label={t("themes.fullClaude")}
+          desc={t("themes.fullClaudeDesc")}
+          on={appearance.fullClaude}
+          onChange={(v) =>
+            // Включение темы гасит Official (и наоборот — см. выше)
+            onAppearanceChange({ ...appearance, fullClaude: v, official: false })
+          }
+        />
+      </div>
 
       {/* Витрина Full Claude: мини-макет СТРУКТУРЫ Claude Desktop —
           тёмный сайдбар-полоска, лента с пузырём пользователя и композер.
@@ -622,6 +625,51 @@ export function ThemeSection({
               on={appearance.fullClaudeGlass ?? false}
               onChange={(v) => onAppearanceChange({ ...appearance, fullClaudeGlass: v })}
             />
+          </div>
+
+          {/* Акцент внутри темы: по умолчанию серый монохром (характер
+              темы), пресеты + пипетка; «Серый» возвращает дефолт */}
+          <div className="mt-2.5 flex items-center justify-between gap-3">
+            <div className="shrink-0">
+              <p className="text-sm text-halo-text">{t("themes.fcAccent")}</p>
+              <p className="text-[0.625rem] text-halo-muted/60">{t("themes.fcAccentHint")}</p>
+            </div>
+            <div className="flex shrink-0 items-center gap-1.5">
+              <button
+                onClick={() => onAppearanceChange({ ...appearance, fullClaudeAccent: "" })}
+                title={t("themes.fcAccentGray")}
+                className={`size-7 rounded-full border-2 transition-transform hover:scale-110 ${
+                  (appearance.fullClaudeAccent ?? "") === ""
+                    ? "border-halo-text"
+                    : "border-halo-line"
+                }`}
+                style={{ background: FULL_CLAUDE_PALETTE.muted }}
+              />
+              {ACCENT_PRESETS.map((p) => (
+                <button
+                  key={p.hex}
+                  onClick={() =>
+                    onAppearanceChange({ ...appearance, fullClaudeAccent: p.hex })
+                  }
+                  title={p.hex}
+                  className={`size-7 rounded-full border-2 transition-transform hover:scale-110 ${
+                    appearance.fullClaudeAccent === p.hex
+                      ? "border-halo-text"
+                      : "border-halo-line"
+                  }`}
+                  style={{ backgroundColor: p.hex }}
+                />
+              ))}
+              <input
+                type="color"
+                value={appearance.fullClaudeAccent || "#a1a098"}
+                onChange={(e) =>
+                  onAppearanceChange({ ...appearance, fullClaudeAccent: e.target.value })
+                }
+                title={t("themes.fcAccentCustom")}
+                className="h-7 w-9 cursor-pointer rounded border border-halo-line bg-transparent"
+              />
+            </div>
           </div>
 
           {/* Скругления внутри темы: глобальный слайдер радиуса не действует */}

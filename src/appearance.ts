@@ -75,6 +75,9 @@ export interface Appearance {
   fullClaudeUiFont: string;
   /** Моно внутри темы (пусто = системный стек) */
   fullClaudeMonoFont: string;
+  /** Акцент внутри темы (#rrggbb); пусто — серый монохром (характер темы:
+   *  все обводки серые, акцент только по явному выбору) */
+  fullClaudeAccent?: string;
   /** Шрифт ответов серифом (Georgia-стек, как у Claude) — глобальный тумблер;
    *  в жёстких темах не действует (у Full Claude свой fullClaudeSerif) */
   serifChat?: boolean;
@@ -172,6 +175,7 @@ export const DEFAULT_APPEARANCE: Appearance = {
   // пустая строка в значении пользователя означает «системный» сознательно
   fullClaudeUiFont: "Nocturn Sans",
   fullClaudeMonoFont: "Nocturn Mono",
+  fullClaudeAccent: "", // пусто = серый монохром темы
   serifChat: false,
   inlineCodeClaude: false,
   textShimmer: false,
@@ -269,6 +273,11 @@ export function loadAppearance(): Appearance {
         typeof p.fullClaudeMonoFont === "string"
           ? p.fullClaudeMonoFont
           : "Nocturn Mono",
+      fullClaudeAccent:
+        typeof p.fullClaudeAccent === "string" &&
+        /^#[0-9a-fA-F]{6}$/.test(p.fullClaudeAccent)
+          ? p.fullClaudeAccent.toLowerCase()
+          : "",
       serifChat: p.serifChat ?? DEFAULT_APPEARANCE.serifChat,
       inlineCodeClaude:
         p.inlineCodeClaude ?? DEFAULT_APPEARANCE.inlineCodeClaude,
@@ -568,6 +577,8 @@ export const FULL_CLAUDE_PALETTE = {
  */
 export function fullClaudeCss(a: Appearance): string {
   const r = clamp(a.fullClaudeRadius ?? 1, 0.4, 1.6);
+  // Акцент: пусто = серый muted темы (монохром по умолчанию), hex — выбор
+  const accent = a.fullClaudeAccent || FULL_CLAUDE_PALETTE.muted;
   // Шрифты: пустое значение = системный стек ИЗ index.css (с emoji-фолбэками)
   // — var не пишем вовсе: собственная копия стека здесь уже дрейфовала
   // (без emoji-фолбэков), а второй источник правды для одной константы
@@ -604,10 +615,10 @@ export function fullClaudeCss(a: Appearance): string {
       "  --halo-hover-strong: rgba(255, 255, 255, 0.15);",
       `  --halo-code-bg: ${FULL_CLAUDE_PALETTE.codeBg};`,
       `  --halo-code-text: ${FULL_CLAUDE_PALETTE.text};`,
-      // Акцент — из темы пользователя, не фирменный: кнопки и детали темы
-      // выглядят так же, как в остальном приложении (смена акцента живая)
-      `  --halo-accent: ${a.accent};`,
-      `  --halo-accent-deep: ${darken(a.accent, 0.82)};`,
+      // Акцент темы: по умолчанию серый монохром (характер темы — все
+      // обводки серые); явный выбор fullClaudeAccent красит кнопки и детали
+      `  --halo-accent: ${accent};`,
+      `  --halo-accent-deep: ${darken(accent, 0.82)};`,
       "  --halo-on-accent: #ffffff;",
       "  --halo-blur: 14px;",
       `  --halo-radius-scale: ${r};`,
