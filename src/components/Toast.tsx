@@ -7,6 +7,8 @@
 interface ToastItem {
   id: string;
   text: string;
+  /** Exit-фаза: класс anim-fade-out до размонтирования (useToasts) */
+  leaving?: boolean;
 }
 
 export default function Toasts({ items }: { items: ToastItem[] }) {
@@ -16,7 +18,7 @@ export default function Toasts({ items }: { items: ToastItem[] }) {
       {items.map((t) => (
         <div
           key={t.id}
-          className="anim-fade flex items-center gap-2.5 rounded-xl border border-halo-line bg-halo-deep/95 px-4 py-2.5 shadow-xl backdrop-blur-sm"
+          className={`${t.leaving ? "anim-fade-out" : "anim-fade"} flex items-center gap-2.5 rounded-xl border border-halo-line bg-halo-deep/95 px-4 py-2.5 shadow-xl backdrop-blur-sm`}
         >
           <span className="size-1.5 shrink-0 rounded-full bg-emerald-400" />
           <p className="text-xs text-halo-text">{t.text}</p>
