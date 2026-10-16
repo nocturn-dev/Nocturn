@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useDelayedUnmount } from "../motion";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
@@ -28,7 +29,8 @@ interface NotesModalProps {
 }
 
 export default function NotesModal({
-  note,
+  open,
+  note: noteNow,
   allNotes,
   saving,
   onSave,
@@ -36,9 +38,15 @@ export default function NotesModal({
   onDelete,
   onOpenNote,
   onClose,
-}: NotesModalProps) {
+}: NotesModalProps & { open: boolean }) {
   const { t } = useLang();
-  const [draft, setDraft] = useState(note?.content ?? "");
+  // Exit-фаза: модалка доигрывает anim-fade-out, пока родитель держит mount;
+  // на выезде заметка уже null — доигрываем на последней открытой
+  const show = useDelayedUnmount(open, 200);
+  const lastNoteRef = useRef(noteNow);
+  if (noteNow) lastNoteRef.current = noteNow;
+  const note = noteNow ?? lastNoteRef.current;
+  const [draft, setDraft] = useState(noteNow?.content ?? "");
   const [preview, setPreview] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -70,7 +78,7 @@ export default function NotesModal({
     [allNotes, note?.file],
   );
 
-  if (!note) return null;
+  if (!show || !note) return null;
   const dirty = draft !== note.content;
 
   const insertLink = (targetTitle: string) => {
@@ -90,11 +98,11 @@ export default function NotesModal({
 
   return (
     <div
-      className="anim-fade fixed inset-0 z-[var(--halo-z-modal)] flex items-center justify-center bg-halo-scrim p-4 backdrop-blur-sm"
+      className={`${open ? "anim-fade" : "anim-fade-out"} fixed inset-0 z-[var(--halo-z-modal)] flex items-center justify-center bg-halo-scrim p-4 backdrop-blur-sm`}
       onClick={onClose}
     >
       <div
-        className="glass-pane anim-pop flex h-[80vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-halo-line bg-halo-deep shadow-2xl"
+        className={`glass-pane ${open ? "anim-pop" : "anim-pop-out"} flex h-[80vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-halo-line bg-halo-deep shadow-2xl`}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Шапка: заголовок-кнопка (drag-совместимая), переключатель вида, действия */}

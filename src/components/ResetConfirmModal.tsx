@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useLang } from "../locales";
+import { useDelayedUnmount } from "../motion";
 
 /**
  * Подтверждение «Clear All Data» (запрос приходит из трея).
@@ -7,16 +8,20 @@ import { useLang } from "../locales";
  * onConfirm стирает все данные и перезапускает приложение — отмены после него нет.
  */
 export default function ResetConfirmModal({
+  open,
   busy,
   onConfirm,
   onCancel,
 }: {
+  open: boolean;
   busy?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
 }) {
   const { t } = useLang();
   const [armed, setArmed] = useState(false);
+  // Exit-фаза: доигрываем anim-fade-out, пока родитель держит mount
+  const show = useDelayedUnmount(open, 200);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -26,9 +31,13 @@ export default function ResetConfirmModal({
     return () => window.removeEventListener("keydown", onKey);
   }, [onCancel]);
 
+  if (!show) return null;
+
   return (
-    <div className="fixed inset-0 z-[var(--halo-z-modal)] flex items-center justify-center bg-halo-scrim">
-      <div className="glass-pane anim-pop w-full max-w-sm rounded-2xl border border-halo-line bg-halo-deep/90 p-6 shadow-2xl">
+    <div
+      className={`${open ? "anim-fade" : "anim-fade-out"} fixed inset-0 z-[var(--halo-z-modal)] flex items-center justify-center bg-halo-scrim`}
+    >
+      <div className={`glass-pane ${open ? "anim-pop" : "anim-pop-out"} w-full max-w-sm rounded-2xl border border-halo-line bg-halo-deep/90 p-6 shadow-2xl`}>
         <h2 className="text-base font-medium text-halo-text">{t("reset.title")}</h2>
         <p className="mt-2 text-xs leading-relaxed text-halo-muted">
           {t("reset.body")}

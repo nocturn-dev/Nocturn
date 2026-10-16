@@ -117,7 +117,7 @@ import { registerCustomFonts } from "./fonts";
 import { TERMINAL_PALETTES } from "./vt";
 import { useAppearanceUi } from "./hooks/useAppearanceUi";
 import { useBoolPref, useNumPref, useStringPref } from "./hooks/usePrefs";
-import { withViewTransition } from "./motion";
+import { withViewTransition, useDelayedUnmount } from "./motion";
 import { AmbientLayer } from "./components/AmbientLayer";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 
@@ -403,6 +403,10 @@ export default function App() {
   const [chainRunning, setChainRunning] = useState(false);
   const [chain, setChain] = useState<ChainState | null>(null);
   const [chainMonitorOpen, setChainMonitorOpen] = useState(false);
+  // Модалки с exit-анимацией: stay-mounted на время выезда (leaving-фаза
+  // внутри самих модалок, anim-fade-out по пропу open)
+  const notesMounted = useDelayedUnmount(openNoteFile !== null, 200);
+  const resetMounted = useDelayedUnmount(resetOpen, 200);
   const [sidebarCollapsed, setSidebarCollapsed] = useBoolPref(
     "haloui-sidebar-collapsed",
     false,
@@ -3040,9 +3044,10 @@ export default function App() {
           />
         </Suspense>
       )}
-      {openNoteFile !== null && (
+      {notesMounted && (
         <Suspense fallback={null}>
           <LazyNotesModal
+            open={openNoteFile !== null}
             note={notes.find((n) => n.file === openNoteFile) ?? null}
             allNotes={notes}
             saving={noteSaving}
@@ -3286,9 +3291,10 @@ export default function App() {
           onFinish={(r) => void handleOnboardingFinish(r)}
         />
       )}
-      {resetOpen && (
+      {resetMounted && (
         <Suspense fallback={null}>
         <LazyResetConfirmModal
+          open={resetOpen}
           busy={resetBusy}
           onConfirm={() => void handleFactoryReset()}
           onCancel={closeResetConfirm}
