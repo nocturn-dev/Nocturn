@@ -13,6 +13,8 @@ import { fmtInt } from "./util";
 import { CollapseButton } from "./CollapseButton";
 import { ErrorNote } from "./ErrorNote";
 import { MermaidBlock } from "./MermaidBlock";
+import { ChartBlock } from "./ChartBlock";
+import { QuizBlock } from "./QuizBlock";
 import { ToolStepCard } from "./ToolStepCard";
 import { CheckIcon, ChevronDownIcon, CopyIcon, PlusIcon, SpeakerIcon, StopIcon, SubagentIcon, ToolIcon } from "./icons";
 import { speak, stopSpeaking } from "../../tts";
@@ -112,6 +114,14 @@ export function CodeBlock({
   // Возврат после хуков — хуки выше зовутся безусловно
   if (codeLanguage(_node) === "mermaid") {
     return <MermaidBlock code={codeText(_node)} onSendSource={onQuoteSource} />;
+  }
+  // Интерактивные блоки: JSON внутри парсится локально, сети нет;
+  // битый/недопечатанный блок сам выглядит как код
+  if (codeLanguage(_node) === "chart") {
+    return <ChartBlock code={codeText(_node)} />;
+  }
+  if (codeLanguage(_node) === "quiz") {
+    return <QuizBlock code={codeText(_node)} />;
   }
 
   const lang = codeLanguage(_node);
