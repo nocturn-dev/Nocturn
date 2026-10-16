@@ -2104,6 +2104,17 @@ export function useAgentRun(deps: AgentRunDeps) {
             name: call.name,
             content,
           });
+          // Завершённый скил-прогон уходит из монитора субагентов так же,
+          // как subagent_run: без таймера карточка «Research» висела вечно
+          const subTimerId = window.setTimeout(() => {
+            subRunTimersRef.current.delete(subTimerId);
+            setSubRuns((prev) => {
+              if (!(call.id in prev)) return prev;
+              const { [call.id]: _done, ...rest } = prev;
+              return rest;
+            });
+          }, 30_000);
+          subRunTimersRef.current.add(subTimerId);
         };
         let skillId = "";
         let skillArgs = "";

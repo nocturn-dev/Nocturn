@@ -121,7 +121,9 @@ function RunRound({
         <div className="mt-2">
           <button
             onClick={onToggleThought}
-            className="flex items-center gap-1.5 text-[0.6875rem] text-halo-muted transition-colors hover:text-halo-text"
+            className={`flex items-center gap-1.5 text-[0.6875rem] text-halo-muted transition-colors hover:text-halo-text ${
+              isStreamingRound && !round.content.trim() ? "step-live rounded" : ""
+            }`}
           >
             <ThoughtIcon />
             <span className="font-medium">{t("chat.thought")}</span>
@@ -143,7 +145,10 @@ function RunRound({
         </div>
       )}
 
-      {round.content && (
+      {/* Пустая строка/пробельные дельты не рисуют коробку: модель между
+          размышлениями шлёт "\n\n", и без trim в ходе плодились пустые
+          пилюли-каркасы на каждый раунд */}
+      {round.content.trim() && (
         /* Мягкая подложка под текстом раунда: на «голом» фоне ленты текст
            сливался с ambient/шагами */
         <div className="markdown mt-2 rounded-lg border border-halo-line/40 bg-halo-surface/40 px-3.5 py-2.5 text-sm leading-relaxed text-halo-text">
@@ -338,7 +343,7 @@ function RunCardBase({
           раскрывает мысли, шаги и субагентов (текст ответа остаётся всегда) */}
       <button
         onClick={() => setFolded((v) => !v)}
-        className="flex w-full items-center gap-2.5 rounded-lg border-b border-halo-line/40 pb-1.5 text-left transition-colors hover:bg-halo-hover/30"
+        className="-my-0.5 flex w-full items-center gap-2.5 rounded-lg border-b border-halo-line/40 px-1 py-1.5 text-left transition-colors hover:bg-halo-hover/30"
       >
         <ChevronDownIcon
           className={`size-3 shrink-0 text-halo-muted transition-transform ${

@@ -24,6 +24,8 @@ export interface StepRow {
   detail: string;
   /** секунды шага (workedMs её сообщения) */
   secondsMs?: number;
+  /** Инструмент ещё исполняется: результата с этим call.id нет */
+  running?: boolean;
   failed?: "denied" | "error" | "exit";
   exitCode?: number;
   /** Edit: пара до/после для диффа при раскрытии */
@@ -99,6 +101,7 @@ export function buildStepRows(assistants: Message[], toolMsgs: Message[]): StepR
         label: "",
         detail: "",
         secondsMs: a.workedMs != null && a.workedMs > 0 ? a.workedMs : undefined,
+        running: !res,
       };
       if (res?.status === "denied") row.failed = "denied";
       else if (res?.status === "error") row.failed = "error";
@@ -131,9 +134,11 @@ export function buildStepRows(assistants: Message[], toolMsgs: Message[]): StepR
         row.question = q;
         row.answer = content;
       } else {
-        // Explore: путь/URL/запрос как лейбл, объём результата — в детали
+        // Explore: путь/URL/запрос как лейбл, объём результата — в детали.
+        // skill/task — вызовы skill_run: без этих ключей лейблом становился
+        // сырой JSON аргументов
         row.label = truncate(
-          firstString(tc.arguments, ["path", "url", "query", "file"]) || tc.name,
+          firstString(tc.arguments, ["path", "url", "query", "file", "skill", "task"]) || tc.name,
           60,
         );
         if (tc.name === "fs_list") {

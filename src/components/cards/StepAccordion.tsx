@@ -103,6 +103,8 @@ export function StepAccordion({
           <div
             key={s.id}
             className={`anim-fade-up ${
+              s.running ? "step-live " : ""
+            }${
               flat
                 ? `rounded-lg ${s.failed ? "bg-red-400/5" : ""}`
                 : `rounded-lg border bg-halo-deep/30 ${

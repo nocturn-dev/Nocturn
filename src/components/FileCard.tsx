@@ -24,21 +24,21 @@ export function FileCard({
   return (
     <div
       title={a.name}
-      className="flex size-20 flex-col justify-between rounded-xl border border-halo-line bg-halo-surface/60 p-2"
+      className="flex size-28 flex-col rounded-xl border border-halo-line bg-halo-surface/60 p-3"
     >
-      <span className="line-clamp-2 break-all text-left text-[0.6875rem] font-medium leading-tight text-halo-text">
+      {/* break-words, не break-all: имя переносится по границам слов, а не
+          рвётся посреди («computer.r / s») */}
+      <span className="line-clamp-2 break-words text-left text-[0.6875rem] font-medium leading-snug text-halo-text">
         {a.name}
       </span>
-      <div className="flex items-end justify-between gap-1">
-        <span className="rounded bg-halo-deep px-1 py-0.5 text-[0.5625rem] font-semibold tracking-wider text-halo-accent">
-          {fileExtBadge(a.name)}
+      {linesLabel != null && (
+        <span className="mt-0.5 text-left text-[0.5625rem] leading-tight text-halo-muted">
+          {linesLabel}
         </span>
-        {linesLabel != null && (
-          <span className="shrink-0 text-[0.5625rem] text-halo-muted">
-            {linesLabel}
-          </span>
-        )}
-      </div>
+      )}
+      <span className="mt-auto self-start rounded bg-halo-deep px-1.5 py-0.5 text-[0.5625rem] font-semibold tracking-wider text-halo-accent">
+        {fileExtBadge(a.name)}
+      </span>
     </div>
   );
 }

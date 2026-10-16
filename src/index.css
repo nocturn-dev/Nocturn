@@ -727,6 +727,7 @@ html.zen.voice-listening body::after {
 @media (prefers-reduced-motion: reduce) {
   .animate-pulse,
   .caret-blink,
+  .step-live,
   .shimmer-text {
     animation: none !important;
   }
@@ -762,6 +763,7 @@ html.motion-reduced .group:hover .snake-preview-seg,
 html.motion-reduced .snake-preview-seg,
 html.motion-reduced .animate-pulse,
 html.motion-reduced .caret-blink,
+html.motion-reduced .step-live,
 html.motion-reduced .settings-page-stagger > *,
 html.motion-reduced body::before {
   animation: none !important;
@@ -1048,6 +1050,22 @@ html.light.inline-code-claude .markdown code:not(pre code) {
   }
   50% {
     opacity: 0;
+  }
+}
+
+/* Живой ряд хода (исполняющийся инструмент / текущие размышления):
+   мягкий пульс яркости — ход читается как «динамический», активный шаг
+   светится, пока работает (умирает сам: результат гасит флаг running) */
+.step-live {
+  animation: halo-live 1.6s ease-in-out infinite;
+}
+@keyframes halo-live {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
   }
 }
 
