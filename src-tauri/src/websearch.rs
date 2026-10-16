@@ -1,7 +1,7 @@
 //! Веб-поиск — опциональный инструмент агента (тумблер в настройках).
-//! BYOK: SearXNG (свой инстанс, без ключа) или Brave Search API (ключ юзера).
-//! Модуль ходит только туда, куда указал пользователь; результат — текстовый
-//! список для модели.
+//! BYOK: DuckDuckGo (HTML-эндпоинт, без ключа и настройки), SearXNG (свой
+//! инстанс) или Brave Search API (ключ юзера). Модуль ходит только туда,
+//! куда указал пользователь; результат — текстовый список для модели.
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -235,6 +235,126 @@ async fn brave(key: &str, query: &str, count: usize) -> Result<String, String> {
     Ok(fmt_results(&items))
 }
 
+// ---------------------------------------------------------------------------
+// DuckDuckGo (HTML) — бесключевой провайдер по умолчанию
+// ---------------------------------------------------------------------------
+
+/// Браузерный UA: html.duckduckgo.com режет запросы без него
+const DDG_UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
+
+/// Минимальный percent-decode для uddg-параметра DDG-редиректа
+fn pct_decode(s: &str) -> String {
+    let bytes = s.as_bytes();
+    let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' {
+            if let Some(h) = bytes.get(i + 1..i + 3) {
+                if let Ok(v) = u8::from_str_radix(std::str::from_utf8(h).unwrap_or(""), 16) {
+                    out.push(v);
+                    i += 3;
+                    continue;
+                }
+            }
+        }
+        out.push(if bytes[i] == b'+' { b' ' } else { bytes[i] });
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+/// Текст без тегов + минимум HTML-сущностей (заголовки/сниппеты DDG)
+fn html_text(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut depth = 0usize;
+    for ch in s.chars() {
+        match ch {
+            '<' => depth += 1,
+            '>' => depth = depth.saturating_sub(1),
+            c if depth == 0 => out.push(c),
+            _ => {}
+        }
+    }
+    let decoded = out
+        .replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\u{22}")
+        .replace("&#x27;", "'")
+        .replace("&#39;", "'")
+        .replace("&nbsp;", " ");
+    decoded.trim().to_string()
+}
+
+/// Значение атрибута из фрагмента тега
+fn attr_value<'a>(tag: &'a str, name: &str) -> Option<&'a str> {
+    let pat = format!("{name}=\"");
+    let start = tag.find(&pat)? + pat.len();
+    let rest = &tag[start..];
+    let end = rest.find('"')?;
+    Some(&rest[..end])
+}
+
+/// Разбор выдачи html.duckduckgo.com/html: заголовок — <a class="result__a">,
+/// сниппет — <a class="result__snippet">. Ссылки часто завёрнуты в редирект
+/// /l/?uddg=<percent-encoded> — разворачиваем обратно в целевой URL
+fn parse_ddg_html(html: &str, count: usize) -> Vec<(String, String, String)> {
+    let mut out: Vec<(String, String, String)> = Vec::new();
+    let mut rest = html;
+    while out.len() < count {
+        let Some(marker) = rest.find("result__a") else { break };
+        let (_, after) = rest.split_at(marker);
+        let (tag_seg, text_rest) = match after.find("</a>") {
+            Some(end) => after.split_at(end),
+            None => break,
+        };
+        let href = attr_value(tag_seg, "href").unwrap_or("");
+        let link = if href.contains("uddg=") {
+            href.split("uddg=")
+                .nth(1)
+                .map(|u| pct_decode(u.split('&').next().unwrap_or("")))
+                .unwrap_or_default()
+        } else {
+            href.to_string()
+        };
+        // Текст заголовка: после '>' закрывающей скобки тега <a ...>
+        let title = tag_seg
+            .find('>')
+            .map(|gt| html_text(&tag_seg[gt + 1..]))
+            .unwrap_or_default();
+        let mut snippet = String::new();
+        if let Some(spos) = text_rest.find("result__snippet") {
+            let (_, stail) = text_rest.split_at(spos);
+            if let Some(send) = stail.find("</a>") {
+                let sseg = &stail[..send];
+                snippet = sseg
+                    .find('>')
+                    .map(|gt| html_text(&sseg[gt + 1..]))
+                    .unwrap_or_default();
+            }
+        }
+        if link.starts_with("http") {
+            out.push((clip(&title, 160), link, clip(&snippet, SNIPPET_MAX)));
+        }
+        rest = text_rest;
+    }
+    out
+}
+
+async fn duckduckgo(query: &str, count: usize) -> Result<String, String> {
+    let url = format!("https://html.duckduckgo.com/html/?q={}", urlencode(query));
+    let headers = vec![
+        ("User-Agent".to_string(), DDG_UA.to_string()),
+        (
+            "Accept".to_string(),
+            "text/html,application/xhtml+xml".to_string(),
+        ),
+    ];
+    let body = http_get(&url, headers).await?;
+    let items = parse_ddg_html(&body, count);
+    Ok(fmt_results(&items))
+}
+
 /// Вход инструмента: провайдер из конфига, count 1-10 (дефолт 5)
 pub async fn execute(query: &str, count: Option<u64>) -> Result<String, String> {
     let cfg = config();
@@ -260,6 +380,8 @@ pub async fn execute(query: &str, count: Option<u64>) -> Result<String, String> 
     // Аудит websearch 525: опечатка в провайдере («braev») молча уходила
     // в SearXNG с непонятной ошибкой подключения
     match cfg.provider.as_str() {
+        // Пусто (дефолт конфига) и явный выбор — бесключевой DuckDuckGo
+        "" | "duckduckgo" => duckduckgo(query, count).await,
         "brave" => brave(&brave_key, query, count).await,
         "searxng" => searxng(&cfg.searxng_url, query, count).await,
         other => Err(format!(
@@ -288,6 +410,22 @@ mod tests {
         let out = fmt_results(&res);
         assert!(out.contains("ё"));
         assert!(out.chars().filter(|c| *c == 'ё').count() <= SNIPPET_MAX);
+    }
+
+    #[test]
+    fn ddg_html_parses_titles_links_snippets_and_unwraps_redirect() {
+        let html = r#"<div class="result">
+<a rel="nofollow" class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fmusic&amp;rut=abc">Earfzilla <b>music</b> &amp; more</a>
+<a class="result__snippet" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fmusic&amp;rut=abc">Everything about <b>earfzilla</b> &mdash; tracks</a>
+</div>
+<a rel="nofollow" class="result__a" href="https://direct.example.org/page">Direct link</a>
+"#;
+        let items = parse_ddg_html(html, 5);
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0].0, "Earfzilla music & more");
+        assert_eq!(items[0].1, "https://example.com/music");
+        assert!(items[0].2.contains("earfzilla"));
+        assert_eq!(items[1].1, "https://direct.example.org/page");
     }
 
     #[test]

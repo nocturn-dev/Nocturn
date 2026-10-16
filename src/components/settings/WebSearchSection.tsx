@@ -9,7 +9,7 @@ export function WebSearchSection() {
   const { t } = useLang();
   const [cfg, setCfg] = useState<WebSearchConfig>({
     enabled: false,
-    provider: "searxng",
+    provider: "duckduckgo",
     searxng_url: "",
     brave_key: "",
   });
@@ -37,6 +37,7 @@ export function WebSearchSection() {
   };
 
   const providers = [
+    { id: "duckduckgo", label: t("ws.providerDuckduckgo") },
     { id: "searxng", label: t("ws.providerSearxng") },
     { id: "brave", label: t("ws.providerBrave") },
   ];
@@ -93,7 +94,7 @@ export function WebSearchSection() {
                   className="w-full rounded-lg border border-halo-line bg-halo-surface px-3 py-2 font-mono text-xs text-halo-text outline-none transition-colors placeholder:text-halo-muted/60 focus:border-halo-accent/60"
                 />
               </div>
-            ) : (
+            ) : cfg.provider === "brave" ? (
               <div className="rounded-lg px-2.5 py-2.5">
                 <span className="mb-1.5 block text-xs font-medium text-halo-muted">
                   {t("ws.braveKey")}
@@ -110,6 +111,10 @@ export function WebSearchSection() {
                   className="w-full rounded-lg border border-halo-line bg-halo-surface px-3 py-2 font-mono text-xs text-halo-text outline-none transition-colors placeholder:text-halo-muted/60 focus:border-halo-accent/60"
                 />
               </div>
+            ) : (
+              <p className="rounded-lg px-2.5 py-2 text-xs leading-relaxed text-halo-muted">
+                {t("ws.ddgDesc")}
+              </p>
             )}
             <p className="rounded-lg border border-halo-line/60 bg-halo-surface/40 px-2.5 py-2 text-[0.6875rem] leading-relaxed text-halo-muted/80">
               {t("ws.hint")}
