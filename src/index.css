@@ -1537,7 +1537,9 @@ html.motion-reduced .nok-z {
   }
 }
 .nav-tick-in {
-  animation: halo-nav-in var(--motion-slow) cubic-bezier(0.2, 0.8, 0.3, 1) both;
+  /* Длиннее motion-slow сознательно: каскад «домино» должен читаться
+     глазом, а не свистеть за один кадр */
+  animation: halo-nav-in calc(560ms * var(--motion-scale)) cubic-bezier(0.2, 0.8, 0.3, 1) both;
 }
 
 /* Таймлайн сообщений: прокрутка без видимого скроллбара */

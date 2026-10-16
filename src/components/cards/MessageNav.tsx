@@ -101,7 +101,7 @@ export const MessageNav = memo(function MessageNav({
         block для fixed — поповер внутри клипался и позиционировался мимо */}
     {hover && (
       <div
-        className="pointer-events-none fixed right-5 z-30 w-64 -translate-y-1/2 rounded-xl border border-halo-line bg-halo-deep/95 p-3 text-left shadow-xl"
+        className="anim-fade glass-pane pointer-events-none fixed right-5 z-30 w-72 -translate-y-1/2 rounded-xl border border-halo-line bg-halo-deep/70 p-4 text-left shadow-xl"
         style={{ top: hover.top }}
       >
         <p className="mb-1 text-[0.625rem] font-semibold uppercase tracking-wider text-halo-muted">
@@ -123,7 +123,7 @@ export const MessageNav = memo(function MessageNav({
             onMouseLeave={() => setHover(null)}
             aria-label={t("card.you")}
             className="nav-tick-in group pointer-events-auto relative flex h-2.5 w-5 shrink-0 items-center justify-end"
-            style={{ animationDelay: `${i * 40}ms` }}
+            style={{ animationDelay: `${i * 65}ms` }}
           >
             {/* Засечка: ширина через transform с origin-right (колонка не
                 пере-лейаутится), длительность из motion-токена — переключение
