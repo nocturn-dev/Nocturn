@@ -82,6 +82,15 @@ export const MessageNav = memo(function MessageNav({
       el.clientHeight / 2 +
       node.getBoundingClientRect().height / 2;
     el.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+    // Вспышка на самой карточке: попасть глазом в длинной ленте проще,
+    // когда цель коротко подсвечена (та же анимация, что у Ctrl+K)
+    const hit = node as HTMLElement;
+    hit.classList.remove("search-hit");
+    void hit.offsetWidth; // перезапуск анимации при повторном прыжке
+    hit.classList.add("search-hit");
+    hit.addEventListener("animationend", () => hit.classList.remove("search-hit"), {
+      once: true,
+    });
   };
 
   // Поповер позиционируется fixed: absolute внутри скролл-контейнера
@@ -101,7 +110,7 @@ export const MessageNav = memo(function MessageNav({
         block для fixed — поповер внутри клипался и позиционировался мимо */}
     {hover && (
       <div
-        className="anim-fade glass-pane pointer-events-none fixed right-5 z-30 w-72 -translate-y-1/2 rounded-xl border border-halo-line bg-halo-deep/70 p-4 text-left shadow-xl"
+        className="anim-fade glass-pane pointer-events-none fixed right-12 z-30 w-72 -translate-y-1/2 rounded-xl border border-halo-line bg-halo-deep/70 p-4 text-left shadow-xl"
         style={{ top: hover.top }}
       >
         <p className="mb-1 text-[0.625rem] font-semibold uppercase tracking-wider text-halo-muted">

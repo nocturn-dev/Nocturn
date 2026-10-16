@@ -5,6 +5,7 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import { DiffView } from "./DiffView";
 import { ChevronDownIcon, ToolIcon } from "./icons";
 import { memo, useMemo, useState } from "react";
+import { Lightbox } from "../Lightbox";
 
 /** Результат image_generate → {path}; мусор/ошибки — null */
 function parseImageResult(content: string): { path: string } | null {
@@ -34,6 +35,7 @@ function ToolStepCardBase({
 }) {
   const { t } = useLang();
   const [open, setOpen] = useState(false);
+  const [viewer, setViewer] = useState<string | null>(null);
   const name = call?.name ?? "";
 
   // Статус шага: отказ пользователя, ошибка инструмента, ненулевой exit-код.
@@ -138,9 +140,11 @@ function ToolStepCardBase({
         <img
           src={imageSrc}
           alt=""
-          className="mt-2 max-h-72 w-auto max-w-full rounded-lg border border-halo-line/60"
+          onClick={() => setViewer(imageSrc)}
+          className="mt-2 max-h-72 w-auto cursor-zoom-in rounded-lg border border-halo-line/60 object-cover"
         />
       )}
+      <Lightbox src={viewer} onClose={() => setViewer(null)} />
 
       {open && (
         <div className="anim-fade-up mt-2">

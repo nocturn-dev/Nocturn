@@ -480,8 +480,9 @@ exports[`chat cards snapshots > UserCard: текст + вложение 1`] = `
       >
         <img
           alt="shot.png"
-          class="max-h-44 rounded-lg border border-halo-line/60 object-cover"
+          class="max-h-44 cursor-zoom-in rounded-lg border border-halo-line/60 object-cover"
           src="data:image/png;base64,x"
+          title="shot.png"
         />
         <button
           class="absolute right-1.5 top-1.5 flex size-6 items-center justify-center rounded-md border border-halo-line bg-halo-surface text-halo-muted opacity-0 shadow-sm transition hover:text-halo-text group-hover/img:opacity-100"

@@ -17,6 +17,7 @@ import type { SlashCommand } from "../commands";
 import QuickSettings from "./QuickSettings";
 import NocturnMark from "./NocturnMark";
 import { MessageNav } from "./cards/MessageNav";
+import { Lightbox } from "./Lightbox";
 import { ArtifactsPanel, type ArtifactView } from "./ArtifactsPanel";
 import type { Appearance } from "../appearance";
 import { getToolSchemas, contextLimitFor, dictationTranscribe, gitBranchDiff, type ModelInfo } from "../api";
@@ -501,6 +502,7 @@ export default function ChatArea({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [draft, setDraft] = useState("");
   const [pendingImages, setPendingImages] = useState<Attachment[]>([]);
+  const [imageViewer, setImageViewer] = useState<string | null>(null);
   // Стабильные колбэки для memo-карточек: новая стрелка на каждый рендер
   // пробивала мемоизацию
   const reuseAttachment = useCallback(
@@ -2768,7 +2770,8 @@ export default function ChatArea({
                         src={img.dataUrl}
                         alt={img.name}
                         title={img.name}
-                        className="size-20 rounded-xl border border-halo-line object-cover"
+                        onClick={() => setImageViewer(img.dataUrl ?? null)}
+                        className="size-20 cursor-zoom-in rounded-xl border border-halo-line object-cover"
                       />
                     ) : (
                       <FileCard
@@ -3493,6 +3496,8 @@ export default function ChatArea({
         />
         </Suspense>
       )}
+
+      <Lightbox src={imageViewer} onClose={() => setImageViewer(null)} />
 
       <SystemPromptModal
         open={sysOpen}

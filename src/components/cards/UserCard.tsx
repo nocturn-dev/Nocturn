@@ -12,6 +12,7 @@ import {
 import { memo, useState } from "react";
 import { getUserAvatar } from "../../userProfile";
 import { copyText } from "../../clipboard";
+import { Lightbox } from "../Lightbox";
 
 function UserCardBase({
   mid,
@@ -43,6 +44,9 @@ function UserCardBase({
   // ряд действий под сообщением (копировать / править /
   // свернуть) — появление по ховеру, раньше кнопки висели по краям и резались
   const [copied, setCopied] = useState(false);
+  // Картинка на весь экран (клик по вложению); незакрытое состояние не
+  // мешает memo — состояние локальное
+  const [viewer, setViewer] = useState<string | null>(null);
   const copyMessage = async () => {
     if (await copyText(content)) {
       setCopied(true);
@@ -209,7 +213,9 @@ function UserCardBase({
               <img
                 src={a.dataUrl}
                 alt={a.name}
-                className="max-h-44 rounded-lg border border-halo-line/60 object-cover"
+                title={a.name}
+                onClick={() => setViewer(a.dataUrl ?? null)}
+                className="max-h-44 cursor-zoom-in rounded-lg border border-halo-line/60 object-cover"
               />
               ) : (
               <FileCard
@@ -246,6 +252,7 @@ function UserCardBase({
         </>
       )}
       </div>
+      <Lightbox src={viewer} alt={content} onClose={() => setViewer(null)} />
     </div>
   );
 }
