@@ -414,9 +414,19 @@ export function Switch({
     lg: "h-6 w-11",
   }[size];
   const thumb = {
-    mini: "size-3 translate-x-3",
-    md: "size-4 translate-x-4",
-    lg: "size-5 translate-x-5",
+    mini: "size-3",
+    md: "size-4",
+    lg: "size-5",
+  }[size];
+  // Сдвиг живёт только в ОДНОМ из состояний: translate-x-4 и translate-x-0
+  // в одном className не гасят друг друга порядком классов — в Tailwind 4 оба
+  // компилируются в свойство translate, и побеждает то, что позже в
+  // сгенерированном CSS (всегда translate-x-4). Ручка выключенного тумблера
+  // прилипала к правому краю и переставала скользить
+  const shift = {
+    mini: "translate-x-3",
+    md: "translate-x-4",
+    lg: "translate-x-5",
   }[size];
   return (
     <button
@@ -431,7 +441,7 @@ export function Switch({
     >
       <span
         className={`absolute left-0.5 top-0.5 rounded-full bg-halo-on-accent transition-transform duration-200 ease-[var(--ease-standard)] ${thumb} ${
-          on ? "" : "translate-x-0"
+          on ? shift : "translate-x-0"
         }`}
       />
     </button>
