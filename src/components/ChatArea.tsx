@@ -2426,130 +2426,130 @@ export default function ChatArea({
             ? "absolute inset-x-0 top-[calc(50%-18px)] z-[var(--halo-z-panel-raised)] -translate-y-1/2 px-6"
             : "absolute inset-x-0 bottom-0 z-[var(--halo-z-panel-raised)] px-6 pb-5"
         }`}
-        style={
-          // Плитки вложений растят кластер на 84px/ряд; кластер центрирован
-          // -translate-y-1/2 — верх поднимается на 42px/ряд и наезжает на
-          // чипы/приветствие (реальный кейс 04.10). Компенсируем половиной
-          // роста: 7 плиток в ряд (size-20 + gap в max-w-2xl)
-          composerCentered && pendingImages.length > 0
-            ? { marginTop: Math.ceil(pendingImages.length / 7) * 42 }
-            : undefined
-        }
       >
-        <div className={`pointer-events-auto mx-auto w-full ${composerCentered ? "max-w-2xl" : "max-w-3xl"}`}>
+        <div className={`pointer-events-auto relative mx-auto w-full ${composerCentered ? "max-w-2xl" : "max-w-3xl"}`}>
           {/* Мини-бар плеера: полоской над композером, в том же кластере */}
-          <MediaBar
-        prefs={mediaPrefs}
-        onLyrics={onMediaLyrics}
-        onPlayingChange={onMusicPlaying}
-        onTrackChange={(src) => pushNokEvent(src === "yt" ? "yt" : "track")}
-      />
-
-          {/* Приветствие в том же кластере, что композер: один центр
-              собирается сам, без формул стыковки двух отдельных блоков */}
-          {composerCentered && (
-            <div className="mb-4 flex flex-col items-center text-center">
-              <span className="text-halo-accent">
-                <SparkIcon />
-              </span>
-              <h2
-                className={`mt-3 text-3xl font-medium tracking-tight text-halo-text ${
-                  appearance.textShimmer ? "shimmer-text" : ""
-                }`}
-              >
-                {greeting}
-              </h2>
-              <p className="mt-1.5 max-w-sm text-sm leading-relaxed text-halo-muted">
-                {t("chat.greetingSub")}
-              </p>
-            </div>
+          {!composerCentered && (
+            <MediaBar
+              prefs={mediaPrefs}
+              onLyrics={onMediaLyrics}
+              onPlayingChange={onMusicPlaying}
+              onTrackChange={(src) => pushNokEvent(src === "yt" ? "yt" : "track")}
+            />
           )}
-          {/* Селектор проекта — только в центрированном режиме (по макету:
-              «HaloUI ▾» над композером). Выбор задаёт и контекст чатов,
-              и корень работы, если у проекта есть папка */}
+          {/* Центр кластера — сам шелл: приветствие, селектор проекта и
+              медиабар висят НАД ним абсолютом и не сдвигают центр вниз.
+              Иначе «центрированный» композер сидит ниже середины окна на
+              полвысоты приветствия */}
           {composerCentered && (
-            <div className="mb-2 flex justify-center gap-1.5">
-              <div className="relative">
-                <button
-                  onClick={() => setProjectOpen((v) => !v)}
-                  title={t("project.pick")}
-                  className={`${COMPOSER_CHIP} ${
-                    activeProjectId ? COMPOSER_CHIP_ON : COMPOSER_CHIP_OFF
+            <div className="absolute bottom-full left-0 right-0 mb-3 flex flex-col items-center">
+              <MediaBar
+                prefs={mediaPrefs}
+                onLyrics={onMediaLyrics}
+                onPlayingChange={onMusicPlaying}
+                onTrackChange={(src) => pushNokEvent(src === "yt" ? "yt" : "track")}
+              />
+              <div className="mb-3 flex flex-col items-center text-center">
+                <span className="text-halo-accent">
+                  <SparkIcon />
+                </span>
+                <h2
+                  className={`mt-3 text-3xl font-medium tracking-tight text-halo-text ${
+                    appearance.textShimmer ? "shimmer-text" : ""
                   }`}
                 >
-                  <FolderIcon />
-                  <span className="max-w-44 truncate">
-                    {activeProjectId
-                      ? (projects.find((p) => p.id === activeProjectId)?.name ??
-                        t("project.none"))
-                      : t("project.none")}
-                  </span>
-                  <ChevronDownIcon />
-                </button>
-                {projectOpen && (
-                  <>
-                    <div
-                      className="fixed inset-0 z-[var(--halo-z-panel)]"
-                      onClick={() => setProjectOpen(false)}
-                    />
-                    <div className="scroll-slim anim-pop absolute bottom-full left-1/2 z-[var(--halo-z-panel-raised)] mb-2 max-h-64 w-64 -translate-x-1/2 overflow-y-auto rounded-xl border border-halo-line bg-halo-deep/95 p-1.5 shadow-xl backdrop-blur">
-                      <p className="px-2 pb-1 text-[0.625rem] uppercase tracking-wider text-halo-muted/60">
-                        {t("project.pick")}
-                      </p>
-                      <button
-                        onClick={() => {
-                          onSelectProject(null);
-                          setProjectOpen(false);
-                        }}
-                        className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs transition-colors ${
-                          activeProjectId === null
-                            ? "bg-halo-hover text-halo-text"
-                            : "text-halo-muted hover:bg-halo-hover hover:text-halo-text"
-                        }`}
-                      >
-                        {t("project.none")}
-                      </button>
-                      {projects.map((p) => (
+                  {greeting}
+                </h2>
+                <p className="mt-1.5 max-w-sm text-sm leading-relaxed text-halo-muted">
+                  {t("chat.greetingSub")}
+                </p>
+              </div>
+              {/* Селектор проекта (по макету: «HaloUI ▾» над композером).
+                  Выбор задаёт и контекст чатов, и корень работы, если у
+                  проекта есть папка */}
+              <div className="flex justify-center gap-1.5">
+                <div className="relative">
+                  <button
+                    onClick={() => setProjectOpen((v) => !v)}
+                    title={t("project.pick")}
+                    className={`${COMPOSER_CHIP} ${
+                      activeProjectId ? COMPOSER_CHIP_ON : COMPOSER_CHIP_OFF
+                    }`}
+                  >
+                    <FolderIcon />
+                    <span className="max-w-44 truncate">
+                      {activeProjectId
+                        ? (projects.find((p) => p.id === activeProjectId)?.name ??
+                          t("project.none"))
+                        : t("project.none")}
+                    </span>
+                    <ChevronDownIcon />
+                  </button>
+                  {projectOpen && (
+                    <>
+                      <div
+                        className="fixed inset-0 z-[var(--halo-z-panel)]"
+                        onClick={() => setProjectOpen(false)}
+                      />
+                      <div className="scroll-slim anim-pop absolute bottom-full left-1/2 z-[var(--halo-z-panel-raised)] mb-2 max-h-64 w-64 -translate-x-1/2 overflow-y-auto rounded-xl border border-halo-line bg-halo-deep/95 p-1.5 shadow-xl backdrop-blur">
+                        <p className="px-2 pb-1 text-[0.625rem] uppercase tracking-wider text-halo-muted/60">
+                          {t("project.pick")}
+                        </p>
                         <button
-                          key={p.id}
                           onClick={() => {
-                            onSelectProject(p.id);
+                            onSelectProject(null);
                             setProjectOpen(false);
                           }}
-                          className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors ${
-                            activeProjectId === p.id
+                          className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs transition-colors ${
+                            activeProjectId === null
                               ? "bg-halo-hover text-halo-text"
                               : "text-halo-muted hover:bg-halo-hover hover:text-halo-text"
                           }`}
                         >
-                          <span className="min-w-0 flex-1">
-                            <span className="block truncate text-xs">{p.name}</span>
-                            {p.root && (
-                              <span className="block truncate text-[0.625rem] text-halo-muted/60">
-                                {p.root}
-                              </span>
-                            )}
-                          </span>
+                          {t("project.none")}
                         </button>
-                      ))}
-                      {/* паттерн-референс: «добавить проект» прямо в секции */}
-                      {onNewProject && (
-                        <>
-                          <div className="my-1 border-t border-halo-line/60" />
+                        {projects.map((p) => (
                           <button
+                            key={p.id}
                             onClick={() => {
-                              onNewProject();
+                              onSelectProject(p.id);
                               setProjectOpen(false);
                             }}
-                            className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs text-halo-muted transition-colors hover:bg-halo-hover hover:text-halo-accent"
+                            className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors ${
+                              activeProjectId === p.id
+                                ? "bg-halo-hover text-halo-text"
+                                : "text-halo-muted hover:bg-halo-hover hover:text-halo-text"
+                            }`}
                           >
-                            ＋ {t("project.new")}
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-xs">{p.name}</span>
+                              {p.root && (
+                                <span className="block truncate text-[0.625rem] text-halo-muted/60">
+                                  {p.root}
+                                </span>
+                              )}
+                            </span>
                           </button>
-                        </>
-                      )}
-                    </div>
-                  </>
-                )}
+                        ))}
+                        {/* паттерн-референс: «добавить проект» прямо в секции */}
+                        {onNewProject && (
+                          <>
+                            <div className="my-1 border-t border-halo-line/60" />
+                            <button
+                              onClick={() => {
+                                onNewProject();
+                                setProjectOpen(false);
+                              }}
+                              className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs text-halo-muted transition-colors hover:bg-halo-hover hover:text-halo-accent"
+                            >
+                              ＋ {t("project.new")}
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </div>
               </div>
             </div>
           )}
