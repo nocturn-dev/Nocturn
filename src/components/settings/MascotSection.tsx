@@ -31,6 +31,8 @@ export function MascotSection({
   onEasterChange,
   selfActivity,
   onSelfActivityChange,
+  hideWorking,
+  onHideWorkingChange,
   colors,
   onColorChange,
   mascotName,
@@ -51,6 +53,10 @@ export function MascotSection({
   /** Самодеятельность в простое (ноутбук и т.п.) */
   selfActivity: boolean;
   onSelfActivityChange: (v: boolean) => void;
+  /** «Прятать при работе»: скрывать Нока в непустом чате на время прогона.
+   *  Выключено — светлячок остаётся у композера, пока модель отвечает */
+  hideWorking: boolean;
+  onHideWorkingChange: (v: boolean) => void;
   /** Кастомные цвета частей ("" — токен темы) */
   colors: { body?: string; glow?: string; wing?: string };
   onColorChange: (part: "body" | "glow" | "wing", v: string) => void;
@@ -145,6 +151,16 @@ export function MascotSection({
           desc={t("mascot.selfDesc")}
           on={selfActivity}
           onChange={onSelfActivityChange}
+        />
+      </div>
+      {/* Ключевая настройка видимости: в пустом чате Нок живёт всегда,
+          здесь решается только его судьба ВО ВРЕМЯ прогона модели */}
+      <div className="mt-1.5">
+        <ToggleRow
+          label={t("mascot.hideWorking")}
+          desc={t("mascot.hideWorkingDesc")}
+          on={hideWorking}
+          onChange={onHideWorkingChange}
         />
       </div>
 

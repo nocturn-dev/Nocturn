@@ -52,49 +52,89 @@ exports[`css generator goldens > fullClaudeCss — палитра без importa
   --halo-font-mono: Nocturn Mono, ui-monospace, Menlo, Consolas, "Liberation Mono", monospace;
   color-scheme: dark;
 }
-html.full-claude .markdown code:not(pre code) {
+:root.full-claude.light {
+  --halo-bg: #faf9f7;
+  --halo-deep: #f0eee9;
+  --halo-surface: #ffffff;
+  --halo-raised: #f5f4f0;
+  --halo-line: rgba(0, 0, 0, 0.1);
+  --halo-text: #1f1e1c;
+  --halo-muted: #6e6c66;
+  --halo-hover: rgba(0, 0, 0, 0.06);
+  --halo-hover-strong: rgba(0, 0, 0, 0.1);
+  --halo-code-bg: #f4f3f0;
+  --halo-code-text: #1f1e1c;
+  --halo-accent: #6e6c66;
+  --halo-accent-deep: #5a5954;
+  --halo-on-accent: #ffffff;
+  --halo-blur: 14px;
+  --halo-radius-scale: 1;
+  --halo-msg-scale: 1;
+  --halo-density: 1;
+  --halo-content-width: 48rem;
+  --halo-font-ui: Nocturn Sans, ui-sans-serif, system-ui, sans-serif;
+  --halo-font-mono: Nocturn Mono, ui-monospace, Menlo, Consolas, "Liberation Mono", monospace;
+  color-scheme: light;
+}
+html.full-claude:not(.light) .markdown code:not(pre code) {
   background: rgba(255, 255, 255, 0.05);
   border: 0.5px solid rgba(255, 255, 255, 0.2);
   color: #f4abab;
   border-radius: 0.3rem;
 }
+html.full-claude.light .markdown code:not(pre code) {
+  background: rgba(0, 0, 0, 0.04);
+  border: 0.5px solid rgba(0, 0, 0, 0.18);
+  color: #b3555c;
+  border-radius: 0.3rem;
+}
 html.full-claude .markdown pre {
   border-radius: 0.5rem;
 }
-html.full-claude aside .uppercase {
+html.full-claude:not(.light) aside .uppercase {
   color: rgba(161, 160, 152, 0.55) !important;
+}
+html.full-claude.light aside .uppercase {
+  color: rgba(110, 108, 102, 0.6) !important;
 }
 html.full-claude aside .uppercase:hover {
   color: var(--halo-text) !important;
 }
 @supports (background: color-mix(in srgb, red, blue)) {
-  html.full-claude.glass {
+  html.full-claude:not(.light).glass {
     background:
       radial-gradient(700px 450px at 12% 18%, color-mix(in srgb, #2d2d2d 38%, transparent), transparent 70%),
       radial-gradient(800px 550px at 88% 85%, color-mix(in srgb, var(--halo-deep) 55%, transparent), transparent 70%),
       radial-gradient(500px 350px at 70% 10%, color-mix(in srgb, #2d2d2d 16%, transparent), transparent 70%),
       var(--halo-bg);
   }
+  html.full-claude.light.glass {
+    background:
+      radial-gradient(700px 450px at 12% 18%, color-mix(in srgb, #e2e0da 55%, transparent), transparent 70%),
+      radial-gradient(800px 550px at 88% 85%, color-mix(in srgb, var(--halo-deep) 55%, transparent), transparent 70%),
+      radial-gradient(500px 350px at 70% 10%, color-mix(in srgb, #e2e0da 25%, transparent), transparent 70%),
+      var(--halo-bg);
+  }
 }
 html.full-claude:not(.glass) .glass-pane {
-  background: #20201f;
+  background: var(--halo-surface);
 }
 html.full-claude.glass .glass-pane {
-  background: #20201f;
+  background: var(--halo-surface);
 }
 html.full-claude.glass .bg-halo-deep.shadow-2xl {
-  background: #20201f;
+  background: var(--halo-surface);
 }
 @supports (background: color-mix(in srgb, red, transparent)) {
   html.full-claude.glass .glass-pane {
-    background: color-mix(in srgb, #20201f 70%, transparent);
+    background: color-mix(in srgb, var(--halo-surface) 70%, transparent);
   }
   html.full-claude.glass .bg-halo-deep.shadow-2xl {
-    background: color-mix(in srgb, #20201f 70%, transparent);
+    background: color-mix(in srgb, var(--halo-surface) 70%, transparent);
   }
 }
 html.full-claude:not(.glass) .bg-halo-deep.shadow-2xl {
-  background: #20201f;
+  background: var(--halo-surface);
 }
 html.full-claude:not(.glass) .glass-pane,
 html.full-claude:not(.glass) .msg-glass {
@@ -119,5 +159,21 @@ exports[`css generator goldens > officialCss — монохром выше па�
   --halo-accent-deep: #8f8f8f;
   --halo-on-accent: #111111;
   color-scheme: dark;
+}
+:root.official.light {
+  --halo-bg: #f8f8f8;
+  --halo-deep: #efefef;
+  --halo-surface: #ffffff;
+  --halo-raised: #ececec;
+  --halo-line: #dcdcdc;
+  --halo-text: #1a1a1a;
+  --halo-muted: #6b6b6b;
+  --halo-hover: rgba(0, 0, 0, 0.05);
+  --halo-hover-strong: rgba(0, 0, 0, 0.09);
+  --halo-code-bg: #f2f2f2;
+  --halo-accent: #1a1a1a;
+  --halo-accent-deep: #5c5c5c;
+  --halo-on-accent: #ffffff;
+  color-scheme: light;
 }"
 `;

@@ -261,6 +261,9 @@ interface ChatAreaProps {
   /** Спрятан до рестарта (ПКМ-меню); сознательно не персистится */
   mascotShooed: boolean;
   onMascotShoo: () => void;
+  /** «Прятать при работе»: OFF — Нок остаётся у композера и в непустом
+   *  чате, пока идёт прогон модели (кроме него — только пустой чат) */
+  mascotHideWorking: boolean;
   /** Кастомное имя маскота ("" — локализованное «Нок») */
   mascotName?: string;
   /** Hard Limit сработал (useAgentRun): рост счётчика — событие Ноку */
@@ -398,6 +401,7 @@ export default function ChatArea({
   onMascotSideChange,
   mascotShooed,
   onMascotShoo,
+  mascotHideWorking,
   mascotName,
   mascotLimitSeq,
   settingsClosedSeq,
@@ -2561,8 +2565,12 @@ export default function ChatArea({
             {/* Нок: сидит на углу шелла (сторона — преф, переносится драгом);
                 в Hard Mode шелл не рендерится — маскот скрыт вместе с ним.
                 Спрятанный через ПКМ-меню не рендерится до рестарта */}
-            {/* Строгий стиль: маскот — только в пустом чате (тумблер в «Темах») */}
-            {mascot && !mascotShooed && visible.length === 0 && (
+            {/* Строгий стиль: маскот — только в пустом чате; исключение —
+                прогон модели: с тумблером «Прятать при работе» (Mascot) Нок
+                уходит, без него остаётся любоваться и в чате */}
+            {mascot &&
+              !mascotShooed &&
+              (visible.length === 0 || (!!streamingMsgId && !mascotHideWorking)) && (
               // Посадка масштабо-зависима: лапы всегда на кромке шелла,
               // крупный Нок не наезжает на текст поля ввода
               <div

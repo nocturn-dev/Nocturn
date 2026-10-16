@@ -27,14 +27,13 @@ export function useAppearanceUi() {
   // Профили внешнего вида: именованные пресеты (Theme + Appearance)
   const [themeProfiles, setThemeProfiles] = useState<ThemeProfile[]>(loadThemeProfiles);
 
-  // Тема применяется мгновенно и запоминается.
-  // Official и Full Claude всегда тёмные: светлая не применяется, пока
-  // включена любая из них
+  // Тема применяется мгновенно и запоминается. У жёстких тем (Official,
+  // Nocturn) есть собственные светлые варианты — палитры в тегах тем
+  // гейтятся селектором :not(.light)/.light, класс ставится безусловно
   useEffect(() => {
-    const forceDark = appearance.official || appearance.fullClaude;
-    document.documentElement.classList.toggle("light", theme === "light" && !forceDark);
+    document.documentElement.classList.toggle("light", theme === "light");
     localStorage.setItem(STORAGE_KEYS.theme, theme);
-  }, [theme, appearance.official, appearance.fullClaude]);
+  }, [theme]);
 
   // Авто-тема: opt-in. off — тема только ручная; system — следуем ОС;
   // schedule — светлый интервал дня (может переходить через полночь).

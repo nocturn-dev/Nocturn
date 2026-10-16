@@ -1,7 +1,16 @@
 import { useEffect, useState } from "react";
 import { useLang, MsgKey } from "../../locales";
 import type { Theme } from "../../types";
-import { ACCENT_PRESETS, ambientGradientDefaults, appearanceTitleStyle, Appearance, FULL_CLAUDE_PALETTE, withStyleAccent } from "../../appearance";
+import {
+  ACCENT_PRESETS,
+  ambientGradientDefaults,
+  appearanceTitleStyle,
+  Appearance,
+  FULL_CLAUDE_LIGHT_PALETTE,
+  FULL_CLAUDE_PALETTE,
+  officialPalette,
+  withStyleAccent,
+} from "../../appearance";
 import { STYLE_PALETTES } from "../../themeStyles";
 import type { ThemeProfile } from "../../themeProfiles";
 import { dayPeriod } from "../../time";
@@ -278,6 +287,19 @@ export function ThemeSection({
     setCustomFonts((prev) => prev.filter((f) => f.id !== id));
   };
 
+  // Витринные палитры Official для карточек: те же значения, что генерирует
+  // officialCss — с флагами OLED/контраста пользователя, превью не врёт
+  const officialDark = officialPalette(
+    appearance.officialOled,
+    appearance.officialContrast,
+    false,
+  );
+  const officialLight = officialPalette(
+    appearance.officialOled,
+    appearance.officialContrast,
+    true,
+  );
+
   const darkStyles: { id: Appearance["style"]; key: string }[] = [
     { id: "claude", key: "themes.styleClaude" },
     { id: "midnight", key: "themes.styleMidnight" },
@@ -500,108 +522,65 @@ export function ThemeSection({
         />
       )}
 
-      {/* Жёсткие темы — карточкой с обводкой: это переключатели ЦЕЛЫХ тем,
-          не рядовые строки; рамка отделяет их от потока обычных настроек */}
-      <div className="mt-2.5 rounded-xl border border-halo-line px-3.5 py-1.5">
-        {/* Official: строгий монохром одним тумблером. Включённой теме
-            принадлежат только её настройки ниже; обычные контролы скрыты */}
-        <ToggleRow
-          label={t("themes.official")}
-          desc={t("themes.officialDesc")}
-          on={appearance.official}
-          onChange={(v) =>
-            // Жёсткие темы взаимоисключимы: включение одной выключает другую
-            onAppearanceChange({ ...appearance, official: v, fullClaude: false })
-          }
+      {/* Жёсткие темы: 4 карточки — две темы × светлый/тёмный вариант.
+          Клик применяет пару «тема + режим» целиком (темы взаимоисключимы),
+          активная пара отмечена галкой; палитры карточек — те же данные,
+          что инжектируют теги тем. У включённой темы свои настройки ниже,
+          обычные контролы кастомизации скрыты */}
+      <div className="mt-2.5 grid grid-cols-2 gap-3">
+        <ThemeCard
+          name={`${t("themes.fullClaudeShort")} · ${t("themes.dark")}`}
+          selected={appearance.fullClaude && theme === "dark"}
+          onSelect={() => {
+            onAppearanceChange({ ...appearance, fullClaude: true, official: false });
+            onThemeChange("dark");
+          }}
+          bg={FULL_CLAUDE_PALETTE.bg}
+          panel={FULL_CLAUDE_PALETTE.deep}
+          text={FULL_CLAUDE_PALETTE.text}
+          accent={appearance.fullClaudeAccent || FULL_CLAUDE_PALETTE.muted}
+          title={t("themes.fullClaudeDesc")}
         />
-        {/* Nocturn Theme — жёсткая тема (вне каскада кастомизации): класс
-            html.full-claude + тег #halo-full-claude с палитрой и пинами
-            (appearance.ts, fullClaudeCss). Настройки темы — в карточке ниже;
-            глобальные контролы и Official на неё не действуют */}
-        <ToggleRow
-          label={t("themes.fullClaude")}
-          desc={t("themes.fullClaudeDesc")}
-          on={appearance.fullClaude}
-          onChange={(v) =>
-            // Включение темы гасит Official (и наоборот — см. выше)
-            onAppearanceChange({ ...appearance, fullClaude: v, official: false })
-          }
+        <ThemeCard
+          name={`${t("themes.fullClaudeShort")} · ${t("themes.light")}`}
+          selected={appearance.fullClaude && theme === "light"}
+          onSelect={() => {
+            onAppearanceChange({ ...appearance, fullClaude: true, official: false });
+            onThemeChange("light");
+          }}
+          bg={FULL_CLAUDE_LIGHT_PALETTE.bg}
+          panel={FULL_CLAUDE_LIGHT_PALETTE.deep}
+          text={FULL_CLAUDE_LIGHT_PALETTE.text}
+          accent={appearance.fullClaudeAccent || FULL_CLAUDE_LIGHT_PALETTE.muted}
+          title={t("themes.fullClaudeDesc")}
+        />
+        <ThemeCard
+          name={`${t("themes.official")} · ${t("themes.dark")}`}
+          selected={appearance.official && theme === "dark"}
+          onSelect={() => {
+            onAppearanceChange({ ...appearance, official: true, fullClaude: false });
+            onThemeChange("dark");
+          }}
+          bg={officialDark.bg}
+          panel={officialDark.deep}
+          text={officialDark.text}
+          accent={officialDark.accent}
+          title={t("themes.officialDesc")}
+        />
+        <ThemeCard
+          name={`${t("themes.official")} · ${t("themes.light")}`}
+          selected={appearance.official && theme === "light"}
+          onSelect={() => {
+            onAppearanceChange({ ...appearance, official: true, fullClaude: false });
+            onThemeChange("light");
+          }}
+          bg={officialLight.bg}
+          panel={officialLight.deep}
+          text={officialLight.text}
+          accent={officialLight.accent}
+          title={t("themes.officialDesc")}
         />
       </div>
-
-      {/* Витрина Full Claude: мини-макет СТРУКТУРЫ Claude Desktop —
-          тёмный сайдбар-полоска, лента с пузырём пользователя и композер.
-          Клик включает тему; на включённой теме скрыта (вся она и есть превью).
-          Цвета — из FULL_CLAUDE_PALETTE, те же, что инжектирует тег темы */}
-      {!appearance.fullClaude && (
-        <button
-          onClick={() =>
-            onAppearanceChange({ ...appearance, fullClaude: true, official: false })
-          }
-          className="mt-1.5 mb-4 w-full rounded-xl border border-halo-line p-2.5 text-left transition-colors hover:border-halo-muted/50"
-        >
-          <div
-            className="flex h-24 gap-1.5 overflow-hidden rounded-lg border p-0"
-            style={{
-              background: FULL_CLAUDE_PALETTE.bg,
-              borderColor: FULL_CLAUDE_PALETTE.line,
-            }}
-          >
-            {/* Сайдбар: темнее фона, с активным чатом-пилюлей */}
-            <div
-              className="flex w-1/4 flex-col gap-1 rounded-l-lg p-1.5"
-              style={{ background: FULL_CLAUDE_PALETTE.deep }}
-            >
-              <div
-                className="h-1 w-4/5 rounded"
-                style={{ background: FULL_CLAUDE_PALETTE.text, opacity: 0.45 }}
-              />
-              <div
-                className="h-1 w-3/5 rounded"
-                style={{ background: FULL_CLAUDE_PALETTE.text, opacity: 0.25 }}
-              />
-              <div
-                className="mt-1 h-3.5 w-full rounded-md"
-                style={{ background: "rgba(255, 255, 255, 0.1)" }}
-              />
-            </div>
-            {/* Лента: пузырь пользователя справа, строки ответа, композер */}
-            <div className="flex min-w-0 flex-1 flex-col gap-1.5 p-2">
-              <div
-                className="ml-auto h-4 w-2/5 rounded-md"
-                style={{ background: FULL_CLAUDE_PALETTE.raised }}
-              />
-              <div
-                className="h-1.5 w-4/5 rounded"
-                style={{ background: FULL_CLAUDE_PALETTE.text, opacity: 0.6 }}
-              />
-              <div
-                className="h-1.5 w-3/5 rounded"
-                style={{ background: FULL_CLAUDE_PALETTE.text, opacity: 0.3 }}
-              />
-              <div
-                className="mt-auto flex h-4 items-center rounded-md border px-1.5"
-                style={{
-                  background: FULL_CLAUDE_PALETTE.surface,
-                  borderColor: FULL_CLAUDE_PALETTE.line,
-                }}
-              >
-                <div
-                  className="h-1 w-1/3 rounded"
-                  style={{ background: FULL_CLAUDE_PALETTE.text, opacity: 0.25 }}
-                />
-              </div>
-            </div>
-          </div>
-          <div className="mt-2 flex items-center justify-between px-0.5">
-            <span className="text-sm text-halo-text">{t("themes.fullClaudeShort")}</span>
-            <span
-              className="size-2.5 rounded-full"
-              style={{ background: appearance.accent }}
-            />
-          </div>
-        </button>
-      )}
 
       {/* Настройки самой Full Claude: действуют ТОЛЬКО внутри темы.
           Перенесены те глобальные тумблеры, что ложатся на специфику
@@ -1983,6 +1962,7 @@ export function ThemeCard({
   panel,
   text,
   accent,
+  title,
 }: {
   name: string;
   selected: boolean;
@@ -1991,10 +1971,13 @@ export function ThemeCard({
   panel: string;
   text: string;
   accent: string;
+  /** Подсказка-описание карточки (у жёстких тем — их описания) */
+  title?: string;
 }) {
   return (
     <button
       onClick={onSelect}
+      title={title}
       className={`rounded-xl border p-2.5 text-left transition-colors ${
         selected
           ? "border-halo-accent"

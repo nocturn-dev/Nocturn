@@ -544,6 +544,12 @@ export default function App() {
   // Кастомное имя Нока ("" — локализованное «Нок»); реплики с {name}
   const [mascotName, setMascotName] = useStringPref<string>("haloui-mascot-name", "");
   const [mascotSide, setMascotSide] = useStringPref<"left" | "right">("haloui-mascot-side", "left");
+  // «Прятать при работе»: выключено — Нок остаётся у композера и во время
+  // прогона модели в непустом чате (в пустом он живёт всегда)
+  const [mascotHideWorking, setMascotHideWorking] = useBoolPref(
+    "haloui-mascot-hide-working",
+    false,
+  );
   const [mascotShooed, setMascotShooed] = useState(false);
 
   // Saved-тост: изменения в открытых настройках не тостят
@@ -2998,6 +3004,7 @@ export default function App() {
         mascotSelf={mascotSelf}
         mascotColors={mascotColors}
         mascotThemeKey={mascotThemeKey}
+        mascotHideWorking={mascotHideWorking}
         mascotSide={mascotSide}
         onMascotSideChange={setMascotSide}
         mascotShooed={mascotShooed}
@@ -3155,6 +3162,8 @@ export default function App() {
         onMascotEasterChange={setMascotEaster}
         mascotSelf={mascotSelf}
         onMascotSelfChange={setMascotSelf}
+        mascotHideWorking={mascotHideWorking}
+        onMascotHideWorkingChange={setMascotHideWorking}
         mascotColors={mascotColors}
         onMascotColorChange={setMascotColor}
         mascotName={mascotName}

@@ -264,6 +264,8 @@ export const SETTINGS_SEARCH_INDEX: { section: Section; keys: MsgKey[] }[] = [
       "mascot.glow",
       "mascot.self",
       "mascot.selfDesc",
+      "mascot.hideWorking",
+      "mascot.hideWorkingDesc",
       "mascot.easter",
       "mascot.easterDesc",
       "mascot.colorTheme",

@@ -172,6 +172,9 @@ interface SettingsModalProps {
   onMascotEasterChange: (v: boolean) => void;
   mascotSelf: boolean;
   onMascotSelfChange: (v: boolean) => void;
+  /** «Прятать при работе»: скрывать Нока в непустом чате на время прогона */
+  mascotHideWorking: boolean;
+  onMascotHideWorkingChange: (v: boolean) => void;
   /** Кастомные цвета частей Нока ("" — токен темы) */
   mascotColors: { body?: string; glow?: string; wing?: string };
   onMascotColorChange: (part: "body" | "glow" | "wing", v: string) => void;
@@ -360,6 +363,8 @@ export default function SettingsModal({
   onMascotEasterChange,
   mascotSelf,
   onMascotSelfChange,
+  mascotHideWorking,
+  onMascotHideWorkingChange,
   mascotColors,
   onMascotColorChange,
   mascotName,
@@ -785,6 +790,8 @@ export default function SettingsModal({
               onEasterChange={onMascotEasterChange}
               selfActivity={mascotSelf}
               onSelfActivityChange={onMascotSelfChange}
+              hideWorking={mascotHideWorking}
+              onHideWorkingChange={onMascotHideWorkingChange}
               colors={mascotColors}
               onColorChange={onMascotColorChange}
               mascotName={mascotName}

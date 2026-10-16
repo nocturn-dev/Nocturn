@@ -17,6 +17,8 @@ describe("css generator goldens", () => {
   it("officialCss — монохром выше палитр стилей, без important", () => {
     const css = officialCss(false, false);
     expect(css).toContain(":root.official:not(.light)");
+    // Светлый вариант той же темы — отдельный блок с собственным скоупом
+    expect(css).toContain(":root.official.light {");
     expect(css).toContain("--halo-bg: #0a0a0a;");
     expect(css).not.toContain("!important");
     expect(css).toMatchSnapshot();
@@ -28,6 +30,8 @@ describe("css generator goldens", () => {
     // Селектор темы выше палитр стилей — important в var-блоке не нужен;
     // остаются только бои с инлайном (header-color сайдбара)
     expect(css).toContain(":root.full-claude:not(.light)");
+    // Светлый вариант — равноправный скоуп той же темы
+    expect(css).toContain(":root.full-claude.light {");
     expect(css).toContain("--halo-bg: #151515;");
     expect(css).not.toContain("#151515 !important");
     expect(css).toMatchSnapshot();

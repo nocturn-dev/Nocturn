@@ -54,11 +54,11 @@ const isQuickEntry =
 // подтягиваем сохранённую тему/акцент/шрифты до первого рендера
 if (isQuickEntry) {
   try {
-    const a = loadAppearance();
-    applyAppearance(a);
+    applyAppearance(loadAppearance());
+    // У жёстких тем есть светлые варианты — класс ставится безусловно
     document.documentElement.classList.toggle(
       "light",
-      localStorage.getItem(STORAGE_KEYS.theme) === "light" && !a.official && !a.fullClaude,
+      localStorage.getItem(STORAGE_KEYS.theme) === "light",
     );
   } catch {
     // нет сохранённой кастомизации — дефолтная палитра из index.css

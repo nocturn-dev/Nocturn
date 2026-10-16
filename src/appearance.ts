@@ -498,50 +498,124 @@ export function ambientGradientDefaults(): { from: string; to: string } {
  * и !important не нужен; перенос тега в конец head — последняя инстанция
  * при равной специфичности.
  */
+/** Палитра Official в одном месте: генератор CSS и карточки выбора читают
+ *  одни и те же значения. oled — «глубокий чёрный» экранов без подсветки;
+ *  в светлом варианте флаг не действует (там нечему светиться), контраст
+ *  поднимает границы и вторичный текст в обоих режимах */
+export function officialPalette(
+  oled: boolean,
+  contrast: boolean,
+  light: boolean,
+): {
+  bg: string;
+  deep: string;
+  surface: string;
+  raised: string;
+  line: string;
+  text: string;
+  muted: string;
+  hover: string;
+  hoverStrong: string;
+  codeBg: string;
+  accent: string;
+  accentDeep: string;
+  onAccent: string;
+} {
+  if (light) {
+    return {
+      bg: contrast ? "#f2f2f2" : "#f8f8f8",
+      deep: contrast ? "#e9e9e9" : "#efefef",
+      surface: "#ffffff",
+      raised: "#ececec",
+      line: contrast ? "#c9c9c9" : "#dcdcdc",
+      text: "#1a1a1a",
+      muted: contrast ? "#4f4f4f" : "#6b6b6b",
+      hover: "rgba(0, 0, 0, 0.05)",
+      hoverStrong: "rgba(0, 0, 0, 0.09)",
+      codeBg: "#f2f2f2",
+      accent: "#1a1a1a",
+      accentDeep: "#5c5c5c",
+      onAccent: "#ffffff",
+    };
+  }
+  return {
+    bg: oled ? "#000000" : "#0a0a0a",
+    deep: oled ? "#000000" : "#060606",
+    surface: oled ? "#0d0d0d" : "#141414",
+    raised: oled ? "#161616" : "#1d1d1d",
+    line: oled
+      ? contrast
+        ? "#333333"
+        : "#1f1f1f"
+      : contrast
+        ? "#3d3d3d"
+        : "#262626",
+    text: "#fafafa",
+    muted: contrast ? "#c6c6c6" : "#a3a3a3",
+    hover: "rgba(255, 255, 255, 0.06)",
+    hoverStrong: "rgba(255, 255, 255, 0.1)",
+    codeBg: oled ? "#050505" : "#0f0f0f",
+    accent: "#ececec",
+    accentDeep: "#8f8f8f",
+    onAccent: "#111111",
+  };
+}
+
 export function officialCss(oled: boolean, contrast: boolean): string {
-  const line = oled
-    ? contrast
-      ? "#333333"
-      : "#1f1f1f"
-    : contrast
-      ? "#3d3d3d"
-      : "#262626";
-  const muted = contrast ? "#c6c6c6" : "#a3a3a3";
-  const bg = oled ? "#000000" : "#0a0a0a";
-  const deep = oled ? "#000000" : "#060606";
-  const surface = oled ? "#0d0d0d" : "#141414";
-  const raised = oled ? "#161616" : "#1d1d1d";
-  const codeBg = oled ? "#050505" : "#0f0f0f";
+  const dark = officialPalette(oled, contrast, false);
+  const light = officialPalette(oled, contrast, true);
   return [
-    ":root.official:not(.light) {",
-    `  --halo-bg: ${bg};`,
-    `  --halo-deep: ${deep};`,
-    `  --halo-surface: ${surface};`,
-    `  --halo-raised: ${raised};`,
-    `  --halo-line: ${line};`,
-    "  --halo-text: #fafafa;",
-    `  --halo-muted: ${muted};`,
-    "  --halo-hover: rgba(255, 255, 255, 0.06);",
-    "  --halo-hover-strong: rgba(255, 255, 255, 0.1);",
-    `  --halo-code-bg: ${codeBg};`,
-    "  --halo-accent: #ececec;",
-    "  --halo-accent-deep: #8f8f8f;",
-    "  --halo-on-accent: #111111;",
-    "  color-scheme: dark;",
-    "}",
-  ].join("\n");
+    [
+      ":root.official:not(.light) {",
+      `  --halo-bg: ${dark.bg};`,
+      `  --halo-deep: ${dark.deep};`,
+      `  --halo-surface: ${dark.surface};`,
+      `  --halo-raised: ${dark.raised};`,
+      `  --halo-line: ${dark.line};`,
+      `  --halo-text: ${dark.text};`,
+      `  --halo-muted: ${dark.muted};`,
+      `  --halo-hover: ${dark.hover};`,
+      `  --halo-hover-strong: ${dark.hoverStrong};`,
+      `  --halo-code-bg: ${dark.codeBg};`,
+      `  --halo-accent: ${dark.accent};`,
+      `  --halo-accent-deep: ${dark.accentDeep};`,
+      `  --halo-on-accent: ${dark.onAccent};`,
+      "  color-scheme: dark;",
+      "}",
+    ],
+    // Светлый вариант той же темы: инвертированная яркость, тот же строгий
+    // монохром — тёмный текст на белом. OLED не действует: «глубокий чёрный»
+    // про матрицу без подсветки, светлой теме нечего выражать
+    [
+      ":root.official.light {",
+      `  --halo-bg: ${light.bg};`,
+      `  --halo-deep: ${light.deep};`,
+      `  --halo-surface: ${light.surface};`,
+      `  --halo-raised: ${light.raised};`,
+      `  --halo-line: ${light.line};`,
+      `  --halo-text: ${light.text};`,
+      `  --halo-muted: ${light.muted};`,
+      `  --halo-hover: ${light.hover};`,
+      `  --halo-hover-strong: ${light.hoverStrong};`,
+      `  --halo-code-bg: ${light.codeBg};`,
+      `  --halo-accent: ${light.accent};`,
+      `  --halo-accent-deep: ${light.accentDeep};`,
+      `  --halo-on-accent: ${light.onAccent};`,
+      "  color-scheme: light;",
+      "}",
+    ],
+  ].flat().join("\n");
 }
 
 /**
- * Палитра Full Claude в одном месте: генератор CSS и витрина-превью читают
- * одни и те же значения. Все значения сняты пипеткой с эталонных скринов
- * Claude Desktop (тёмная тема), без собственных оттенков. Поверхности —
- * нейтральные чёрный/бледно-чёрный/серый: сайдбар #111111 темнее фона
- * #151515, композер #20201f светлее, чипы inline-кода #212121. Акцент теме
- * не принадлежит — берётся из темы пользователя (fullClaudeCss); поля
- * accent/accentDeep оставлены как референс снятого значения. Hover —
- * светло-серые заливки (#2d2d2d/#343434 на скринах = 10%/15% белого
- * поверх фона), не тёмные.
+ * Палитра Nocturn в одном месте: генератор CSS и карточки выбора читают
+ * одни и те же значения. Тёмный вариант: нейтральные чёрный/бледно-чёрный/
+ * серый (сайдбар #111111 темнее фона #151515, композер #20201f светлее,
+ * чипы inline-кода #212121); значения сняты пипеткой с эталонных скринов.
+ * Акцент теме не принадлежит — берётся из выбора пользователя
+ * (fullClaudeCss); поля accent/accentDeep оставлены как референс снятого
+ * значения. Hover — светло-серые заливки (#2d2d2d/#343434 на скринах =
+ * 10%/15% белого поверх фона), не тёмные.
  */
 export const FULL_CLAUDE_PALETTE = {
   bg: "#151515",
@@ -561,10 +635,30 @@ export const FULL_CLAUDE_PALETTE = {
 } as const;
 
 /**
- * Палитра и базовые блоки темы Full Claude — реплика Claude Desktop:
- * нейтральные чёрно-серые поверхности (сняты пипеткой с эталонных скринов,
- * см. FULL_CLAUDE_PALETTE), акцент #D97757 только в мелких деталях,
- * hover — светло-серые заливки белого поверх фона. Всегда тёмная.
+ * Светлый вариант темы Nocturn: та же структура поверхностей (сайдбар темнее
+ * фона, композер светлее), тёплый айвори вместо угля. Пары значений держим
+ * рядом с тёмными: перекраска темы обязана менять оба варианта сразу
+ */
+export const FULL_CLAUDE_LIGHT_PALETTE = {
+  bg: "#faf9f7",
+  deep: "#f0eee9",
+  surface: "#ffffff",
+  raised: "#f5f4f0",
+  line: "rgba(0, 0, 0, 0.1)",
+  text: "#1f1e1c",
+  muted: "#6e6c66",
+  codeBg: "#f4f3f0",
+  /** Inline-код: приглушённый красный ink, читаемый на светлой подложке */
+  codeInk: "#b3555c",
+} as const;
+
+/**
+ * Палитра и базовые блоки темы Nocturn (внутренний идентификатор full-claude —
+ * исторический): угольные поверхности в тёмном варианте (сняты пипеткой с
+ * эталонных скринов, см. FULL_CLAUDE_PALETTE), тёплый айвори в светлом
+ * (FULL_CLAUDE_LIGHT_PALETTE). Акцент теме не принадлежит по умолчанию —
+ * серый/серо-зелёный muted; явный выбор пользователя (fullClaudeAccent)
+ * красит кнопки и детали в обоих режимах.
  *
  * Механика — отдельный тег <style id="halo-full-claude"> в конце head,
  * ПОСЛЕДНИЙ автор палитры, без !important: специфичность селектора
@@ -577,8 +671,10 @@ export const FULL_CLAUDE_PALETTE = {
  */
 export function fullClaudeCss(a: Appearance): string {
   const r = clamp(a.fullClaudeRadius ?? 1, 0.4, 1.6);
-  // Акцент: пусто = серый muted темы (монохром по умолчанию), hex — выбор
-  const accent = a.fullClaudeAccent || FULL_CLAUDE_PALETTE.muted;
+  // Акцент: пусто = приглушённый muted темы (монохром по умолчанию), hex —
+  // выбор пользователя; в светлом варианте дефолт свой (тёмный muted)
+  const accentDark = a.fullClaudeAccent || FULL_CLAUDE_PALETTE.muted;
+  const accentLight = a.fullClaudeAccent || FULL_CLAUDE_LIGHT_PALETTE.muted;
   // Шрифты: пустое значение = системный стек ИЗ index.css (с emoji-фолбэками)
   // — var не пишем вовсе: собственная копия стека здесь уже дрейфовала
   // (без emoji-фолбэков), а второй источник правды для одной константы
@@ -591,8 +687,8 @@ export function fullClaudeCss(a: Appearance): string {
       ? `  --halo-font-mono: ${a.fullClaudeMonoFont}, ui-monospace, Menlo, Consolas, "Liberation Mono", monospace;`
       : null,
   ].filter((l): l is string => l !== null);
-  // Чат-ответы серифом — фирменный приём Claude (user sans / assistant serif,
-  // ср. data-font-атрибуты claude.ai). Тумблер темы возвращает системный sans
+  // Чат-ответы серифом (user sans / assistant serif). Тумблер темы
+  // возвращает системный sans
   const serifChat = (a.fullClaudeSerif ?? true)
     ? [
         "html.full-claude .markdown {",
@@ -601,6 +697,16 @@ export function fullClaudeCss(a: Appearance): string {
         "}",
       ]
     : [];
+  // Общие хвосты блоков палитры (радиус/чтение/шрифты — режимно-независимые
+  // значения, относятся к скоупу темы, а не к светлоте)
+  const scopeTail = [
+    "  --halo-blur: 14px;",
+    `  --halo-radius-scale: ${r};`,
+    "  --halo-msg-scale: 1;",
+    "  --halo-density: 1;",
+    "  --halo-content-width: 48rem;",
+    ...fontVars,
+  ];
   return [
     [
       ":root.full-claude:not(.light) {",
@@ -617,28 +723,49 @@ export function fullClaudeCss(a: Appearance): string {
       `  --halo-code-text: ${FULL_CLAUDE_PALETTE.text};`,
       // Акцент темы: по умолчанию серый монохром (характер темы — все
       // обводки серые); явный выбор fullClaudeAccent красит кнопки и детали
-      `  --halo-accent: ${accent};`,
-      `  --halo-accent-deep: ${darken(accent, 0.82)};`,
+      `  --halo-accent: ${accentDark};`,
+      `  --halo-accent-deep: ${darken(accentDark, 0.82)};`,
       "  --halo-on-accent: #ffffff;",
-      "  --halo-blur: 14px;",
-      `  --halo-radius-scale: ${r};`,
-      "  --halo-msg-scale: 1;",
-      "  --halo-density: 1;",
-      "  --halo-content-width: 48rem;",
-      ...fontVars,
+      ...scopeTail,
       "  color-scheme: dark;",
+      "}",
+      // Светлый вариант: та же структура поверхностей, инвертированная
+      // светлота (см. FULL_CLAUDE_LIGHT_PALETTE)
+      ":root.full-claude.light {",
+      `  --halo-bg: ${FULL_CLAUDE_LIGHT_PALETTE.bg};`,
+      `  --halo-deep: ${FULL_CLAUDE_LIGHT_PALETTE.deep};`,
+      `  --halo-surface: ${FULL_CLAUDE_LIGHT_PALETTE.surface};`,
+      `  --halo-raised: ${FULL_CLAUDE_LIGHT_PALETTE.raised};`,
+      `  --halo-line: ${FULL_CLAUDE_LIGHT_PALETTE.line};`,
+      `  --halo-text: ${FULL_CLAUDE_LIGHT_PALETTE.text};`,
+      `  --halo-muted: ${FULL_CLAUDE_LIGHT_PALETTE.muted};`,
+      "  --halo-hover: rgba(0, 0, 0, 0.06);",
+      "  --halo-hover-strong: rgba(0, 0, 0, 0.1);",
+      `  --halo-code-bg: ${FULL_CLAUDE_LIGHT_PALETTE.codeBg};`,
+      `  --halo-code-text: ${FULL_CLAUDE_LIGHT_PALETTE.text};`,
+      `  --halo-accent: ${accentLight};`,
+      `  --halo-accent-deep: ${darken(accentLight, 0.82)};`,
+      "  --halo-on-accent: #ffffff;",
+      ...scopeTail,
+      "  color-scheme: light;",
       "}",
     ],
     ...serifChat,
-    // Inline-код — точные токены claude.ai (tiptip p>code): подложка 5%
-    // белого (cds-alpha-1), волосяная рамка 20% (cds-alpha-3), ink
-    // cds-red-200 #f4abab, radius 0.3rem. Блоки кода — графит с тонкой
-    // рамкой и скруглением 8px (базовое 0.75rem для карточек слишком круглое)
+    // Inline-код: подложка 5% света/тьмы, волосяная рамка, красноватый ink
+    // (в тёмном — светлый cds-red-200, в светлом — приглушённый), radius
+    // 0.3rem. Блоки кода — графит/айвори со скруглением 8px (базовое 0.75rem
+    // для карточек слишком круглое)
     [
-      "html.full-claude .markdown code:not(pre code) {",
+      "html.full-claude:not(.light) .markdown code:not(pre code) {",
       "  background: rgba(255, 255, 255, 0.05);",
       "  border: 0.5px solid rgba(255, 255, 255, 0.2);",
       `  color: ${FULL_CLAUDE_PALETTE.codeInk};`,
+      "  border-radius: 0.3rem;",
+      "}",
+      "html.full-claude.light .markdown code:not(pre code) {",
+      "  background: rgba(0, 0, 0, 0.04);",
+      "  border: 0.5px solid rgba(0, 0, 0, 0.18);",
+      `  color: ${FULL_CLAUDE_LIGHT_PALETTE.codeInk};`,
       "  border-radius: 0.3rem;",
       "}",
       "html.full-claude .markdown pre {",
@@ -647,10 +774,13 @@ export function fullClaudeCss(a: Appearance): string {
     ],
     // Заголовки секций сайдбара (Файлы/Заметки/Проекты): пользовательский
     // header-color применяется инлайном — нейтрализуем его в теме (!important
-    // бьёт инлайн), серый вторичного текста как у Claude (#a1a098 @ 55%)
+    // бьёт инлайн), серый вторичного текста на 55–60% в обоих режимах
     [
-      "html.full-claude aside .uppercase {",
+      "html.full-claude:not(.light) aside .uppercase {",
       "  color: rgba(161, 160, 152, 0.55) !important;",
+      "}",
+      "html.full-claude.light aside .uppercase {",
+      "  color: rgba(110, 108, 102, 0.6) !important;",
       "}",
       "html.full-claude aside .uppercase:hover {",
       "  color: var(--halo-text) !important;",
@@ -658,56 +788,61 @@ export function fullClaudeCss(a: Appearance): string {
     ],
     // Стекло внутри темы: «рабочий стол» html.glass раньше брал radial-пятна
     // из --halo-accent (22% в углу) — насыщенный акцент просвечивал сквозь
-    // полупрозрачный сайдбар цветным налётом. В референсе стекло нейтральное:
-    // пятна из серого #2d2d2d (фон круглых кнопок на скринах) дают тёплый
-    // графитовый тон без рыжины; color-mix — под @supports (конвенция C5:
-    // WebKitGTK < 2.40 отбрасывает декларацию)
+    // полупрозрачный сайдбар цветным налётом. Пятна нейтральные: серые в
+    // тёмном, светло-серые в светлом; color-mix — под @supports (конвенция
+    // C5: WebKitGTK < 2.40 отбрасывает декларацию)
     [
       "@supports (background: color-mix(in srgb, red, blue)) {",
-      "  html.full-claude.glass {",
+      "  html.full-claude:not(.light).glass {",
       "    background:",
       "      radial-gradient(700px 450px at 12% 18%, color-mix(in srgb, #2d2d2d 38%, transparent), transparent 70%),",
       "      radial-gradient(800px 550px at 88% 85%, color-mix(in srgb, var(--halo-deep) 55%, transparent), transparent 70%),",
       "      radial-gradient(500px 350px at 70% 10%, color-mix(in srgb, #2d2d2d 16%, transparent), transparent 70%),",
       "      var(--halo-bg);",
       "  }",
+      "  html.full-claude.light.glass {",
+      "    background:",
+      "      radial-gradient(700px 450px at 12% 18%, color-mix(in srgb, #e2e0da 55%, transparent), transparent 70%),",
+      "      radial-gradient(800px 550px at 88% 85%, color-mix(in srgb, var(--halo-deep) 55%, transparent), transparent 70%),",
+      "      radial-gradient(500px 350px at 70% 10%, color-mix(in srgb, #e2e0da 25%, transparent), transparent 70%),",
+      "      var(--halo-bg);",
+      "  }",
       "}",
     ],
     // Поверхности «наполнения»: в Nocturn сайдбар и модалки делят
-    // --halo-deep, а в референсе сайдбар темнее фона, модалки — светлее.
+    // --halo-deep, а в теме сайдбар темнее фона, модалки — светлее.
     // deep остаётся сайдбару (aside.bg-halo-deep), модалки/панели
-    // (glass-pane, правые панели с shadow-2xl) приподнимаются до surface.
+    // (glass-pane, правые панели с shadow-2xl) приподнимаются до surface —
+    // через var, значение режимно-зависимое (уголь/айвори сами).
     // Непрозрачные варианты гейтятся :not(.glass): панель настроек несёт
     // glass-pane + bg-halo-deep + shadow-2xl — ungated opaque-правило
     // шло в теге позже стеклянных и при равной специфичности убивало
     // полупрозрачность (blur был, фон непрозрачный — «стекло не видать»)
     [
       "html.full-claude:not(.glass) .glass-pane {",
-      `  background: ${FULL_CLAUDE_PALETTE.surface};`,
+      "  background: var(--halo-surface);",
       "}",
       // Стекло (fcGlass): сперва плотный фолбэк, полупрозрачность — только
       // под @supports (конвенция C5: WebKitGTK < 2.40 отбрасывает
       // декларацию color-mix ЦЕЛИКОМ, правило «пустеет»)
       "html.full-claude.glass .glass-pane {",
-      `  background: ${FULL_CLAUDE_PALETTE.surface};`,
+      "  background: var(--halo-surface);",
       "}",
       "html.full-claude.glass .bg-halo-deep.shadow-2xl {",
-      `  background: ${FULL_CLAUDE_PALETTE.surface};`,
+      "  background: var(--halo-surface);",
       "}",
       "@supports (background: color-mix(in srgb, red, transparent)) {",
       "  html.full-claude.glass .glass-pane {",
-      `    background: color-mix(in srgb, ${FULL_CLAUDE_PALETTE.surface} 70%, transparent);`,
+      "    background: color-mix(in srgb, var(--halo-surface) 70%, transparent);",
       "  }",
       "  html.full-claude.glass .bg-halo-deep.shadow-2xl {",
-      `    background: color-mix(in srgb, ${FULL_CLAUDE_PALETTE.surface} 70%, transparent);`,
+      "    background: color-mix(in srgb, var(--halo-surface) 70%, transparent);",
       "  }",
       "}",
       "html.full-claude:not(.glass) .bg-halo-deep.shadow-2xl {",
-      `  background: ${FULL_CLAUDE_PALETTE.surface};`,
+      "  background: var(--halo-surface);",
       "}",
       // Blur под непрозрачным фоном невидим, но движок продолжает снапшотить
-      // html.official .glass-pane/.msg-glass
-      // html.official .glass-pane/.msg-glass
       "html.full-claude:not(.glass) .glass-pane,",
       "html.full-claude:not(.glass) .msg-glass {",
       "  backdrop-filter: none;",
