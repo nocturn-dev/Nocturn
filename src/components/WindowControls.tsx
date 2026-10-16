@@ -25,17 +25,20 @@ export default function WindowControls() {
     return null;
   }
   const win = getCurrentWindow();
+  // Компактные ghost-кнопки (не «хвост» на всю высоту шапки): скругление
+  // и цвета из halo-токенов — живут в любой теме; красный только у
+  // закрытия (семантика статуса, вне тем по конвенции)
   const btn =
-    "flex h-full w-11 items-center justify-center text-halo-muted transition-colors";
+    "flex size-7 items-center justify-center rounded-lg text-halo-muted transition-colors";
 
   return (
-    <div className="flex h-full shrink-0 items-stretch">
+    <div className="flex shrink-0 items-center gap-0.5">
       <button
         onClick={() => void win.minimize()}
         title={t("win.min")}
         className={`${btn} hover:bg-halo-hover hover:text-halo-text`}
       >
-        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
           <path d="M5 12h14" />
         </svg>
       </button>
@@ -49,7 +52,7 @@ export default function WindowControls() {
         title={t("win.max")}
         className={`${btn} hover:bg-halo-hover hover:text-halo-text`}
       >
-        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
           <rect x="5" y="5" width="14" height="14" rx="1.5" />
         </svg>
       </button>
@@ -65,7 +68,7 @@ export default function WindowControls() {
         title={t("win.close")}
         className={`${btn} hover:bg-red-500/90 hover:text-white`}
       >
-        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
           <path d="M18 6 6 18M6 6l12 12" />
         </svg>
       </button>

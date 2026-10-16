@@ -16,7 +16,7 @@ import { motionScale } from "../motion";
 import type { SlashCommand } from "../commands";
 import QuickSettings from "./QuickSettings";
 import NocturnMark from "./NocturnMark";
-import GreetingDashboard from "./GreetingDashboard";
+import { MessageNav } from "./cards/MessageNav";
 import { ArtifactsPanel, type ArtifactView } from "./ArtifactsPanel";
 import type { Appearance } from "../appearance";
 import { getToolSchemas, contextLimitFor, dictationTranscribe, gitBranchDiff, type ModelInfo } from "../api";
@@ -140,7 +140,6 @@ interface ChatAreaProps {
   /** «＋ Новый проект» из поповера: папка → проект → сразу выбран */
   onNewProject?: () => void;
   /** Открыть настройки на конкретной секции (карточки статусов дашборда) */
-  onOpenSettingsSection?: (section: "mcp" | "main") => void;
   /** Встроенные роли (Код / Инженер / …) — QuickSettings-поповер композера */
   promptPresets: PromptPreset[];
   /** Пользовательские роли из библиотеки */
@@ -347,7 +346,6 @@ export default function ChatArea({
   onOpenSettings,
   onOpenCompare,
   onOpenKnowledge,
-  onOpenSettingsSection,
   promptPresets,
   customPresets,
   jailbreaks,
@@ -2245,7 +2243,7 @@ export default function ChatArea({
           ширине с overflow-hidden, reflow колонки локален) */}
       <header
         data-tauri-drag-region
-        className={`flex h-11 shrink-0 items-center border-b border-halo-line transition-[padding] duration-200 ${
+        className={`flex h-9 shrink-0 items-center border-b border-halo-line transition-[padding] duration-200 ${
           headerInset === "left"
             ? "pl-14 pr-1.5"
             : headerInset === "right"
@@ -2376,60 +2374,16 @@ export default function ChatArea({
       {plan && plan.length > 0 && <PlanPanel plan={plan} />}
       {/* Мини-бар плеера: тонкая полоска под шапкой, только когда включён
           и что-то играет (вкладка «Интеграции») */}
-      <MediaBar
-        prefs={mediaPrefs}
-        onLyrics={onMediaLyrics}
-        onPlayingChange={onMusicPlaying}
-        onTrackChange={(src) => pushNokEvent(src === "yt" ? "yt" : "track")}
-      />
+
       <div
         ref={scrollRef}
-        className="feed-scroll relative z-10 min-h-0 flex-1 overflow-y-auto"
+        className="feed-scroll absolute inset-0 z-10 overflow-y-auto"
       >
-        {visible.length === 0 && !typing ? (
-          <div
-            className={`relative flex h-full flex-col items-center overflow-hidden px-6 text-center ${
-              composerCentered
-                ? // Приветствие прижато СВЕРХУ К КЛАСТЕРУ КОМПОЗЕРА: кластер
-                  // (пилюли+чип+шелл, ~180px) отцентрован ровно на 50vh, зазор
-                  // 16px → отступ низа = 50vh + 90 + 16. Формула одна и в окне,
-                  // и в F11 — блоки физически не могут разъехаться
-                  "justify-end pb-[calc(50vh+106px)]"
-                : "justify-center"
-            }`}
-          >
-            {/* Гигантский призрачный логотип фоном — как в референсе */}
-            <div className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-[64%] select-none opacity-[0.05]">
-              <NocturnMark size={480} />
-            </div>
-
-            <div className="relative z-10 flex w-full max-w-2xl flex-col items-center">
-              <span className="text-halo-accent">
-                <SparkIcon />
-              </span>
-              <h2
-                className={`mt-4 text-3xl font-medium tracking-tight text-halo-text ${
-                  appearance.textShimmer ? "shimmer-text" : ""
-                }`}
-              >
-                {greeting}
-              </h2>
-              <p className="mb-7 mt-2 max-w-sm text-sm leading-relaxed text-halo-muted">
-                {t("chat.greetingSub")}
-              </p>
-
-              {/* Живые статусы локального окружения (MCP/Colibri): в обычном
-                  центрированном режиме уезжают к композеру (блок ниже),
-                  здесь остаются только при открытом терминале */}
-              {!composerCentered && (
-                <div className="mt-7">
-                  <GreetingDashboard onOpenSettingsSection={onOpenSettingsSection} />
-                </div>
-              )}
-            </div>
-          </div>
-        ) : (
-          <div className="msg-feed mx-auto flex w-full max-w-3xl flex-col gap-5 px-8 pt-8 pb-16">
+        {/* Лента всегда в потоке: пустой чат — это просто пустая лента,
+            приветствие живёт в кластере композера (одно центрирование, без
+            магических формул стыковки двух блоков). Нижний паддинг очищает
+            оверлей композера: скроллбар идёт до самого низа окна */}
+        <div className="msg-feed mx-auto flex w-full max-w-3xl flex-col gap-5 px-8 pt-8 pb-40">
             {/* Ход = сообщение пользователя + всё, что агент сделал до следующего.
                 groupTurns: весь ход в ОДНОЙ карточке; иначе каждый шаг отдельно.
                 В конце хода — сводка изменённых файлов */}
@@ -2445,52 +2399,29 @@ export default function ChatArea({
               />
             )}
           </div>
-        )}
       </div>
 
-      </div>
-
-      {/* Терминальный режим: панель снизу, подтверждения [y/n/a] прямо в ней.
-          D7: без key по сессии — раньше смена задачи перемонтировала панель,
-          и unmount-эффект убивал PTY: запущенный в консоли сервер/билд умирал
-          от клика по другой задаче. Консоль общая, скроллбэк переживает
-          переключение */}
-      {terminalOpen && (
-        <Suspense fallback={null}>
-        <TerminalPanel
-          session={session}
-          streamingMsgId={streamingMsgId}
-          pendingConfirm={pendingConfirm}
-          projectRoot={projectRoot}
-          termShell={termShell}
-          termPalette={termPalette}
-          termBlur={termBlur}
-          heightPct={terminalHeightPct}
-          onResizeStart={onTerminalResizeStart}
-          onConfirmDecision={onConfirmDecision}
-          onClose={onToggleTerminal}
-        />
-        </Suspense>
+      {/* Боковая навигация по сообщениям (чёрточки справа). Вне скролл-
+          контейнера, поверх ленты: иначе уезжает при прокрутке */}
+      {visible.length > 1 && !composerCentered && (
+        <MessageNav messages={visible} model={model} scrollRef={scrollRef} />
       )}
-
-      <SystemPromptModal
-        open={sysOpen}
-        initial={session?.systemPrompt ?? ""}
-        onSave={(v) => onSetSystemPrompt(v)}
-        onClose={() => setSysOpen(false)}
-        jailbreaks={jailbreaks}
-      />
-
       {/* Поле ввода с нижней панелью: модель · подсказка · отправка.
           Пустой чат — ВЕСЬ кластер (пилюли+чип+шелл) отцентрован ровно
           посередке экрана: top-1/2 + translate-y-1/2, без привязки к vh —
           одинаково и в оконном режиме, и в F11 */}
+        {/* Гигантский призрачный логотип фоном — как в референсе */}
+        {composerCentered && (
+          <div className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-[64%] select-none opacity-[0.05]">
+            <NocturnMark size={480} />
+          </div>
+        )}
       <div
-        className={
+        className={`pointer-events-none ${
           composerCentered
             ? "absolute inset-x-0 top-1/2 z-[var(--halo-z-panel-raised)] -translate-y-1/2 px-6"
-            : "shrink-0 px-6 pb-5"
-        }
+            : "absolute inset-x-0 bottom-0 z-[var(--halo-z-panel-raised)] px-6 pb-5"
+        }`}
         style={
           // Плитки вложений растят кластер на 84px/ряд; кластер центрирован
           // -translate-y-1/2 — верх поднимается на 42px/ряд и наезжает на
@@ -2501,12 +2432,32 @@ export default function ChatArea({
             : undefined
         }
       >
-        <div className={`mx-auto w-full ${composerCentered ? "max-w-2xl" : "max-w-3xl"}`}>
-          {/* Пилюли окружения + селектор проекта — пилюли просятся быть
-              максимально близко к композеру */}
+        <div className={`pointer-events-auto mx-auto w-full ${composerCentered ? "max-w-2xl" : "max-w-3xl"}`}>
+          {/* Мини-бар плеера: полоской над композером, в том же кластере */}
+          <MediaBar
+        prefs={mediaPrefs}
+        onLyrics={onMediaLyrics}
+        onPlayingChange={onMusicPlaying}
+        onTrackChange={(src) => pushNokEvent(src === "yt" ? "yt" : "track")}
+      />
+
+          {/* Приветствие в том же кластере, что композер: один центр
+              собирается сам, без формул стыковки двух отдельных блоков */}
           {composerCentered && (
-            <div className="mb-2">
-              <GreetingDashboard onOpenSettingsSection={onOpenSettingsSection} />
+            <div className="mb-4 flex flex-col items-center text-center">
+              <span className="text-halo-accent">
+                <SparkIcon />
+              </span>
+              <h2
+                className={`mt-3 text-3xl font-medium tracking-tight text-halo-text ${
+                  appearance.textShimmer ? "shimmer-text" : ""
+                }`}
+              >
+                {greeting}
+              </h2>
+              <p className="mt-1.5 max-w-sm text-sm leading-relaxed text-halo-muted">
+                {t("chat.greetingSub")}
+              </p>
             </div>
           )}
           {/* Селектор проекта — только в центрированном режиме (по макету:
@@ -3516,6 +3467,39 @@ export default function ChatArea({
           )}
         </div>
       </div>
+      </div>
+
+      {/* Терминальный режим: панель снизу, подтверждения [y/n/a] прямо в ней.
+          D7: без key по сессии — раньше смена задачи перемонтировала панель,
+          и unmount-эффект убивал PTY: запущенный в консоли сервер/билд умирал
+          от клика по другой задаче. Консоль общая, скроллбэк переживает
+          переключение */}
+      {terminalOpen && (
+        <Suspense fallback={null}>
+        <TerminalPanel
+          session={session}
+          streamingMsgId={streamingMsgId}
+          pendingConfirm={pendingConfirm}
+          projectRoot={projectRoot}
+          termShell={termShell}
+          termPalette={termPalette}
+          termBlur={termBlur}
+          heightPct={terminalHeightPct}
+          onResizeStart={onTerminalResizeStart}
+          onConfirmDecision={onConfirmDecision}
+          onClose={onToggleTerminal}
+        />
+        </Suspense>
+      )}
+
+      <SystemPromptModal
+        open={sysOpen}
+        initial={session?.systemPrompt ?? ""}
+        onSave={(v) => onSetSystemPrompt(v)}
+        onClose={() => setSysOpen(false)}
+        jailbreaks={jailbreaks}
+      />
+
       <ArtifactsPanel
         open={artifactOpen}
         artifact={artifactView}

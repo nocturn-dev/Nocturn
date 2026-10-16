@@ -2926,10 +2926,6 @@ export default function App() {
           const p = id ? projects.find((x) => x.id === id) : undefined;
           if (p?.root) setProjectRoot(p.root);
         }}
-        onOpenSettingsSection={(s) => {
-          setSettingsSection(s);
-          setSettingsOpen(true);
-        }}
         promptPresets={builtinPresetsFor(lang)}
         customPresets={promptLibrary}
         jailbreaks={jailbreaks}
