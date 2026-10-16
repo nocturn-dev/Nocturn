@@ -259,7 +259,7 @@ export default function Onboarding({
               <button
                 onClick={() => void check()}
                 disabled={checking || !baseUrl.trim()}
-                className="mt-[1.25rem] shrink-0 rounded-lg border border-halo-line px-3 py-2 text-xs text-halo-text transition-colors hover:border-halo-accent/50 hover:bg-halo-hover disabled:opacity-50"
+                className="mt-[1.25rem] shrink-0 press rounded-lg border border-halo-line px-3 py-2 text-xs text-halo-text transition-colors hover:border-halo-accent/50 hover:bg-halo-hover disabled:opacity-50"
               >
                 {checking ? t("onb.checking") : t("onb.check")}
               </button>
@@ -287,7 +287,7 @@ export default function Onboarding({
             {step > 0 && (
               <button
                 onClick={() => setStep(step - 1)}
-                className="rounded-lg border border-halo-line px-3.5 py-2 text-xs text-halo-muted transition-colors hover:bg-halo-hover hover:text-halo-text"
+                className="press rounded-lg border border-halo-line px-3.5 py-2 text-xs text-halo-muted transition-colors hover:bg-halo-hover hover:text-halo-text"
               >
                 {t("onb.back")}
               </button>

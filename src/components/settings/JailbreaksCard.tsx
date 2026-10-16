@@ -226,7 +226,7 @@ export function JailbreaksCard({
           </button>
           <button
             onClick={() => setEditingId(null)}
-            className="rounded-lg border border-halo-line px-3 py-1.5 text-sm text-halo-muted transition-colors hover:bg-halo-hover hover:text-halo-text"
+            className="press rounded-lg border border-halo-line px-3 py-1.5 text-sm text-halo-muted transition-colors hover:bg-halo-hover hover:text-halo-text"
           >
             {t("prompts.cancel")}
           </button>
@@ -366,7 +366,7 @@ export function JailbreaksCard({
         {results.length > visible && (
           <button
             onClick={() => setVisible((v) => v + PAGE)}
-            className="w-full rounded-lg border border-halo-line px-3 py-2 text-xs text-halo-muted transition-colors hover:border-halo-accent/50 hover:text-halo-text"
+            className="w-full press rounded-lg border border-halo-line px-3 py-2 text-xs text-halo-muted transition-colors hover:border-halo-accent/50 hover:text-halo-text"
           >
             {t("jb.showMore", { n: String(Math.min(PAGE, results.length - visible)) })}
           </button>

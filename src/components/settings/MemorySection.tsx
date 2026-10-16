@@ -134,7 +134,7 @@ export function MemorySection({
           <button
             onClick={() => void addFact()}
             disabled={!draft.trim()}
-            className="shrink-0 rounded-lg border border-halo-line px-3 py-1.5 text-xs text-halo-text transition-colors hover:bg-halo-hover disabled:cursor-not-allowed disabled:opacity-40"
+            className="shrink-0 press rounded-lg border border-halo-line px-3 py-1.5 text-xs text-halo-text transition-colors hover:bg-halo-hover disabled:cursor-not-allowed disabled:opacity-40"
           >
             +
           </button>

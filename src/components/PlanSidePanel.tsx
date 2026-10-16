@@ -108,7 +108,7 @@ export function PlanSidePanel({
         <button
           onClick={() => void copyPlan()}
           disabled={plan.length === 0}
-          className="rounded-lg border border-halo-line px-3 py-2 text-xs text-halo-muted transition-colors hover:text-halo-text disabled:cursor-not-allowed disabled:opacity-40"
+          className="press rounded-lg border border-halo-line px-3 py-2 text-xs text-halo-muted transition-colors hover:text-halo-text disabled:cursor-not-allowed disabled:opacity-40"
         >
           {t("plan.copy")}
         </button>

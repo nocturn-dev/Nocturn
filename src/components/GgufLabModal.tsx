@@ -350,7 +350,7 @@ export default function GgufLabModal({
             <button
               onClick={() => void doPull()}
               disabled={busy || !pullName.trim()}
-              className="shrink-0 rounded-lg border border-halo-line px-3 py-1.5 text-xs text-halo-text transition-colors hover:bg-halo-hover disabled:opacity-50"
+              className="shrink-0 press rounded-lg border border-halo-line px-3 py-1.5 text-xs text-halo-text transition-colors hover:bg-halo-hover disabled:opacity-50"
             >
               ↓
             </button>
@@ -565,7 +565,7 @@ export default function GgufLabModal({
                   <button
                     onClick={() => void doCut()}
                     disabled={busy || selected.size === 0}
-                    className="rounded-lg border border-halo-line px-3 py-1.5 text-xs text-halo-text transition-colors hover:bg-halo-hover disabled:opacity-50"
+                    className="press rounded-lg border border-halo-line px-3 py-1.5 text-xs text-halo-text transition-colors hover:bg-halo-hover disabled:opacity-50"
                   >
                     {t("ggufLab.cut", { n: selected.size })}
                   </button>

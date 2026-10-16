@@ -635,7 +635,7 @@ export function McpSection() {
               <button
                 onClick={() => void doImport()}
                 disabled={!importText.trim()}
-                className="rounded-lg border border-halo-line px-3 py-1.5 text-xs text-halo-text transition-colors hover:border-halo-accent/50 hover:bg-halo-hover disabled:cursor-not-allowed disabled:opacity-40"
+                className="press rounded-lg border border-halo-line px-3 py-1.5 text-xs text-halo-text transition-colors hover:border-halo-accent/50 hover:bg-halo-hover disabled:cursor-not-allowed disabled:opacity-40"
               >
                 {t("mcp.importBtn")}
               </button>

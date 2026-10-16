@@ -42,7 +42,7 @@ export default function JbWarnModal({
         <div className="mt-4 flex items-center justify-end gap-2">
           <button
             onClick={onCancel}
-            className="rounded-lg border border-halo-line px-3 py-1.5 text-sm text-halo-muted transition-colors hover:bg-halo-hover hover:text-halo-text"
+            className="press rounded-lg border border-halo-line px-3 py-1.5 text-sm text-halo-muted transition-colors hover:bg-halo-hover hover:text-halo-text"
           >
             {t("jb.warnCancel")}
           </button>

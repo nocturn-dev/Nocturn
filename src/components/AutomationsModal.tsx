@@ -313,7 +313,7 @@ export default function AutomationsModal({
               {!formOpen && (
                 <button
                   onClick={() => setFormOpen(true)}
-                  className="mt-2 flex items-center gap-2 rounded-lg border border-halo-line px-3 py-1.5 text-xs text-halo-muted transition-colors hover:border-halo-accent/50 hover:text-halo-text"
+                  className="mt-2 flex items-center gap-2 press rounded-lg border border-halo-line px-3 py-1.5 text-xs text-halo-muted transition-colors hover:border-halo-accent/50 hover:text-halo-text"
                 >
                   + {t("auto.create")}
                 </button>
@@ -408,7 +408,7 @@ export default function AutomationsModal({
                 </button>
                 <button
                   onClick={() => setFormOpen(false)}
-                  className="rounded-lg border border-halo-line px-3 py-1.5 text-halo-muted transition-colors hover:text-halo-text"
+                  className="press rounded-lg border border-halo-line px-3 py-1.5 text-halo-muted transition-colors hover:text-halo-text"
                 >
                   {t("common.close")}
                 </button>
@@ -446,7 +446,7 @@ export default function AutomationsModal({
           <button
             onClick={addOpTask}
             disabled={!opDraft.trim()}
-            className="shrink-0 self-end rounded-lg border border-halo-line px-3 py-2 text-xs text-halo-text transition-colors hover:border-halo-accent/50 hover:bg-halo-hover disabled:opacity-40"
+            className="shrink-0 self-end press rounded-lg border border-halo-line px-3 py-2 text-xs text-halo-text transition-colors hover:border-halo-accent/50 hover:bg-halo-hover disabled:opacity-40"
           >
             {t("offpeak.add")}
           </button>

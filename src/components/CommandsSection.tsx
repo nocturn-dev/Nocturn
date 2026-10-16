@@ -137,7 +137,7 @@ export default function CommandsSection() {
           <div className="flex justify-end gap-2">
             <button
               onClick={() => setEditing(null)}
-              className="rounded-lg border border-halo-line px-3 py-1.5 text-xs text-halo-muted transition-colors hover:text-halo-text"
+              className="press rounded-lg border border-halo-line px-3 py-1.5 text-xs text-halo-muted transition-colors hover:text-halo-text"
             >
               {t("prompts.cancel")}
             </button>

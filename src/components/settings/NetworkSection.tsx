@@ -55,7 +55,7 @@ export function NetworkSection() {
         <div className="flex shrink-0 flex-col items-end gap-1.5">
           <button
             onClick={() => saveField(key)}
-            className="rounded-lg border border-halo-line px-3 py-1.5 text-xs text-halo-text transition-colors hover:bg-halo-hover"
+            className="press rounded-lg border border-halo-line px-3 py-1.5 text-xs text-halo-text transition-colors hover:bg-halo-hover"
           >
             {t("network.save")}
           </button>

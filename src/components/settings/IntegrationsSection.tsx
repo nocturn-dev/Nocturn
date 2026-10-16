@@ -668,7 +668,7 @@ export function IntegrationWarning({
         <div className="mt-4 flex items-center justify-end gap-2">
           <button
             onClick={onCancel}
-            className="rounded-lg border border-halo-line px-3 py-1.5 text-xs text-halo-muted transition-colors hover:text-halo-text"
+            className="press rounded-lg border border-halo-line px-3 py-1.5 text-xs text-halo-muted transition-colors hover:text-halo-text"
           >
             {t("media.warnCancel")}
           </button>

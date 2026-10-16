@@ -1541,14 +1541,14 @@ export function ThemeSection({
         <div className="mt-2.5 flex gap-2">
           <button
             onClick={() => void pickWallpaper()}
-            className="rounded-lg border border-halo-line px-3 py-1.5 text-xs text-halo-text transition-colors hover:border-halo-accent/50 hover:bg-halo-hover"
+            className="press rounded-lg border border-halo-line px-3 py-1.5 text-xs text-halo-text transition-colors hover:border-halo-accent/50 hover:bg-halo-hover"
           >
             {t("themes.wallpaperPick")}
           </button>
           {(appearance.chatWallpaper ?? "") !== "" && (
             <button
               onClick={() => onAppearanceChange({ ...appearance, chatWallpaper: "" })}
-              className="rounded-lg border border-halo-line px-3 py-1.5 text-xs text-halo-muted transition-colors hover:bg-halo-hover hover:text-halo-text"
+              className="press rounded-lg border border-halo-line px-3 py-1.5 text-xs text-halo-muted transition-colors hover:bg-halo-hover hover:text-halo-text"
             >
               {t("themes.wallpaperClear")}
             </button>

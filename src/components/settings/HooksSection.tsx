@@ -192,7 +192,7 @@ export function HooksSection() {
 
       {/* Готовые пресеты */}
       {hooks.length === 0 && !showAdd && (
-        <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-halo-line px-3 py-2.5">
+        <div className="mb-3 flex flex-wrap items-center gap-2 press rounded-lg border border-halo-line px-3 py-2.5">
           <span className="text-[0.6875rem] text-halo-muted">{t("hook.presets")}:</span>
           {(
             [
@@ -221,7 +221,7 @@ export function HooksSection() {
             <p className="text-xs text-halo-muted">{t("hook.empty")}</p>
             <button
               onClick={() => setShowAdd(true)}
-              className="mt-3 rounded-lg border border-halo-line px-3 py-1.5 text-xs text-halo-text transition-colors hover:border-halo-accent/50 hover:bg-halo-hover"
+              className="mt-3 press rounded-lg border border-halo-line px-3 py-1.5 text-xs text-halo-text transition-colors hover:border-halo-accent/50 hover:bg-halo-hover"
             >
               + {t("hook.new")}
             </button>
@@ -399,7 +399,7 @@ export function HooksSection() {
           <div className="flex justify-end gap-2">
             <button
               onClick={() => setShowAdd(false)}
-              className="rounded-lg border border-halo-line px-3 py-1.5 text-xs text-halo-muted transition-colors hover:text-halo-text"
+              className="press rounded-lg border border-halo-line px-3 py-1.5 text-xs text-halo-muted transition-colors hover:text-halo-text"
             >
               {t("prompts.cancel")}
             </button>

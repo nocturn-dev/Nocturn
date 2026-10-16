@@ -339,7 +339,7 @@ export function ApiSection({
             onClick={addProfile}
             disabled={!canTest}
             title={canTest ? undefined : t("api.key")}
-            className="shrink-0 rounded-lg border border-halo-line px-3 py-1.5 text-xs text-halo-text transition-colors hover:bg-halo-hover disabled:cursor-not-allowed disabled:opacity-40"
+            className="shrink-0 press rounded-lg border border-halo-line px-3 py-1.5 text-xs text-halo-text transition-colors hover:bg-halo-hover disabled:cursor-not-allowed disabled:opacity-40"
           >
             {profSaved ? <><CheckIcon /> {t("api.profileSaved")}</> : t("api.profileAdd")}
           </button>
@@ -550,7 +550,7 @@ export function ApiSection({
             onTest();
           }}
           disabled={!canTest || status.kind === "checking"}
-          className="rounded-lg border border-halo-line px-3.5 py-2 text-sm text-halo-text transition-colors hover:border-halo-accent/50 hover:bg-halo-hover disabled:cursor-not-allowed disabled:opacity-40"
+          className="press rounded-lg border border-halo-line px-3.5 py-2 text-sm text-halo-text transition-colors hover:border-halo-accent/50 hover:bg-halo-hover disabled:cursor-not-allowed disabled:opacity-40"
         >
           {t("api.refresh")}
         </button>

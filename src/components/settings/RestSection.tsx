@@ -109,7 +109,7 @@ export function RestSection({
           <p className="text-xs text-halo-muted">{t("game.escHint")}</p>
           <button
             onClick={() => onGameChange(null)}
-            className="rounded-lg border border-halo-line px-3 py-1 text-xs text-halo-muted transition-colors hover:text-halo-text"
+            className="press rounded-lg border border-halo-line px-3 py-1 text-xs text-halo-muted transition-colors hover:text-halo-text"
           >
             {t("game.back")}
           </button>

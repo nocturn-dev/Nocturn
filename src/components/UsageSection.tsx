@@ -336,7 +336,7 @@ export default function UsageSection({
         <div className="mt-4 flex justify-end">
           <button
             onClick={() => setTick((v) => v + 1)}
-            className="flex items-center gap-1.5 rounded-lg border border-halo-line px-3 py-1.5 text-xs text-halo-muted transition-colors hover:bg-halo-hover hover:text-halo-text"
+            className="flex items-center gap-1.5 press rounded-lg border border-halo-line px-3 py-1.5 text-xs text-halo-muted transition-colors hover:bg-halo-hover hover:text-halo-text"
           >
             ⟳ {t("usage.refresh")}
           </button>

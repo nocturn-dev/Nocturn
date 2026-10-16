@@ -119,7 +119,7 @@ export function JailbreaksLiveSearch({
         <button
           onClick={load}
           disabled={loading}
-          className="rounded-lg border border-halo-line px-3 py-1.5 text-xs text-halo-text transition-colors hover:border-halo-accent/50 hover:bg-halo-hover disabled:opacity-40"
+          className="press rounded-lg border border-halo-line px-3 py-1.5 text-xs text-halo-text transition-colors hover:border-halo-accent/50 hover:bg-halo-hover disabled:opacity-40"
         >
           {warm ? t("jb.liveRefresh") : t("jb.liveSearch")}
         </button>

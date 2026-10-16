@@ -62,7 +62,7 @@ export function AgentSection({
       {commands.length > 1 && (
         <button
           onClick={() => onChange([])}
-          className="mt-3 rounded-lg border border-halo-line px-3 py-1.5 text-xs text-halo-muted transition-colors hover:border-red-400/50 hover:bg-red-400/10 hover:text-red-400"
+          className="mt-3 press rounded-lg border border-halo-line px-3 py-1.5 text-xs text-halo-muted transition-colors hover:border-red-400/50 hover:bg-red-400/10 hover:text-red-400"
         >
           {t("agent.allowlistClear")}
         </button>
@@ -225,7 +225,7 @@ export function PromptsSection({
                 </button>
                 <button
                   onClick={() => setEditingId(null)}
-                  className="rounded-lg border border-halo-line px-3 py-1.5 text-sm text-halo-muted transition-colors hover:bg-halo-hover hover:text-halo-text"
+                  className="press rounded-lg border border-halo-line px-3 py-1.5 text-sm text-halo-muted transition-colors hover:bg-halo-hover hover:text-halo-text"
                 >
                   {t("prompts.cancel")}
                 </button>

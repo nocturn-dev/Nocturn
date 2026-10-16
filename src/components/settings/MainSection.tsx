@@ -914,7 +914,7 @@ export function MainSection({
               }
             })();
           }}
-          className="mt-2 rounded-lg border border-halo-line px-3 py-1.5 text-xs text-halo-text transition-colors hover:border-halo-accent/60 hover:text-halo-accent"
+          className="mt-2 press rounded-lg border border-halo-line px-3 py-1.5 text-xs text-halo-text transition-colors hover:border-halo-accent/60 hover:text-halo-accent"
         >
           {t("import.externalBtn")}
         </button>
@@ -953,13 +953,13 @@ export function MainSection({
                 window.alert(String(e));
               }
             }}
-            className="rounded-lg border border-halo-line px-3 py-1.5 text-xs text-halo-text transition-colors hover:border-halo-accent/50 hover:bg-halo-hover"
+            className="press rounded-lg border border-halo-line px-3 py-1.5 text-xs text-halo-text transition-colors hover:border-halo-accent/50 hover:bg-halo-hover"
           >
             {t("main.exportBtn")}
           </button>
           <button
             onClick={onExportChats}
-            className="rounded-lg border border-halo-line px-3 py-1.5 text-xs text-halo-text transition-colors hover:border-halo-accent/50 hover:bg-halo-hover"
+            className="press rounded-lg border border-halo-line px-3 py-1.5 text-xs text-halo-text transition-colors hover:border-halo-accent/50 hover:bg-halo-hover"
           >
             {t("export.chatsBtn")}
           </button>
@@ -1012,7 +1012,7 @@ export function MainSection({
                 window.alert(String(e));
               }
             }}
-            className="rounded-lg border border-halo-line px-3 py-1.5 text-xs text-halo-text transition-colors hover:border-halo-accent/50 hover:bg-halo-hover"
+            className="press rounded-lg border border-halo-line px-3 py-1.5 text-xs text-halo-text transition-colors hover:border-halo-accent/50 hover:bg-halo-hover"
           >
             {t("main.importBtn")}
           </button>

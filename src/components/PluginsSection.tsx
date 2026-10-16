@@ -181,7 +181,7 @@ export default function PluginsSection({
           </button>
           <button
             onClick={() => void exportPack()}
-            className="rounded-lg border border-halo-line px-3.5 py-1.5 text-sm text-halo-text transition-colors hover:border-halo-accent/60 hover:text-halo-accent"
+            className="press rounded-lg border border-halo-line px-3.5 py-1.5 text-sm text-halo-text transition-colors hover:border-halo-accent/60 hover:text-halo-accent"
           >
             {t("plug.exportPack")}
           </button>
@@ -226,7 +226,7 @@ export default function PluginsSection({
           <div className="flex justify-end gap-2">
             <button
               onClick={() => setImported(null)}
-              className="rounded-lg border border-halo-line px-3 py-1.5 text-xs text-halo-muted transition-colors hover:text-halo-text"
+              className="press rounded-lg border border-halo-line px-3 py-1.5 text-xs text-halo-muted transition-colors hover:text-halo-text"
             >
               {t("prompts.cancel")}
             </button>

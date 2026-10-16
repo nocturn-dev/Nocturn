@@ -43,21 +43,21 @@ export function ConfirmCard({
         </button>
         <button
           onClick={() => onDecision("always")}
-          className="rounded-lg border border-halo-line px-3 py-1.5 text-xs text-halo-text transition-colors hover:bg-halo-hover"
+          className="press rounded-lg border border-halo-line px-3 py-1.5 text-xs text-halo-text transition-colors hover:bg-halo-hover"
         >
           {t("agent.allowAlways")}
         </button>
         {shellPrefix && (
           <button
             onClick={() => onDecision("prefix")}
-            className="rounded-lg border border-halo-line px-3 py-1.5 text-xs text-halo-text transition-colors hover:bg-halo-hover"
+            className="press rounded-lg border border-halo-line px-3 py-1.5 text-xs text-halo-text transition-colors hover:bg-halo-hover"
           >
             {t("agent.allowPrefix", { p: shellPrefix })}
           </button>
         )}
         <button
           onClick={() => onDecision("deny")}
-          className="rounded-lg border border-halo-line px-3 py-1.5 text-xs text-red-400 transition-colors hover:border-red-400/50 hover:bg-red-400/10"
+          className="press rounded-lg border border-halo-line px-3 py-1.5 text-xs text-red-400 transition-colors hover:border-red-400/50 hover:bg-red-400/10"
         >
           {t("agent.deny")}
         </button>
