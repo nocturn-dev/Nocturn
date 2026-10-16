@@ -17,6 +17,7 @@ import { Lightbox } from "../Lightbox";
 function UserCardBase({
   mid,
   content,
+  display,
   attachments,
   quote,
   correction,
@@ -26,6 +27,9 @@ function UserCardBase({
 }: {
   mid: string;
   content: string;
+  /** Короткая форма для показа (content — раскрытая инструкция скилла);
+   *  правка и повторная отправка работают с полным content */
+  display?: string;
   attachments?: Attachment[];
   quote?: string;
   /** Поправка агенту на ходу: мягкая amber-подсветка слева */
@@ -48,13 +52,13 @@ function UserCardBase({
   // мешает memo — состояние локальное
   const [viewer, setViewer] = useState<string | null>(null);
   const copyMessage = async () => {
-    if (await copyText(content)) {
+    if (await copyText(display ?? content)) {
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1500);
     }
   };
   const preview =
-    content.replace(/\s+/g, " ").slice(0, 70) ||
+    (display ?? content).replace(/\s+/g, " ").slice(0, 70) ||
     (attachments?.length
       ? `${t("card.imageOf")}: ${attachments[0]?.name ?? ""}`
       : "");
@@ -244,9 +248,9 @@ function UserCardBase({
           ))}
         </div>
       )}
-      {content && (
+      {(display ?? content) && (
         <p className="break-words whitespace-pre-wrap text-sm leading-relaxed text-halo-text">
-          {content}
+          {display ?? content}
         </p>
       )}
         </>

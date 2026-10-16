@@ -1445,7 +1445,7 @@ export default function App() {
     [theme, appearance],
   );
   const queuedProps = useMemo(
-    () => queuedMsgs.map((q) => ({ id: q.id, text: q.text })),
+    () => queuedMsgs.map((q) => ({ id: q.id, text: q.text, display: q.display })),
     [queuedMsgs],
   );
 
@@ -2907,10 +2907,10 @@ export default function App() {
         onSend={stableHandleSend}
         pendingQuote={diffQuote}
         queued={queuedProps}
-        onQueue={(text, attachments, quote) =>
+        onQueue={(text, attachments, quote, display) =>
           setQueuedMsgs((prev) => [
             ...prev,
-            { id: uid(), text, attachments, quote },
+            { id: uid(), text, attachments, quote, display },
           ])
         }
         onQueuedRemove={(id) =>

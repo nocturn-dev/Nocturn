@@ -160,13 +160,22 @@ interface ChatAreaProps {
     /** [P3] Промпт использованного скилла — в Session.activeSkills для
      *  реинъекции после автокомпакта */
     skillInstruction?: string,
+    editMsgId?: string,
+    budgetCarry?: { prompt: number; completion: number },
+    /** Короткая форма для карточки (content — раскрытая инструкция скилла) */
+    display?: string,
   ) => void;
   /** Цитата из Review-панели (клик по строке диффа): nonce растёт с каждым кликом */
   pendingQuote?: { text: string; nonce: number } | null;
   onClearChat: () => void;
   /** Очередь корректирующих сообщений: отправятся после ответа агента */
-  queued: { id: string; text: string }[];
-  onQueue: (text: string, attachments?: Attachment[], quote?: string) => void;
+  queued: { id: string; text: string; display?: string }[];
+  onQueue: (
+    text: string,
+    attachments?: Attachment[],
+    quote?: string,
+    display?: string,
+  ) => void;
   onQueuedRemove: (id: string) => void;
   /** Поправка агенту на ходу: уходит модели в следующем раунде, не прерывая работу */
   onCorrect?: (text: string) => void;
@@ -1783,11 +1792,15 @@ export default function ChatArea({
     // «&review: <код/путь>» — как цитату с вопросом
     const skillRef = /^&([a-z0-9_-]+):\s*/i.exec(text);
     let usedSkill: string | undefined;
+    // Короткая форма уходит в карточку сообщения (display): в истории для
+    // модели — полная инструкция, в ленте — компактный вызов как в ZCode
+    let shortText: string | undefined;
     if (skillRef) {
       const skill = allSkills.find(
         (s) => s.id.toLowerCase() === skillRef[1]?.toLowerCase(),
       );
       if (skill) {
+        shortText = text;
         const rest = text.slice(skillRef[0].length).trim();
         text = rest ? `${skill.prompt}${rest}` : skill.prompt;
         usedSkill = skill.prompt;
@@ -1819,11 +1832,16 @@ export default function ChatArea({
         onCorrect(text);
       } else {
         // Цитату тоже сохраняем, чтобы она не потерялась при отправке из очереди
-        onQueue(text, attachments, quoteDraft?.trim() || undefined);
+        onQueue(
+          text,
+          attachments,
+          quoteDraft?.trim() || undefined,
+          shortText,
+        );
       }
     } else {
       const quote = quoteDraft?.trim() || undefined;
-      onSend(text, attachments, undefined, quote, usedSkill);
+      onSend(text, attachments, undefined, quote, usedSkill, undefined, undefined, shortText);
     }
     setDraft("");
     setQuoteDraft(null);
@@ -1974,6 +1992,7 @@ export default function ChatArea({
                       key={turnUser.id}
                       mid={turnUser.id}
                       content={turnUser.content}
+                      display={turnUser.display}
                       attachments={turnUser.attachments}
                       quote={turnUser.quote}
                       correction={turnUser.correction}
@@ -2720,7 +2739,7 @@ export default function ChatArea({
                       <QueueIcon />
                     </span>
                     <p className="line-clamp-2 min-w-0 flex-1 text-xs leading-relaxed text-halo-muted">
-                      {q.text}
+                      {q.display ?? q.text}
                     </p>
                     <button
                       onClick={() => onQueuedRemove(q.id)}

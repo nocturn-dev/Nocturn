@@ -81,6 +81,8 @@ export function ChartBlock({ code }: { code: string }) {
   const spec = parseChartBlock(code);
   const hostRef = useRef<HTMLDivElement>(null);
   const plotRef = useRef<uPlot | null>(null);
+  // Исходные данные: двойной клик откатывает зум к полному охвату
+  const baseDataRef = useRef<uPlot.AlignedData | null>(null);
   const light = useThemeLight();
   const [ready, setReady] = useState(false);
   const [showCode, setShowCode] = useState(false);
@@ -92,6 +94,9 @@ export function ChartBlock({ code }: { code: string }) {
     if (!spec) return;
     let cancelled = false;
     let ro: ResizeObserver | null = null;
+    let dblHandler: (() => void) | null = null;
+    // Хост фиксируется на время эффекта: cleanup не читает ref (линт)
+    let hostEl: HTMLDivElement | null = null;
     (async () => {
       try {
         const [U, ] = await Promise.all([
@@ -100,6 +105,7 @@ export function ChartBlock({ code }: { code: string }) {
         ]);
         if (cancelled || !hostRef.current) return;
         const host = hostRef.current;
+        hostEl = host;
         const build = () => {
           const s = drawRef.current.spec;
           if (!s) return;
@@ -119,7 +125,8 @@ export function ChartBlock({ code }: { code: string }) {
             width,
             height,
             legend: { show: s.series.length > 1 || s.series[0]!.name !== "S1" },
-            cursor: { show: false },
+            // Курсор даёт перекрестие и живые значения легенды; drag — зум
+            // по выделению, двойной клик возвращает исходный охват
             scales: { x: { time: false } },
             axes: [
               {
@@ -147,6 +154,7 @@ export function ChartBlock({ code }: { code: string }) {
             xData,
             ...s.series.map((sr) => sr.values),
           ];
+          baseDataRef.current = data;
           if (s.labels.length === xData.length) {
             // Категориальные метки вместо числовых тиков
             const xAxis = common.axes[0]!;
@@ -179,6 +187,12 @@ export function ChartBlock({ code }: { code: string }) {
           setReady(true);
         };
         build();
+        dblHandler = () => {
+          if (baseDataRef.current && plotRef.current) {
+            plotRef.current.setData(baseDataRef.current);
+          }
+        };
+        host.addEventListener("dblclick", dblHandler);
         ro = new ResizeObserver(() => {
           const u = plotRef.current;
           if (!u || !host.clientWidth) return;
@@ -195,6 +209,7 @@ export function ChartBlock({ code }: { code: string }) {
     return () => {
       cancelled = true;
       ro?.disconnect();
+      if (dblHandler && hostEl) hostEl.removeEventListener("dblclick", dblHandler);
       plotRef.current?.destroy();
       plotRef.current = null;
     };

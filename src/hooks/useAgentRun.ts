@@ -161,7 +161,13 @@ export function useAgentRun(deps: AgentRunDeps) {
   // Очередь корректирующих сообщений: набираются, пока агент отвечает,
   // отправляются автоматически после завершения прогона (finalize)
   const [queuedMsgs, setQueuedMsgs] = useState<
-    { id: string; text: string; attachments?: Attachment[]; quote?: string }[]
+    {
+      id: string;
+      text: string;
+      attachments?: Attachment[];
+      quote?: string;
+      display?: string;
+    }[]
   >([]);
   const queuedMsgsRef = useRef(queuedMsgs);
   useEffect(() => {
@@ -422,6 +428,7 @@ export function useAgentRun(deps: AgentRunDeps) {
     skillInstruction: string | undefined,
     editMsgId: string | undefined,
     budgetCarry: { prompt: number; completion: number } | undefined,
+    display: string | undefined,
   ) => {
     const text = raw.trim();
     const images = attachments ?? [];
@@ -570,12 +577,14 @@ export function useAgentRun(deps: AgentRunDeps) {
         id: uid(),
         role: "user",
         content: text,
+        display,
         attachments: images.length > 0 ? images : editAttachments,
         quote: quote?.trim() || undefined,
       } : {
         id: uid(),
         role: "user",
         content: text,
+        display,
         attachments: images.length > 0 ? images : undefined,
         quote: quote?.trim() || undefined,
       };
@@ -921,6 +930,7 @@ export function useAgentRun(deps: AgentRunDeps) {
           undefined,
           undefined,
           { prompt: usageAcc.prompt, completion: usageAcc.completion },
+          next.display,
         );
         // C3: handleSend захватывает движок синхронно (до первого await) —
         // если после вызова движок свободен, отправка отказала (guard/валидация),
@@ -2889,6 +2899,9 @@ ${report}`;
     editMsgId?: string,
     /** Расход предыдущих звеньев цепочки очереди (общий бюджет Hard Limit) */
     budgetCarry?: { prompt: number; completion: number },
+    /** Короткая форма сообщения для карточки (раскрытый скилл: модели —
+     *  полная инструкция в content, пользователю — «&quiz: …») */
+    display?: string,
   ) => {
     if (!raw.trim() && (attachments ?? []).length === 0) return;
 
@@ -2943,6 +2956,7 @@ ${report}`;
         skillInstruction,
         editMsgId,
         budgetCarry,
+        display,
       );
     } catch (e) {
       // Необработанное исключение в теле прогона (диск, битые данные,
