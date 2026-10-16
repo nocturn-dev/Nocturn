@@ -1697,33 +1697,55 @@ export default function ChatArea({
   // прежний расчёт nearBottom в useEffect шёл ПОСЛЕ коммита, и крупный чанк
   // (>150px) скачком отдалял низ, обрывая слежение на длинных ответах
   const nearBottomRef = useRef(true);
+  // Ручная прокрутка вверх мгновенно отпускает ленту: без этого догон за
+  // печатью тянул вниз, и отлистать во время стрима было почти невозможно
+  // (борьба за scrollTop кадр-в-кадр). Возврат в ловушку — только когда
+  // пользователь сам добрался до низа
+  const followOffRef = useRef(false);
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
+    let lastTop = el.scrollTop;
+    const dist = () => el.scrollHeight - el.scrollTop - el.clientHeight;
     const onScroll = () => {
-      nearBottomRef.current =
-        el.scrollHeight - el.scrollTop - el.clientHeight < 150;
+      if (el.scrollTop < lastTop - 1) followOffRef.current = true;
+      if (dist() < 40) followOffRef.current = false;
+      lastTop = el.scrollTop;
+      nearBottomRef.current = dist() < 150;
+    };
+    const onWheel = (e: WheelEvent) => {
+      if (e.deltaY < 0) followOffRef.current = true;
+    };
+    const onTouch = () => {
+      followOffRef.current = true;
     };
     el.addEventListener("scroll", onScroll, { passive: true });
-    return () => el.removeEventListener("scroll", onScroll);
+    el.addEventListener("wheel", onWheel, { passive: true });
+    el.addEventListener("touchmove", onTouch, { passive: true });
+    return () => {
+      el.removeEventListener("scroll", onScroll);
+      el.removeEventListener("wheel", onWheel);
+      el.removeEventListener("touchmove", onTouch);
+    };
   }, []);
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
-    if (scrollFollow || nearBottomRef.current) el.scrollTop = el.scrollHeight;
+    if (scrollFollow || (nearBottomRef.current && !followOffRef.current))
+      el.scrollTop = el.scrollHeight;
   }, [messages, typing, scrollFollow]);
   // Догон ленты на время печати: плавная печать растит карточку каждый
   // кадр МЕЖДУ коммитами дельт — эффект выше на эти кадры не реагирует, и
   // текст уезжает под нижний край до следующей дельты. Догоняем долю
-  // гэпа за кадр (не прыжком к низу): подстройка плавная и не выносит
-  // пользователя за пределы виденного, порог «у низа» — тот же
+  // гэпа за кадр (не прыжком к низу): подстройка плавная; ручной подъём
+  // гасит ловушку (followOff), возврат к низу включает снова
   useEffect(() => {
     if (!typing && !streamingMsgId) return;
     const el = scrollRef.current;
     if (!el) return;
     let raf = 0;
     const follow = () => {
-      if (scrollFollow || nearBottomRef.current) {
+      if (scrollFollow || !followOffRef.current) {
         const gap = el.scrollHeight - el.clientHeight - el.scrollTop;
         if (gap > 0.5) el.scrollTop += Math.max(1, gap / 4);
       }

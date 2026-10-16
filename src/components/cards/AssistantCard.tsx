@@ -242,25 +242,14 @@ function AssistantCardBase({
       window.setTimeout(() => setCopiedMsg(false), 1500);
     }
   };
-  // Настройка «показывать рассуждения»: первый блок в сообщении раскрывается
-  // сам; защёлка — чтобы ручное закрытие не перебивалось каждым чанком
-  const reasoningLatched = useRef(false);
+  // Тело «Размышлений» раскрывается ТОЛЬКО по клику: блок сам не
+  // раскрывается и не сворачивается посреди хода — в конце стрима
+  // открытый блок складывается вместе с прочей иерархией
+  const prevStreaming = useRef(isStreaming);
   useEffect(() => {
-    if (showReasoning && !reasoningLatched.current && message.thought) {
-      reasoningLatched.current = true;
-      setOpenThought(true);
-    }
-  }, [showReasoning, message.thought]);
-  // Автоскрытие: пришёл финальный ответ — раздумия сворачиваются сами
-  // Один раз, и только если блок был раскрыт
-  // авто-защёлкой: вручную открытый пользователь не теряет
-  const answerSeen = useRef(false);
-  useEffect(() => {
-    if (!answerSeen.current && message.content && message.thought && reasoningLatched.current) {
-      answerSeen.current = true;
-      setOpenThought(false);
-    }
-  }, [message.content, message.thought]);
+    if (prevStreaming.current && !isStreaming) setOpenThought(false);
+    prevStreaming.current = isStreaming;
+  }, [isStreaming]);
   const [collapsed, setCollapsed] = useState(false);
 
 
@@ -404,7 +393,7 @@ function AssistantCardBase({
         </div>
       )}
 
-      {message.thought && (
+      {message.thought && showReasoning && (
         <div className="mb-1.5">
           <div className="flex items-center gap-2">
             <button

@@ -827,7 +827,7 @@ export const ja = {
     "main.groupTurns": "エージェントのターンを 1 ブロックに",
     "main.groupTurnsDesc": "思考・コマンド・結果・回答テキストを 1 枚のカードにまとめます。オフにすると各ステップが個別に表示されます",
     "main.showReasoning": "推論を表示",
-    "main.showReasoningDesc": "モデルの推論ブロックを自動的に展開します",
+    "main.showReasoningDesc": "チャットにモデルの推論行を表示します。本文はクリックで開きます",
     "main.askAutoContinue": "質問の自動続行",
     "main.askAutoContinueDesc": "5分間回答がない場合、エージェントは自判断で続行します。オフの場合は無期限に待機します。",
     "main.closeToTray": "閉じてもトレイに残す",

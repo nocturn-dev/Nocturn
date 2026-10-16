@@ -73,7 +73,7 @@ function ThoughtIcon() {
 }
 
 /** Один раунд хода: строка мысли + текст + шаги. Отдельный компонент —
- *  useSmoothText обязан зваться безусловно на верхнем уровне */
+ *  useSmoothText обязан зваться безуслов­но на верхнем уровне */
 function RunRound({
   round,
   steps,
@@ -85,6 +85,8 @@ function RunRound({
   printSpeed,
   highlightLive,
   caret,
+  showThought,
+  folded,
   open,
   onToggleThought,
   mdComponents,
@@ -99,6 +101,10 @@ function RunRound({
   printSpeed: number;
   highlightLive: boolean;
   caret: boolean;
+  /** Тумблер «показывать рассуждения»: выключен — строка мысли не рисуется */
+  showThought: boolean;
+  /** Иерархия хода сложена: остаётся только текст ответа */
+  folded: boolean;
   open: boolean;
   onToggleThought: () => void;
   mdComponents: {
@@ -111,7 +117,7 @@ function RunRound({
 
   return (
     <Fragment>
-      {round.thought && (
+      {round.thought && showThought && !folded && (
         <div className="mt-2">
           <button
             onClick={onToggleThought}
@@ -159,24 +165,25 @@ function RunRound({
         </div>
       )}
 
-      {steps.length > 0 && (
+      {!folded && steps.length > 0 && (
         <div className="mt-1.5">
           <StepAccordion steps={steps} flat />
         </div>
       )}
 
-      {toolMsgs
-        .filter((m) => m.toolName === "subagent_run")
-        .map((m) => (
-          <div key={m.id} className="mt-1.5">
-            <SubagentCard
-              mid={m.id}
-              call={m.toolCallId ? callOf.get(m.toolCallId) : undefined}
-              content={m.content}
-              run={subRuns?.[m.toolCallId ?? ""]}
-            />
-          </div>
-        ))}
+      {!folded &&
+        toolMsgs
+          .filter((m) => m.toolName === "subagent_run")
+          .map((m) => (
+            <div key={m.id} className="mt-1.5">
+              <SubagentCard
+                mid={m.id}
+                call={m.toolCallId ? callOf.get(m.toolCallId) : undefined}
+                content={m.content}
+                run={subRuns?.[m.toolCallId ?? ""]}
+              />
+            </div>
+          ))}
 
       {round.error && <ErrorNote title={round.error.title} raw={round.error.raw} />}
     </Fragment>
@@ -259,41 +266,18 @@ function RunCardBase({
     ? Math.max(0, now - startMs)
     : Math.max(0, endMs - startMs);
 
-  // Раскрытые «Размышления»: авто-раскрытие первого блока и стримящегося
-  // (настройка «показывать рассуждения»); защёлка по id — чтобы ручное
-  // закрытие не перебивалось каждым чанком
+  // Раскрытые «Размышления»: ТОЛЬКО по клику — сам блок не раскрывается
+  // никогда (строка видна при включённом тумблере «показывать рассуждения»,
+  // тело — по клику). Иерархия хода (мысли/шаги/субагенты) живёт свёрнутой
+  // у завершённых ходов и складывается сама в конце живого: читать начинают
+  // с ответа, шум инструментов — по клику на шапку
   const [openThoughts, setOpenThoughts] = useState<Set<string>>(new Set());
-  const autoOpened = useRef(new Set<string>());
+  const [folded, setFolded] = useState(() => !isStreaming);
+  const prevStreaming = useRef(isStreaming);
   useEffect(() => {
-    if (!showReasoning) return;
-    const streamingRound = rounds.find((a) => a.id === streamingMsgId);
-    const target = streamingRound?.thought
-      ? streamingRound
-      : rounds.find((a) => a.thought && !autoOpened.current.has(a.id));
-    if (target && !autoOpened.current.has(target.id)) {
-      autoOpened.current.add(target.id);
-      setOpenThoughts((s) => new Set(s).add(target.id));
-    }
-  }, [showReasoning, rounds, streamingMsgId]);
-  // Автоскрытие: у авто-раскрытого раунда появился финальный текст — его
-  // раздумия сворачиваются сами. Защёлка по переходу
-  // content «пусто → непусто»: ручное открытие и история не трогаются
-  const prevContentLen = useRef(new Map<string, number>());
-  useEffect(() => {
-    setOpenThoughts((prev) => {
-      let changed = false;
-      const next = new Set(prev);
-      for (const a of rounds) {
-        const before = prevContentLen.current.get(a.id) ?? 0;
-        if (a.content && before === 0 && prev.has(a.id) && autoOpened.current.has(a.id)) {
-          next.delete(a.id);
-          changed = true;
-        }
-        prevContentLen.current.set(a.id, a.content.length);
-      }
-      return changed ? next : prev;
-    });
-  }, [rounds]);
+    if (prevStreaming.current && !isStreaming) setFolded(true);
+    prevStreaming.current = isStreaming;
+  }, [isStreaming]);
   const toggleThought = (id: string) =>
     setOpenThoughts((prev) => {
       const next = new Set(prev);
@@ -350,8 +334,17 @@ function RunCardBase({
 
   return (
     <div data-mid={runKey} className="anim-fade-up group/run mr-auto w-full max-w-[85%]">
-      {/* Шапка хода: модель + живой таймер, hairline снизу — как в референсе */}
-      <div className="flex items-center gap-2.5 border-b border-halo-line/40 pb-1.5">
+      {/* Шапка-переключатель иерархии: модель + таймер; клик складывает/
+          раскрывает мысли, шаги и субагентов (текст ответа остаётся всегда) */}
+      <button
+        onClick={() => setFolded((v) => !v)}
+        className="flex w-full items-center gap-2.5 rounded-lg border-b border-halo-line/40 pb-1.5 text-left transition-colors hover:bg-halo-hover/30"
+      >
+        <ChevronDownIcon
+          className={`size-3 shrink-0 text-halo-muted transition-transform ${
+            folded ? "-rotate-90" : ""
+          }`}
+        />
         <span className="flex shrink-0 items-center gap-1.5">
           <ProviderIcon modelId={model} size={14} />
           <span className="max-w-44 truncate text-[0.6875rem] font-semibold text-halo-text/90">
@@ -394,7 +387,7 @@ function RunCardBase({
             <span className="work-status-text truncate">{hint}</span>
           </span>
         )}
-      </div>
+      </button>
 
       {/* Плоская лента: по раундам — мысль → текст → шаги → субагенты → ошибка */}
       {rounds.map((a) => (
@@ -410,6 +403,8 @@ function RunCardBase({
           printSpeed={printSpeed}
           highlightLive={highlightLive}
           caret={caret}
+          showThought={showReasoning}
+          folded={folded}
           open={openThoughts.has(a.id)}
           onToggleThought={() => toggleThought(a.id)}
           mdComponents={mdComponents}
