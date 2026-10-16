@@ -114,32 +114,41 @@ export function CodeBlock({
     return <MermaidBlock code={codeText(_node)} onSendSource={onQuoteSource} />;
   }
 
+  const lang = codeLanguage(_node);
+
   return (
-    <div className="group/code relative">
-      <div className="absolute right-2 top-2 z-10 flex gap-1 opacity-0 transition-opacity group-hover/code:opacity-100">
-        {previewable && (
+    <div className="code-card group/code relative">
+      {/* Шапка с языком; без языка — только кнопки. Кнопки в шапке, а не
+          hover-оверлеем на коде: не закрывают текст и видны на тач-панелях */}
+      <div className="flex items-center justify-between gap-2 border-b border-halo-line/50 pr-1.5 pl-3 py-1">
+        <span className="truncate font-mono text-[0.5625rem] uppercase tracking-wider text-halo-muted/80">
+          {lang}
+        </span>
+        <div className="flex shrink-0 gap-0.5 opacity-60 transition-opacity group-hover/code:opacity-100">
+          {previewable && (
+            <button
+              onClick={() => onPreview?.(text())}
+              title={t("cp.preview")}
+              className="rounded-md p-1 text-halo-muted transition-colors hover:text-halo-text"
+            >
+              <PlayIcon />
+            </button>
+          )}
           <button
-            onClick={() => onPreview?.(text())}
-            title={t("cp.preview")}
-            className="rounded-md border border-halo-line bg-halo-deep/80 px-1.5 py-0.5 text-[0.625rem] text-halo-muted transition-colors hover:text-halo-text"
+            onClick={copy}
+            title={t("cp.copy")}
+            className="rounded-md p-1 text-halo-muted transition-colors hover:text-halo-text"
           >
-            <PlayIcon />
+            {copied ? <CheckIcon /> : <CopyIcon />}
           </button>
-        )}
-        <button
-          onClick={copy}
-          title={t("cp.copy")}
-          className="rounded-md border border-halo-line bg-halo-deep/80 px-1.5 py-0.5 text-[0.625rem] text-halo-muted transition-colors hover:text-halo-text"
-        >
-          {copied ? <CheckIcon /> : <CopyIcon />}
-        </button>
-        <button
-          onClick={apply}
-          title={t("cp.apply")}
-          className="rounded-md border border-halo-line bg-halo-deep/80 px-1.5 py-0.5 text-[0.625rem] text-halo-muted transition-colors hover:text-halo-text"
-        >
-          {applied ? <CheckIcon /> : <SaveIcon />}
-        </button>
+          <button
+            onClick={apply}
+            title={t("cp.apply")}
+            className="rounded-md p-1 text-halo-muted transition-colors hover:text-halo-text"
+          >
+            {applied ? <CheckIcon /> : <SaveIcon />}
+          </button>
+        </div>
       </div>
       <pre ref={preRef}>{children}</pre>
     </div>

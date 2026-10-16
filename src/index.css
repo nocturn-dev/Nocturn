@@ -950,6 +950,27 @@ html.motion-reduced body::before {
   font-family: var(--font-mono);
 }
 
+/* Код-карточка: шапка (язык + кнопки) над кодом, границу и скругление
+   держит контейнер целиком. pre внутри сбрасывает собственную рамку,
+   радиус и отступы — селектор идёт ПОСЛЕ .markdown pre и переигрывает
+   его при равной специфичности */
+.code-card {
+  margin: 0.5rem 0;
+  border: 1px solid var(--halo-line);
+  border-radius: 0.75rem;
+  background: var(--halo-code-bg);
+  overflow: hidden;
+  transition:
+    background-color var(--motion-base) ease,
+    border-color var(--motion-base) ease;
+}
+.code-card > pre {
+  margin: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+}
+
 /* ---------- Claude-чтение (кастомизация, «Чтение»): глобальные тумблеры.
    Классы на html ставит applyAppearance и только вне жёстких тем —
    у Full Claude свои одноимённые настройки в своём теге ----------
