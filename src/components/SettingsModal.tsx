@@ -429,14 +429,17 @@ export default function SettingsModal({
     expandGroupOf(page);
     if (page !== section) {
       setNavStack((prev) => (section !== "main" ? [...prev, section] : prev));
-      setSection(page);
+      // Направление въезда контента для VT (fwd = вглубь навигации)
+      document.documentElement.dataset.settingsDir = "fwd";
+      withViewTransition(() => setSection(page));
     }
   };
   const goto = (p: SettingsPage) => gotoSection(p);
   const goBack = () => {
     const prev = navStack[navStack.length - 1] ?? "main";
     setNavStack((p) => p.slice(0, -1));
-    setSection(prev);
+    document.documentElement.dataset.settingsDir = "back";
+    withViewTransition(() => setSection(prev));
   };
   // Развёрнутое окно (на весь экран) — для широких разделов вроде статистики
   const [expanded, setExpanded] = useState(false);
@@ -742,8 +745,15 @@ export default function SettingsModal({
           )}
         </div>
 
-        {/* Содержимое раздела */}
-        <div ref={contentPaneRef} className="scroll-slim flex-1 overflow-y-auto p-5">
+        {/* Содержимое раздела: VT-имя только на контентной панели —
+            навигация остаётся неподвижной, уезжает один контент */}
+        <div
+          ref={contentPaneRef}
+          className="settings-content scroll-slim flex-1 overflow-y-auto p-5"
+        >
+          {/* Remount по key: stagger-появление блоков переигрывается на
+              каждой смене страницы (см. .settings-page-stagger в index.css) */}
+          <div key={section} className="settings-page-stagger">
           {/* Крошки навигации: назад — на шаг, откуда пользователь пришёл */}
           {section !== "main" && (
             <div className="mb-4 flex items-center gap-1.5 text-xs">
@@ -1014,6 +1024,7 @@ export default function SettingsModal({
               onVoiceChange={onVoiceChange}
             />
           )}
+          </div>
         </div>
       </div>
       {/* Окно поддержки: адреса + QR кошельков, поверх настроек */}

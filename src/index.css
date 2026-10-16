@@ -354,6 +354,81 @@ html.accent-gradient [role="button"].bg-halo-accent:hover {
 .settings-vt {
   view-transition-name: settings-panel;
 }
+/* Смена страницы настроек: уезжает только контентная панель, навигация
+   стоит. Направление задаёт html[data-settings-dir]: fwd — вглубь
+   навигации (въезд справа), back — зеркально. Токены, а не литералы */
+.settings-content {
+  view-transition-name: settings-content;
+}
+@keyframes settings-out-fwd {
+  to {
+    opacity: 0;
+    transform: translateX(-12px);
+  }
+}
+@keyframes settings-in-fwd {
+  from {
+    opacity: 0;
+    transform: translateX(12px);
+  }
+}
+@keyframes settings-out-back {
+  to {
+    opacity: 0;
+    transform: translateX(12px);
+  }
+}
+@keyframes settings-in-back {
+  from {
+    opacity: 0;
+    transform: translateX(-12px);
+  }
+}
+::view-transition-old(settings-content) {
+  animation: settings-out-fwd var(--motion-fast) var(--ease-exit) both;
+}
+::view-transition-new(settings-content) {
+  animation: settings-in-fwd var(--motion-base) var(--ease-enter) both;
+}
+html[data-settings-dir="back"]::view-transition-old(settings-content) {
+  animation-name: settings-out-back;
+}
+html[data-settings-dir="back"]::view-transition-new(settings-content) {
+  animation-name: settings-in-back;
+}
+/* Появление блоков страницы каскадом (top-level блоки, не строки):
+   шаг 24мс с множителем скорости, кап 9 шагов — хвост длинных страниц
+   не уезжает в бесконечность. Remount по key в SettingsModal */
+.settings-page-stagger {
+  --stagger-step: calc(24ms * var(--motion-scale, 1));
+}
+.settings-page-stagger > * {
+  animation: halo-fade-up var(--motion-base) var(--ease-enter) both;
+}
+.settings-page-stagger > *:nth-child(2) {
+  animation-delay: var(--stagger-step);
+}
+.settings-page-stagger > *:nth-child(3) {
+  animation-delay: calc(var(--stagger-step) * 2);
+}
+.settings-page-stagger > *:nth-child(4) {
+  animation-delay: calc(var(--stagger-step) * 3);
+}
+.settings-page-stagger > *:nth-child(5) {
+  animation-delay: calc(var(--stagger-step) * 4);
+}
+.settings-page-stagger > *:nth-child(6) {
+  animation-delay: calc(var(--stagger-step) * 5);
+}
+.settings-page-stagger > *:nth-child(7) {
+  animation-delay: calc(var(--stagger-step) * 6);
+}
+.settings-page-stagger > *:nth-child(8) {
+  animation-delay: calc(var(--stagger-step) * 7);
+}
+.settings-page-stagger > *:nth-child(n + 9) {
+  animation-delay: calc(var(--stagger-step) * 8);
+}
 ::view-transition-old(settings-panel),
 ::view-transition-new(settings-panel) {
   /* Токены, а не литералы: пресет скорости анимаций обязан действовать
@@ -685,6 +760,7 @@ html.motion-reduced .shimmer-text,
 html.motion-reduced .group:hover .snake-preview-seg,
 html.motion-reduced .snake-preview-seg,
 html.motion-reduced .animate-pulse,
+html.motion-reduced .settings-page-stagger > *,
 html.motion-reduced body::before {
   animation: none !important;
 }
@@ -1905,7 +1981,8 @@ html:not(.has-wallpaper):not([data-ambient-render="behind"]).official aside.bg-h
   .work-status-star,
   .work-status-text,
   .shimmer::after,
-  .ask-ping {
+  .ask-ping,
+  .settings-page-stagger > * {
     animation: none;
   }
   /* Хвост reduce-motion: глушители blur ВСЕХ носителей — базы
