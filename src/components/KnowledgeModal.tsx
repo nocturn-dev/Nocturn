@@ -223,7 +223,7 @@ export default function KnowledgeModal({
                 onClick={create}
                 disabled={busy || name.trim() === ""}
                 title={t("kb.create")}
-                className="rounded-lg bg-halo-accent px-2.5 py-1.5 text-xs font-medium text-halo-on-accent transition-colors hover:bg-halo-accent-deep disabled:opacity-40"
+                className="rounded-lg bg-halo-accent px-2.5 py-1.5 text-xs font-medium text-halo-on-accent press hover:bg-halo-accent-deep disabled:opacity-40"
               >
                 +
               </button>

@@ -219,7 +219,7 @@ export function PromptsSection({
                 <button
                   onClick={commitEdit}
                   disabled={!editName.trim() || !editText.trim()}
-                  className="rounded-lg bg-halo-accent px-3 py-1.5 text-sm font-medium text-halo-on-accent transition-colors hover:bg-halo-accent-deep disabled:cursor-not-allowed disabled:opacity-40"
+                  className="rounded-lg bg-halo-accent px-3 py-1.5 text-sm font-medium text-halo-on-accent press hover:bg-halo-accent-deep disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   {t("prompts.save")}
                 </button>
@@ -284,7 +284,7 @@ export function PromptsSection({
           <button
             onClick={add}
             disabled={!name.trim() || !text.trim()}
-            className="rounded-lg bg-halo-accent px-3.5 py-1.5 text-sm font-medium text-halo-on-accent transition-colors hover:bg-halo-accent-deep disabled:cursor-not-allowed disabled:opacity-40"
+            className="rounded-lg bg-halo-accent px-3.5 py-1.5 text-sm font-medium text-halo-on-accent press hover:bg-halo-accent-deep disabled:cursor-not-allowed disabled:opacity-40"
           >
             {t("prompts.add")}
           </button>

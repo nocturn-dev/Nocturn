@@ -48,7 +48,7 @@ export default function JbWarnModal({
           </button>
           <button
             onClick={() => onConfirm(dontShow)}
-            className="rounded-lg bg-halo-accent px-4 py-1.5 text-sm font-medium text-halo-on-accent transition-colors hover:bg-halo-accent-deep"
+            className="rounded-lg bg-halo-accent px-4 py-1.5 text-sm font-medium text-halo-on-accent press hover:bg-halo-accent-deep"
           >
             {t("jb.warnAccept")}
           </button>

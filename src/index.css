@@ -314,6 +314,20 @@ html.accent-gradient [role="button"].bg-halo-accent:hover {
 .anim-pop {
   animation: halo-pop var(--motion-base) var(--ease-enter) both;
 }
+/* Микрополитика нажатия: единый язык кликов — лёгкое сжатие на press.
+   transform идёт композитным путём. Правило вне @layer: побеждает
+   transition-colors утилиты на тех же кнопках. Литералы duration-150/300
+   в компонентах — сознательный микро-уровень вне motion-токенов (глобальное
+   перекрытие duration-утилит правилами ломало бы приоритеты каскада);
+   панельные переходы и анимации живут на --motion-* */
+.press {
+  transition-property: color, background-color, border-color, transform;
+  transition-duration: var(--motion-fast);
+  transition-timing-function: var(--ease-enter);
+}
+.press:active:not(:disabled) {
+  transform: scale(0.98);
+}
 /* Плавное закрытие модалок: класс вешается на время выхода, потом unmount */
 .anim-pop-out {
   animation: halo-pop-out var(--motion-fast) var(--ease-exit) both;

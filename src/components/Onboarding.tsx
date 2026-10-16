@@ -295,14 +295,14 @@ export default function Onboarding({
             {step < 2 ? (
               <button
                 onClick={() => setStep(step + 1)}
-                className="rounded-lg bg-halo-accent px-4 py-2 text-xs font-medium text-halo-on-accent shadow-sm transition-colors hover:bg-halo-accent-deep"
+                className="rounded-lg bg-halo-accent px-4 py-2 text-xs font-medium text-halo-on-accent shadow-sm press hover:bg-halo-accent-deep"
               >
                 {t("onb.next")}
               </button>
             ) : (
               <button
                 onClick={done}
-                className="rounded-lg bg-halo-accent px-4 py-2 text-xs font-medium text-halo-on-accent shadow-sm transition-colors hover:bg-halo-accent-deep"
+                className="rounded-lg bg-halo-accent px-4 py-2 text-xs font-medium text-halo-on-accent shadow-sm press hover:bg-halo-accent-deep"
               >
                 {t("onb.done")}
               </button>

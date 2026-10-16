@@ -1010,7 +1010,7 @@ export function ThemeSection({
               <button
                 onClick={saveCustomEditor}
                 disabled={!editorValid}
-                className="rounded-md bg-halo-accent px-2.5 py-1 text-xs font-medium text-halo-on-accent transition-colors hover:bg-halo-accent-deep disabled:cursor-not-allowed disabled:opacity-40"
+                className="rounded-md bg-halo-accent px-2.5 py-1 text-xs font-medium text-halo-on-accent press hover:bg-halo-accent-deep disabled:cursor-not-allowed disabled:opacity-40"
               >
                 {editor.isNew ? t("themes.customCreate") : t("themes.customSave")}
               </button>

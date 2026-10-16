@@ -206,7 +206,7 @@ export function JailbreaksLiveSearch({
             <button
               onClick={doImport}
               disabled={selCount === 0}
-              className="rounded-lg bg-halo-accent px-3.5 py-1.5 text-xs font-medium text-halo-on-accent transition-colors hover:bg-halo-accent-deep disabled:cursor-not-allowed disabled:opacity-40"
+              className="rounded-lg bg-halo-accent px-3.5 py-1.5 text-xs font-medium text-halo-on-accent press hover:bg-halo-accent-deep disabled:cursor-not-allowed disabled:opacity-40"
             >
               {t("jb.liveImport", { n: String(selCount) })}
             </button>

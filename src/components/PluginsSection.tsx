@@ -175,7 +175,7 @@ export default function PluginsSection({
         <div className="flex flex-wrap gap-2">
           <button
             onClick={() => void pickAndRead()}
-            className="rounded-lg bg-halo-accent px-3.5 py-1.5 text-sm font-medium text-halo-on-accent transition-colors hover:bg-halo-accent-deep"
+            className="rounded-lg bg-halo-accent px-3.5 py-1.5 text-sm font-medium text-halo-on-accent press hover:bg-halo-accent-deep"
           >
             {t("plug.import")}
           </button>
@@ -232,7 +232,7 @@ export default function PluginsSection({
             </button>
             <button
               onClick={confirmInstall}
-              className="rounded-lg bg-halo-accent px-3.5 py-1.5 text-sm font-medium text-halo-on-accent transition-colors hover:bg-halo-accent-deep"
+              className="rounded-lg bg-halo-accent px-3.5 py-1.5 text-sm font-medium text-halo-on-accent press hover:bg-halo-accent-deep"
             >
               {t("plug.install")}
             </button>
@@ -253,7 +253,7 @@ export default function PluginsSection({
             <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
               <button
                 onClick={() => void pickAndRead()}
-                className="rounded-lg bg-halo-accent px-4 py-1.5 text-sm font-medium text-halo-on-accent transition-colors hover:bg-halo-accent-deep"
+                className="rounded-lg bg-halo-accent px-4 py-1.5 text-sm font-medium text-halo-on-accent press hover:bg-halo-accent-deep"
               >
                 {t("plug.import")}
               </button>

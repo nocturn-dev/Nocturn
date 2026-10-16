@@ -355,7 +355,7 @@ export default function CompareModal({ open, onClose, profiles, current }: Compa
             <button
               onClick={run}
               disabled={selected.length === 0 || prompt.trim() === ""}
-              className="rounded-lg bg-halo-accent px-3 py-1.5 text-xs font-medium text-halo-on-accent transition-colors hover:bg-halo-accent-deep disabled:cursor-not-allowed disabled:opacity-40"
+              className="rounded-lg bg-halo-accent px-3 py-1.5 text-xs font-medium text-halo-on-accent press hover:bg-halo-accent-deep disabled:cursor-not-allowed disabled:opacity-40"
             >
               <PlayIcon /> {t("cmp.run")}
             </button>
