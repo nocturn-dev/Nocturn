@@ -67,13 +67,21 @@ export const MessageNav = memo(function MessageNav({
     };
   }, [scrollRef, ticks]);
 
+  // Прицельный скролл КОНТЕЙНЕРА ленты: scrollIntoView скроллил и вложенные
+  // прокручиваемые блоки (код, терминал), и прыжок получался «50/50». Плюс
+  // ручной подъём вверх снимает ловушку автоскролла (followOff в ChatArea)
   const jump = (id: string) => {
     setActiveId(id);
     const el = scrollRef.current;
-    el?.querySelector(`[data-mid="${id}"]`)?.scrollIntoView({
-      behavior: "smooth",
-      block: "center",
-    });
+    const node = el?.querySelector(`[data-mid="${id}"]`);
+    if (!el || !node) return;
+    const top =
+      node.getBoundingClientRect().top -
+      el.getBoundingClientRect().top +
+      el.scrollTop -
+      el.clientHeight / 2 +
+      node.getBoundingClientRect().height / 2;
+    el.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
   };
 
   // Поповер позиционируется fixed: absolute внутри скролл-контейнера
@@ -87,8 +95,23 @@ export const MessageNav = memo(function MessageNav({
   }, []);
 
   return (
-    // z над лентой (z-10) и под кластером композера; right-4 — вплотную к
-    // скроллбару, но не на его полосу (8px от края)
+    <>
+    {/* Поповер — сиблинг контейнера, а не ребёнок: у контейнера есть
+        transform (-translate-y-1/2), а transform делает его containing
+        block для fixed — поповер внутри клипался и позиционировался мимо */}
+    {hover && (
+      <div
+        className="pointer-events-none fixed right-5 z-30 w-64 -translate-y-1/2 rounded-xl border border-halo-line bg-halo-deep/95 p-3 text-left shadow-xl"
+        style={{ top: hover.top }}
+      >
+        <p className="mb-1 text-[0.625rem] font-semibold uppercase tracking-wider text-halo-muted">
+          {t("card.you")}
+        </p>
+        <p className="line-clamp-4 text-xs leading-relaxed text-halo-text">
+          {hover.preview || "…"}
+        </p>
+      </div>
+    )}
     <div className="no-scrollbar absolute right-4 top-1/2 z-20 flex max-h-[80%] -translate-y-1/2 flex-col items-end gap-2 overflow-y-auto">
       {ticks.map((m, i) => {
         const isActive = m.id === activeId;
@@ -115,19 +138,7 @@ export const MessageNav = memo(function MessageNav({
           </button>
         );
       })}
-      {hover && (
-        <div
-          className="pointer-events-none fixed right-5 z-30 w-64 -translate-y-1/2 rounded-xl border border-halo-line bg-halo-deep/95 p-3 text-left shadow-xl"
-          style={{ top: hover.top }}
-        >
-          <p className="mb-1 text-[0.625rem] font-semibold uppercase tracking-wider text-halo-muted">
-            {t("card.you")}
-          </p>
-          <p className="line-clamp-4 text-xs leading-relaxed text-halo-text">
-            {hover.preview || "…"}
-          </p>
-        </div>
-      )}
     </div>
+    </>
   );
 });
