@@ -2057,3 +2057,31 @@ html:not(.has-wallpaper):not([data-ambient-render="behind"]).official aside.bg-h
     -webkit-backdrop-filter: none;
   }
 }
+
+/* Свечение активной строки палитры и чипа скилла: акцент через color-mix,
+   фолбэк по конвенции — без mix остаётся плоская обводка/фон */
+.palette-active {
+  background: var(--halo-hover);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--halo-accent) 35%, transparent),
+    0 0 14px color-mix(in srgb, var(--halo-accent) 16%, transparent);
+}
+
+@supports not (color: color-mix(in srgb, red, blue)) {
+  .palette-active {
+    box-shadow: inset 0 0 0 1px var(--halo-line);
+  }
+}
+
+.skill-chip {
+  background: color-mix(in srgb, var(--halo-accent) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--halo-accent) 35%, transparent);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--halo-accent) 14%, transparent);
+}
+
+@supports not (color: color-mix(in srgb, red, blue)) {
+  .skill-chip {
+    background: var(--halo-hover);
+    border-color: var(--halo-line);
+  }
+}

@@ -722,6 +722,13 @@ export default function ChatArea({
     };
   }, []);
   const [skillIndex, setSkillIndex] = useState(0);
+  // Выбранный скилл: в композере сидит чипом (как slash-команда в ZCode),
+  // черновик содержит только аргументы; в ленте видна короткая форма
+  const [skillChip, setSkillChip] = useState<Skill | null>(null);
+  const pickSkillChip = (s: Skill) => {
+    setSkillChip(s);
+    setDraft("");
+  };
   const allSkills = useMemo<Skill[]>(
     () => [...BUILTIN_SKILLS, ...(extraSkills ?? [])],
     [extraSkills],
@@ -1795,7 +1802,12 @@ export default function ChatArea({
     // Короткая форма уходит в карточку сообщения (display): в истории для
     // модели — полная инструкция, в ленте — компактный вызов как в ZCode
     let shortText: string | undefined;
-    if (skillRef) {
+    if (skillChip) {
+      const rest = text.trim();
+      text = rest ? `${skillChip.prompt}${rest}` : skillChip.prompt;
+      usedSkill = skillChip.prompt;
+      shortText = rest ? `&${skillChip.id}: ${rest}` : `&${skillChip.id}:`;
+    } else if (skillRef) {
       const skill = allSkills.find(
         (s) => s.id.toLowerCase() === skillRef[1]?.toLowerCase(),
       );
@@ -1844,6 +1856,7 @@ export default function ChatArea({
       onSend(text, attachments, undefined, quote, usedSkill, undefined, undefined, shortText);
     }
     setDraft("");
+    setSkillChip(null);
     setQuoteDraft(null);
     setPendingImages([]);
     const el = textareaRef.current;
@@ -1851,6 +1864,11 @@ export default function ChatArea({
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // Backspace на пустом черновике снимает чип скилла (привычка slash-чейна)
+    if (skillChip && draft === "" && e.key === "Backspace") {
+      setSkillChip(null);
+      return;
+    }
     // Палитра скилов (&): навигация как у slash, Enter вставляет шаблон
     if (skillActive && skillMatches.length > 0) {
       if (e.key === "ArrowDown" || e.key === "ArrowUp") {
@@ -1868,15 +1886,14 @@ export default function ChatArea({
         // раскрытие требует двоеточие (regex при отправке), «&id␣» уходил
         // модели литералом
 
-        setDraft(`&${skillMatches[skillIndex]?.id ?? ""}: `);
+        if (skillMatches[skillIndex]) pickSkillChip(skillMatches[skillIndex]!);
         return;
       }
       if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
         e.preventDefault();
         const skill = skillMatches[skillIndex];
-        // Короткая форма &id: — инструкция раскроется при отправке
-        // (полная инструкция сжимала композер)
-        if (skill) setDraft(`&${skill.id}: `);
+        // Инструкция раскроется при отправке; в композере — чип скилла
+        if (skill) pickSkillChip(skill);
         return;
       }
       if (e.key === "Escape") {
@@ -2649,11 +2666,9 @@ export default function ChatArea({
                 {skillMatches.map((s, i) => (
                   <button
                     key={s.id}
-                    onClick={() => setDraft(`&${s.id}: `)}
+                    onClick={() => pickSkillChip(s)}
                     className={`flex w-full items-baseline gap-2 rounded-lg px-2 py-1.5 text-left transition-colors ${
-                      i === skillIndex
-                        ? "bg-halo-hover"
-                        : "hover:bg-halo-hover"
+                      i === skillIndex ? "palette-active" : "hover:bg-halo-hover"
                     }`}
                   >
                     <span
@@ -2684,7 +2699,7 @@ export default function ChatArea({
                         onClick={() => setDraft(`/${slash.command ? slash.command.name : ""} ${sug}`)}
                         className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs transition-colors ${
                           i === slashIndex
-                            ? "bg-halo-hover text-halo-text"
+                            ? "palette-active text-halo-text"
                             : "text-halo-muted hover:bg-halo-hover hover:text-halo-text"
                         }`}
                       >
@@ -2699,7 +2714,7 @@ export default function ChatArea({
                         key={c.name}
                         onClick={() => setDraft(`/${c.name} `)}
                         className={`flex w-full items-baseline gap-2 rounded-lg px-2 py-1.5 text-left transition-colors ${
-                          i === slashIndex ? "bg-halo-hover" : "hover:bg-halo-hover"
+                          i === slashIndex ? "palette-active" : "hover:bg-halo-hover"
                         }`}
                       >
                         <span
@@ -2722,6 +2737,25 @@ export default function ChatArea({
                     )}
                   </div>
                 )}
+              </div>
+            )}
+            {/* Чип выбранного скилла: инструкция уйдёт моделью невидимо,
+                в ленте останется короткая форма; X или Backspace снимает */}
+            {skillChip && (
+              <div className="mb-2 flex">
+                <span className="skill-chip anim-fade-up flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs text-halo-text">
+                  <span className="text-halo-accent">
+                    <SparkIcon />
+                  </span>
+                  {skillChip.name}
+                  <button
+                    onClick={() => setSkillChip(null)}
+                    title={t("composer.queuedRemove")}
+                    className="ml-0.5 rounded p-0.5 text-halo-muted transition-colors hover:text-halo-text"
+                  >
+                    <XSmallIcon />
+                  </button>
+                </span>
               </div>
             )}
             {/* Очередь сообщений: уйдут агенту после текущего ответа */}
