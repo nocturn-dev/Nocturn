@@ -2404,7 +2404,7 @@ export default function ChatArea({
       {/* Боковая навигация по сообщениям (чёрточки справа). Вне скролл-
           контейнера, поверх ленты: иначе уезжает при прокрутке */}
       {visible.length > 1 && !composerCentered && (
-        <MessageNav messages={visible} model={model} scrollRef={scrollRef} />
+        <MessageNav messages={visible} scrollRef={scrollRef} />
       )}
       {/* Поле ввода с нижней панелью: модель · подсказка · отправка.
           Пустой чат — ВЕСЬ кластер (пилюли+чип+шелл) отцентрован ровно
@@ -2412,14 +2412,16 @@ export default function ChatArea({
           одинаково и в оконном режиме, и в F11 */}
         {/* Гигантский призрачный логотип фоном — как в референсе */}
         {composerCentered && (
-          <div className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-[64%] select-none opacity-[0.05]">
+          <div className="pointer-events-none absolute left-1/2 top-[calc(50%-18px)] -translate-x-1/2 -translate-y-[64%] select-none opacity-[0.05]">
             <NocturnMark size={480} />
           </div>
         )}
       <div
         className={`pointer-events-none ${
           composerCentered
-            ? "absolute inset-x-0 top-1/2 z-[var(--halo-z-panel-raised)] -translate-y-1/2 px-6"
+            // -18px: центр считается от зоны под шапкой (h-9), а кластер
+            // должен сидеть по центру ОКНА
+            ? "absolute inset-x-0 top-[calc(50%-18px)] z-[var(--halo-z-panel-raised)] -translate-y-1/2 px-6"
             : "absolute inset-x-0 bottom-0 z-[var(--halo-z-panel-raised)] px-6 pb-5"
         }`}
         style={

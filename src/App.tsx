@@ -14,7 +14,6 @@ import {
   diffLines,
   diffStats,
   normalizePath,
-  parseWriteResult,
 } from "./diff";
 import { DiffPanel, type DiffPanelFile } from "./components/DiffPanel";
 import { PlanSidePanel } from "./components/PlanSidePanel";
@@ -1462,28 +1461,6 @@ export default function App() {
 
   const menuSession = menu ? sessions.find((s) => s.id === menu.id) : null;
 
-  // Файлы, изменённые агентом в активной задаче — для подсветки в дереве.
-  // C7: дорогой пересчёт (JSON.parse содержимого before/after) отсечён от
-  // ежекадровых флешей стрима — дешёвый ключ (id fs_write-результатов)
-  // меняется только когда реально появился новый результат записи
-  const writeKey = useMemo(() => {
-    let key = "";
-    for (const m of activeSession?.messages ?? []) {
-      if (m.role === "tool" && m.toolName === "fs_write") key += `${m.id}|`;
-    }
-    return key;
-  }, [activeSession]);
-  const modifiedFiles = useMemo(() => {
-    const set = new Set<string>();
-    for (const m of activeSession?.messages ?? []) {
-      if (m.role !== "tool" || m.toolName !== "fs_write") continue;
-      const w = parseWriteResult(m.content);
-      if (w?.path) set.add(normalizePath(w.path));
-    }
-    return set;
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- ключ отсекает ежекадровый пересчёт
-  }, [writeKey]);
-
   // ---------- Review: живой дифф прогона в правой панели ----------
   // fs_write-диффы берутся мгновенно из результатов инструментов; чекпоинт
   // прогона покрывает правки мимо fs_write (shell и т.п.): «снимок до ↔
@@ -2865,9 +2842,6 @@ export default function App() {
           setMenu({ id, x, y, kind: "note" });
         }}
         onSelectProject={setActiveProjectId}
-        projectRoot={projectRoot}
-        onProjectRootChange={setProjectRoot}
-        modifiedFiles={modifiedFiles}
         side={sidebarSide}
         width={sidebarWidth}
         showWindowControls={sidebarSide === "right"}

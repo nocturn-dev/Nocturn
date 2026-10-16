@@ -172,10 +172,6 @@ export const ja = {
     "notes.graphEmpty": "[[リンク]] 付きのノートを作成すると — グラフが自動生成されます",
     "notes.graphHint": "クリック — ノートを開く · ドラッグ — ノードを移動 · ホイール — ズーム",
     // Файловый менеджер
-    "files.section": "ファイル",
-    "files.pick": "プロジェクトフォルダを選択",
-    "files.change": "フォルダを変更",
-    "files.close": "フォルダを解除",
     "files.empty": "フォルダは空です",
     "files.error": "フォルダを読み取れませんでした",
     "files.copied": "クリック — パスをコピー",

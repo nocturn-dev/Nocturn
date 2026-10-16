@@ -1,60 +1,35 @@
 import type * as React from "react";
 import { useLang } from "../../locales";
 import { type Message } from "../../types";
-import { shortModelName } from "../ProviderIcon";
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+
+interface HoverCard {
+  top: number;
+  preview: string;
+}
 
 // memo: навигация рендерится рядом с лентой и пересобиралась на каждый
 // keystroke черновика. messages меняется на каждый флеш стрима — memo
 // пробивается, но цена мала: один проход O(visible) без markdown-парса
 export const MessageNav = memo(function MessageNav({
   messages,
-  model,
   scrollRef,
 }: {
   messages: Message[];
-  model: string;
   scrollRef: React.RefObject<HTMLDivElement | null>;
 }) {
   const { t } = useLang();
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [hover, setHover] = useState<HoverCard | null>(null);
 
-  // Засечка — на запрос и ОДИН ход агента (каким бы длинным он ни был):
-  // tool-шаги и промежуточные ответы не плодят отдельные «-»
-  // useMemo: раньше пересобиралось на каждый рендер (каждый токен)
-  const visibleTicks = useMemo(() => {
-    const ticks: { msg: Message; preview: string }[] = [];
-    for (let i = 0; i < messages.length; i++) {
-      const m = messages[i];
-      if (!m) continue;
-      if (m.role === "user") {
-        ticks.push({ msg: m, preview: m.content });
-        continue;
-      }
-      if (m.role !== "assistant") continue;
-      const prev = i > 0 ? messages[i - 1] : null;
-      if (prev && prev.role !== "user") continue; // не первый шаг хода
-      // Превью хода: первый осмысленный текст/мысль от модели
-      let preview = "";
-      for (let j = i; j < messages.length; j++) {
-        const x = messages[j];
-        if (!x || x.role === "user") break;
-        if (x.role === "assistant" && (x.content || x.thought)) {
-          preview = x.content || x.thought || "";
-          break;
-        }
-      }
-      ticks.push({ msg: m, preview });
-    }
-    return ticks.slice(-60);
-  }, [messages]);
+  // Засечка — ТОЛЬКО на сообщения пользователя (навигация «по вопросам»)
+  const ticks = useMemo(
+    () => messages.filter((m) => m.role === "user").slice(-60),
+    [messages],
+  );
 
-  // Активной помечается только ЗАСЕЧКА: measure() раньше брал последний
-  // [data-mid]-узел (внутри хода это шаг инструмента, чей id не
-  // соответствует ни одной засечке) — подсветка пропадала на полпути
-  // длинного хода
   const tickIdsRef = useRef<Set<string>>(new Set());
-  tickIdsRef.current = new Set(visibleTicks.map((t) => t.msg.id));
+  tickIdsRef.current = new Set(ticks.map((m) => m.id));
 
   // Отмечаем «текущее» сообщение при прокрутке
   useEffect(() => {
@@ -83,14 +58,14 @@ export const MessageNav = memo(function MessageNav({
       if (raf === 0) raf = requestAnimationFrame(measure);
     };
     el.addEventListener("scroll", onScroll, { passive: true });
-    // Смена состава засечек (новое сообщение/ход) — перемер без скролла:
-    // стрим держит ленту у низа, событие скролла может не прийти
+    // Смена состава засечек — перемер без скролла: стрим держит ленту у
+    // низа, событие скролла может не прийти
     measure();
     return () => {
       if (raf !== 0) cancelAnimationFrame(raf);
       el.removeEventListener("scroll", onScroll);
     };
-  }, [scrollRef, visibleTicks]);
+  }, [scrollRef, ticks]);
 
   const jump = (id: string) => {
     setActiveId(id);
@@ -101,56 +76,58 @@ export const MessageNav = memo(function MessageNav({
     });
   };
 
+  // Поповер позиционируется fixed: absolute внутри скролл-контейнера
+  // клипался его overflow и уезжал под карточки ленты
+  const onEnter = useCallback((m: Message, e: React.MouseEvent) => {
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    setHover({
+      top: r.top + r.height / 2,
+      preview: m.content.replace(/\s+/g, " ").trim().slice(0, 200),
+    });
+  }, []);
+
   return (
-    // z над лентой (z-10) и под кластером композера; right-5 — не налезать
-    // на полосу скроллбара ленты (8px от края)
-    <div className="no-scrollbar absolute right-5 top-1/2 z-20 flex max-h-[80%] -translate-y-1/2 flex-col items-end gap-2.5 overflow-y-auto">
-      {visibleTicks.map(({ msg: m, preview: rawPreview }, i) => {
+    // z над лентой (z-10) и под кластером композера; right-4 — вплотную к
+    // скроллбару, но не на его полосу (8px от края)
+    <div className="no-scrollbar absolute right-4 top-1/2 z-20 flex max-h-[80%] -translate-y-1/2 flex-col items-end gap-2 overflow-y-auto">
+      {ticks.map((m, i) => {
         const isActive = m.id === activeId;
-        const label =
-          m.role === "user"
-            ? t("card.you")
-            : shortModelName(m.model ?? model);
-        const preview = rawPreview.replace(/[#*`>\n]+/g, " ").trim().slice(0, 200);
         return (
           <button
             key={m.id}
             onClick={() => jump(m.id)}
-            aria-label={label}
-            className="nav-tick-in group pointer-events-auto relative flex h-2.5 w-6 shrink-0 items-center justify-end"
+            onMouseEnter={(e) => onEnter(m, e)}
+            onMouseLeave={() => setHover(null)}
+            aria-label={t("card.you")}
+            className="nav-tick-in group pointer-events-auto relative flex h-2.5 w-5 shrink-0 items-center justify-end"
             style={{ animationDelay: `${i * 40}ms` }}
           >
-            {/* Засечка: ширина через transform с origin-right — колонка
-                не пере-лейаутится на ховере и смене активной засечки */}
+            {/* Засечка: ширина через transform с origin-right (колонка не
+                пере-лейаутится), длительность из motion-токена — переключение
+                активной засечки в общем темпе анимаций, без дёрганья */}
             <span
-              className={`h-[3px] w-4 origin-right rounded-full transition-[transform,background-color] duration-200 ${
+              className={`h-[2px] w-3.5 origin-right rounded-full transition-[transform,background-color] [transition-duration:var(--motion-fast)] ${
                 isActive
                   ? "scale-x-100 bg-halo-accent"
                   : "scale-x-75 bg-halo-muted/50 group-hover:scale-x-100 group-hover:bg-halo-muted"
               }`}
             />
-            {/* Поповер с текстом сообщения — только при наведении */}
-            <span
-              className="pointer-events-none absolute right-5 top-1/2 w-64 -translate-y-1/2 rounded-xl border border-halo-line bg-halo-deep/95 p-3 text-left shadow-xl opacity-0 translate-x-2 transition duration-200 group-hover:translate-x-0 group-hover:opacity-100"
-            >
-              <span className="mb-1 flex items-center gap-1.5">
-                {m.role === "user" ? (
-                  <span className="text-[0.625rem] font-semibold uppercase tracking-wider text-halo-muted">
-                    {label}
-                  </span>
-                ) : (
-                  <span className="text-[0.625rem] font-semibold uppercase tracking-wider text-halo-accent/80">
-                    {label}
-                  </span>
-                )}
-              </span>
-              <span className="line-clamp-4 text-xs leading-relaxed text-halo-text">
-                {preview || "…"}
-              </span>
-            </span>
           </button>
         );
       })}
+      {hover && (
+        <div
+          className="pointer-events-none fixed right-5 z-30 w-64 -translate-y-1/2 rounded-xl border border-halo-line bg-halo-deep/95 p-3 text-left shadow-xl"
+          style={{ top: hover.top }}
+        >
+          <p className="mb-1 text-[0.625rem] font-semibold uppercase tracking-wider text-halo-muted">
+            {t("card.you")}
+          </p>
+          <p className="line-clamp-4 text-xs leading-relaxed text-halo-text">
+            {hover.preview || "…"}
+          </p>
+        </div>
+      )}
     </div>
   );
 });

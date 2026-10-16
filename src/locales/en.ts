@@ -170,10 +170,6 @@ export const en = {
     "notes.graphEmpty": "Create notes with [[links]] — the graph builds itself",
     "notes.graphHint": "click — open note · drag — move nodes · wheel — zoom",
     // File manager
-    "files.section": "Files",
-    "files.pick": "Choose project folder",
-    "files.change": "Change folder",
-    "files.close": "Remove folder",
     "files.empty": "Empty folder",
     "files.error": "Failed to read folder",
     "files.copied": "click to copy path",

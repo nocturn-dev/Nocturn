@@ -1,14 +1,12 @@
-import { STORAGE_KEYS } from "../storageKeys";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import type { Project, Session } from "../types";
 import WindowControls from "./WindowControls";
-import { pickFolder, pickAnyFile, listDir, gitStatus, checkpointList, checkpointRestore, checkpointDelete, checkpointFiles, type CheckpointMeta, type CheckpointFileState, type FileEntry, type NoteInfo } from "../api";
-import { normalizePath, pathSep } from "../diff";
-import { copyText } from "../clipboard";
+import { pickFolder, pickAnyFile, type NoteInfo } from "../api";
+import {  } from "../diff";
 import { ACCENT_PRESETS } from "../appearance";
 import { useLang, type MsgKey, type Lang, type TFn } from "../locales";
 import NocturnMark from "./NocturnMark";
-import { Switch } from "./settings/parts";
+import {  } from "./settings/parts";
 
 interface SidebarProps {
   sessions: Session[];
@@ -17,9 +15,7 @@ interface SidebarProps {
   activeId: string | null;
   renamingId: string | null;
   /** Корневая папка проекта для файлового менеджера */
-  projectRoot: string | null;
   /** Нормализованные пути файлов, изменённых агентом в активной задаче */
-  modifiedFiles: Set<string>;
   /** Сторона сайдбара (эргономика) и ширина (drag-ресайз) */
   side: "left" | "right";
   width: number;
@@ -56,7 +52,6 @@ interface SidebarProps {
   onRenameCommit: (id: string, title: string) => void;
   onRenameCancel: () => void;
   onSelectProject: (id: string | null) => void;
-  onProjectRootChange: (root: string | null) => void;
   /** Открыть настройки на разделе плагинов */
   onOpenPlugins: () => void;
   /** Открыть экран «Автоматизации» */
@@ -246,8 +241,6 @@ export default function Sidebar({
   activeProjectId,
   activeId,
   renamingId,
-  projectRoot,
-  modifiedFiles,
   side,
   width,
   onResizeStart,
@@ -275,13 +268,10 @@ export default function Sidebar({
   onRenameCommit,
   onRenameCancel,
   onSelectProject,
-  onProjectRootChange,
   onOpenPlugins,
   onOpenAutomations,
 }: SidebarProps) {
   const { t, lang } = useLang();
-  const [filesOpen, setFilesOpen] = useState(false);
-  const [cpOpen, setCpOpen] = useState(false);
   // Цвет заголовков секций: "" — как в теме, иначе hex (6 пресетов тем + свой)
   const [headerColor, setHeaderColor] = useState(
     () => localStorage.getItem("haloui-header-color") ?? "",
@@ -720,75 +710,6 @@ export default function Sidebar({
           )
         )}
 
-        {/* Файлы: выбор папки проекта и дерево  */}
-        <div className="mt-5">
-          <div className="flex items-center gap-1 px-2 pb-1">
-            <button
-              onClick={() => setFilesOpen((v) => !v)}
-              style={headerColor ? { color: headerColor } : undefined}
-              className="flex flex-1 items-center gap-1.5 text-[0.6875rem] uppercase tracking-[0.14em] text-halo-muted/50 transition-colors hover:text-halo-text"
-            >
-              <ChevronSmallIcon className={filesOpen ? "" : "-rotate-90"} />
-              {t("files.section")}
-            </button>
-            {filesOpen && projectRoot && (
-              <button
-                onClick={() => setCpOpen((v) => !v)}
-                title={t("cp.title")}
-                className="rounded p-0.5 text-halo-muted transition-colors hover:text-halo-text"
-              >
-                <ClockIcon />
-              </button>
-            )}
-            {filesOpen && projectRoot && (
-              <button
-                onClick={async () => {
-                  const picked = await pickFolder().catch(() => null);
-                  if (picked) onProjectRootChange(picked);
-                }}
-                title={t("files.change")}
-                className="rounded p-0.5 text-halo-muted transition-colors hover:text-halo-text"
-              >
-                <FolderPlusIcon />
-              </button>
-            )}
-          </div>
-
-          {filesOpen && !projectRoot && (
-            <button
-              onClick={async () => {
-                const picked = await pickFolder().catch(() => null);
-                if (picked) onProjectRootChange(picked);
-              }}
-              className="flex w-full items-center gap-2 rounded-lg border border-dashed border-halo-line px-3 py-2.5 text-sm text-halo-muted transition-colors hover:border-halo-line hover:text-halo-text"
-            >
-              <FolderIcon />
-              {t("files.pick")}
-            </button>
-          )}
-          {filesOpen && projectRoot && (
-            <div>
-              <button
-                onClick={() => onProjectRootChange(null)}
-                title={t("files.close")}
-                className="mb-1 flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-xs text-halo-text transition-colors hover:bg-halo-hover"
-              >
-                <span className="shrink-0 text-halo-accent/80">
-                  <FolderIcon />
-                </span>
-                <span className="flex-1 truncate font-medium">
-                  {projectRoot.split(/[\\/]/).filter(Boolean).pop() || projectRoot}
-                </span>
-                <span className="text-halo-muted/70" title={projectRoot}>
-                  <XSmallIcon />
-                </span>
-              </button>
-              <FileTree root={projectRoot} modifiedFiles={modifiedFiles} />
-              {cpOpen && <Checkpoints root={projectRoot} />}
-            </div>
-          )}
-        </div>
-
         {/* Заметки (M-N1) */}
         <div className="mt-5">
           <div className="flex items-center gap-1 px-2 pb-1">
@@ -871,241 +792,6 @@ export default function Sidebar({
  * перед первой правкой агента в прогоне. Восстановление перезаписывает
  * файлы содержимым из снимка.
  */
-function Checkpoints({ root }: { root: string }) {
-  const { t, lang } = useLang();
-  const [items, setItems] = useState<CheckpointMeta[]>([]);
-  const [busy, setBusy] = useState<string | null>(null);
-  const [status, setStatus] = useState<string | null>(null);
-  // Opt-in git-журнал (блок 12 шаг 4): каждый чекпоинт дополнительно
-  // коммитится в отдельный index-dir ботовым автором
-  const [gitOn, setGitOn] = useState(
-    () => localStorage.getItem(STORAGE_KEYS.checkpointsGit) === "1",
-  );
-  const toggleGit = () => {
-    const next = !gitOn;
-    setGitOn(next);
-    localStorage.setItem(STORAGE_KEYS.checkpointsGit, next ? "1" : "0");
-  };
-  // Таймлайн: раскрытые снимки + ленивые состояния файлов (before/current
-  // из checkpoint_files — base64, сравнение строковое). Кэш по id
-  const [openFiles, setOpenFiles] = useState<Set<string>>(new Set());
-  const [fileStates, setFileStates] = useState<
-    Record<string, CheckpointFileState[] | "err">
-  >({});
-  const [filesLoading, setFilesLoading] = useState(false);
-
-  const load = () => {
-    checkpointList(root).then(setItems).catch(() => setItems([]));
-  };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(load, [root]);
-
-  const toggleFiles = async (cp: CheckpointMeta) => {
-    const next = new Set(openFiles);
-    if (next.has(cp.id)) {
-      next.delete(cp.id);
-      setOpenFiles(next);
-      return;
-    }
-    next.add(cp.id);
-    setOpenFiles(next);
-    if (!fileStates[cp.id]) {
-      setFilesLoading(true);
-      try {
-        const st = await checkpointFiles(root, cp.id);
-        setFileStates((m) => ({ ...m, [cp.id]: st }));
-      } catch {
-        setFileStates((m) => ({ ...m, [cp.id]: "err" }));
-      }
-      setFilesLoading(false);
-    }
-  };
-
-  const restore = async (cp: CheckpointMeta) => {
-    if (!window.confirm(t("cp.confirmRestore"))) return;
-    setBusy(cp.id);
-    setStatus(null);
-    try {
-      const n = await checkpointRestore(root, cp.id);
-      setStatus(t("cp.restored", { n }));
-    } catch {
-      setStatus(t("files.error"));
-    }
-    setBusy(null);
-  };
-
-  const remove = async (cp: CheckpointMeta) => {
-    setBusy(cp.id);
-    try {
-      await checkpointDelete(root, cp.id);
-      setItems((prev) => prev.filter((x) => x.id !== cp.id));
-    } catch {
-      // не критично — просто перечитаем список
-      load();
-    }
-    setBusy(null);
-  };
-
-  /** Статус файла снимка: before/current — base64 из checkpoint_files.
-   *  deleted и too_large различаются честно: крупный файл — не удалённый */
-  const fileStateChip = (f: CheckpointFileState) => {
-    if (f.current.kind === "too_large") {
-      return (
-        <span className="shrink-0 text-[0.5625rem] text-halo-muted">
-          {t("cp.stateTooLarge")}
-        </span>
-      );
-    }
-    if (f.current.kind === "deleted") {
-      return (
-        <span className="shrink-0 text-[0.5625rem] text-red-400">
-          {t("cp.stateDeleted")}
-        </span>
-      );
-    }
-    if (f.current.data === f.before) {
-      return (
-        <span className="shrink-0 text-[0.5625rem] text-halo-muted/50">
-          {t("cp.stateUnchanged")}
-        </span>
-      );
-    }
-    return (
-      <span className="shrink-0 text-[0.5625rem] text-halo-accent">
-        {t("cp.stateModified")}
-      </span>
-    );
-  };
-
-  return (
-    <div className="mb-2 ml-3 border-l border-halo-line pl-3">
-      <p className="py-1 text-[0.6875rem] uppercase tracking-[0.14em] text-halo-muted/50">
-        {t("cp.title")}
-      </p>
-      {items.length === 0 && (
-        <p className="py-1 text-[0.6875rem] text-halo-muted/70">{t("cp.empty")}</p>
-      )}
-      <button
-        onClick={toggleGit}
-        className="flex w-full items-center justify-between gap-2 rounded-md px-1 py-1 text-left transition-colors hover:bg-halo-hover"
-      >
-        <span className="min-w-0">
-          <span className="block text-[0.6875rem] text-halo-text">{t("cp.gitJournal")}</span>
-          <span className="block text-[0.625rem] leading-snug text-halo-muted/70">
-            {t("cp.gitJournalHint")}
-          </span>
-        </span>
-        <Switch
-          size="mini"
-          on={gitOn}
-          onChange={toggleGit}
-          label={t("cp.gitJournal")}
-        />
-      </button>
-      {status && (
-        <p className="py-1 text-[0.6875rem] text-emerald-400">{status}</p>
-      )}
-      <ul>
-        {items.map((cp, i) => (
-          <li key={cp.id} className="group relative rounded-md px-1 py-1 hover:bg-halo-hover">
-            {/* Таймлайн: точка на линии истории; последняя — горит акцентом */}
-            <span
-              className={`absolute top-3.5 size-1.5 rounded-full ${
-                i === 0 ? "bg-halo-accent" : "bg-halo-line"
-              }`}
-              style={{ left: "-1.0625rem" }}
-            />
-            <div className="flex items-center gap-1">
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-xs text-halo-text" title={cp.label || undefined}>
-                  {cp.label || t("cp.unlabeled")}
-                </p>
-                <p className="text-[0.625rem] text-halo-muted/70">
-                  {new Date(cp.ts).toLocaleString(lang === "ru" ? "ru-RU" : "en-US", {
-                    day: "2-digit",
-                    month: "2-digit",
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })}
-                  {" · "}
-                  {t("cp.files", { n: cp.files })}
-                  {cp.git && (
-                    <>
-                      {" · "}
-                      <span className="font-mono" title="git">
-                        {cp.git.slice(0, 7)}
-                      </span>
-                    </>
-                  )}
-                </p>
-              </div>
-              <button
-                onClick={() => void restore(cp)}
-                disabled={busy === cp.id}
-                title={t("cp.restore")}
-                className="rounded p-1 text-halo-muted opacity-0 transition group-hover:opacity-100 hover:text-halo-text disabled:opacity-30"
-              >
-                <RestoreIcon />
-              </button>
-              <button
-                onClick={() => void remove(cp)}
-                disabled={busy === cp.id}
-                title={t("cp.delete")}
-                className="rounded p-1 text-halo-muted opacity-0 transition group-hover:opacity-100 hover:text-red-400 disabled:opacity-30"
-              >
-                <XSmallIcon />
-              </button>
-            </div>
-            {/* Файлы снимка: что чекпоинт держал и что с ними стало с тех пор */}
-            {cp.files > 0 && (
-              <button
-                onClick={() => void toggleFiles(cp)}
-                className="mt-0.5 text-[0.5625rem] text-halo-muted/70 transition-colors hover:text-halo-text"
-              >
-                {openFiles.has(cp.id) ? "▾ " : "▸ "}
-                {t("cp.showFiles")}
-              </button>
-            )}
-            {openFiles.has(cp.id) && (
-              <div className="mt-1 space-y-0.5 rounded-md border border-halo-line/60 bg-halo-deep/40 px-2 py-1.5">
-                {fileStates[cp.id] === "err" && (
-                  <p className="text-[0.5625rem] text-red-400">{t("files.error")}</p>
-                )}
-                {filesLoading && !fileStates[cp.id] && (
-                  <p className="text-[0.5625rem] text-halo-muted/70">{t("cp.filesLoading")}</p>
-                )}
-                {Array.isArray(fileStates[cp.id]) && (
-                  <>
-                    {(fileStates[cp.id] as CheckpointFileState[])
-                      .slice(0, 30)
-                      .map((f) => (
-                        <p key={f.rel} className="flex items-baseline gap-1.5 text-[0.5625rem]">
-                          <span className="min-w-0 flex-1 truncate font-mono text-halo-text/80" title={f.rel}>
-                            {f.rel}
-                          </span>
-                          {fileStateChip(f)}
-                        </p>
-                      ))}
-                    {Array.isArray(fileStates[cp.id]) &&
-                      (fileStates[cp.id] as CheckpointFileState[]).length > 30 && (
-                        <p className="text-[0.5625rem] text-halo-muted/60">
-                          {t("cp.moreFiles", {
-                            n: (fileStates[cp.id] as CheckpointFileState[]).length - 30,
-                          })}
-                        </p>
-                      )}
-                  </>
-                )}
-              </div>
-            )}
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-
-/** Клик по заголовку секции — палитра цвета: 6 пресетов тем + свой */
 function HeaderLabel({
   textKey,
   color,
@@ -1222,28 +908,6 @@ function relTime(ts: number, lang: "ru" | "en" | "zh" | "ja"): string {
 
 /** соединение сегментов пути в нормализованной форме (разделитель
  *  платформы — как в normalizePath, без хвостовых слэшей базового сегмента) */
-function joinNorm(base: string, name: string): string {
-  return `${base.replace(/[\\/]+$/, "")}${pathSep()}${name}`;
-}
-
-function ClockIcon() {
-  return (
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="12" r="9" />
-      <path d="M12 7v5l3 2" />
-    </svg>
-  );
-}
-
-function RestoreIcon() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
-      <path d="M3 3v5h5" />
-    </svg>
-  );
-}
-
 function ZapIcon() {
   return (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -1282,209 +946,7 @@ function TagIcon() {
   );
 }
 
-/** Формат размера: B/KB/MB (RU: Б/КБ/МБ), компактно для дерева */function formatSize(size: number, lang: "ru" | "en" | "zh" | "ja"): string {
-  const u = lang === "ru" ? ["Б", "КБ", "МБ"] : ["B", "KB", "MB"];
-  if (size < 1024) return `${size} ${u[0]}`;
-  if (size < 1024 * 1024) return `${(size / 1024).toFixed(0)} ${u[1]}`;
-  return `${(size / (1024 * 1024)).toFixed(1)} ${u[2]}`;
-}
-
-/**
- * Дерево файлов проекта : ленивая загрузка папок через list_dir,
- * раскрытие по клику, клик по файлу копирует абсолютный путь.
- * Файлы, изменённые агентом в активной задаче, помечаются точкой.
- */
-// F6: memo — во время стрима App перерисовывается на каждый флэш дельт,
-// а пропсы FileTree стабильны (root + мемоизированный modifiedFiles):
-// без memo дерево файлов рекурсивно перестраивалось 60 раз/сек
-const FileTree = memo(function FileTree({
-  root,
-  modifiedFiles,
-}: {
-  root: string;
-  modifiedFiles: Set<string>;
-}) {
-  const { lang, t } = useLang();
-  const [open, setOpen] = useState<Set<string>>(() => new Set([root]));
-  // Кэш содержимого папок: path → entries | "error" | "loading"
-  const [cache, setCache] = useState<Map<string, FileEntry[] | "error" | "loading">>(
-    () => new Map(),
-  );
-
-  const load = (path: string) => {
-    if (cache.has(path)) return;
-    setCache((prev) => {
-      const next = new Map(prev);
-      next.set(path, "loading"); // плейсхолдер, чтобы не грузить повторно
-      return next;
-    });
-    listDir(path)
-      .then((entries) =>
-        setCache((prev) => new Map(prev).set(path, entries)),
-      )
-      .catch(() => setCache((prev) => new Map(prev).set(path, "error")));
-  };
-
-  // Первая загрузка корня и перезагрузка при смене папки
-  useEffect(() => {
-    load(root);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [root]);
-
-  // Git-статус для подсветки : относительный путь → код porcelain.
-  // null — не git-repo, подсветки нет
-  const [gitMap, setGitMap] = useState<Map<string, string> | null>(null);
-  useEffect(() => {
-    let alive = true;
-    setGitMap(null);
-    void gitStatus(root)
-      .then((entries) => {
-        if (!alive) return;
-        if (!entries) return;
-        const m = new Map<string, string>();
-        for (const e of entries) m.set(normalizePath(e.path), e.code);
-        setGitMap(m);
-      })
-      .catch((e) => console.warn("git status failed:", e));
-    return () => {
-      alive = false;
-    };
-  }, [root]);
-
-  const rootNorm = normalizePath(root);
-  /** Цвет имени по git-коду: удалённые красным, остальные изменённые — зелёным */
-  const gitColorOf = (relNorm: string): string => {
-    const code = gitMap?.get(relNorm);
-    if (!code) return "";
-    return code.includes("D") ? "text-red-400" : "text-emerald-400";
-  };
-
-  const toggle = (path: string) => {
-    const next = new Set(open);
-    if (next.has(path)) next.delete(path);
-    else {
-      next.add(path);
-      load(path);
-    }
-    setOpen(next);
-  };
-
-  const renderEntries = (path: string, depth: number): React.ReactNode => {
-    const entries = cache.get(path);
-    if (!entries || entries === "error" || entries === "loading") {
-      return entries === "error" ? (
-        <p className="py-1 text-[0.6875rem] text-red-400/80" style={{ paddingLeft: depth * 14 + 30 }}>
-          {t("files.error")}
-        </p>
-      ) : (
-        <p className="py-1 text-[0.6875rem] text-halo-muted/60" style={{ paddingLeft: depth * 14 + 30 }}>
-          …
-        </p>
-      );
-    }
-    if (entries.length === 0) {
-      return (
-        <p className="py-1 text-[0.6875rem] text-halo-muted/60" style={{ paddingLeft: depth * 14 + 30 }}>
-          {t("files.empty")}
-        </p>
-      );
-    }
-    const rows = entries.map((e) => {
-      // соединение через утилиту joinNorm (см. ниже) — явный бэкслэш
-      // в шаблоне держал соглашение normalizePath только неявно
-      const childPath = joinNorm(path, e.name);
-      const isOpen = open.has(childPath);
-      // Подсветка : файл — точное совпадение пути, папка — если
-      // внутри неё есть хоть один изменённый файл (по префиксу)
-      const norm = normalizePath(childPath);
-      const isModified = e.is_dir
-        ? Array.from(modifiedFiles).some((p) => p.startsWith(`${norm}${pathSep()}`))
-        : modifiedFiles.has(norm);
-      // Git-статус : относительный путь внутри корня
-      const relNorm = norm.startsWith(`${rootNorm}${pathSep()}`)
-        ? norm.slice(rootNorm.length + 1)
-        : norm;
-      const gitColor = e.is_dir ? "" : gitColorOf(relNorm);
-      return (
-        <div key={childPath}>
-          <button
-            onClick={() => {
-              if (e.is_dir) toggle(childPath);
-              else {
-                void copyText(childPath);
-              }
-            }}
-            title={
-              e.is_dir
-                ? e.name
-                : `${childPath} · ${t("files.copied")}${isModified ? ` · ${t("files.modified")}` : ""}`
-            }
-            className="flex w-full items-center gap-1.5 rounded-md py-1 pr-2 text-left text-xs text-halo-muted transition-colors hover:bg-halo-hover hover:text-halo-text"
-            style={{ paddingLeft: depth * 14 + 8 }}
-          >
-            {e.is_dir ? (
-              <>
-                <ChevronSmallIcon
-                  className={`shrink-0 transition-transform duration-150 ${isOpen ? "" : "-rotate-90"}`}
-                />
-                <span className="shrink-0 text-halo-accent/70">
-                  <FolderIcon />
-                </span>
-              </>
-            ) : (
-              <>
-                <span className="w-3 shrink-0" />
-                <span className="shrink-0 text-halo-muted/70">
-                  <FileIcon />
-                </span>
-              </>
-            )}
-            <span
-              className={`truncate ${
-                isModified
-                  ? "font-medium text-emerald-400"
-                  : gitColor || ""
-              }`}
-            >
-              {e.name}
-            </span>
-            {isModified && (
-              <span
-                className="ml-1 size-1.5 shrink-0 rounded-full bg-emerald-400"
-                title={t("files.modified")}
-              />
-            )}
-            {!e.is_dir && !isModified && e.size > 0 && (
-              <span className="ml-auto shrink-0 text-[0.625rem] text-halo-muted/50">
-                {formatSize(e.size, lang)}
-              </span>
-            )}
-          </button>
-          {e.is_dir && isOpen && renderEntries(childPath, depth + 1)}
-        </div>
-      );
-    });
-    // list_dir обрезает ответ до 500 записей молча — бекенд ставит
-    // флаг на последней записи, здесь честный маркер вместо тишины
-    const last = entries[entries.length - 1];
-    if (last?.truncated) {
-      rows.push(
-        <div
-          key="…truncated"
-          className="px-2 py-1 text-[0.625rem] text-halo-muted/50"
-        >
-          {t("sidebar.filesMore")}
-        </div>,
-      );
-    }
-    return rows;
-  };
-
-  return <div>{renderEntries(root, 1)}</div>;
-});
-
-/** Инлайн-переименование: Enter/уход фокуса — сохранить, Escape — отменить */
-function RenameInput({
+/** Формат размера: B/KB/MB (RU: Б/КБ/МБ), компактно для дерева */function RenameInput({
   initial,
   placeholder,
   onCommit,
@@ -1620,23 +1082,6 @@ function FolderIcon() {
   );
 }
 
-function FolderPlusIcon() {
-  return (
-    <svg
-      width="13"
-      height="13"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" />
-      <path d="M12 10v6M9 13h6" />
-    </svg>
-  );
-}
 
 function FileIcon() {
   return (

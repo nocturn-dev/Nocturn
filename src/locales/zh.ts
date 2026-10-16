@@ -172,10 +172,6 @@ export const zh = {
     "notes.graphEmpty": "创建带 [[链接]] 的笔记 — 图谱会自动生成",
     "notes.graphHint": "点击 — 打开笔记 · 拖动 — 移动节点 · 滚轮 — 缩放",
     // Файловый менеджер
-    "files.section": "文件",
-    "files.pick": "选择项目文件夹",
-    "files.change": "更换文件夹",
-    "files.close": "移除文件夹",
     "files.empty": "文件夹为空",
     "files.error": "读取文件夹失败",
     "files.copied": "点击 — 复制路径",
