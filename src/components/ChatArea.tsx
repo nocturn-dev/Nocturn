@@ -2581,7 +2581,7 @@ export default function ChatArea({
               Пропорции по референс: компактный радиус, тонкая рамка, без тени —
               композер не должен перетягивать фокус с ленты */}
           <>
-          <div className="glass-pane relative z-[var(--halo-z-panel-raised)] rounded-xl border border-halo-line/60 bg-halo-surface/80 p-1.5 transition duration-200">
+          <div className="glass-pane relative z-[var(--halo-z-panel-raised)] rounded-xl border border-halo-line/60 bg-halo-surface/80 p-1.5 transition duration-200 focus-within:border-halo-line">
             {/* Нок: сидит на углу шелла (сторона — преф, переносится драгом);
                 в Hard Mode шелл не рендерится — маскот скрыт вместе с ним.
                 Спрятанный через ПКМ-меню не рендерится до рестарта */}
