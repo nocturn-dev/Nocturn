@@ -726,6 +726,7 @@ html.zen.voice-listening body::after {
    собственные keyframes гасились, а библиотечные — нет */
 @media (prefers-reduced-motion: reduce) {
   .animate-pulse,
+  .caret-blink,
   .shimmer-text {
     animation: none !important;
   }
@@ -760,6 +761,7 @@ html.motion-reduced .shimmer-text,
 html.motion-reduced .group:hover .snake-preview-seg,
 html.motion-reduced .snake-preview-seg,
 html.motion-reduced .animate-pulse,
+html.motion-reduced .caret-blink,
 html.motion-reduced .settings-page-stagger > *,
 html.motion-reduced body::before {
   animation: none !important;
@@ -1010,6 +1012,22 @@ html.light.inline-code-claude .markdown code:not(pre code) {
 }
 .typing-dot {
   animation: halo-blink 1.2s infinite;
+}
+
+/* Каретка печати в чате: мигание с чётким шагом (steps), как текстовый
+   курсор. animate-pulse — мягкое «дыхание», каретка полупрозрачна
+   половину времени и теряется на фоне текста */
+.caret-blink {
+  animation: halo-caret-blink 1.1s steps(1) infinite;
+}
+@keyframes halo-caret-blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
 }
 
 /* ---------- Маскот Нок (светлячок у композера) ----------

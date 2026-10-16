@@ -1712,6 +1712,26 @@ export default function ChatArea({
     if (!el) return;
     if (scrollFollow || nearBottomRef.current) el.scrollTop = el.scrollHeight;
   }, [messages, typing, scrollFollow]);
+  // Догон ленты на время печати: плавная печать растит карточку каждый
+  // кадр МЕЖДУ коммитами дельт — эффект выше на эти кадры не реагирует, и
+  // текст уезжает под нижний край до следующей дельты. Догоняем долю
+  // гэпа за кадр (не прыжком к низу): подстройка плавная и не выносит
+  // пользователя за пределы виденного, порог «у низа» — тот же
+  useEffect(() => {
+    if (!typing && !streamingMsgId) return;
+    const el = scrollRef.current;
+    if (!el) return;
+    let raf = 0;
+    const follow = () => {
+      if (scrollFollow || nearBottomRef.current) {
+        const gap = el.scrollHeight - el.clientHeight - el.scrollTop;
+        if (gap > 0.5) el.scrollTop += Math.max(1, gap / 4);
+      }
+      raf = requestAnimationFrame(follow);
+    };
+    raf = requestAnimationFrame(follow);
+    return () => cancelAnimationFrame(raf);
+  }, [typing, streamingMsgId, scrollFollow]);
 
   const autoGrow = (el: HTMLTextAreaElement) => {
     // Быстрый путь (набор текста): контент уже переполняет поле — растим без

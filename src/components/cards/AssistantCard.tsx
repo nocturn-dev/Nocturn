@@ -475,7 +475,7 @@ function AssistantCardBase({
           />
         </div>
         {caret && isStreaming && (
-          <span className="animate-pulse align-baseline text-halo-accent">▍</span>
+          <span className="caret-blink align-baseline text-halo-accent">▍</span>
         )}
       </div>
 

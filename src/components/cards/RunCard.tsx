@@ -154,7 +154,7 @@ function RunRound({
             />
           </div>
           {caret && isStreamingRound && (
-            <span className="animate-pulse align-baseline text-halo-accent">▍</span>
+            <span className="caret-blink align-baseline text-halo-accent">▍</span>
           )}
         </div>
       )}

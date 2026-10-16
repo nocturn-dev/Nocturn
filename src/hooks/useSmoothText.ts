@@ -5,16 +5,20 @@ import { useEffect, useRef, useState } from "react";
  * AssistantCard и RunCard (до 04.10 жило двумя копиями, фикс формулы
  * b4fbb14 попал только в AssistantCard, и копии разошлись).
  *
- * Показанный текст отстаёт от реального и догоняет rAF-циклом:
- * - тик 50 мс: ре-парсит markdown (react-markdown + hljs) — 100 мс давали
- *   рваную печать по 10 кадров; 50 — плавно и без O(n²) на разумных длинах;
- * - равномерная подача (иначе «вылетает по предложениям,
- *   дёргано»): базовый темп 12 симв/тик (~240 зн/с), при долге темп растёт
- *   так, чтобы долг дренировался примерно за секунду (20 тиков) — скачков
- *   нет, отставание от быстрых моделей ≤ ~1 с;
- * - backlog <= 0 — rAF гасится: пока модель думает / идёт tool-шаг, цикл
- *   не молотит вхолостую 60 раз/сек (новый контент перезапускает эффект).
+ * Показанный текст отстаёт от реального и догоняет покадрово:
+ * - подача каждый кадр через dt: скорость задаётся в знаках/сек и не
+ *   зависит от частоты кадров (50мс-тики на 60Гц давали рывок раз в
+ *   3 кадра; на 120Гц-дисплеях рваный темп был заметен вдвойне);
+ * - базовый темп 240 зн/с, при долге темп растёт до величины долга —
+ *   дренаж за ~1с без скачков, отставание от быстрых моделей ≤ ~1 с;
+ * - кап dt 100мс: уснувшая вкладка/провал кадров не даёт рывка на
+ *   несколько строк;
+ * - состояние обновляется только когда есть долг: пока модель думает /
+ *   идёт tool-шаг, цикл не делает лишних set-ов (новый контент
+ *   перезапускает эффект).
  */
+const BASE_CPS = 240;
+
 export function useSmoothText(
   content: string,
   active: boolean,
@@ -36,15 +40,15 @@ export function useSmoothText(
       return;
     }
     let raf = 0;
-    let last = 0;
+    let last = performance.now();
     let shown = shownMirror.current ?? Math.max(0, target - 120);
     const tick = (now: number) => {
-      if (now - last >= 50) {
-        last = now;
-        const backlog = target - shown;
-        if (backlog <= 0) return;
-        const speed = Math.max(12, Math.ceil(backlog / 20)) * printSpeed;
-        shown = Math.min(target, shown + Math.ceil(speed));
+      const dt = Math.min(now - last, 100);
+      last = now;
+      const backlog = target - shown;
+      if (backlog > 0) {
+        const cps = Math.max(BASE_CPS, backlog) * printSpeed;
+        shown = Math.min(target, shown + Math.ceil((cps * dt) / 1000));
         shownMirror.current = shown;
         setShownLen(shown);
       }
