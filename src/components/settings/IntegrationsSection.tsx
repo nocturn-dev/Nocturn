@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useLang, MsgKey } from "../../locales";
+import { useLang, type MsgKey } from "../../locales";
 import { isWindows } from "../../platform";
 import {
   mediaStatus,
@@ -15,6 +15,14 @@ import { ytPlayUrl, ytSetOpen } from "../../yt/ytPlayer";
 import type { MediaPrefs } from "../../mediaPrefs";
 import { ArrowUpRightIcon, CheckIcon, PauseIcon, PlayIcon, SpotifyIcon, YouTubeIcon } from "../cards/icons";
 import { Row, ToggleRow } from "./parts";
+
+// Ключи размеров окна плеера явной картой: шаблонная сборка
+// `media.ytSize${...}` обходила проверку ключей компилятором
+const YT_SIZE_KEYS = {
+  s: "media.ytSizeS",
+  m: "media.ytSizeM",
+  l: "media.ytSizeL",
+} as const satisfies Record<"s" | "m" | "l", MsgKey>;
 
 /**
  * Вкладка «Интеграции»: сетка карточек по образцу «Отдыха», у каждой
@@ -364,7 +372,7 @@ export function IntegrationsSection({
                         : "text-halo-muted hover:text-halo-text"
                     }`}
                   >
-                    {t(`media.ytSize${sz.toUpperCase()}` as MsgKey)}
+                    {t(YT_SIZE_KEYS[sz])}
                   </button>
                 ))}
               </div>

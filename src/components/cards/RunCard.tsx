@@ -137,8 +137,12 @@ const RunRound = memo(function RunRound({
             <span className="font-medium">{t("chat.thought")}</span>
             {round.workedMs != null && round.workedMs > 0 && (
               <span className="tabular-nums text-halo-muted/60">
-                · {(round.workedMs / 1000).toFixed(1).replace(".", lang === "ru" ? "," : ".")}
-                s
+                ·{" "}
+                {t("unit.sec", {
+                  n: (round.workedMs / 1000)
+                    .toFixed(1)
+                    .replace(".", lang === "ru" ? "," : "."),
+                })}
               </span>
             )}
             <ChevronDownIcon

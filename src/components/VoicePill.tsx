@@ -5,7 +5,7 @@
  * гаснет сама). pointer-events:none — никогда не мешает кликам.
  */
 
-import { useLang } from "../locales";
+import { useLang, type MsgKey } from "../locales";
 
 export type VoicePhase = "idle" | "listen" | "run" | "done";
 
@@ -15,10 +15,12 @@ const DOT: Record<Exclude<VoicePhase, "idle">, string> = {
   done: "bg-emerald-400",
 };
 
-const LABEL: Record<Exclude<VoicePhase, "idle">, "pillListen" | "pillRun" | "pillDone"> = {
-  listen: "pillListen",
-  run: "pillRun",
-  done: "pillDone",
+// Явные ключи словаря: шаблон `voice.${...}` не проверялся компилятором,
+// опечатка фазы давала бы сырой ключ в пилюле
+const LABEL: Record<Exclude<VoicePhase, "idle">, MsgKey> = {
+  listen: "voice.pillListen",
+  run: "voice.pillRun",
+  done: "voice.pillDone",
 };
 
 export default function VoicePill({ phase }: { phase: VoicePhase }) {
@@ -32,7 +34,7 @@ export default function VoicePill({ phase }: { phase: VoicePhase }) {
       <div className="flex items-center gap-2 rounded-full border border-halo-line bg-halo-raised/90 py-1.5 pl-3 pr-4 shadow-lg backdrop-blur-sm">
         <span className={`size-1.5 shrink-0 rounded-full ${DOT[phase]}`} />
         <span className="whitespace-nowrap text-xs font-medium text-halo-text">
-          {t(`voice.${LABEL[phase]}`)}
+          {t(LABEL[phase])}
         </span>
       </div>
     </div>

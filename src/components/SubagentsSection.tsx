@@ -1,6 +1,6 @@
 /** Раздел «Субагенты»: тумблер, лимит параллельности, редактор ролей */
 import { useState } from "react";
-import { useLang } from "../locales";
+import { pickBilingual, translate, useLang } from "../locales";
 import { mergeRoles, type SubagentRole, type SubagentsConfig } from "../subagents";
 import { MiniTrashIcon, Row, Segmented, ToggleRow } from "./settings/parts";
 
@@ -37,9 +37,14 @@ export default function SubagentsSection({
         ...config.roles,
         {
           id,
-          name: "New role",
-          desc: { ru: "Своя роль", en: "Custom role" },
-          systemPrompt: "Ты — субагент. ",
+          name: t("sub.newRole"),
+          // desc — двуязычные данные: собираю пару из словаря, чтобы zh/ja
+          // не видели русскую заглушку новой роли
+          desc: {
+            ru: translate("ru", "sub.newRoleDesc"),
+            en: translate("en", "sub.newRoleDesc"),
+          },
+          systemPrompt: t("sub.newRolePrompt"),
           tools: null,
           maxSteps: 8,
         },
@@ -129,7 +134,7 @@ export default function SubagentsSection({
                       </span>
                     )}
                     <span className="min-w-0 flex-1 basis-48 truncate text-xs leading-relaxed text-halo-muted">
-                      {lang === "ru" ? r.desc?.ru ?? "" : r.desc?.en ?? ""}
+                      {pickBilingual(r.desc, lang)}
                     </span>
                     {pluginIds?.has(r.id) ? null : (
                       <button

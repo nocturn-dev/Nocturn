@@ -8,7 +8,7 @@ import type {
   Theme,
   UsageEvent,
 } from "./types";
-import { useLang } from "./locales";
+import { getLang, useLang } from "./locales";
 import { copyText } from "./clipboard";
 import {
   diffLines,
@@ -82,7 +82,7 @@ import type { Section } from "./components/SettingsModal";
 import BrowserPanel from "./components/BrowserPanel";
 import Toasts from "./components/Toast";
 import DownloadProgress from "./components/DownloadProgress";
-import { isDue, loadAutomations, nextRunAfter, saveAutomations, VAULT_REPORT_SUFFIX } from "./automations";
+import { isDue, loadAutomations, nextRunAfter, saveAutomations, vaultReportSuffix } from "./automations";
 import { isIdle, loadOffPeak, nextWaiting, saveOffPeak } from "./offpeak";
 import { checkForUpdate } from "./api";
 import SearchModal from "./components/SearchModal";
@@ -1651,7 +1651,9 @@ export default function App() {
       saveAutomations(autos);
       setSessions((prev) => [session, ...prev]);
       setActiveId(session.id);
-      const prompt = due.toVault ? due.prompt + VAULT_REPORT_SUFFIX : due.prompt;
+      // Язык суффикса отчёта — на момент фактического запуска (getLang вне
+      // React), а не на момент монтирования mount-only тикера
+      const prompt = due.toVault ? due.prompt + vaultReportSuffix(getLang()) : due.prompt;
       void send(prompt, undefined, session.id);
     }, 30000);
     return () => clearInterval(timer);

@@ -158,20 +158,21 @@ export function StepAccordion({
                   style={{ color: STATUS_ERR }}
                 >
                   {s.failed === "denied"
-                    ? "denied"
+                    ? t("steps.denied")
                     : s.failed === "exit"
-                      ? `exit ${s.exitCode}`
-                      : "error"}
+                      ? t("steps.exit", { n: s.exitCode ?? "?" })
+                      : t("steps.error")}
                 </span>
               )}
               {s.secondsMs != null && s.secondsMs > 0 && (
                 <span className="w-10 shrink-0 text-right tabular-nums text-halo-muted/60">
                   {/* Разделитель по локали — как в AssistantCard/RunCard:
                       безусловная запятая противоречила en/zh/ja */}
-                  {(s.secondsMs / 1000)
-                    .toFixed(1)
-                    .replace(".", lang === "ru" ? "," : ".")}
-                  s
+                  {t("unit.sec", {
+                    n: (s.secondsMs / 1000)
+                      .toFixed(1)
+                      .replace(".", lang === "ru" ? "," : "."),
+                  })}
                 </span>
               )}
               <svg

@@ -50,6 +50,7 @@ export const en = {
     "auto.weekly": "Weekly",
     "auto.interval": "Every N minutes",
     "auto.everyMinutes": "Every {n} min",
+    "auto.intervalMin": "Interval, min",
     "auto.dailyAt": "Daily at {time}",
     "auto.weekdaysAt": "Weekdays at {time}",
     "auto.weeklyAt": "Weekly on {day} at {time}",
@@ -142,8 +143,7 @@ export const en = {
     "ctx.sysTools": "System tools",
     "ctx.mcpTools": "MCP tools",
     "ctx.sysPrompt": "System prompt",
-    "qs.slashHint": "quick switch —",
-    "qs.providerHint": "Providers:",
+    "qs.providerLine": "Providers: {n} · quick switch — /provider",
     "qs.theme": "Theme",
     "qs.moreInSettings": "…full list in Settings → API",
     "qs.noRoles": "No roles yet — add in Settings → Prompts",
@@ -476,9 +476,13 @@ export const en = {
     "sub.toolsHint": "e.g. fs_read, fs_list, shell_run, browser_read",
     "sub.prompt": "Role system prompt",
     "sub.addRole": "New role",
+    // Seed for the role created by the button above: desc is bilingual data
+    "sub.newRole": "New role",
+    "sub.newRoleDesc": "Custom role",
+    "sub.newRolePrompt": "You are a subagent. ",
     // Hard Limit: per-task spend limits
     "limits.title": "Hard Limit",
-    "limits.hint": "Interrupt the task when exceeded. Empty = no limit.",
+    "limits.hint": "Interrupt the task when exceeded. Empty or 0 = no limit.",
     "limits.maxTokens": "Token limit per task",
     "limits.usdPer1M": "Price per 1M tokens, $",
     "limits.maxUsd": "Spend limit per task, $",
@@ -572,6 +576,8 @@ export const en = {
     "hook.empty": "No hooks yet. Create a hook to run commands during task lifecycle events.",
     "hook.new": "New hook",
     "hook.presets": "Ready-made",
+    "hook.presetReasonNote":
+      "Refusal texts in the echo presets (reason) are part of the preset command — the model receives them as-is, untranslated.",
     "hook.preset.blockDelete": "Block file deletion",
     "hook.preset.beepStop": "Beep when response ends",
     "hook.preset.blockShell": "Block shell commands",
@@ -894,8 +900,8 @@ export const en = {
     "cmp.stop": "Stop",
     "cmp.promptPh": "One prompt — every selected model answers at once…",
     "cmp.empty": "Select at least one connection",
-    "cmp.ttft": "first token",
-    "cmp.time": "time",
+    "cmp.ttftFmt": "first token: {v}",
+    "cmp.timeFmt": "time: {v}",
     "cmp.tokens": "tokens",
     "cmp.stopped": "Stopped",
     "kb.open": "Knowledge base",
@@ -973,6 +979,7 @@ export const en = {
     "browserPanel.hint":
       "A live view of the page will appear here once the agent starts using the browser.",
     "browserPanel.size": "Viewport size",
+    "browserPanel.fit": "Fit",
     "browserPanel.note":
       "Screen cast of the agent's browser: view only, no interaction.",
     "main.settingsLargeDesc": "Settings open as a separate large window; expand to full screen via the header button",
@@ -1722,6 +1729,12 @@ export const en = {
   "commands.blankTemplate": "You are …\n\nTask: $ARGUMENTS",
   "games.mines": "Minesweeper",
   "games.snake": "Snake",
+  "steps.denied": "denied",
+  "steps.error": "error",
+  "steps.exit": "exit {n}",
+  // Seconds unit in step/thought rows (the number arrives already
+  // localized with the proper decimal separator)
+  "unit.sec": "{n}s",
   "steps.kindEdit": "Edit",
   "steps.kindTerminal": "Terminal",
   "steps.kindExplore": "Explore",

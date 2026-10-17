@@ -2066,22 +2066,25 @@ export function useAgentRun(deps: AgentRunDeps) {
           [...bgRegistryRef.current].filter(([, b]) => b.sessionId === targetId),
         );
         if (parsedId) {
-          const t = reg.get(parsedId);
-          if (!t) {
+          // bg, не t: имя затеняет переводчик t из замыкания хука —
+          // случайное обращение к переводу в этой ветке компилировалось бы
+          // в поле BgSubTask
+          const bg = reg.get(parsedId);
+          if (!bg) {
             content = `no background subagent "${parsedId}"`;
-          } else if (t.status === "running") {
-            const elapsed = Math.round((Date.now() - t.startedAt) / 1000);
-            content = `${parsedId} (${t.roleName}) still running — ${elapsed}s elapsed.\nTask: ${t.task.slice(0, 300)}`;
+          } else if (bg.status === "running") {
+            const elapsed = Math.round((Date.now() - bg.startedAt) / 1000);
+            content = `${parsedId} (${bg.roleName}) still running — ${elapsed}s elapsed.\nTask: ${bg.task.slice(0, 300)}`;
           } else {
-            content = `${parsedId} [${t.status}]\n${t.report ?? "(no report)"}`;
+            content = `${parsedId} [${bg.status}]\n${bg.report ?? "(no report)"}`;
           }
         } else if (reg.size === 0) {
           content = "no background subagents";
         } else {
           content = [...reg.values()]
-            .map((t) => {
-              const elapsed = Math.round((Date.now() - t.startedAt) / 1000);
-              return `${t.id} [${t.status}] ${t.roleName} (${elapsed}s): ${t.task.slice(0, 150)}`;
+            .map((b) => {
+              const elapsed = Math.round((Date.now() - b.startedAt) / 1000);
+              return `${b.id} [${b.status}] ${b.roleName} (${elapsed}s): ${b.task.slice(0, 150)}`;
             })
             .join("\n");
         }

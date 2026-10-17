@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Session, UsageEvent } from "../types";
 import { dayKeyLocal } from "../time";
 import { localeTag, useLang, type Lang, type TFn } from "../locales";
+import { fmtTokens } from "./cards/util";
 import { shortModelName } from "./ProviderIcon";
 import { usageColorsLoad, usageColorsSave } from "../api";
 import { CHART_BLUE_RGB, CHART_COLORS } from "../chartColors";
@@ -15,13 +16,6 @@ function hashString(s: string): number {
   let h = 0;
   for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
   return Math.abs(h);
-}
-
-/** Короткий формат токенов: 1234 → 1,2K · 365100000 → 365.1M */
-function fmtTokens(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
-  return String(Math.round(n));
 }
 
 /** Длительность: 197 мин → «3 ч 17 м» (единицы — из словаря, а не хардкод) */
@@ -234,8 +228,8 @@ export default function UsageSection({
       {/* Сводка */}
       <div className="mb-4 grid grid-cols-5 rounded-xl border border-halo-line bg-halo-surface/50 py-3">
         {[
-          [fmtTokens(data.total), t("usage.total")],
-          [fmtTokens(data.peak), t("usage.peak")],
+          [fmtTokens(data.total, lang), t("usage.total")],
+          [fmtTokens(data.peak, lang), t("usage.peak")],
           [fmtDuration(data.longest, t), t("usage.longest")],
           // FIX: «д» было захардкожено для всех четырёх локалей
           [data.currentStreak > 0 ? t("usage.days", { n: data.currentStreak }) : "—", t("usage.streak")],
@@ -297,7 +291,7 @@ export default function UsageSection({
         {data.total === 0 ? (
           <p className="py-10 text-center text-xs text-halo-muted">{t("usage.noData")}</p>
         ) : (
-          <TrendChart key={`tr-${tick}-${range}`} days={trend.daysList} series={trend.series} fmtDate={fmtDate} />
+          <TrendChart key={`tr-${tick}-${range}`} days={trend.daysList} series={trend.series} fmtDate={fmtDate} lang={lang} />
         )}
       </div>
 
@@ -327,7 +321,7 @@ export default function UsageSection({
                       {((m.tokens / Math.max(1, data.total)) * 100).toFixed(1)}%
                     </span>
                   </div>
-                  <p className="ml-4 text-[0.625rem] text-halo-muted/70">{fmtTokens(m.tokens)} {t("usage.tokens")}</p>
+                  <p className="ml-4 text-[0.625rem] text-halo-muted/70">{fmtTokens(m.tokens, lang)} {t("usage.tokens")}</p>
                 </div>
               ))}
             </div>
@@ -375,7 +369,7 @@ function Heatmap({
           return (
             <span
               key={i}
-              title={`${head.date.toLocaleDateString()} — ${fmtTokens(sum)}`}
+              title={`${head.date.toLocaleDateString()} — ${fmtTokens(sum, lang)}`}
               className="usage-cell h-4 flex-1 rounded-[3px]"
               style={{ background: color(sum, max), animationDelay: `${i * 12}ms` }}
             />
@@ -396,7 +390,7 @@ function Heatmap({
               return (
                 <span
                   key={cell.key}
-                  title={`${cell.date.toLocaleDateString()} — ${fmtTokens(v)}`}
+                  title={`${cell.date.toLocaleDateString()} — ${fmtTokens(v, lang)}`}
                   className="usage-cell aspect-square w-full rounded-[3px]"
                   style={{ background: color(v, vmax), animationDelay: `${(i * 7 + d) * 2}ms` }}
                 />
@@ -433,10 +427,12 @@ function TrendChart({
   days,
   series,
   fmtDate,
+  lang,
 }: {
   days: string[];
   series: { model: string; color: string; values: number[] }[];
   fmtDate: (d: Date) => string;
+  lang: Lang;
 }) {
   const W = 600;
   const H = 180;
@@ -497,7 +493,7 @@ function TrendChart({
             opacity="0.6"
             fontSize="10"
           >
-            {fmtTokens(max * (1 - f))}
+            {fmtTokens(max * (1 - f), lang)}
           </text>
         ))}
         {series.map((s) => (
@@ -532,6 +528,7 @@ function Donut({
   models: { model: string; tokens: number; color: string }[];
   total: number;
 }) {
+  const { lang, t } = useLang();
   const R = 60;
   const C = 2 * Math.PI * R;
   let offset = 0;
@@ -565,8 +562,8 @@ function Donut({
         })}
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <span className="text-base font-semibold text-halo-text">{fmtTokens(total)}</span>
-        <span className="text-[0.625rem] text-halo-muted">tokens</span>
+        <span className="text-base font-semibold text-halo-text">{fmtTokens(total, lang)}</span>
+        <span className="text-[0.625rem] text-halo-muted">{t("usage.tokens")}</span>
       </div>
     </div>
   );

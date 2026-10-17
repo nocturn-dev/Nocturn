@@ -50,11 +50,12 @@ export function PromptsSection({
   const commitEdit = () => {
     if (!editingId) return;
     const n = editName.trim();
-    const t = editText.trim();
-    if (!n || !t) return;
+    // txt, не t: имя затеняло переводчик t из useLang
+    const txt = editText.trim();
+    if (!n || !txt) return;
     onChangeLibrary(
       library.map((p) =>
-        p.id === editingId ? { ...p, name: n, text: t } : p,
+        p.id === editingId ? { ...p, name: n, text: txt } : p,
       ),
     );
     setEditingId(null);

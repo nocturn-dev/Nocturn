@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLang } from "../../locales";
+import { fmtTokens } from "../cards/util";
 import type { Session, UsageEvent } from "../../types";
 import type { ApiSettings } from "../../api";
 import { chatOnce, memoryList, notesList, notesWrite } from "../../api";
@@ -8,13 +9,6 @@ import UsageSection from "../UsageSection";
 import { dayKeyLocal } from "../../time";
 import { buildReflect, buildReflectPrompt } from "../../reflect";
 import { CheckIcon } from "../cards/icons";
-
-/** Короткий формат токенов: как в «Статистике» (там не экспортируется) */
-function fmtTokens(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
-  return String(Math.round(n));
-}
 
 /**
  * Раздел «Обзор» (Reflect): локальная агрегация активности за период.
@@ -31,7 +25,7 @@ export function ReflectSection({
   usage: UsageEvent[];
   apiSettings: ApiSettings;
 }) {
-  const { t } = useLang();
+  const { t, lang } = useLang();
   const [days, setDays] = useState<7 | 30>(7);
   const [facts, setFacts] = useState<{ ts: number }[]>([]);
   const [notes, setNotes] = useState<{ updated: number }[]>([]);
@@ -129,7 +123,7 @@ export function ReflectSection({
     { label: t("reflect.lMsgs"), value: String(data.userMsgs) },
     {
       label: t("reflect.lTokens"),
-      value: fmtTokens(data.tokens.prompt + data.tokens.completion),
+      value: fmtTokens(data.tokens.prompt + data.tokens.completion, lang),
     },
     { label: t("reflect.lFacts"), value: String(data.newFacts) },
     { label: t("reflect.lNotes"), value: String(data.notesTouched) },

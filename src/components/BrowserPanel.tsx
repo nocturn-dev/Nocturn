@@ -15,8 +15,10 @@ import {
 } from "../api";
 import { useLang } from "../locales";
 
-const SIZES: { label: string; w: number | null; h: number | null }[] = [
-  { label: "Fit", w: null, h: null },
+// Числовые размеры — язык-нейтральные; «Fit» подписывается из словаря
+// в рендере (SIZES живёт на уровне модуля, t там недоступен)
+const SIZES: { label: string | null; w: number | null; h: number | null }[] = [
+  { label: null, w: null, h: null },
   { label: "1280×720", w: 1280, h: 720 },
   { label: "1024×768", w: 1024, h: 768 },
   { label: "1920×1080", w: 1920, h: 1080 },
@@ -101,8 +103,8 @@ export default function BrowserPanel({ open, onClose }: BrowserPanelProps) {
           className="shrink-0 rounded-lg border border-halo-line bg-halo-surface px-1.5 py-1.5 text-[0.6875rem] text-halo-muted outline-none"
         >
           {SIZES.map((s, i) => (
-            <option key={s.label} value={i}>
-              {s.label}
+            <option key={s.label ?? "fit"} value={i}>
+              {s.label ?? t("browserPanel.fit")}
             </option>
           ))}
         </select>

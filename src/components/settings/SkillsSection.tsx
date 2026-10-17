@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useLang } from "../../locales";
+import { pickBilingual, useLang } from "../../locales";
 import { BUILTIN_SKILLS } from "../../skills";
 
 export function SkillsSection({
@@ -8,6 +8,7 @@ export function SkillsSection({
   extra?: { id: string; name: string; desc?: { ru: string; en: string }; prompt: string }[];
 }) {
   const { t, lang } = useLang();
+  const descOf = (d: { ru: string; en: string } | undefined) => pickBilingual(d, lang);
   const [open, setOpen] = useState<string | null>(null);
   return (
     <div className="mx-auto max-w-2xl">
@@ -34,7 +35,7 @@ export function SkillsSection({
                 {s.name}
               </span>
               <span className="min-w-0 flex-1 truncate text-xs text-halo-muted">
-                {lang === "ru" ? s.desc?.ru ?? "" : s.desc?.en ?? ""}
+                {descOf(s.desc)}
               </span>
               <span
                 className={`shrink-0 text-halo-muted transition-transform ${open === s.id ? "rotate-90" : ""}`}
@@ -68,7 +69,7 @@ export function SkillsSection({
                 {s.name}
               </span>
               <span className="min-w-0 flex-1 truncate text-xs text-halo-muted">
-                {lang === "ru" ? s.desc?.ru ?? "" : s.desc?.en ?? ""}
+                {descOf(s.desc)}
               </span>
               <span className="shrink-0 text-[0.625rem] text-halo-muted/50">
                 {t("skills.fromPlugin")}

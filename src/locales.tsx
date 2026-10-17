@@ -43,17 +43,38 @@ const lazyDict: { zh?: LangDict; ja?: LangDict } = {};
 
 const loadedLangs = new Set<Lang>(["ru", "en"]);
 
+// Промис загрузки на язык: параллельные вызовы (эффект провайдера + прямой
+// вызов не-React кода) делят одну загрузку, а не стартуют вторую; сбой чанка
+// не помечает язык загруженным — следующее переключение повторит попытку
+const pendingLoads = new Map<Lang, Promise<boolean>>();
+
 /** Подгрузить ленивый словарь (zh/ja); ru/en синхронны. true — словарь
- *  реально загрузился (нужен перерендер), false — уже был */
-export async function ensureLang(lang: Lang): Promise<boolean> {
-  if (loadedLangs.has(lang)) return false;
-  loadedLangs.add(lang);
-  if (lang === "zh") {
-    lazyDict.zh = (await import("./locales/zh")).zh;
-  } else if (lang === "ja") {
-    lazyDict.ja = (await import("./locales/ja")).ja;
-  }
-  return true;
+ *  реально загрузился (нужен перерендер), false — уже был или не загрузился */
+export function ensureLang(lang: Lang): Promise<boolean> {
+  if (loadedLangs.has(lang)) return Promise.resolve(false);
+  const pending = pendingLoads.get(lang);
+  if (pending) return pending;
+  const load = (async () => {
+    try {
+      if (lang === "zh") {
+        lazyDict.zh = (await import("./locales/zh")).zh;
+      } else if (lang === "ja") {
+        lazyDict.ja = (await import("./locales/ja")).ja;
+      } else {
+        return false;
+      }
+      loadedLangs.add(lang);
+      return true;
+    } catch {
+      // Чанк мог не долететь (сеть/сбой сборки) — фолбэк на en/ru в
+      // translate уже работает, а язык остаётся незагруженным
+      return false;
+    } finally {
+      pendingLoads.delete(lang);
+    }
+  })();
+  pendingLoads.set(lang, load);
+  return load;
 }
 
 export function translate(
@@ -64,9 +85,13 @@ export function translate(
   const d = lang === "zh" ? lazyDict.zh : lang === "ja" ? lazyDict.ja : baseDict[lang];
   let s: string = d?.[key] ?? baseDict.en[key] ?? baseDict.ru[key];
   if (vars) {
-    for (const [k, v] of Object.entries(vars)) {
-      s = s.replaceAll(`{${k}}`, String(v));
-    }
+    // Один проход по плейсхолдерам вместо replaceAll на каждую переменную:
+    // длинные строки со многими {vars} не пересканируются N раз, а
+    // незнакомый плейсхолдер честно остаётся в тексте
+    s = s.replace(/\{(\w+)\}/g, (whole, k: string) => {
+      const v = vars[k];
+      return v === undefined ? whole : String(v);
+    });
   }
   return s;
 }
@@ -99,10 +124,19 @@ const LangContext = createContext<{
 }>({ lang: "ru", setLang: () => {}, dictTick: 0 });
 
 // Зеркало текущего языка вне React: не-React модули (api.ts) переводят
-// свои ошибки через getLang() + translate. Старт с ru — до монтирования
-// провайдера ошибки словаря не нужны, а detectLang() здесь звать нельзя:
-// он трогает localStorage и падает в node-окружении тестов
+// свои ошибки через getLang() + translate. Стартовое значение читаю из
+// хранилища синхронно: тосты/ошибки IPC возможны до монтирования провайдера,
+// и они всегда были ru-текстом даже у en-пользователя. Гвард — localStorage
+// недоступен в node-окружении тестов
 let currentLang: Lang = "ru";
+try {
+  const saved = localStorage.getItem(STORAGE_KEYS.lang);
+  if (saved && (ALL_LANGS as readonly string[]).includes(saved)) {
+    currentLang = saved as Lang;
+  }
+} catch {
+  // не-браузерное окружение — остаёмся на ru до монтирования провайдера
+}
 export function getLang(): Lang {
   return currentLang;
 }
@@ -141,15 +175,30 @@ export function LangProvider({ children }: { children: ReactNode }) {
 
 export type TFn = (key: MsgKey, vars?: Record<string, string | number>) => string;
 
+/** Выбор из двуязычной пары ru/en (дескрипторы скиллов и ролей субагентов —
+ *  данные, существующие в двух языках). zh/ja читают en; ru при пустой своей
+ *  версии тоже откатывается на en, а не на пустую строку */
+export function pickBilingual(
+  d: { ru?: string; en?: string } | undefined,
+  lang: Lang,
+): string {
+  if (!d) return "";
+  return (lang === "ru" ? d.ru : undefined) ?? d.en ?? d.ru ?? "";
+}
+
 /** Хук перевода: t("key", {vars}) */
 export function useLang(): { lang: Lang; t: TFn } {
-  const { lang } = useContext(LangContext);
+  const { lang, dictTick } = useContext(LangContext);
   // Стабильная идентичность t: новая стрелка на каждый рендер ломала
   // все useMemo/useEffect с t в зависимостях — они перезапускались
   // на каждый рендер (т.е. на каждый токен стрима)
   const t = useCallback<TFn>(
     (key, vars) => translate(lang, key, vars),
-    [lang],
+    // dictTick не читается телом и потому «лишний» для линта — он здесь
+    // именно ради смены идентичности: после подгрузки ленивого словаря
+    // t обязан обновиться, иначе memo-потребители навсегда держат en-фолбэк
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [lang, dictTick],
   );
   return { lang, t };
 }

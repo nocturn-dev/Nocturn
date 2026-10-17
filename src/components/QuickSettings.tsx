@@ -296,9 +296,10 @@ export default function QuickSettings({
                 />
               </div>
 
-              {/* Провайдер — короткая ссылка на полный список */}
+              {/* Провайдер — короткая ссылка на полный список. Строка целиком
+                  из словаря: порядок «метка · подсказка» у локалей разный */}
               <p className="px-0.5 text-[0.625rem] text-halo-muted/50">
-                {t("qs.providerHint")} {PROVIDERS.length} · {t("qs.slashHint")} /provider
+                {t("qs.providerLine", { n: PROVIDERS.length })}
               </p>
             </div>
           )}

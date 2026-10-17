@@ -6,7 +6,7 @@
  * через выбранного пользователем провайдера.
  */
 
-import type { MsgKey } from "./locales";
+import type { Lang, MsgKey } from "./locales";
 
 export type Schedule =
   | { kind: "daily"; time: string }
@@ -32,12 +32,32 @@ export interface Automation {
   toVault?: boolean;
 }
 
-/** Дописка к промту, когда включён отчёт в заметки. Модель-фейсинг:
- *  сознательно не через t() — на этом слоя язык агента неизвестен,
- *  промт понимается моделью на любом языке (см. presets.ts — там
- *  пользовательские пресеты, у них ru/en-версии) */
-export const VAULT_REPORT_SUFFIX =
+/** Дописка к промту, когда включён отчёт в заметки. Промт понимается моделью
+ *  на любом языке, поэтому это не ключ словаря, а набор готовых строк —
+ *  локализую по языку UI в момент запуска: пользователь, ведущий интерфейс
+ *  на zh, получает и служебную дописку на zh (пресеты prompts.ts — та же
+ *  модель «данные по языкам») */
+export function vaultReportSuffix(lang: Lang): string {
+  switch (lang) {
+    case "ru":
+      return RU_SUFFIX;
+    case "zh":
+      return ZH_SUFFIX;
+    case "ja":
+      return JA_SUFFIX;
+    default:
+      return EN_SUFFIX;
+  }
+}
+
+const RU_SUFFIX =
   "\n\n[Автоматизация] По завершении сохрани краткий отчёт (5–10 строк) в заметку vault через инструмент vault_write: файл \"automations-report.md\", полностью перезаписав его последним отчётом (заголовок с названием и датой, затем итоги).";
+const EN_SUFFIX =
+  "\n\n[Automation] When finished, save a brief report (5–10 lines) to a vault note via the vault_write tool: file \"automations-report.md\", fully overwriting it with the latest report (a heading with the name and date, then the results).";
+const ZH_SUFFIX =
+  "\n\n[自动化] 完成后通过 vault_write 工具将简要报告（5–10 行）保存到 vault 笔记：文件 \"automations-report.md\"，用最新报告整体覆盖（标题含名称和日期，随后是结果）。";
+const JA_SUFFIX =
+  "\n\n[自動化] 完了したら、vault_write ツールで簡潔な報告（5〜10 行）を vault ノートに保存してください: ファイル \"automations-report.md\" に最新の報告で全面上書き（名前と日付の見出し、その後に結果）。";
 
 const LS_KEY = "haloui-automations";
 

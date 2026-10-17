@@ -247,6 +247,13 @@ export function HooksSection() {
           ))}
         </div>
       )}
+      {hooks.length === 0 && !showAdd && (
+        // reason-строки пресетов — часть команды пресета (данные), ключами
+        // словаря они не становятся: пользователь видит их как есть
+        <p className="mb-3 -mt-1.5 text-[0.625rem] leading-relaxed text-halo-muted/60">
+          {t("hook.presetReasonNote")}
+        </p>
+      )}
 
       <div className="space-y-2">
         {hooks.length === 0 && !showAdd && (

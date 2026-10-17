@@ -374,7 +374,9 @@ export default function AutomationsModal({
                   />
                 ) : (
                   <label className="flex items-center gap-1.5 text-halo-muted">
-                    {t("auto.everyMinutes", { n: "" })}
+                    {/* Подпись без плейсхолдера: «Каждые {n} мин» с пустым n
+                        оставляла дыру перед полем */}
+                    {t("auto.intervalMin")}
                     <input
                       type="number"
                       min={5}

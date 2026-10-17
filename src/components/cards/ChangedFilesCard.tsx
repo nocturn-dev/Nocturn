@@ -127,7 +127,7 @@ function ChangedFilesCardBase({
             }}
             className="ml-auto flex shrink-0 items-center gap-1 rounded-md border border-halo-line px-2 py-0.5 text-[0.625rem] text-halo-muted transition-colors hover:border-halo-accent/50 hover:text-halo-text"
           >
-            Review <ArrowUpRightIcon />
+            {t("agent.rowReview")} <ArrowUpRightIcon />
           </button>
         )}
         <span className={`text-halo-muted ${onReview ? "" : "ml-auto"}`}>

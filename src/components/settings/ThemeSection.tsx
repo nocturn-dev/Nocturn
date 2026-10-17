@@ -186,9 +186,10 @@ export function ThemeSection({
     }
   };
   // Стандартное приветствие по времени суток — подсказка в поле «своё
-  // приветствие» (период считается так же, как в ChatArea, src/time.ts)
+  // приветствие» (период считается так же, как в ChatArea, src/time.ts).
+  // Тип MsgKey у константы: t() без as-приведения, опечатка = ошибка сборки
   const p = dayPeriod();
-  const defaultGreetingKey =
+  const defaultGreetingKey: MsgKey =
     p === "morning"
       ? "chat.greetingMorning"
       : p === "afternoon"
@@ -1520,7 +1521,7 @@ export function ThemeSection({
           onChange={(e) =>
             onAppearanceChange({ ...appearance, customGreeting: e.target.value })
           }
-          placeholder={t(defaultGreetingKey as MsgKey)}
+          placeholder={t(defaultGreetingKey)}
           className="mt-2.5 w-full rounded-lg border border-halo-line bg-halo-surface px-2.5 py-2 text-xs text-halo-text outline-none transition-colors placeholder:text-halo-muted/60 focus:border-halo-accent/60"
         />
       </div>

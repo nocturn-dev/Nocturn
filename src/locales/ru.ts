@@ -49,6 +49,7 @@ export const ru = {
     "auto.weekly": "Раз в неделю",
     "auto.interval": "Каждые N минут",
     "auto.everyMinutes": "Каждые {n} мин",
+    "auto.intervalMin": "Интервал, мин",
     "auto.dailyAt": "Каждый день в {time}",
     "auto.weekdaysAt": "По будням в {time}",
     "auto.weeklyAt": "По {day} в {time}",
@@ -141,8 +142,7 @@ export const ru = {
     "ctx.sysTools": "Системные инструменты",
     "ctx.mcpTools": "MCP-инструменты",
     "ctx.sysPrompt": "Системный промт",
-    "qs.slashHint": "быстрая смена —",
-    "qs.providerHint": "Провайдеров:",
+    "qs.providerLine": "Провайдеров: {n} · быстрая смена — /provider",
     "qs.theme": "Тема",
     "qs.moreInSettings": "…полный список в «Настройках → API»",
     "qs.noRoles": "Ролей пока нет — добавь в «Настройках → Промты»",
@@ -488,9 +488,13 @@ export const ru = {
     "sub.toolsHint": "Например: fs_read, fs_list, shell_run, browser_read",
     "sub.prompt": "Системный промт роли",
     "sub.addRole": "Новая роль",
+    // Заготовка роли, создаваемой кнопкой выше: desc — двуязычные данные
+    "sub.newRole": "Новая роль",
+    "sub.newRoleDesc": "Своя роль",
+    "sub.newRolePrompt": "Ты — субагент. ",
     // Hard Limit: лимиты расхода на задачу
     "limits.title": "Hard Limit",
-    "limits.hint": "Прерывать задачу при превышении. Пусто = без лимита.",
+    "limits.hint": "Прерывать задачу при превышении. Пусто или 0 = без лимита.",
     "limits.maxTokens": "Лимит токенов на задачу",
     "limits.usdPer1M": "Цена за 1M токенов, $",
     "limits.maxUsd": "Лимит расходов на задачу, $",
@@ -584,6 +588,8 @@ export const ru = {
     "hook.empty": "Хуков нет. Создайте хук, чтобы запускать команды на событиях жизненного цикла агента.",
     "hook.new": "Новый хук",
     "hook.presets": "Готовые",
+    "hook.presetReasonNote":
+      "Тексты отказа в echo-пресетах (reason) — часть команды пресета: модель получает их как есть, без перевода.",
     "hook.preset.blockDelete": "Запрет удаления файлов",
     "hook.preset.beepStop": "Звук в конце ответа",
     "hook.preset.blockShell": "Запрет shell-команд",
@@ -854,6 +860,7 @@ export const ru = {
     "browserPanel.hint":
       "Здесь появится живая картинка страницы, когда агент начнёт работать с браузером.",
     "browserPanel.size": "Разрешение вьюпорта",
+    "browserPanel.fit": "Вписать",
     "browserPanel.note":
       "Трансляция экрана агентовского браузера: просмотр без взаимодействия.",
     "sub.monitor": "Субагенты",
@@ -937,8 +944,8 @@ export const ru = {
     "cmp.stop": "Остановить",
     "cmp.promptPh": "Один вопрос — все выбранные модели ответят одновременно…",
     "cmp.empty": "Выбери хотя бы одно подключение",
-    "cmp.ttft": "до 1-го токена",
-    "cmp.time": "время",
+    "cmp.ttftFmt": "до 1-го токена: {v}",
+    "cmp.timeFmt": "время: {v}",
     "cmp.tokens": "токены",
     "cmp.stopped": "Остановлено",
     "kb.open": "База знаний",
@@ -1740,6 +1747,12 @@ export const ru = {
     "commands.blankTemplate": "Ты — …\n\nЗадача: $ARGUMENTS",
     "games.mines": "Сапёр",
     "games.snake": "Змейка",
+    "steps.denied": "отклонено",
+    "steps.error": "ошибка",
+    "steps.exit": "код {n}",
+    // Единица секунд в строках шагов/размышлений (число подставляется
+    // уже с локализованным разделителем)
+    "unit.sec": "{n} с",
     "steps.kindEdit": "Правки",
     "steps.kindTerminal": "Терминал",
     "steps.kindExplore": "Обзор",

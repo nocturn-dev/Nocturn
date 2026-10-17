@@ -1,6 +1,6 @@
 import type { MsgKey } from "../../locales";
 import { useLang } from "../../locales";
-import { fmtInt } from "./util";
+import { fmtInt, fmtTokens } from "./util";
 import { STATUS_ERR, STATUS_OK, STATUS_WARN } from "../../statusColors";
 import { useState } from "react";
 
@@ -21,8 +21,6 @@ export function ContextRing({
   const color = pct >= 0.85 ? STATUS_ERR : pct >= 0.6 ? STATUS_WARN : STATUS_OK;
   const R = 6;
   const C = 2 * Math.PI * R;
-  const fmt = (n: number) =>
-    n >= 1000 ? `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}K` : String(n);
 
   return (
     <div className="relative">
@@ -58,7 +56,7 @@ export function ContextRing({
           <div className="mb-2 flex items-baseline justify-between">
             <span className="font-medium text-halo-text">{t("ctx.title")}</span>
             <span className="text-halo-muted">
-              {fmt(used)} / {fmt(limit)} · {Math.round(pct * 100)}%
+              {fmtTokens(used, lang)} / {fmtTokens(limit, lang)} · {Math.round(pct * 100)}%
             </span>
           </div>
           <div className="mb-2.5 h-1.5 overflow-hidden rounded-full bg-halo-line">

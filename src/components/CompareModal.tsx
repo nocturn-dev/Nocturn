@@ -420,13 +420,17 @@ export default function CompareModal({ open, onClose, profiles, current }: Compa
                       ) : null}
                     </div>
                     <div className="flex items-center gap-3 border-t border-halo-line/50 px-3 py-1.5 text-[0.625rem] tabular-nums text-halo-muted/70">
-                      <span title={t("cmp.ttft")}>
-                        {t("cmp.ttft")}:{" "}
-                        {lane.ttft !== null ? fmtSec(lane.ttft) : "—"}
+                      {/* Подпись со значением — цельная строка из словаря:
+                          порядок «метка: значение» у локалей разный */}
+                      <span>
+                        {t("cmp.ttftFmt", {
+                          v: lane.ttft !== null ? fmtSec(lane.ttft) : "—",
+                        })}
                       </span>
-                      <span title={t("cmp.time")}>
-                        {t("cmp.time")}:{" "}
-                        {lane.totalMs !== null ? fmtSec(lane.totalMs) : "—"}
+                      <span>
+                        {t("cmp.timeFmt", {
+                          v: lane.totalMs !== null ? fmtSec(lane.totalMs) : "—",
+                        })}
                       </span>
                       <span className="ml-auto" title={t("cmp.tokens")}>
                         {lane.usage
