@@ -15,18 +15,21 @@
 //! Ограничения: описание в системном диалоге — английское (бэкенд не знает
 //! локаль); триггер отдаётся как есть, композитор может его нормализовать.
 
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 
 use ashpd::desktop::global_shortcuts::{BindShortcutsOptions, GlobalShortcuts, NewShortcut};
 use ashpd::desktop::CreateSessionOptions;
 use ashpd::desktop::Session;
 use futures_util::StreamExt;
-use tauri::AppHandle;
+use tauri::{AppHandle, Emitter};
 
 /// Активная портал-сессия. Хранится, чтобы при ремапе закрыть прежнюю:
 /// иначе старое комбо продолжало бы срабатывать вместе с новым.
 static PORTAL_SESSION: Mutex<Option<Session<GlobalShortcuts>>> = Mutex::new(None);
+
+/// Счётчик поколений регистрации портала для защиты от гонок между параллельными start()
+static PORTAL_GENERATION: AtomicU64 = AtomicU64::new(0);
 
 /// Wayland-сессия? Портал-путь имеет смысл только там, где XGrabKey недоступен.
 pub fn wayland_session() -> bool {
@@ -41,10 +44,44 @@ pub fn wayland_session() -> bool {
     }
 }
 
-/// tauri-комбо ("ctrl+alt+space") → строка для портала. Формат портала —
-/// клавиатурный акселератор; верхний регистр понимают и KDE, и GNOME.
+/// tauri-комбо ("ctrl+alt+space") → строка XDG акселератора для портала ("<Control><Alt>Space").
+/// Формат акселераторов XDG / GTK: модификаторы в угловых скобках (<Control>, <Alt>, <Shift>, <Super>),
+/// затем имя базовой клавиши.
 pub fn portal_trigger(combo: &str) -> String {
-    combo.to_ascii_uppercase()
+    let mut mods = Vec::new();
+    let mut key = String::new();
+
+    for part in combo.split('+') {
+        let trimmed = part.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        match trimmed.to_ascii_lowercase().as_str() {
+            "ctrl" | "control" => mods.push("<Control>"),
+            "alt" => mods.push("<Alt>"),
+            "shift" => mods.push("<Shift>"),
+            "super" | "meta" | "cmd" | "command" => mods.push("<Super>"),
+            "space" => key = "Space".to_string(),
+            other => {
+                // Если это одна буква, делаем заглавной, если слово (F1-F12 и т.п.) — капитализируем первую букву
+                if other.len() == 1 {
+                    key = other.to_ascii_uppercase();
+                } else {
+                    let mut c = other.chars();
+                    key = match c.next() {
+                        None => String::new(),
+                        Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
+                    };
+                }
+            }
+        }
+    }
+
+    if key.is_empty() {
+        combo.to_ascii_uppercase()
+    } else {
+        format!("{}{}", mods.join(""), key)
+    }
 }
 
 /// Попытка зарегистрировать комбо через портал. Асинхронно: диалог
@@ -53,25 +90,33 @@ pub fn portal_trigger(combo: &str) -> String {
 /// Вызывать только когда плагин не смог и wayland_session().
 pub fn start(app: AppHandle, combo: String) {
     let trigger = portal_trigger(&combo);
+    let gen = PORTAL_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
     tauri::async_runtime::spawn(async move {
-        if let Err(e) = run(app, &trigger).await {
+        if let Err(e) = run(app.clone(), &trigger, gen).await {
             eprintln!("quickentry portal unavailable: {e}");
-            crate::QUICKENTRY_REGISTERED.store(false, Ordering::Relaxed);
-            if let Ok(mut guard) = PORTAL_SESSION.lock() {
-                // Полумёртвая сессия не должна блокировать будущие попытки
-                *guard = None;
+            if PORTAL_GENERATION.load(Ordering::SeqCst) == gen {
+                crate::QUICKENTRY_REGISTERED.store(false, Ordering::Relaxed);
+                let _ = app.emit("quickentry-status-changed", false);
+                if let Ok(mut guard) = PORTAL_SESSION.lock() {
+                    // Полумёртвая сессия не должна блокировать будущие попытки
+                    *guard = None;
+                }
             }
         }
     });
 }
 
-async fn run(app: AppHandle, trigger: &str) -> Result<(), String> {
+async fn run(app: AppHandle, trigger: &str, gen: u64) -> Result<(), String> {
     // Ремап: закрыть прежнюю портал-сессию, иначе старое комбо оставалось бы
     // активным вместе с новым. Guard снимается ДО await: std MutexGuard не
     // Send, и future в spawn стал бы !Send
     let old_session = PORTAL_SESSION.lock().ok().and_then(|mut g| g.take());
     if let Some(old) = old_session {
         let _ = old.close().await;
+    }
+
+    if PORTAL_GENERATION.load(Ordering::SeqCst) != gen {
+        return Ok(());
     }
 
     let shortcuts = GlobalShortcuts::new()
@@ -81,9 +126,16 @@ async fn run(app: AppHandle, trigger: &str) -> Result<(), String> {
         .create_session(CreateSessionOptions::default())
         .await
         .map_err(|e| format!("portal session: {e}"))?;
+
+    // Структура гарантированного закрытия сессии при досрочном выходе
+    struct SessionDropGuard {
+        closed: bool,
+    }
+    let mut drop_guard = SessionDropGuard { closed: false };
+
     // bind_shortcuts резолвится ПОСЛЕ ответа композитора: Ok — пользователь
     // одобрил (или одобрение закэшировано), Err — отменил диалог/нет интерфейса
-    let request = shortcuts
+    let request = match shortcuts
         .bind_shortcuts(
             &session,
             &[NewShortcut::new(
@@ -95,39 +147,69 @@ async fn run(app: AppHandle, trigger: &str) -> Result<(), String> {
             BindShortcutsOptions::default(),
         )
         .await
-        .map_err(|e| format!("portal bind: {e}"))?;
-    request
-        .response()
-        .map_err(|e| format!("portal bind rejected: {e}"))?;
+    {
+        Ok(req) => req,
+        Err(e) => {
+            let _ = session.close().await;
+            drop_guard.closed = true;
+            return Err(format!("portal bind: {e}"));
+        }
+    };
+
+    if let Err(e) = request.response() {
+        let _ = session.close().await;
+        drop_guard.closed = true;
+        return Err(format!("portal bind rejected: {e}"));
+    }
+
+    if PORTAL_GENERATION.load(Ordering::SeqCst) != gen {
+        let _ = session.close().await;
+        drop_guard.closed = true;
+        return Ok(());
+    }
+
     // Запоминаем сессию: без этого ремап закрывал None, а прежний поток run()
     // продолжал слушать receive_activated — каждое нажатие дёргало
     // toggle_quickentry дважды, и старое комбо оставалось живым
     if let Ok(mut guard) = PORTAL_SESSION.lock() {
-        // ashpd 0.13: Session больше не Clone — забираем владением; ниже
-        // session не используется (receive_activated живёт на прокси)
         *guard = Some(session);
     }
 
     // Фильтр по shortcut_id: сигнал прилетает на общий объект портала, но
     // наш id специфичен для приложения
-    let mut stream = shortcuts
-        .receive_activated()
-        .await
-        .map_err(|e| format!("portal stream: {e}"))?;
-    // Аудит portal 381: флаг «зарегистрировано» ставится ПОСЛЕ успешного
-    // создания стрима — раньше между bind и стримом фронт считал комбо
-    // рабочим, а нажатия не приходили, и ошибка стрима оставляла флаг
+    let stream_res = shortcuts.receive_activated().await;
+    let mut stream = match stream_res {
+        Ok(s) => s,
+        Err(e) => {
+            if let Ok(mut guard) = PORTAL_SESSION.lock() {
+                if let Some(s) = guard.take() {
+                    let _ = s.close().await;
+                }
+            }
+            return Err(format!("portal stream: {e}"));
+        }
+    };
+
+    // Флаг «зарегистрировано» ставится ПОСЛЕ успешного создания стрима
     crate::QUICKENTRY_REGISTERED.store(true, Ordering::Relaxed);
+    let _ = app.emit("quickentry-status-changed", true);
+
     while let Some(activated) = stream.next().await {
         if activated.shortcut_id() == "quickentry" {
             crate::toggle_quickentry(&app);
         }
     }
 
-    // Стрим закрылся — сессия умерла (Close/отключение портала)
-    crate::QUICKENTRY_REGISTERED.store(false, Ordering::Relaxed);
-    if let Ok(mut guard) = PORTAL_SESSION.lock() {
-        *guard = None;
+    // Стрим закрылся — сессия умерла (Close/отключение портала).
+    // Сбрасываем только если поколение не сменилось новым вызовом run()
+    if PORTAL_GENERATION.load(Ordering::SeqCst) == gen {
+        crate::QUICKENTRY_REGISTERED.store(false, Ordering::Relaxed);
+        let _ = app.emit("quickentry-status-changed", false);
+        if let Ok(mut guard) = PORTAL_SESSION.lock() {
+            if let Some(s) = guard.take() {
+                let _ = s.close().await;
+            }
+        }
     }
     Ok(())
 }
@@ -137,8 +219,10 @@ mod tests {
     use super::portal_trigger;
 
     #[test]
-    fn trigger_is_uppercased() {
-        assert_eq!(portal_trigger("ctrl+alt+space"), "CTRL+ALT+SPACE");
-        assert_eq!(portal_trigger("Ctrl+Shift+P"), "CTRL+SHIFT+P");
+    fn trigger_is_formatted_for_xdg() {
+        assert_eq!(portal_trigger("ctrl+alt+space"), "<Control><Alt>Space");
+        assert_eq!(portal_trigger("Ctrl+Shift+P"), "<Control><Shift>P");
+        assert_eq!(portal_trigger("ctrl+shift+space"), "<Control><Shift>Space");
+        assert_eq!(portal_trigger("super+alt+f1"), "<Super><Alt>F1");
     }
 }

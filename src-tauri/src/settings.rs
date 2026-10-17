@@ -714,6 +714,24 @@ pub async fn settings_read_all(
     app: tauri::AppHandle,
     include_secrets: Option<bool>,
 ) -> Result<serde_json::Value, String> {
+    if include_secrets.unwrap_or(false) {
+        use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
+        let confirmed = app
+            .dialog()
+            .message(
+                "Export settings including secrets and API keys?\n\nAnyone who obtains this file will have access to your provider accounts and stored credentials.",
+            )
+            .title("Confirm Export of Secrets")
+            .kind(MessageDialogKind::Warning)
+            .buttons(MessageDialogButtons::OkCancelCustom(
+                "Export Secrets".into(),
+                "Cancel".into(),
+            ))
+            .blocking_show();
+        if !confirmed {
+            return Err("export with secrets was rejected by user".to_string());
+        }
+    }
     // Экспорт читает до 15 файлов подряд: на сетевом профиле AppData это
     // десятки секунд блокировки — blocking-пул (класс crypto_status)
     tauri::async_runtime::spawn_blocking(move || {
@@ -844,13 +862,98 @@ fn settings_write_all_blocking(
         "lsp.json",
         "gguf.json",
     ];
-    if !allow_executable_configs
-        && EXECUTABLE_CONFIGS.iter().any(|name| files.contains_key(*name))
-    {
-        return Err(
-            "import contains executable configs (hooks/mcp) that require explicit user confirmation"
-                .to_string(),
-        );
+    let has_executable = EXECUTABLE_CONFIGS.iter().any(|name| files.contains_key(*name));
+    if has_executable {
+        if !allow_executable_configs {
+            return Err(
+                "import contains executable configs (hooks/mcp) that require explicit user confirmation"
+                    .to_string(),
+            );
+        }
+        // Нативное подтверждение в Rust для защиты от компрометации webview
+        let mut list: Vec<String> = Vec::new();
+        if let Some(hooks_val) = files.get("hooks.json") {
+            if let Some(hooks_arr) = hooks_val.get("hooks").and_then(|h| h.as_array()) {
+                for h in hooks_arr {
+                    if let Some(cmd) = h.get("command").and_then(|c| c.as_str()) {
+                        let ev = h.get("event").and_then(|e| e.as_str()).unwrap_or("*");
+                        list.push(format!("• hook [{ev}]: {cmd}"));
+                    }
+                }
+            }
+        }
+        if let Some(mcp_val) = files.get("mcp.json") {
+            if let Some(mcp_arr) = mcp_val.as_array() {
+                for s in mcp_arr {
+                    if let Some(cmd) = s.get("command").and_then(|c| c.as_str()) {
+                        let name = s.get("name").and_then(|n| n.as_str()).unwrap_or("?");
+                        let args = s
+                            .get("args")
+                            .and_then(|a| a.as_array())
+                            .map(|arr| {
+                                arr.iter()
+                                    .filter_map(|x| x.as_str())
+                                    .collect::<Vec<_>>()
+                                    .join(" ")
+                            })
+                            .unwrap_or_default();
+                        let line = format!("• mcp [{name}]: {cmd} {args}");
+                        list.push(line.trim_end().to_string());
+                    }
+                }
+            }
+        }
+        if let Some(lsp_val) = files.get("lsp.json") {
+            if let Some(lsp_arr) = lsp_val.get("servers").and_then(|s| s.as_array()) {
+                for s in lsp_arr {
+                    if let Some(cmd) = s.get("command").and_then(|c| c.as_str()) {
+                        let args = s
+                            .get("args")
+                            .and_then(|a| a.as_array())
+                            .map(|arr| {
+                                arr.iter()
+                                    .filter_map(|x| x.as_str())
+                                    .collect::<Vec<_>>()
+                                    .join(" ")
+                            })
+                            .unwrap_or_default();
+                        let line = format!("• lsp: {cmd} {args}");
+                        list.push(line.trim_end().to_string());
+                    }
+                }
+            }
+        }
+        if let Some(gguf_val) = files.get("gguf.json") {
+            if let Some(p) = gguf_val.get("llama_server_path").and_then(|x| x.as_str()) {
+                if !p.trim().is_empty() {
+                    list.push(format!("• gguf (llama-server path): {p}"));
+                }
+            }
+        }
+
+        use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
+        let desc = if list.is_empty() {
+            "Import contains executable configuration files. Allow importing them?".to_string()
+        } else {
+            format!(
+                "The imported files contain executable configurations (hooks/mcp/lsp):\n\n{}\n\nAllow importing and running these commands?",
+                list.join("\n")
+            )
+        };
+        let confirmed = app
+            .dialog()
+            .message(desc)
+            .title("Confirm Executable Configuration Import")
+            .kind(MessageDialogKind::Warning)
+            .buttons(MessageDialogButtons::OkCancelCustom(
+                "Import Executable Configs".into(),
+                "Cancel".into(),
+            ))
+            .blocking_show();
+
+        if !confirmed {
+            return Err("import of executable configurations was rejected by user".to_string());
+        }
     }
     let dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
@@ -1162,19 +1265,19 @@ fn ensure_export_target(
     let canon_dir = |p: Option<&std::path::Path>| -> Option<String> {
         let p = p?;
         if p.exists() {
-            Some(norm_path(&std::fs::canonicalize(p).ok()?))
+            Some(norm_path(&dunce::canonicalize(p).ok()?))
         } else {
             Some(norm_path(p))
         }
     };
     let cfg_n = norm_path(&cfg);
     let target_n = norm_path(target);
-    // Ревалидация канонической формы: canonicalize резолвит симлинки/junction
-    // и 8.3, а проверка выше идёт по сырой строке. Без повтора предзасаженный
+    // Ревалидация канонической формы: dunce::canonicalize резолвит симлинки/junction
+    // и 8.3, нормализуя вербатим-префиксы Windows. Без повтора предзасаженный
     // линк уводил запись в защищённую локацию мимо блок-листа. Провал
     // канонизации (экзотическая ФС) — не фейл: проверяем то, что смогли
     let canon_target = match target.parent() {
-        Some(parent) if parent.exists() => match std::fs::canonicalize(parent) {
+        Some(parent) if parent.exists() => match dunce::canonicalize(parent) {
             Ok(base) => base.join(target.file_name().unwrap_or_default()),
             Err(_) => target.to_path_buf(),
         },
@@ -1253,9 +1356,9 @@ pub async fn settings_import_read(path: String) -> Result<serde_json::Value, Str
     tauri::async_runtime::spawn_blocking(move || {
         // Симлинк на пути — вне модели доверия импорта («осознанное чтение
         // файла пользователем»): резолвим и ревалидируем, иначе предзасаженный
-        // линк читал защищённую локацию мимо блок-листа. Канонизация здесь же,
-        // в blocking-пуле: на сетевом пути это блокирующий metadata-вызов
-        let canon = std::fs::canonicalize(&path)
+        // линк читал защищённую локацию мимо блок-листа. Канонизация через dunce
+        // срезает \\?\ префиксы на Windows, сохраняя стандартные пути
+        let canon = dunce::canonicalize(&path)
             .map(|p| p.to_string_lossy().into_owned())
             .unwrap_or_else(|_| path.clone());
         rejects_sensitive_path(&canon)?;
@@ -1276,7 +1379,7 @@ pub async fn settings_import_read(path: String) -> Result<serde_json::Value, Str
 pub async fn config_toml_import(path: String) -> Result<serde_json::Value, String> {
     rejects_sensitive_path(&path)?;
     tauri::async_runtime::spawn_blocking(move || {
-        let canon = std::fs::canonicalize(&path)
+        let canon = dunce::canonicalize(&path)
             .map(|p| p.to_string_lossy().into_owned())
             .unwrap_or_else(|_| path.clone());
         rejects_sensitive_path(&canon)?;

@@ -3096,6 +3096,7 @@ dependencies = [
  "argon2",
  "ashpd",
  "base64 0.22.1",
+ "dunce",
  "enigo",
  "futures-util",
  "image 0.25.10",

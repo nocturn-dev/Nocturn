@@ -72,6 +72,7 @@ memmap2 = "0.9"
 # Запись в системный буфер из Rust (см. clipboard.rs): navigator.clipboard
 # из JS — перехватываемая поверхность (клиппер-малварь)
 arboard = "3"
+dunce = "1.0.5"
 
 [target.'cfg(unix)'.dependencies]
 # kill(-pgid) для kill_tree: std не умеет сигналить процесс-группе

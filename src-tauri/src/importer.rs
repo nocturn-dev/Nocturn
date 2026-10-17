@@ -49,25 +49,35 @@ pub async fn import_fetch_url(url: String) -> Result<String, String> {
         };
         return Err(format!("fetch failed: HTTP {status}{hint}"));
     }
+    const CHUNK_STALL_TIMEOUT: Duration = Duration::from_secs(15);
     let mut body: Vec<u8> = Vec::new();
     let mut stream = response;
-    // Аудит importer 208: HTML-заглушка прокси уходила в парсер CSV/JSON
+    // HTML-заглушка прокси уходила в парсер CSV/JSON
     // с невнятной ошибкой парсера. Первый байт '<' — отклоняем сразу
-    if let Some(first) = stream.chunk().await.map_err(|e| format!("fetch failed: {e}"))? {
+    let first_chunk = tokio::time::timeout(CHUNK_STALL_TIMEOUT, stream.chunk())
+        .await
+        .map_err(|_| "fetch failed: stream stalled (no data received for 15s)".to_string())?
+        .map_err(|e| format!("fetch failed: {e}"))?;
+    if let Some(first) = first_chunk {
         if first.first() == Some(&b'<') {
             return Err("fetch failed: response is HTML, expected a raw file".into());
         }
         body.extend_from_slice(&first);
     }
-    while let Some(chunk) = stream
-        .chunk()
-        .await
-        .map_err(|e| format!("fetch failed: {e}"))?
-    {
-        if body.len() + chunk.len() > MAX_BODY {
-            return Err(format!("body too large (limit {MAX_BODY} bytes)"));
+    loop {
+        let chunk_res = tokio::time::timeout(CHUNK_STALL_TIMEOUT, stream.chunk())
+            .await
+            .map_err(|_| "fetch failed: stream stalled (no data received for 15s)".to_string())?
+            .map_err(|e| format!("fetch failed: {e}"))?;
+        match chunk_res {
+            Some(chunk) => {
+                if body.len() + chunk.len() > MAX_BODY {
+                    return Err(format!("body too large (limit {MAX_BODY} bytes)"));
+                }
+                body.extend_from_slice(&chunk);
+            }
+            None => break,
         }
-        body.extend_from_slice(&chunk);
     }
     Ok(String::from_utf8_lossy(&body).into_owned())
 }
