@@ -195,6 +195,12 @@ export default function Game2048() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (isGameInputTarget(e.target)) return;
+      if (e.code === "Enter" && (over || (won && wonShown))) {
+        e.preventDefault();
+        e.stopPropagation();
+        reset();
+        return;
+      }
       const map: Record<string, Dir> = {
         ArrowLeft: "left",
         ArrowRight: "right",
@@ -214,10 +220,11 @@ export default function Game2048() {
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [doMove]);
+  }, [doMove, over, reset, won, wonShown]);
 
   // Свайпы мышью/тачем с захватом курсора (pointer capture)
   const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (over || (won && wonShown)) return;
     swipeRef.current = { x: e.clientX, y: e.clientY };
     try {
       e.currentTarget.setPointerCapture(e.pointerId);
@@ -309,12 +316,17 @@ export default function Game2048() {
           ))}
           {/* Оверлеи конца/победы */}
           {(over || (won && wonShown)) && (
-            <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 rounded-xl bg-halo-deep/85">
+            <div
+              onPointerDown={(e) => e.stopPropagation()}
+              onPointerUp={(e) => e.stopPropagation()}
+              className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 rounded-xl bg-halo-deep/85"
+            >
               <p className="text-lg font-semibold text-halo-text">
                 {over ? t("game.over") : t("game.win")}
               </p>
               {won && wonShown && !over && (
                 <button
+                  type="button"
                   onClick={() => setWonShown(false)}
                   className="rounded-lg border border-halo-accent/50 bg-halo-accent/10 px-4 py-1.5 text-xs font-medium text-halo-accent transition-colors hover:bg-halo-accent/20"
                 >
@@ -322,6 +334,7 @@ export default function Game2048() {
                 </button>
               )}
               <button
+                type="button"
                 onClick={reset}
                 className="rounded-lg border border-halo-line px-4 py-1.5 text-xs text-halo-muted transition-colors hover:text-halo-text"
               >
