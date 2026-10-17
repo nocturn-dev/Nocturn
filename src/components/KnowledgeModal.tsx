@@ -5,7 +5,7 @@
  * найденных фрагментов, сами файлы никуда не уходят.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useDelayedUnmount } from "../motion";
 import {
   kbAddDocument,
@@ -51,6 +51,12 @@ export default function KnowledgeModal({
   const [docs, setDocs] = useState<KbDoc[]>([]);
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
+  // Зеркало выбранной базы: асинхронные операции после await сверяются с ним —
+  // docs чужой базы не должны перезаписывать список при быстром переключении
+  const selIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    selIdRef.current = selId;
+  }, [selId]);
 
   const refresh = useCallback(() => {
     void kbList()
@@ -73,9 +79,17 @@ export default function KnowledgeModal({
       setDocs([]);
       return;
     }
+    let cancelled = false;
     void kbDocuments(selId)
-      .then(setDocs)
+      .then((list) => {
+        // Пока грузились документы, выбрали другую базу — чужие документы
+        // в панель не показываем
+        if (!cancelled && selIdRef.current === selId) setDocs(list);
+      })
       .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
   }, [selId]);
 
   const create = () => {
@@ -94,10 +108,12 @@ export default function KnowledgeModal({
 
   const removeBase = (id: string) => {
     if (busy || !window.confirm(t("kb.deleteConfirm"))) return;
-    if (attachedKbId === id) onAttach(null);
     setBusy(true);
     void kbDelete(id)
       .then(() => {
+        // Отвязка от чата — только после фактического удаления: при сбое
+        // база оставалась, а чат уже был бы отвязан
+        if (attachedKbId === id) onAttach(null);
         refresh();
         if (selId === id) setSelId(null);
       })
@@ -119,10 +135,16 @@ export default function KnowledgeModal({
           }
         }
         refresh();
-        return kbDocuments(selId)
-          .then(setDocs)
-          .catch(() => {});
+        // Выбранная база могла смениться, пока шла индексация
+        if (selIdRef.current === selId) {
+          return kbDocuments(selId)
+            .then(setDocs)
+            .catch(() => {});
+        }
       })
+      // Отмена пикера в Tauri может приезжать ошибкой: не даём ей стать
+      // unhandledrejection, busy уже снят в finally
+      .catch((e) => window.alert(String(e)))
       .finally(() => setBusy(false));
   };
 
@@ -132,7 +154,9 @@ export default function KnowledgeModal({
     void kbRemoveDocument(selId, docId)
       .then(() =>
         kbDocuments(selId)
-          .then(setDocs)
+          .then((list) => {
+            if (selIdRef.current === selId) setDocs(list);
+          })
           .catch(() => {}),
       )
       .catch((e) => window.alert(String(e)))

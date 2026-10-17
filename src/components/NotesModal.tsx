@@ -20,7 +20,9 @@ interface NotesModalProps {
   note: Note | null;
   allNotes: Note[];
   saving: boolean;
-  onSave: (file: string, content: string) => void;
+  /** Резолвится результатом записи: false — файл не сохранился (тост уже показан),
+   *  и переходить к другой заметке нельзя — черновик пропал бы молча */
+  onSave: (file: string, content: string) => Promise<boolean> | boolean;
   /** Запустить цепочку шагов от этой заметки (M-N3) */
   onRunChain: (file: string, content: string) => void;
   onDelete: (file: string) => void;
@@ -80,6 +82,17 @@ export default function NotesModal({
 
   if (!show || !note) return null;
   const dirty = draft !== note.content;
+
+  // Навигация по ссылке/backlink: несохранённые правки уходят на диск ДО
+  // перехода, и при сбое записи переход отменяется — иначе черновик терялся
+  // молча (тост о сбое показывал родитель)
+  const openAfterSave = async (target: string) => {
+    if (dirty) {
+      const ok = await onSave(note.file, draft);
+      if (!ok) return;
+    }
+    onOpenNote(target);
+  };
 
   const insertLink = (targetTitle: string) => {
     const el = textareaRef.current;
@@ -188,10 +201,20 @@ export default function NotesModal({
                   a: ({ href, children }) => {
                     const noteMark = "#note:";
                     if (href?.startsWith(noteMark)) {
-                      const title = decodeURIComponent(href.slice(noteMark.length));
+                      const raw = href.slice(noteMark.length);
                       return (
                         <button
-                          onClick={() => onOpenNote(title)}
+                          onClick={() => {
+                            // Битый %-эскейп в тексте заметки не должен
+                            // обрушивать превью: не декодируется — берём как есть
+                            let title = raw;
+                            try {
+                              title = decodeURIComponent(raw);
+                            } catch {
+                              /* оставляем сырую строку */
+                            }
+                            void openAfterSave(title);
+                          }}
                           className="text-halo-accent underline underline-offset-2 transition-colors hover:text-halo-accent-deep"
                         >
                           {children}
@@ -215,7 +238,7 @@ export default function NotesModal({
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.nativeEvent.isComposing && (e.ctrlKey || e.metaKey)) {
                   e.preventDefault();
-                  onSave(note.file, draft);
+                  void onSave(note.file, draft);
                 }
               }}
               placeholder={t("notes.placeholder")}
@@ -248,10 +271,7 @@ export default function NotesModal({
             {links.resolved.map((l) => (
               <button
                 key={l.file}
-                onClick={() => {
-                  if (dirty) onSave(note.file, draft);
-                  onOpenNote(l.file);
-                }}
+                onClick={() => void openAfterSave(l.file)}
                 className="rounded-full border border-halo-line bg-halo-surface/60 px-2 py-0.5 text-[0.6875rem] text-halo-muted transition-colors hover:border-halo-accent/50 hover:text-halo-text"
               >
                 → {l.title}
@@ -260,10 +280,7 @@ export default function NotesModal({
             {links.dangling.map((title) => (
               <button
                 key={title}
-                onClick={() => {
-                  if (dirty) onSave(note.file, draft);
-                  onOpenNote(title);
-                }}
+                onClick={() => void openAfterSave(title)}
                 title={`${t("notes.dangling")} · ${t("notes.createHint")}`}
                 className="rounded-full border border-dashed border-amber-400/50 px-2 py-0.5 text-[0.6875rem] text-amber-400/90 transition-colors hover:border-amber-400 hover:text-amber-300"
               >
@@ -278,10 +295,7 @@ export default function NotesModal({
                 {backlinks.map((b) => (
                   <button
                     key={b.file}
-                    onClick={() => {
-                      if (dirty) onSave(note.file, draft);
-                      onOpenNote(b.file);
-                    }}
+                    onClick={() => void openAfterSave(b.file)}
                     className="rounded-full border border-halo-line bg-halo-surface/60 px-2 py-0.5 text-[0.6875rem] text-halo-muted transition-colors hover:border-halo-accent/50 hover:text-halo-text"
                   >
                     ← {b.title}
@@ -294,7 +308,7 @@ export default function NotesModal({
           <div className="flex items-center justify-between">
             <span className="text-[0.625rem] text-halo-muted/60">{t("notes.ctrlEnter")}</span>
             <button
-              onClick={() => onSave(note.file, draft)}
+              onClick={() => void onSave(note.file, draft)}
               disabled={!dirty || saving}
               className="rounded-lg bg-halo-accent px-3.5 py-1.5 text-xs font-medium text-halo-on-accent press hover:bg-halo-accent-deep disabled:cursor-not-allowed disabled:opacity-40"
             >
@@ -311,12 +325,10 @@ export default function NotesModal({
             </p>
             <MiniGraph
               title={note.title}
+              file={note.file}
               draft={draft}
               allNotes={allNotes}
-              onNavigate={(target) => {
-                onSave(note.file, draft);
-                onOpenNote(target);
-              }}
+              onNavigate={(target) => void openAfterSave(target)}
             />
           </aside>
         </div>
@@ -330,11 +342,15 @@ export default function NotesModal({
     слева — backlinks, висячие — жёлтым пунктиром. */
 function MiniGraph({
   title,
+  file,
   draft,
   allNotes,
   onNavigate,
 }: {
   title: string;
+  /** file текущей заметки: backlinks ищутся по нему — по title две
+      одноимённые заметки давали неверный список */
+  file: string;
   draft: string;
   allNotes: Note[];
   onNavigate: (target: string) => void;
@@ -351,10 +367,8 @@ function MiniGraph({
     order?: number;
   }
   const backlinks = useMemo(
-    () => buildBacklinks(allNotes).get(
-      allNotes.find((n) => n.title === title)?.file ?? "",
-    ) ?? [],
-    [allNotes, title],
+    () => buildBacklinks(allNotes).get(file) ?? [],
+    [allNotes, file],
   );
 
   const neighbors: Nb[] = [];

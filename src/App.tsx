@@ -2127,7 +2127,9 @@ export default function App() {
     setOpenNoteFile(file);
   };
 
-  const handleSaveNote = async (file: string, content: string) => {
+  // Возвращает успех записи: редактор заметок не переключает карточку,
+  // пока сейв не прошёл — иначе сбой записи терял несохранённый черновик
+  const handleSaveNote = async (file: string, content: string): Promise<boolean> => {
     setNoteSaving(true);
     try {
       await notesWrite(file, content);
@@ -2143,12 +2145,14 @@ export default function App() {
           n.file === file ? { ...n, content, title, updated: Math.floor(Date.now() / 1000) } : n,
         ),
       );
+      return true;
     } catch (e) {
       // C16: try/finally без catch давал unhandled rejection — редактор
       // показывал старый контент, и пользователь терял текст, считая его
       // сохранённым
       addToast(t("error.noteSaveFailed"), "error");
       console.error("note save failed:", e);
+      return false;
     } finally {
       setNoteSaving(false);
     }
@@ -3052,7 +3056,7 @@ export default function App() {
             note={notes.find((n) => n.file === openNoteFile) ?? null}
             allNotes={notes}
             saving={noteSaving}
-            onSave={(f, c) => void handleSaveNote(f, c)}
+            onSave={(f, c) => handleSaveNote(f, c)}
             onRunChain={(f, c) => void handleRunChain(f, c)}
             onDelete={(f) => void handleDeleteNote(f)}
             onOpenNote={(f) => void handleOpenNote(f)}

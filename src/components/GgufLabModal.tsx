@@ -8,7 +8,7 @@
  * (исключение из AGENTS.md).
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   detectLocalRuntimes,
   ggufCancel,
@@ -66,14 +66,20 @@ export default function GgufLabModal({
   const [busy, setBusy] = useState(false);
   const [pullName, setPullName] = useState("");
   const [ollamaName, setOllamaName] = useState("");
+  // Файл, у которого раскрыт ввод Ollama-имени: раньше «В Ollama» при пустом
+  // имени просто молча выходил из run — непонятно, что не сработало
+  const [ollamaTarget, setOllamaTarget] = useState<string | null>(null);
   const [serve, setServe] = useState<GgufServeInfo | null>(null);
   const [appliedUrl, setAppliedUrl] = useState<string | null>(null);
   const [exportingId, setExportingId] = useState<string | null>(null);
 
-  /** Обёртка действия: busy + ошибка в одну строку статуса */
+  /** Обёртка действия: busy + ошибка в одну строку статуса. Прошлый
+   *  прогресс сбрасывается: без этого до первого события новой операции
+   *  висела фраза предыдущего этапа */
   const run = useCallback(async (action: () => Promise<void>) => {
     setBusy(true);
     setError(null);
+    setProgress(null);
     try {
       await action();
     } catch (e) {
@@ -83,27 +89,38 @@ export default function GgufLabModal({
     }
   }, []);
 
-  const refresh = useCallback(async () => {
-    const [fs, llamaStatus] = await Promise.all([ggufLabFiles(), ggufLlamaStatus()]);
-    setFiles(fs);
-    setLlama(llamaStatus);
-    setOllama(await detectLocalRuntimes().then((r) => r.ollama));
- // бекенд-сессия жива, а локальный serve-стейт пуст
+  // После явной остановки сервера локальные реставрации serve-стейта
+  // (кэш «бекенд ещё числит процесс живым») запрещены до подтверждения
+  const serveResetRef = useRef(false);
 
-    // (reload/ремаунт фронтенда, агентный gguf_test с keep_running) —
-    // восстанавливаем управление из статуса, иначе кнопки Стоп/Подключить
-    // недоступны и сервер не остановить до рестарта приложения
-    setServe(
-      (prev) =>
-        prev ??
-        (llamaStatus.serverRunning && llamaStatus.serverPort != null
+  const refresh = useCallback(async () => {
+    try {
+      const [fs, llamaStatus] = await Promise.all([
+        ggufLabFiles(),
+        ggufLlamaStatus(),
+      ]);
+      setFiles(fs);
+      setLlama(llamaStatus);
+      setOllama(await detectLocalRuntimes().then((r) => r.ollama));
+      // (reload/ремаунт фронтенда, агентный gguf_test с keep_running) —
+      // восстанавливаем управление из статуса, иначе кнопки Стоп/Подключить
+      // недоступны и сервер не остановить до рестарта приложения
+      setServe((prev) => {
+        if (serveResetRef.current) return prev;
+        return prev ?? (llamaStatus.serverRunning && llamaStatus.serverPort != null
           ? {
               port: llamaStatus.serverPort,
               baseUrl: `http://127.0.0.1:${llamaStatus.serverPort}`,
               model: llamaStatus.serverModel ?? "",
             }
-          : null),
-    );
+          : null);
+      });
+      if (!llamaStatus.serverRunning) serveResetRef.current = false;
+    } catch (e) {
+      // refresh зовётся и из эффектов, и из слушателя прогресса: без catch
+      // сбой любого из трёх await давал unhandledrejection и пустой UI
+      setError(String(e).replace(/^Error:\s*/, ""));
+    }
   }, []);
 
   // Слушатель прогресса: успех фазы → рефреш (новый файл в хранилище)
@@ -139,16 +156,18 @@ export default function GgufLabModal({
     }
   }, [open, refresh]);
 
-  // Escape закрывает, как у остальных sticky-модалок (SettingsModal/CompareModal);
-  // busy-гард сохранён: во время операции Escape её не отменяет
+  // Escape закрывает, как у остальных sticky-модалок (SettingsModal/CompareModal).
+  // Busy не блокирует выход: зависшая (например, без ответа бекенда) операция
+  // раньше запирала окно наглухо — она продолжается на бекенде, а при
+  // повторном открытии refresh восстанавливает актуальный стейт
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !busy) onClose();
+      if (e.key === "Escape") onClose();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, busy, onClose]);
+  }, [open, onClose]);
 
   const doPull = () =>
     run(async () => {
@@ -210,9 +229,23 @@ export default function GgufLabModal({
 
   const doStop = () =>
     run(async () => {
+      serveResetRef.current = true;
       await ggufServeStop();
-      setServe(null);
       setAppliedUrl(null);
+      // Стейт не сбрасываем вслепую: читаем фактический статус — если
+      // процесс ещё не погас, кнопка «Стоп» остаётся честной, а не мигнёт
+      // «запустить» и не вернётся сама через рефреш
+      const st = await ggufLlamaStatus();
+      setServe(
+        st.serverRunning && st.serverPort != null
+          ? {
+              port: st.serverPort,
+              baseUrl: `http://127.0.0.1:${st.serverPort}`,
+              model: st.serverModel ?? "",
+            }
+          : null,
+      );
+      if (!st.serverRunning) serveResetRef.current = false;
     });
 
   // Своё место llama-server (CUDA/Vulkan-сборка): путь в gguf.json через
@@ -226,13 +259,19 @@ export default function GgufLabModal({
       await refresh();
     });
 
-  const doOllamaImport = (f: GgufLabFile) =>
-    run(async () => {
-      const name = ollamaName.trim();
-      if (!name) return;
-      await ggufOllamaImport(f.name, name);
+  const doOllamaImport = (f: GgufLabFile) => {
+    // Без имени — не глотаем клик, а раскрываем ввод: пользователь видит,
+    // что от него ждут имя модели
+    if (!ollamaName.trim()) {
+      setOllamaTarget(f.name);
+      return;
+    }
+    return run(async () => {
+      await ggufOllamaImport(f.name, ollamaName.trim());
       setOllamaName("");
+      setOllamaTarget(null);
     });
+  };
 
   const doDownloadLlama = () =>
     run(async () => {
@@ -285,7 +324,7 @@ export default function GgufLabModal({
       className={`fixed inset-0 z-[var(--halo-z-modal)] overflow-y-auto bg-halo-scrim p-4 backdrop-blur-sm ${
         open ? "anim-fade" : "anim-fade-out"
       }`}
-      onClick={busy ? undefined : onClose}
+      onClick={onClose}
     >
       <div
         className={`glass-pane mx-auto my-8 w-full max-w-4xl rounded-2xl border border-halo-line bg-halo-deep p-6 shadow-2xl ${
@@ -297,8 +336,8 @@ export default function GgufLabModal({
           <h1 className="text-2xl font-bold text-halo-text">{t("ggufLab.title")}</h1>
           <button
             onClick={onClose}
-            disabled={busy}
-            className="rounded-md p-1.5 text-halo-muted transition-colors hover:bg-halo-hover hover:text-halo-text disabled:opacity-40"
+            title={t("common.close")}
+            className="rounded-md p-1.5 text-halo-muted transition-colors hover:bg-halo-hover hover:text-halo-text"
           >
             <XSmallIcon />
           </button>
@@ -441,8 +480,9 @@ export default function GgufLabModal({
                       {t("ggufLab.toOllama")}
                     </button>
                   </div>
-                  {/* Ollama-имя для импорта конкретного файла */}
-                  {inspect?.name === f.name && !hybrid && (
+                  {/* Ollama-имя для импорта конкретного файла: раскрывается
+                      кликом по «В Ollama» или в инспекторе не-hybrid файла */}
+                  {(ollamaTarget === f.name || (inspect?.name === f.name && !hybrid)) && (
                     <div className="mt-1.5 flex items-center gap-2 pl-2">
                       <input
                         value={ollamaName}

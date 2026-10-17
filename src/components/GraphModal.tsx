@@ -77,9 +77,21 @@ export default function GraphModal({ notes, onOpenNote, onClose }: GraphModalPro
     return { nodes: ns, edges: es };
   }, [notes]);
 
+  // Заметки могут смениться при открытом графе (сохранили/создали заметку):
+  // без синхронизации ref показывал старые узлы, а физика честно двигала
+  // уже мёртвый массив
+  useEffect(() => {
+    nodesRef.current = nodes;
+  }, [nodes]);
   const nodesRef = useRef(nodes);
   const [, setTick] = useState(0); // перерисовка после тиков физики
   const [view, setView] = useState({ tx: 0, ty: 0, scale: 1 });
+  // Зеркало view для слушателей окна: они не пересоздаются на каждый тик
+  // панорамирования, и замыкание без рефов тащило бы устаревший tx/ty/scale
+  const viewRef = useRef(view);
+  useEffect(() => {
+    viewRef.current = view;
+  }, [view]);
   const [hover, setHover] = useState<number | null>(null);
   /** force — симуляция; tree — иерархия развилок (уровни = глубина ссылок) */
   const [layout, setLayout] = useState<"force" | "tree">("force");
@@ -288,7 +300,7 @@ export default function GraphModal({ notes, onOpenNote, onClose }: GraphModalPro
   }, []);
   const dragNode = useRef<number | null>(null);
   // Экранные координаты старта перетаскивания: порог «двигал/не двигал»
-  // для click (оигрывал click)
+  // для click (drag узла не должен открывать заметку)
   const dragStart = useRef<{ x: number; y: number } | null>(null);
   const panning = useRef(false);
   const panStart = useRef({ x: 0, y: 0, tx: 0, ty: 0 });
@@ -296,9 +308,12 @@ export default function GraphModal({ notes, onOpenNote, onClose }: GraphModalPro
   const toWorld = (clientX: number, clientY: number) => {
     const rect = svgRef.current?.getBoundingClientRect();
     if (!rect) return { x: 0, y: 0 };
+    // Свежий view из рефа, не из замыкания: эффект mousemove ниже живёт
+    // без зависимости от view — иначе пересоздание слушателей на каждый тик
+    const v = viewRef.current;
     return {
-      x: (clientX - rect.left - rect.width / 2 - view.tx) / view.scale,
-      y: (clientY - rect.top - rect.height / 2 - view.ty) / view.scale,
+      x: (clientX - rect.left - rect.width / 2 - v.tx) / v.scale,
+      y: (clientY - rect.top - rect.height / 2 - v.ty) / v.scale,
     };
   };
 
@@ -356,8 +371,10 @@ export default function GraphModal({ notes, onOpenNote, onClose }: GraphModalPro
       window.removeEventListener("mouseup", onUp);
       window.removeEventListener("blur", onBlur);
     };
+    // Все изменчивые данные (view, узлы) читаются из рефов: слушатели
+    // ставятся один раз и не пересоздаются на каждый тик панорамирования
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [view.scale, view.tx, view.ty, layout]);
+  }, []);
 
   // Esc — закрыть
   useEffect(() => {
