@@ -87,6 +87,18 @@ export function MediaBar({
     if (!prefs.bar) return;
     let disposed = false;
     let un: (() => void) | null = null;
+    let throttleTimer = 0;
+    let lastFetch = 0;
+    const fetchStatus = () => {
+      if (disposed) return;
+      lastFetch = performance.now();
+      void mediaStatus()
+        .then((st) => {
+          if (!disposed) setState(st);
+        })
+        .catch(() => {});
+    };
+
     void (async () => {
       try {
         const st = await mediaStatus();
@@ -97,17 +109,23 @@ export function MediaBar({
       try {
         un = await onMediaState(() => {
           if (disposed) return;
-          void mediaStatus()
-            .then((st) => {
-              // st может быть null: плеер закрыт/ничего не играет
-              if (!disposed) setState(st);
-            })
-            .catch(() => {});
+          const now = performance.now();
+          if (now - lastFetch > 400) {
+            if (throttleTimer) {
+              window.clearTimeout(throttleTimer);
+              throttleTimer = 0;
+            }
+            fetchStatus();
+          } else if (!throttleTimer) {
+            throttleTimer = window.setTimeout(() => {
+              throttleTimer = 0;
+              fetchStatus();
+            }, Math.max(50, 400 - (now - lastFetch)));
+          }
         });
         // cleanup сработал ДО резолва подписки (StrictMode, быстрый тоггл
         // минибара): unlisten вызывается здесь, иначе слушатель media-state
         // живёт вечно и гоняет IPC на каждое событие плеера
-
         if (disposed && un) {
           un();
           un = null;
@@ -118,6 +136,7 @@ export function MediaBar({
     })();
     return () => {
       disposed = true;
+      if (throttleTimer) window.clearTimeout(throttleTimer);
       un?.();
     };
   }, [prefs.bar]);

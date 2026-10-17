@@ -4,6 +4,7 @@ import Game2048 from "../../games/Game2048";
 import GameMines from "../../games/GameMines";
 import GameSnake from "../../games/GameSnake";
 import { BombIcon, FlagIcon } from "../cards/icons";
+import { readBest } from "../../games/gameCommon";
 
 export type GameId = "2048" | "mines" | "snake";
 
@@ -81,9 +82,10 @@ const TITLE_KEYS: Record<Exclude<GameId, "2048">, MsgKey> = {
   snake: "games.snake",
 };
 
-function bestOf(game: GameId): string {
-  const raw = localStorage.getItem(`haloui-game-${game}`);
-  return raw ? String(game === "mines" ? `${raw}s` : raw) : "—";
+function bestOf(game: GameId, t: (k: MsgKey, p?: Record<string, string | number>) => string): string {
+  const val = readBest(`haloui-game-${game}`);
+  if (val === null) return "—";
+  return game === "mines" ? t("unit.sec", { n: val }) : String(val);
 }
 
 export function RestSection({
@@ -94,12 +96,22 @@ export function RestSection({
   onGameChange: (g: GameId | null) => void;
 }) {
   const { t } = useLang();
-  const [, bump] = useState(0);
+  const [records, setRecords] = useState<Record<GameId, string>>(() => ({
+    "2048": bestOf("2048", t),
+    mines: bestOf("mines", t),
+    snake: bestOf("snake", t),
+  }));
 
   // Рекорды на карточках: перечитываем при выходе из игры
   useEffect(() => {
-    if (game === null) bump((v) => v + 1);
-  }, [game]);
+    if (game === null) {
+      setRecords({
+        "2048": bestOf("2048", t),
+        mines: bestOf("mines", t),
+        snake: bestOf("snake", t),
+      });
+    }
+  }, [game, t]);
 
   if (game !== null) {
     return (
@@ -139,7 +151,7 @@ export function RestSection({
                 {id === "2048" ? "2048" : t(TITLE_KEYS[id])}
               </p>
               <p className="mt-0.5 text-[0.6875rem] text-halo-muted">
-                {t("game.record", { n: bestOf(id) })}
+                {t("game.record", { n: records[id] })}
               </p>
               <button
                 onClick={() => onGameChange(id)}

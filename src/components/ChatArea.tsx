@@ -14,7 +14,6 @@ import type { JailbreakEntry } from "../jailbreaks";
 import { normalizePath, parseWriteResult, diffLines, diffStats } from "../diff";
 import { motionScale } from "../motion";
 import type { SlashCommand } from "../commands";
-import QuickSettings from "./QuickSettings";
 import NocturnMark from "./NocturnMark";
 import { MessageNav } from "./cards/MessageNav";
 import { Lightbox } from "./Lightbox";
@@ -27,7 +26,7 @@ import SystemPromptModal from "./SystemPromptModal";
 const TerminalPanel = lazy(() => import("./TerminalPanel"));
 import { uid } from "../hooks/useAgentRun";
 import WindowControls from "./WindowControls";
-import ProviderIcon, { brandName } from "./ProviderIcon";
+import { ComposerToolbar, COMPOSER_CHIP, COMPOSER_CHIP_ON, COMPOSER_CHIP_OFF } from "./ComposerToolbar";
 import { useLang, type MsgKey } from "../locales";
 import { dayPeriod } from "../time";
 import { getUserDisplayName } from "../userProfile";
@@ -40,7 +39,6 @@ import { AssistantCard } from "./cards/AssistantCard";
 import { RunCard } from "./cards/RunCard";
 import { ChangedFilesCard } from "./cards/ChangedFilesCard";
 import { ConfirmCard } from "./cards/ConfirmCard";
-import { ContextRing } from "./cards/ContextRing";
 import { PlanPanel } from "./cards/PlanPanel";
 import { SubagentCard } from "./cards/SubagentCard";
 import { buildStepRows, type StepRow } from "../agent/steps";
@@ -48,7 +46,7 @@ import { ToolStepCard } from "./cards/ToolStepCard";
 import { TypingBubble } from "./cards/TypingBubble";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { UserCard } from "./cards/UserCard";
-import { BookIcon, ChevronDownIcon, CornerDownLeftIcon, CorrectIcon, FolderIcon, GitBranchIcon, MicIcon, PlusIcon, PermModeIcon, QueueIcon, QuoteIcon, RobotIcon, ScalesIcon, ShieldIcon, SlidersIcon, SparkIcon, StopCircleIcon, SystemPromptIcon, TerminalIcon, TrashIcon, WarnIcon, WrenchIcon, XSmallIcon } from "./cards/icons";
+import { BookIcon, ChevronDownIcon, CornerDownLeftIcon, CorrectIcon, FolderIcon, GitBranchIcon, MicIcon, PlusIcon, QueueIcon, QuoteIcon, ScalesIcon, SparkIcon, StopCircleIcon, SystemPromptIcon, TrashIcon, WarnIcon, XSmallIcon } from "./cards/icons";
 import { fmtInt, fmtK } from "./cards/util";
 import { CHART_COLORS } from "../chartColors";
 
@@ -88,20 +86,6 @@ function artifactTitleFromHtml(html: string): string | null {
   return captured ? captured.replace(/<[^>]*>/g, "").trim() || null : null;
 }
 
-/** Единая анатомия чипов нижней панели композера: одна высота, паддинги
- *  и кегль у всех контролов — раньше каждый чип жил со своими px/py/кеглем,
- *  и ряд «плясал» по вертикали при непропорциональных
- *  иконках; референсы — Claude Desktop). Обводка — hairline 1px:
- *  активный акцент/25, неактивный прозрачный (толстые рамки громоздки) */
-const COMPOSER_CHIP =
-  "flex h-7 shrink-0 items-center gap-1.5 rounded-lg border px-2 text-[0.6875rem] transition duration-150 disabled:cursor-not-allowed disabled:opacity-40";
-/* Строгий стиль: активный чип нейтральный (фон hover, граница line),
-   акцент живёт только на выбранных поверхностях; в жёстких темах чипы
-   остаются серыми — это их монохромный характер */
-const COMPOSER_CHIP_ON =
-  "border-halo-line/70 bg-halo-hover text-halo-text";
-const COMPOSER_CHIP_OFF =
-  "border-transparent text-halo-muted hover:bg-halo-hover hover:text-halo-text";
 
 /** Стабильная пустая лента результатов tool-вызовов: `?? []` в рендере
  *  создавал новый массив на каждую пересборку ленты и пробивал поверхностное
@@ -615,12 +599,12 @@ export default function ChatArea({
     // Оптимистичный индикатор: прогрев/инициализация устройства могут
     // занимать секунды — кнопка не должна выглядеть мёртвой
     setRecording(true);
+    let stream: MediaStream | null = null;
     try {
       // Микрофон, выбранный в «Основном» (ключ дублирует MainSection);
       // пусто — системный по умолчанию. Фолбэк: выбранное устройство могло
       // отключиться — OverconstrainedError не должен ломать запись совсем
       const micId = localStorage.getItem(STORAGE_KEYS.micDevice) ?? "";
-      let stream: MediaStream;
       try {
         stream = await navigator.mediaDevices.getUserMedia({
           audio: {
@@ -653,6 +637,9 @@ export default function ChatArea({
       window.__nocturnMicBusy = true;
       document.dispatchEvent(new CustomEvent("nocturn-voice-busy"));
     } catch {
+      if (stream) {
+        stream.getTracks().forEach((tr) => tr.stop());
+      }
       setRecording(false);
       window.alert(t("dictation.micDenied"));
     } finally {
@@ -2260,6 +2247,49 @@ export default function ChatArea({
       projectRoot,
     ],
   );
+
+  const composerToolbarProps = {
+    agentMode,
+    onToggleAgent,
+    terminalOpen,
+    onToggleTerminal,
+    permissionMode,
+    onPermissionModeChange,
+    permOpen,
+    setPermOpen,
+    toolsOpen,
+    setToolsOpen,
+    toolNames,
+    openTools,
+    disabledTools,
+    onToggleDisabledTool,
+    contextUsed,
+    contextEstimate,
+    contextLimit,
+    contextRows,
+    subRuns,
+    subOpen,
+    setSubOpen,
+    model,
+    models,
+    onModelChange,
+    isLocal,
+    onOpenSettings,
+    quickOpen,
+    setQuickOpen,
+    effort,
+    onEffortChange,
+    promptPresets,
+    customPresets,
+    onApplyPreset,
+    theme,
+    appearance,
+    onThemeChange,
+    onAppearanceChange,
+    glass,
+    onGlassChange,
+  };
+
   return (
     <section className="chat-surface relative flex h-full min-w-0 flex-1 flex-col bg-halo-bg">
       {/* Drag&drop: оверлей на время перетаскивания файлов (поверх всего) */}
@@ -2467,37 +2497,35 @@ export default function ChatArea({
       >
         <div className={`pointer-events-auto relative mx-auto w-full ${composerCentered ? "max-w-2xl" : "max-w-3xl"}`}>
           {/* Мини-бар плеера: полоской над композером, в том же кластере */}
-          {!composerCentered && (
-            <MediaBar
-              prefs={mediaPrefs}
-              onLyrics={onMediaLyrics}
-              onPlayingChange={onMusicPlaying}
-              onTrackChange={(src) => pushNokEvent(src === "yt" ? "yt" : "track")}
-            />
-          )}
-          {/* Центр кластера — сам шелл: приветствие, селектор проекта и
-              медиабар висят НАД ним абсолютом и не сдвигают центр вниз.
-              Иначе «центрированный» композер сидит ниже середины окна на
-              полвысоты приветствия */}
-          {composerCentered && (
-            <div className="absolute bottom-full left-0 right-0 mb-3 flex flex-col items-center">
+          {/* Мини-бар плеера: единый инстанс над композером */}
+          <div
+            className={
+              composerCentered
+                ? "absolute bottom-full left-0 right-0 mb-3 flex flex-col items-center"
+                : ""
+            }
+          >
+            <div className="w-full">
               <MediaBar
                 prefs={mediaPrefs}
                 onLyrics={onMediaLyrics}
                 onPlayingChange={onMusicPlaying}
                 onTrackChange={(src) => pushNokEvent(src === "yt" ? "yt" : "track")}
               />
-              <div className="mb-3 flex flex-col items-center text-center">
-                <span className="text-halo-accent">
-                  <SparkIcon />
-                </span>
-                <h2
-                  className={`mt-3 text-3xl font-medium tracking-tight text-halo-text ${
-                    appearance.textShimmer ? "shimmer-text" : ""
-                  }`}
-                >
-                  {greeting}
-                </h2>
+            </div>
+            {composerCentered && (
+              <>
+                <div className="mb-3 flex flex-col items-center text-center">
+                  <span className="text-halo-accent">
+                    <SparkIcon />
+                  </span>
+                  <h2
+                    className={`mt-3 text-3xl font-medium tracking-tight text-halo-text ${
+                      appearance.textShimmer ? "shimmer-text" : ""
+                    }`}
+                  >
+                    {greeting}
+                  </h2>
                 <p className="mt-1.5 max-w-sm text-sm leading-relaxed text-halo-muted">
                   {t("chat.greetingSub")}
                 </p>
@@ -2589,8 +2617,9 @@ export default function ChatArea({
                   )}
                 </div>
               </div>
-            </div>
-          )}
+              </>
+            )}
+          </div>
           {/* z-[var(--halo-z-panel-raised)] выше ленты сообщений (z-10): glass-pane создаёт stacking
               context, и палитра slash без этого слоя оказывалась под лентой.
               Пропорции по референс: компактный радиус, тонкая рамка, без тени —
@@ -2961,569 +2990,14 @@ export default function ChatArea({
               </div>
             )}
 
-            {/* Нижняя панель в духе референс: режимы слева, модель и настройки
-                справа. Все чипы — единая анатомия COMPOSER_CHIP */}
+            {/* Нижняя панель: режимы слева, модель и настройки справа */}
             {!chatStarted && (
-              <div className="mt-1 flex items-center gap-1.5 px-1">
-                <button
-                  onClick={onToggleAgent}
-                  title={t("agent.toggle")}
-                  className={`${COMPOSER_CHIP} ${agentMode ? COMPOSER_CHIP_ON : COMPOSER_CHIP_OFF}`}
-                >
-                  <RobotIcon />
-                  {t("agent.toggle")}
-                </button>
-                <button
-                  onClick={onToggleTerminal}
-                  title={t("terminal.toggle")}
-                  className={`${COMPOSER_CHIP} ${terminalOpen ? COMPOSER_CHIP_ON : COMPOSER_CHIP_OFF}`}
-                >
-                  <TerminalIcon />
-                  {t("terminal.toggle")}
-                </button>
-                {/* Режим разрешений агента (plan / ask / edit / full) */}
-                <div className="relative">
-                  <button
-                    onClick={() => setPermOpen((v) => !v)}
-                    title={t("perms.title")}
-                    className={`${COMPOSER_CHIP} ${
-                      permissionMode !== "ask" ? COMPOSER_CHIP_ON : COMPOSER_CHIP_OFF
-                    }`}
-                  >
-                    <ShieldIcon />
-                    <span className="max-w-32 truncate">
-                      {t(`perms.${permissionMode}`)}
-                    </span>
-                    <ChevronDownIcon />
-                  </button>
-                  {permOpen && (
-                    <>
-                      <div
-                        className="fixed inset-0 z-[var(--halo-z-panel)]"
-                        onClick={() => setPermOpen(false)}
-                      />
-                      <div className="anim-pop absolute bottom-full left-0 z-[var(--halo-z-panel-raised)] mb-2 w-64 rounded-xl border border-halo-line bg-halo-deep/95 p-1.5 shadow-xl backdrop-blur">
-                        <p className="px-2 pb-1 text-[0.625rem] uppercase tracking-wider text-halo-muted/60">
-                          {t("perms.title")}
-                        </p>
-                        {(
-                          [
-                            "plan",
-                            "ask",
-                            "edit",
-                            "full",
-                          ] as PermissionMode[]
-                        ).map((m) => (
-                          <button
-                            key={m}
-                            onClick={() => {
-                              onPermissionModeChange(m);
-                              setPermOpen(false);
-                            }}
-                            className={`flex w-full items-start gap-2.5 rounded-lg px-2 py-1.5 text-left transition-colors ${
-                              permissionMode === m
-                                ? "bg-halo-hover"
-                                : "hover:bg-halo-hover"
-                            }`}
-                          >
-                            <span
-                              className={`mt-0.5 shrink-0 ${
-                                permissionMode === m
-                                  ? "text-halo-text"
-                                  : "text-halo-muted"
-                              }`}
-                            >
-                              <PermModeIcon mode={m} />
-                            </span>
-                            <span className="min-w-0">
-                              <span className="block text-xs font-medium text-halo-text">
-                                {t(`perms.${m}`)}
-                              </span>
-                              <span className="block text-[0.6875rem] leading-snug text-halo-muted">
-                                {t(`perms.${m}Desc`)}
-                              </span>
-                            </span>
-                          </button>
-                        ))}
-                      </div>
-                    </>
-                  )}
-                </div>
-                {/* Инструменты агента: чёрный список задачи */}
-                <div className="relative">
-                  <button
-                    onClick={openTools}
-                    title={t("tools.title")}
-                    className={`${COMPOSER_CHIP} ${
-                      disabledTools.length > 0 ? COMPOSER_CHIP_ON : COMPOSER_CHIP_OFF
-                    }`}
-                  >
-                    <WrenchIcon />
-                    {disabledTools.length > 0 && (
-                      <span className="tabular-nums">{disabledTools.length}</span>
-                    )}
-                    <ChevronDownIcon />
-                  </button>
-                  {toolsOpen && (
-                    <>
-                      <div
-                        className="fixed inset-0 z-[var(--halo-z-panel)]"
-                        onClick={() => setToolsOpen(false)}
-                      />
-                      <div className="scroll-slim anim-pop absolute bottom-full left-0 z-[var(--halo-z-panel-raised)] mb-2 max-h-80 w-64 overflow-y-auto rounded-xl border border-halo-line bg-halo-deep/95 p-1.5 shadow-xl backdrop-blur">
-                        <p className="px-2 pb-1 text-[0.625rem] uppercase tracking-wider text-halo-muted/60">
-                          {t("tools.title")}
-                        </p>
-                        <p className="px-2 pb-1.5 text-[0.6875rem] leading-snug text-halo-muted">
-                          {t("tools.hint")}
-                        </p>
-                        {toolNames === null ? (
-                          <p className="px-2 py-1.5 text-xs text-halo-muted">…</p>
-                        ) : toolNames.length === 0 ? (
-                          <p className="px-2 py-1.5 text-xs text-halo-muted">
-                            {t("tools.empty")}
-                          </p>
-                        ) : (
-                          toolNames.map((name) => {
-                            const off = disabledTools.includes(name);
-                            return (
-                              <button
-                                key={name}
-                                onClick={() => onToggleDisabledTool(name)}
-                                className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs transition-colors ${
-                                  off
-                                    ? "bg-halo-hover text-halo-text"
-                                    : "text-halo-muted hover:bg-halo-hover hover:text-halo-text"
-                                }`}
-                              >
-                                <span
-                                  className={`flex size-3.5 shrink-0 items-center justify-center rounded border transition-colors ${
-                                    off
-                                      ? "border-halo-text/60 bg-halo-text/60"
-                                      : "border-halo-muted/50"
-                                  }`}
-                                >
-                                  {off && (
-                                    <svg
-                                      viewBox="0 0 10 10"
-                                      className="size-2.5 text-halo-on-accent"
-                                      fill="none"
-                                      stroke="currentColor"
-                                      strokeWidth="2"
-                                    >
-                                      <path d="M1.5 5.5l2.5 2.5 4.5-5" />
-                                    </svg>
-                                  )}
-                                </span>
-                                <span className="truncate font-mono">{name}</span>
-                              </button>
-                            );
-                          })
-                        )}
-                      </div>
-                    </>
-                  )}
-                </div>
-                <span className="flex-1" />
-                <span className="flex h-7 items-center">
-                  <ContextRing
-                    used={contextUsed || contextEstimate.msgs + contextEstimate.prompt}
-                    limit={contextLimit}
-                    rows={contextRows}
-                    isEstimate={!contextUsed}
-                  />
-                </span>
-                {/* Монитор субагентов: только когда прогоны были/идут */}
-                {Object.keys(subRuns ?? {}).length > 0 && (
-                  <div className="relative">
-                    <button
-                      onClick={() => setSubOpen((v) => !v)}
-                      title={t("sub.monitor")}
-                      className={`${COMPOSER_CHIP} ${
-                        subOpen ||
-                        Object.values(subRuns ?? {}).some((r) => r.report === null)
-                          ? COMPOSER_CHIP_ON
-                          : COMPOSER_CHIP_OFF
-                      }`}
-                    >
-                      <RobotIcon />
-                      <span className="tabular-nums">
-                        {Object.values(subRuns ?? {}).filter((r) => r.report === null).length ||
-                          Object.keys(subRuns ?? {}).length}
-                      </span>
-                    </button>
-                    {subOpen && (
-                      <>
-                        <div
-                          className="fixed inset-0 z-[var(--halo-z-panel)]"
-                          onClick={() => setSubOpen(false)}
-                        />
-                        <div className="anim-pop absolute bottom-full right-0 z-[var(--halo-z-panel-raised)] mb-2 w-80 rounded-xl border border-halo-line bg-halo-deep/95 p-1.5 shadow-xl backdrop-blur">
-                          <p className="px-2 pb-1 text-[0.625rem] uppercase tracking-wider text-halo-muted/60">
-                            {t("sub.monitor")}
-                          </p>
-                          {Object.entries(subRuns ?? {}).map(([id, r]) => (
-                            <div
-                              key={id}
-                              className="flex items-center gap-2 rounded-lg px-2 py-1.5"
-                            >
-                              <span
-                                className={`size-1.5 shrink-0 rounded-full ${
-                                  r.report === null
-                                    ? "animate-pulse bg-halo-accent"
-                                    : "bg-emerald-400"
-                                }`}
-                              />
-                              <div className="min-w-0 flex-1">
-                                <p className="truncate text-xs font-medium text-halo-text">
-                                  {r.roleName}
-                                </p>
-                                {r.task && (
-                                  <p className="truncate text-[0.6875rem] text-halo-muted/70">
-                                    {r.task}
-                                  </p>
-                                )}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </>
-                    )}
-                  </div>
-                )}
-                {/* Модель — в правом кластере (референс/Claude:Capabilities слева,
-                    модель и настройки справа) */}
-                <button
-                  onClick={onOpenSettings}
-                  title={model ? model : t("chat.modelHint")}
-                  className={`${COMPOSER_CHIP} ${COMPOSER_CHIP_OFF}`}
-                >
-                  <ProviderIcon modelId={model} size={12} />
-                  <span className="max-w-32 truncate">
-                    {model ? brandName(model) : t("chat.modelNotSet")}
-                  </span>
-                  {isLocal && (
-                    <span className="rounded bg-emerald-400/15 px-1.5 py-0.5 text-[0.5625rem] font-medium text-emerald-400">
-                      {t("chat.modelLocal")}
-                    </span>
-                  )}
-                  <ChevronDownIcon />
-                </button>
-                <div className="relative">
-                  <button
-                    onClick={() => setQuickOpen((v) => !v)}
-                    title={t("qs.title")}
-                    className={`${COMPOSER_CHIP} ${
-                      quickOpen ? COMPOSER_CHIP_ON : COMPOSER_CHIP_OFF
-                    }`}
-                  >
-                    <SlidersIcon />
-                  </button>
-                  {quickOpen && (
-                    <div className="absolute bottom-full right-0">
-                      <QuickSettings
-                        model={model}
-                        models={models}
-                        onModel={onModelChange}
-                        effort={effort}
-                        onEffortChange={onEffortChange}
-                        promptPresets={promptPresets}
-                        customPresets={customPresets}
-                        onApplyPreset={onApplyPreset}
-                        theme={theme}
-                        appearance={appearance}
-                        onThemeChange={onThemeChange}
-                        onAppearanceChange={onAppearanceChange}
-                        glass={glass}
-                        onGlassChange={onGlassChange}
-                        onClose={() => setQuickOpen(false)}
-                      />
-                    </div>
-                  )}
-                </div>
-              </div>
+              <ComposerToolbar compact={false} {...composerToolbarProps} />
             )}
           </div>
           </>
           {chatStarted && (
-          <div className="mt-1.5 flex items-center gap-1.5 px-1">
-            <button
-              onClick={onToggleAgent}
-              title={t("agent.toggle")}
-              className={`${COMPOSER_CHIP} ${agentMode ? COMPOSER_CHIP_ON : COMPOSER_CHIP_OFF}`}
-            >
-              <RobotIcon />
-              {t("agent.toggle")}
-            </button>
-            <button
-              onClick={onToggleTerminal}
-              title={t("terminal.toggle")}
-              className={`${COMPOSER_CHIP} ${terminalOpen ? COMPOSER_CHIP_ON : COMPOSER_CHIP_OFF}`}
-            >
-              <TerminalIcon />
-              {t("terminal.toggle")}
-            </button>
-            {/* Режим разрешений агента (plan / ask / edit / full) */}
-            <div className="relative">
-              <button
-                onClick={() => setPermOpen((v) => !v)}
-                title={t("perms.title")}
-                className={`${COMPOSER_CHIP} ${
-                  permissionMode !== "ask" ? COMPOSER_CHIP_ON : COMPOSER_CHIP_OFF
-                }`}
-              >
-                <ShieldIcon />
-                <span className="max-w-32 truncate">
-                  {t(`perms.${permissionMode}`)}
-                </span>
-                <ChevronDownIcon />
-              </button>
-              {permOpen && (
-                <>
-                  <div
-                    className="fixed inset-0 z-[var(--halo-z-panel)]"
-                    onClick={() => setPermOpen(false)}
-                  />
-                  <div className="anim-pop absolute bottom-full left-0 z-[var(--halo-z-panel-raised)] mb-2 w-64 rounded-xl border border-halo-line bg-halo-deep/95 p-1.5 shadow-xl backdrop-blur">
-                    <p className="px-2 pb-1 text-[0.625rem] uppercase tracking-wider text-halo-muted/60">
-                      {t("perms.title")}
-                    </p>
-                    {(
-                      [
-                        "plan",
-                        "ask",
-                        "edit",
-                        "full",
-                      ] as PermissionMode[]
-                    ).map((m) => (
-                      <button
-                        key={m}
-                        onClick={() => {
-                          onPermissionModeChange(m);
-                          setPermOpen(false);
-                        }}
-                        className={`flex w-full items-start gap-2.5 rounded-lg px-2 py-1.5 text-left transition-colors ${
-                          permissionMode === m
-                            ? "bg-halo-hover"
-                            : "hover:bg-halo-hover"
-                        }`}
-                      >
-                        <span
-                          className={`mt-0.5 shrink-0 ${
-                            permissionMode === m
-                              ? "text-halo-text"
-                              : "text-halo-muted"
-                          }`}
-                        >
-                          <PermModeIcon mode={m} />
-                        </span>
-                        <span className="min-w-0">
-                          <span className="block text-xs font-medium text-halo-text">
-                            {t(`perms.${m}`)}
-                          </span>
-                          <span className="block text-[0.6875rem] leading-snug text-halo-muted">
-                            {t(`perms.${m}Desc`)}
-                          </span>
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                </>
-              )}
-            </div>
-            {/* Инструменты агента: чёрный список задачи */}
-            <div className="relative">
-              <button
-                onClick={openTools}
-                title={t("tools.title")}
-                className={`${COMPOSER_CHIP} ${
-                  disabledTools.length > 0 ? COMPOSER_CHIP_ON : COMPOSER_CHIP_OFF
-                }`}
-              >
-                <WrenchIcon />
-                {disabledTools.length > 0 && (
-                  <span className="tabular-nums">{disabledTools.length}</span>
-                )}
-                <ChevronDownIcon />
-              </button>
-              {toolsOpen && (
-                <>
-                  <div
-                    className="fixed inset-0 z-[var(--halo-z-panel)]"
-                    onClick={() => setToolsOpen(false)}
-                  />
-                  <div className="scroll-slim anim-pop absolute bottom-full left-0 z-[var(--halo-z-panel-raised)] mb-2 max-h-80 w-64 overflow-y-auto rounded-xl border border-halo-line bg-halo-deep/95 p-1.5 shadow-xl backdrop-blur">
-                    <p className="px-2 pb-1 text-[0.625rem] uppercase tracking-wider text-halo-muted/60">
-                      {t("tools.title")}
-                    </p>
-                    <p className="px-2 pb-1.5 text-[0.6875rem] leading-snug text-halo-muted">
-                      {t("tools.hint")}
-                    </p>
-                    {toolNames === null ? (
-                      <p className="px-2 py-1.5 text-xs text-halo-muted">…</p>
-                    ) : toolNames.length === 0 ? (
-                      <p className="px-2 py-1.5 text-xs text-halo-muted">
-                        {t("tools.empty")}
-                      </p>
-                    ) : (
-                      toolNames.map((name) => {
-                        const off = disabledTools.includes(name);
-                        return (
-                          <button
-                            key={name}
-                            onClick={() => onToggleDisabledTool(name)}
-                            className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs transition-colors ${
-                              off
-                                ? "bg-halo-hover text-halo-text"
-                                : "text-halo-muted hover:bg-halo-hover hover:text-halo-text"
-                            }`}
-                          >
-                            <span
-                              className={`flex size-3.5 shrink-0 items-center justify-center rounded border transition-colors ${
-                                off
-                                  ? "border-halo-text/60 bg-halo-text/60"
-                                  : "border-halo-muted/50"
-                              }`}
-                            >
-                              {off && (
-                                <svg
-                                  viewBox="0 0 10 10"
-                                  className="size-2.5 text-halo-on-accent"
-                                  fill="none"
-                                  stroke="currentColor"
-                                  strokeWidth="2"
-                                >
-                                  <path d="M1.5 5.5l2.5 2.5 4.5-5" />
-                                </svg>
-                              )}
-                            </span>
-                            <span className="truncate font-mono">{name}</span>
-                          </button>
-                        );
-                      })
-                    )}
-                  </div>
-                </>
-              )}
-            </div>
-            <span className="flex-1" />
-            <span className="flex h-7 items-center">
-              <ContextRing
-                used={contextUsed || contextEstimate.msgs + contextEstimate.prompt}
-                limit={contextLimit}
-                rows={contextRows}
-                isEstimate={!contextUsed}
-              />
-            </span>
-            {/* Монитор субагентов: только когда прогоны были/идут */}
-            {Object.keys(subRuns ?? {}).length > 0 && (
-              <div className="relative">
-                <button
-                  onClick={() => setSubOpen((v) => !v)}
-                  title={t("sub.monitor")}
-                  className={`${COMPOSER_CHIP} ${
-                    subOpen ||
-                    Object.values(subRuns ?? {}).some((r) => r.report === null)
-                      ? COMPOSER_CHIP_ON
-                      : COMPOSER_CHIP_OFF
-                  }`}
-                >
-                  <RobotIcon />
-                  <span className="tabular-nums">
-                    {Object.values(subRuns ?? {}).filter((r) => r.report === null).length ||
-                      Object.keys(subRuns ?? {}).length}
-                  </span>
-                </button>
-                {subOpen && (
-                  <>
-                    <div
-                      className="fixed inset-0 z-[var(--halo-z-panel)]"
-                      onClick={() => setSubOpen(false)}
-                    />
-                    <div className="anim-pop absolute bottom-full right-0 z-[var(--halo-z-panel-raised)] mb-2 w-80 rounded-xl border border-halo-line bg-halo-deep/95 p-1.5 shadow-xl backdrop-blur">
-                      <p className="px-2 pb-1 text-[0.625rem] uppercase tracking-wider text-halo-muted/60">
-                        {t("sub.monitor")}
-                      </p>
-                      {Object.entries(subRuns ?? {}).map(([id, r]) => (
-                        <div
-                          key={id}
-                          className="flex items-center gap-2 rounded-lg px-2 py-1.5"
-                        >
-                          <span
-                            className={`size-1.5 shrink-0 rounded-full ${
-                              r.report === null
-                                ? "animate-pulse bg-halo-accent"
-                                : "bg-emerald-400"
-                            }`}
-                          />
-                          <div className="min-w-0 flex-1">
-                            <p className="truncate text-xs font-medium text-halo-text">
-                              {r.roleName}
-                            </p>
-                            {r.task && (
-                              <p className="truncate text-[0.6875rem] text-halo-muted/70">
-                                {r.task}
-                              </p>
-                            )}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </>
-                )}
-              </div>
-            )}
-            {/* Модель — в правом кластере (референс/Claude:Capabilities слева,
-                модель и настройки справа) */}
-            <button
-              onClick={onOpenSettings}
-              title={model ? model : t("chat.modelHint")}
-              className={`${COMPOSER_CHIP} ${COMPOSER_CHIP_OFF}`}
-            >
-              <ProviderIcon modelId={model} size={12} />
-              <span className="max-w-32 truncate">
-                {model ? brandName(model) : t("chat.modelNotSet")}
-              </span>
-              {isLocal && (
-                <span className="rounded bg-emerald-400/15 px-1.5 py-0.5 text-[0.5625rem] font-medium text-emerald-400">
-                  {t("chat.modelLocal")}
-                </span>
-              )}
-              <ChevronDownIcon />
-            </button>
-            <div className="relative">
-              <button
-                onClick={() => setQuickOpen((v) => !v)}
-                title={t("qs.title")}
-                className={`${COMPOSER_CHIP} ${
-                  quickOpen ? COMPOSER_CHIP_ON : COMPOSER_CHIP_OFF
-                }`}
-              >
-                <SlidersIcon />
-              </button>
-              {quickOpen && (
-                <div className="absolute bottom-full right-0">
-                  <QuickSettings
-                    model={model}
-                    models={models}
-                    onModel={onModelChange}
-                    effort={effort}
-                    onEffortChange={onEffortChange}
-                    promptPresets={promptPresets}
-                    customPresets={customPresets}
-                    onApplyPreset={onApplyPreset}
-                    theme={theme}
-                    appearance={appearance}
-                    onThemeChange={onThemeChange}
-                    onAppearanceChange={onAppearanceChange}
-                    glass={glass}
-                    onGlassChange={onGlassChange}
-                    onClose={() => setQuickOpen(false)}
-                  />
-                </div>
-              )}
-            </div>
-          </div>
+            <ComposerToolbar compact {...composerToolbarProps} />
           )}
         </div>
       </div>

@@ -45,7 +45,8 @@ const BRAND_DEFS: BrandDef[] = [
   { key: "google", match: /gemini|google/, name: "Google", slug: "googlegemini", color: "4796E3" },
   { key: "gemma", match: /gemma/, name: "Gemma", slug: "googlegemini", color: "4796E3" },
   { key: "xai", match: /grok|x-ai|^xai/, name: "Grok", color: "E8E6DC" },
-  { key: "meta", match: /llama|meta/, name: "Llama", slug: "meta", color: "0866FF" },
+  { key: "ollama", match: /ollama/, name: "Ollama", slug: "ollama", color: "000000" },
+  { key: "meta", match: /(?:^|[^a-z])llama|meta/, name: "Llama", slug: "meta", color: "0866FF" },
   { key: "mistralai", match: /mistral|mixtral/, name: "Mistral", slug: "mistralai", color: "FF7000" },
   { key: "mistral", match: /mistral/, name: "Mistral", slug: "mistralai", color: "FF7000" },
   { key: "qwen", match: /qwen/, name: "Qwen", slug: "qwen", color: "615CED" },
@@ -71,7 +72,6 @@ const BRAND_DEFS: BrandDef[] = [
   { key: "cerebras", match: /cerebras/, name: "Cerebras", color: "FF7A00" },
   { key: "openrouter", match: /openrouter/, name: "OpenRouter", slug: "openrouter", color: "8B5CF6" },
   { key: "huggingface", match: /hugging/, name: "Hugging Face", slug: "huggingface", color: "FFD21E" },
-  { key: "ollama", match: /ollama/, name: "Ollama", slug: "ollama", color: "000000" },
 ];
 
 /** Точный ключ семьи → бренд (семья "kimi" матчится и regex'ом, но ключ
@@ -215,20 +215,27 @@ export default function ProviderIcon({ modelId, size = 18 }: ProviderIconProps) 
   }
 
   if (!icon) {
-    // Фолбэк: первая буква семейства. Цвет: фирменный бренда, у нишевых —
-    // детерминированный hue из имени (кружок-аватар, а не серая заглушка)
+    // Фолбэк: первая буква имени бренда (или семейства). Цвет: фирменный бренда
+    // с защитой по контрасту (слишком светлые вроде Grok или тёмные подменяются
+    // токеном текста темы), у нишевых — детерминированный hue
     const hue = hueOf(family || modelId || "?");
-    const color = brand?.color ? `#${brand.color}` : `hsl(${hue} 72% 72%)`;
+    const lum = brand?.color ? hexLuminance(brand.color) : 0.5;
+    const color = brand?.color
+      ? lum > 0.8 || lum < 0.2
+        ? "var(--halo-text)"
+        : `#${brand.color}`
+      : `hsl(${hue} 72% 72%)`;
     const bg = brand ? undefined : `hsl(${hue} 38% 24%)`;
+    const letter = (brand?.name || family || "?").charAt(0).toUpperCase();
     return (
       <span
         style={{ ...circleStyle, ...(bg ? { background: bg } : {}) }}
-        // title только при известном семействе: жёсткая русская заглушка
-        // «провайдер» показывалась на всех языках
+        role="img"
+        aria-label={brand?.name ?? family ?? "Provider"}
         title={family || undefined}
         className="flex shrink-0 items-center justify-center rounded-full bg-halo-raised font-semibold uppercase text-halo-text"
       >
-        <span style={color ? { color } : undefined}>{(family || "?").charAt(0)}</span>
+        <span style={color ? { color } : undefined}>{letter}</span>
       </span>
     );
   }

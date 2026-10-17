@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLang } from "../locales";
+import { isGameInputTarget, useBest } from "./gameCommon";
 
 /**
  * 2048: сетка 4×4, стрелки/WASD + свайпы, плитки с идентификаторами —
@@ -16,6 +17,13 @@ interface Tile {
   fresh: boolean;
   /** Результат слияния: pop-анимация на месте */
   merged: boolean;
+}
+
+interface HistoryState {
+  tiles: Tile[];
+  score: number;
+  won: boolean;
+  wonShown: boolean;
 }
 
 type Dir = "up" | "down" | "left" | "right";
@@ -52,7 +60,6 @@ function spawn(tiles: Tile[]): Tile[] {
 }
 
 function lineIndices(dir: Dir): number[][] {
-  // Порядок обхода линий: от стороны, в которую едем
   const lines: number[][] = [];
   for (let i = 0; i < SIZE; i++) {
     const line: number[] = [];
@@ -87,9 +94,6 @@ function move(
       const r = Math.floor(pos / SIZE);
       const c = pos % SIZE;
       if (prev && prev.v === t.v) {
-        // Слияние: предыдущая плитка удваивается, эта исчезает. target НЕ
-        // двигается — освободившийся слот занимает следующая плитка
-        // (инкремент здесь оставлял дырки в линии и ломал доску)
         prev.v *= 2;
         prev.merged = true;
         gained += prev.v;
@@ -132,11 +136,11 @@ export default function Game2048() {
   const { t } = useLang();
   const [tiles, setTiles] = useState<Tile[]>(() => spawn(spawn([])));
   const [score, setScore] = useState(0);
-  const [best, setBest] = useState(() => Number(localStorage.getItem(BEST_KEY) ?? 0));
+  const [best, updateBest] = useBest(BEST_KEY);
   const [over, setOver] = useState(false);
   const [won, setWon] = useState(false);
   const [wonShown, setWonShown] = useState(false);
-  const historyRef = useRef<{ tiles: Tile[]; score: number } | null>(null);
+  const historyRef = useRef<HistoryState | null>(null);
   const boardRef = useRef<HTMLDivElement>(null);
   const swipeRef = useRef<{ x: number; y: number } | null>(null);
 
@@ -152,8 +156,6 @@ export default function Game2048() {
     historyRef.current = null;
   }, []);
 
-  // Зеркало доски: расчёт хода снаружи setTiles — сайд-эффекты внутри
-  // updater'а StrictMode вызывает дважды (ход применялся по два раза)
   const tilesRef = useRef(tiles);
   useEffect(() => {
     tilesRef.current = tiles;
@@ -165,17 +167,14 @@ export default function Game2048() {
       const cur = tilesRef.current;
       const res = move(cur, dir);
       if (!res) return;
-      historyRef.current = { tiles: cur, score };
+      historyRef.current = { tiles: cur, score, won, wonShown };
       const withNew = spawn(res.tiles);
       tilesRef.current = withNew;
       setTiles(withNew);
       if (res.gained > 0) {
         const nextScore = score + res.gained;
         setScore(nextScore);
-        if (nextScore > best) {
-          setBest(nextScore);
-          localStorage.setItem(BEST_KEY, String(nextScore));
-        }
+        updateBest(nextScore, "max");
       }
       if (!won && withNew.some((tl) => tl.v >= 2048)) {
         setWon(true);
@@ -189,12 +188,13 @@ export default function Game2048() {
         if (stuck) setOver(true);
       }
     },
-    [over, score, best, won],
+    [over, score, won, wonShown, updateBest],
   );
 
   // Клавиатура: стрелки/WASD — ход, Enter — сброс после конца
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (isGameInputTarget(e.target)) return;
       const map: Record<string, Dir> = {
         ArrowLeft: "left",
         ArrowRight: "right",
@@ -216,11 +216,23 @@ export default function Game2048() {
     return () => window.removeEventListener("keydown", onKey, true);
   }, [doMove]);
 
-  // Свайпы мышью/тачем по полю
-  const onPointerDown = (e: React.PointerEvent) => {
+  // Свайпы мышью/тачем с захватом курсора (pointer capture)
+  const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     swipeRef.current = { x: e.clientX, y: e.clientY };
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {
+      // Игнорируем в браузерах без поддержки pointer capture
+    }
   };
-  const onPointerUp = (e: React.PointerEvent) => {
+  const onPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    try {
+      if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+        e.currentTarget.releasePointerCapture(e.pointerId);
+      }
+    } catch {
+      // Игнорируем
+    }
     const s = swipeRef.current;
     swipeRef.current = null;
     if (!s) return;
@@ -234,8 +246,11 @@ export default function Game2048() {
     const h = historyRef.current;
     if (!h) return;
     historyRef.current = null;
+    tilesRef.current = h.tiles;
     setTiles(h.tiles);
     setScore(h.score);
+    setWon(h.won);
+    setWonShown(h.wonShown);
     setOver(false);
   };
 
@@ -247,7 +262,7 @@ export default function Game2048() {
           {t("game.score")}: <b className="text-halo-text">{score}</b>
         </span>
         <span className="rounded-lg border border-halo-line bg-halo-surface/60 px-3 py-1.5 text-xs text-halo-muted">
-          {t("game.record", { n: best })}
+          {t("game.record", { n: best ?? 0 })}
         </span>
         <button
           onClick={undo}

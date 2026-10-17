@@ -3,8 +3,8 @@ import type { MediaLyricsSnapshot } from "../mediaPrefs";
 import { cssVarColor, rgbCss } from "../appearance";
 
 /** Затухание по удалённости слота от активной строки; блюр соседей */
-const ALPHA = [0.95, 0.5, 0.3, 0.16];
-const BLUR = [0, 2, 5, 9];
+const ALPHA = [0.95, 0.45, 0.22];
+const BLUR = [0, 2, 4];
 // Длительность кроссфейда смены активной строки
 const FADE_MS = 400;
 // Фолбэки на случай пустых переменных (до первого applyAppearance)
@@ -62,10 +62,21 @@ export function LyricsRibbon({
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
   }, []);
-  // Тема применяется инлайн-стилем/классами на корне: без наблюдателя
-  // цвета ленты оставались бы от прежней темы до следующей строки
   useEffect(() => {
-    const mo = new MutationObserver(() => setRepaint((v) => v + 1));
+    let lastThemeKey =
+      document.documentElement.className +
+      "|" +
+      (document.documentElement.getAttribute("style") ?? "");
+    const mo = new MutationObserver(() => {
+      const current =
+        document.documentElement.className +
+        "|" +
+        (document.documentElement.getAttribute("style") ?? "");
+      if (current !== lastThemeKey) {
+        lastThemeKey = current;
+        setRepaint((v) => v + 1);
+      }
+    });
     mo.observe(document.documentElement, {
       attributeFilter: ["class", "style"],
     });
@@ -137,7 +148,7 @@ export function LyricsRibbon({
     const w = window.innerWidth;
     const h = window.innerHeight;
     ctx.clearRect(0, 0, w, h);
-    if (!snap || snap.lines.length < 2) return;
+    if (!snap || snap.lines.length < 2 || snap.index < 0) return;
 
     const accent = rgbCss(cssVarColor("--halo-accent", ACCENT_FALLBACK));
     const muted = rgbCss(cssVarColor("--halo-muted", MUTED_FALLBACK));
@@ -164,7 +175,7 @@ export function LyricsRibbon({
       : 1;
     const ease = fadeT * fadeT * (3 - 2 * fadeT);
     const slots: { text: string; y: number; dist: number; li: number }[] = [];
-    for (let k = 3; k >= 1; k--) {
+    for (let k = 2; k >= 1; k--) {
       const line = snap.lines[a - k];
       const y = anchorY - k * spacing;
       if (line && y > kegel * 0.8)
@@ -172,7 +183,7 @@ export function LyricsRibbon({
     }
     const active = snap.lines[a];
     if (active) slots.push({ text: active.text, y: anchorY, dist: 0, li: a });
-    for (let k = 1; k <= 3; k++) {
+    for (let k = 1; k <= 2; k++) {
       const line = snap.lines[a + k];
       const y = bandBottom + kegel * 0.4 + (k - 1) * spacing;
       if (line && y < h - kegel * 0.4)
@@ -249,9 +260,11 @@ export function LyricsRibbon({
     <div
       className="lyrics-ribbon pointer-events-none fixed inset-0 transition-opacity duration-500"
       style={{ opacity: dimmed ? 0.12 : 1 }}
-      aria-hidden
     >
-      <canvas ref={canvasRef} className="h-full w-full" />
+      <div className="sr-only" aria-live="polite" aria-atomic="true">
+        {snap && snap.index >= 0 ? snap.lines[snap.index]?.text : ""}
+      </div>
+      <canvas ref={canvasRef} className="h-full w-full" aria-hidden="true" />
     </div>
   );
 }

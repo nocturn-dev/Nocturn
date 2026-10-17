@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Session, UsageEvent } from "../types";
 import { dayKeyLocal } from "../time";
 import { localeTag, useLang, type Lang, type TFn } from "../locales";
@@ -382,6 +382,14 @@ function Heatmap({
   const monthLabel = (d: Date) =>
     d.toLocaleDateString(localeTag(lang), { month: "short" });
 
+  // Анимация каскада ячеек — только при первом показе; при переключении
+  // режимов (daily/weekly/cumulative) задержки не должны переигрываться
+  const mountedRef = useRef(false);
+  useEffect(() => {
+    mountedRef.current = true;
+  }, []);
+  const initial = !mountedRef.current;
+
   if (mode === "weekly") {
     // Одна полоса: сумма за неделю
     return (
@@ -394,8 +402,11 @@ function Heatmap({
             <span
               key={i}
               title={`${head.date.toLocaleDateString()} — ${fmtTokens(sum, lang)}`}
-              className="usage-cell h-4 flex-1 rounded-[3px]"
-              style={{ background: color(sum, max), animationDelay: `${i * 12}ms` }}
+              className={`h-4 flex-1 rounded-[3px] ${initial ? "usage-cell" : "transition-colors duration-150"}`}
+              style={{
+                background: color(sum, max),
+                ...(initial ? { animationDelay: `${i * 12}ms` } : {}),
+              }}
             />
           );
         })}
@@ -415,8 +426,11 @@ function Heatmap({
                 <span
                   key={cell.key}
                   title={`${cell.date.toLocaleDateString()} — ${fmtTokens(v, lang)}`}
-                  className="usage-cell aspect-square w-full rounded-[3px]"
-                  style={{ background: color(v, vmax), animationDelay: `${(i * 7 + d) * 2}ms` }}
+                  className={`aspect-square w-full rounded-[3px] ${initial ? "usage-cell" : "transition-colors duration-150"}`}
+                  style={{
+                    background: color(v, vmax),
+                    ...(initial ? { animationDelay: `${(i * 7 + d) * 2}ms` } : {}),
+                  }}
                 />
               );
             })}

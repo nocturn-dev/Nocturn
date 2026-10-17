@@ -442,6 +442,8 @@ export const ru = {
     "game.spacePause": "пауза — пробел",
     "game.undo": "Отменить ход",
     "game.minesFlagHint": "ПКМ — флажок",
+    "game.flagMode": "Флажок",
+    "game.digMode": "Копать",
     // Группы и заглушки меню настроек
     "nav.basics": "Основные",
     "nav.agent": "Возможности агента",

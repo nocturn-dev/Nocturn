@@ -146,9 +146,11 @@ export function AmbientLayer({
     setVideoError(false);
     const v = videoRef.current;
     if (!v) return;
-    const reduce =
-      typeof window.matchMedia === "function" &&
-      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const motionMql =
+      typeof window.matchMedia === "function"
+        ? window.matchMedia("(prefers-reduced-motion: reduce)")
+        : null;
+    let reduce = motionMql?.matches ?? false;
     const sync = () => {
       // Скрытое/не в фокусе окно → видео на паузе: декодер не жжёт батарею;
       // системный reduce-motion — та же настройка, что глушит canvas-сцены
@@ -156,11 +158,17 @@ export function AmbientLayer({
         v.pause();
       else void v.play().catch(() => {});
     };
+    const onMotionChange = (e: MediaQueryListEvent) => {
+      reduce = e.matches;
+      sync();
+    };
+    motionMql?.addEventListener("change", onMotionChange);
     sync();
     document.addEventListener("visibilitychange", sync);
     window.addEventListener("blur", sync);
     window.addEventListener("focus", sync);
     return () => {
+      motionMql?.removeEventListener("change", onMotionChange);
       document.removeEventListener("visibilitychange", sync);
       window.removeEventListener("blur", sync);
       window.removeEventListener("focus", sync);
@@ -183,12 +191,11 @@ export function AmbientLayer({
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     const sceneSeed = scene === "fog" ? 42 : scene === "snow" ? 7 : scene === "city" ? 2026 : 1998;
     let rand = rng(sceneSeed);
-    // prefers-reduced-motion: рисуем один статичный кадр без цикла — CSS-глоу
-    // глушится media-запросом в index.css, canvas-сцены подчиняются той же
-    // системной настройке
-    const reduceMotion =
-      typeof window.matchMedia === "function" &&
-      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const motionMql =
+      typeof window.matchMedia === "function"
+        ? window.matchMedia("(prefers-reduced-motion: reduce)")
+        : null;
+    let reduceMotion = motionMql?.matches ?? false;
 
     let blobs: Blob[] = [];
     let flakes: Flake[] = [];
@@ -205,6 +212,8 @@ export function AmbientLayer({
       const accent = cssVarColor("--halo-accent", "#d97757");
       return { deep, bg, accent, tint: sceneTint(deep, bg, accent) };
     };
+    let currentSky = skyTone();
+    let currentFogTones = fogTones(currentSky.tint);
     const rgba = (c: Rgb, a: number) => `rgba(${c[0]}, ${c[1]}, ${c[2]}, ${a})`;
 
     // Статичный фон сцены (небо, дымки, фонари, дома) кэшируется в
@@ -220,7 +229,7 @@ export function AmbientLayer({
       const octx = off.getContext("2d");
       if (!octx) return;
       octx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      const { deep, bg, accent, tint } = skyTone();
+      const { deep, bg, accent, tint } = currentSky;
       // Небо — ступени deep→bg темы (чуть темнее поверхностей), дымки —
       // подтон сцены: смена стиля перекрашивает сцену вместе с UI
       const night = mixRgb(deep, [0, 0, 0] as Rgb, 0.3);
@@ -344,18 +353,17 @@ export function AmbientLayer({
       canvas.height = Math.round(h * dpr);
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
+      currentSky = skyTone();
+      currentFogTones = fogTones(currentSky.tint);
+
       if (scene === "fog") {
-        const fogColor = (i: number): string =>
-          // Тона из живой палитры темы; префикс "rgba(r, g, b, " —
-          // spriteFor дописывает альфу сам
-          fogTones(skyTone().tint)[i % 4] ?? fogTones(skyTone().tint)[0]!;
         blobs = Array.from({ length: Math.max(3, Math.round(6 * density)) }, (_, i) => ({
           x: rand() * w,
           y: rand() * h,
           r: (0.28 + rand() * 0.22) * Math.max(w, h),
           dx: (rand() - 0.5) * 0.12,
           dy: (rand() - 0.5) * 0.08,
-          color: fogColor(i),
+          color: currentFogTones[i % 4] ?? currentFogTones[0]!,
         }));
       }
       if (scene === "snow") {
@@ -400,13 +408,15 @@ export function AmbientLayer({
       rebuildBg();
     };
     resize();
-    // Именованный обработчик: removeEventListener матчится по ссылке —
-    // раньше снималась незарегистрированная `resize`, и каждый перезапуск
-    // эффекта (смена сцены/плотности) вешал ещё один висячий слушатель
+    let resizeTimer = 0;
     const onResize = () => {
-      resize();
-      // reduce-motion: цикла нет — статичный кадр пересобирается на ресайзе
-      if (reduceMotion) render(performance.now());
+      if (resizeTimer) window.clearTimeout(resizeTimer);
+      resizeTimer = window.setTimeout(() => {
+        if (!alive) return;
+        resize();
+        // reduce-motion: цикла нет — статичный кадр пересобирается на ресайзе
+        if (reduceMotion) render(performance.now());
+      }, 100);
     };
     window.addEventListener("resize", onResize);
 
@@ -520,6 +530,16 @@ export function AmbientLayer({
       if (pausedRef.current || document.hidden || !document.hasFocus()) stopLoop();
       else startLoop();
     };
+    const onMotionChange = (e: MediaQueryListEvent) => {
+      reduceMotion = e.matches;
+      if (reduceMotion) {
+        stopLoop();
+        render(performance.now());
+      } else if (!pausedRef.current && alive) {
+        startLoop();
+      }
+    };
+    motionMql?.addEventListener("change", onMotionChange);
     loopControlsRef.current = { start: startLoop, stop: stopLoop };
     document.addEventListener("visibilitychange", wake);
     window.addEventListener("blur", wake);
@@ -534,6 +554,8 @@ export function AmbientLayer({
       alive = false;
       stopLoop();
       loopControlsRef.current = null;
+      window.clearTimeout(resizeTimer);
+      motionMql?.removeEventListener("change", onMotionChange);
       document.removeEventListener("visibilitychange", wake);
       window.removeEventListener("blur", wake);
       window.removeEventListener("focus", wake);

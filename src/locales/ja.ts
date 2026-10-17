@@ -461,6 +461,8 @@ export const ja = {
     "game.spacePause": "スペースで一時停止",
     "game.undo": "一手戻す",
     "game.minesFlagHint": "右クリック — 旗",
+    "game.flagMode": "旗",
+    "game.digMode": "開く",
     // Группы и заглушки меню настроек
     "nav.basics": "基本",
     "nav.agent": "エージェント機能",

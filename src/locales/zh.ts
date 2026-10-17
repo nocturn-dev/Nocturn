@@ -461,6 +461,8 @@ export const zh = {
     "game.spacePause": "空格暂停",
     "game.undo": "撤销一步",
     "game.minesFlagHint": "右键 — 插旗",
+    "game.flagMode": "插旗",
+    "game.digMode": "翻开",
     // Группы и заглушки меню настроек
     "nav.basics": "基础",
     "nav.agent": "代理能力",

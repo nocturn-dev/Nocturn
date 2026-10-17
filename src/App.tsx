@@ -3278,7 +3278,7 @@ export default function App() {
         <Suspense fallback={null}>
           <LazyHardTerminal
             cwd={projectRoot ?? undefined}
-            combo={binds.hard_mode ?? "Ctrl+Shift+H"}
+            combo={binds.hard_mode ?? SHORTCUT_DEFAULTS.hard_mode ?? "Ctrl+Shift+H"}
           />
         </Suspense>
       )}

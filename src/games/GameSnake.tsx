@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLang } from "../locales";
+import { isGameInputTarget, useBest } from "./gameCommon";
 
 /**
- * Змейка: canvas 21×21, стрелки/WASD, ускорение с ростом, пауза пробелом,
+ * Змейка: canvas 21×21, стрелки/WASD/тач, ускорение с ростом, пауза пробелом,
  * пауза при потере фокуса окна. Рендер в цветах темы (accent-змейка).
  */
 
@@ -19,8 +20,9 @@ export default function GameSnake() {
   const { t } = useLang();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [score, setScore] = useState(0);
-  const [best, setBest] = useState(() => Number(localStorage.getItem(BEST_KEY) ?? 0));
+  const [best, updateBest] = useBest(BEST_KEY);
   const [over, setOver] = useState(false);
+  const [won, setWon] = useState(false);
   const [paused, setPaused] = useState(false);
 
   // Игровое состояние — в рефах: rAF-цикл не должен пересоздаваться рендером
@@ -33,25 +35,51 @@ export default function GameSnake() {
   const rafRef = useRef(0);
   const pausedRef = useRef(false);
   const overRef = useRef(false);
+  const wonRef = useRef(false);
   const scoreRef = useRef(0);
+  const swipeRef = useRef<{ x: number; y: number } | null>(null);
 
-  // Accent читается при КАЖДОЙ отрисовке из живого токена: чтение один раз
-  // при монтировании оставляло старый цвет после смены темы при открытой
-  // игре; getComputedStyle в кадре дешёвый
+  // Accent кэшируется в ref и обновляется наблюдателем: вызов getComputedStyle
+  // на каждом кадре 60 FPS создавал лишнюю нагрузку на движок стилей
+  const accentRef = useRef("#d97757");
+  useEffect(() => {
+    const updateAccent = () => {
+      accentRef.current =
+        getComputedStyle(document.documentElement).getPropertyValue("--halo-accent").trim() ||
+        "#d97757";
+    };
+    updateAccent();
+    const mo = new MutationObserver(updateAccent);
+    mo.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["style", "class"],
+    });
+    return () => mo.disconnect();
+  }, []);
 
-  const readAccent = () =>
-    getComputedStyle(document.documentElement).getPropertyValue("--halo-accent").trim() ||
-    "#d97757";
-
-  const placeFood = () => {
-    while (true) {
-      const f = { x: Math.floor(Math.random() * GRID), y: Math.floor(Math.random() * GRID) };
-      if (!snakeRef.current.some((s) => s.x === f.x && s.y === f.y)) {
-        foodRef.current = f;
-        return;
+  const placeFood = useCallback(() => {
+    const snake = snakeRef.current;
+    const occupied = new Set(snake.map((s) => s.x * GRID + s.y));
+    const free: Pt[] = [];
+    for (let x = 0; x < GRID; x++) {
+      for (let y = 0; y < GRID; y++) {
+        if (!occupied.has(x * GRID + y)) {
+          free.push({ x, y });
+        }
       }
     }
-  };
+    // Если свободного места не осталось — победа без бесконечного цикла
+    if (free.length === 0) {
+      overRef.current = true;
+      wonRef.current = true;
+      setOver(true);
+      setWon(true);
+      updateBest(scoreRef.current, "max");
+      return;
+    }
+    const idx = Math.floor(Math.random() * free.length);
+    foodRef.current = free[idx]!;
+  }, [updateBest]);
 
   const reset = useCallback(() => {
     snakeRef.current = [{ x: 10, y: 10 }];
@@ -61,18 +89,20 @@ export default function GameSnake() {
     scoreRef.current = 0;
     setScore(0);
     setOver(false);
+    setWon(false);
     overRef.current = false;
+    wonRef.current = false;
     setPaused(false);
     pausedRef.current = false;
     placeFood();
-  }, []);
+  }, [placeFood]);
 
   useEffect(() => {
     reset();
   }, [reset]);
 
   // Клавиатура: стрелки/WASD — направление (с очередью, разворот запрещён),
-  // пробел — пауза
+  // пробел — пауза. Игнорируем ввод, если фокус в инпуте или текстовой зоне
   useEffect(() => {
     const DIRS: Record<string, Pt> = {
       ArrowLeft: { x: -1, y: 0 },
@@ -85,12 +115,11 @@ export default function GameSnake() {
       KeyS: { x: 0, y: 1 },
     };
     const onKey = (e: KeyboardEvent) => {
+      if (isGameInputTarget(e.target)) return;
       const d = DIRS[e.code];
       if (d) {
         e.preventDefault();
         e.stopPropagation();
-        // at(-1) — Safari 15.0–15.3 и старые WebKitGTK без метода: пол
-        // сборки safari15 синтаксический, рантайм-методы он не полифиллит
         const q = queuedRef.current;
         const last = q[q.length - 1] ?? dirRef.current;
         // Разворот на 180° запрещён
@@ -110,6 +139,32 @@ export default function GameSnake() {
     return () => window.removeEventListener("keydown", onKey, true);
   }, []);
 
+  // Тач-управление и свайпы по полю игры
+  const onPointerDown = (e: React.PointerEvent) => {
+    swipeRef.current = { x: e.clientX, y: e.clientY };
+  };
+  const onPointerUp = (e: React.PointerEvent) => {
+    const s = swipeRef.current;
+    swipeRef.current = null;
+    if (!s || overRef.current || pausedRef.current) return;
+    const dx = e.clientX - s.x;
+    const dy = e.clientY - s.y;
+    if (Math.max(Math.abs(dx), Math.abs(dy)) < 24) return;
+    const d: Pt =
+      Math.abs(dx) > Math.abs(dy)
+        ? dx > 0
+          ? { x: 1, y: 0 }
+          : { x: -1, y: 0 }
+        : dy > 0
+          ? { x: 0, y: 1 }
+          : { x: 0, y: -1 };
+    const q = queuedRef.current;
+    const last = q[q.length - 1] ?? dirRef.current;
+    if (last.x + d.x !== 0 || last.y + d.y !== 0) {
+      if (queuedRef.current.length < 2) queuedRef.current.push(d);
+    }
+  };
+
   // Пауза при потере фокуса окна
   useEffect(() => {
     const onBlur = () => {
@@ -126,14 +181,31 @@ export default function GameSnake() {
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
-    const dpr = window.devicePixelRatio || 1;
-    const px = GRID * CELL;
-    canvas.width = px * dpr;
-    canvas.height = px * dpr;
-    canvas.style.width = `${px}px`;
-    canvas.style.height = `${px}px`;
-    ctx.scale(dpr, dpr);
 
+    // Синхронизация масштабирования canvas с учетом DPI и перемещения между мониторами
+    const syncCanvasDims = () => {
+      const dpr = window.devicePixelRatio || 1;
+      const px = GRID * CELL;
+      canvas.width = px * dpr;
+      canvas.height = px * dpr;
+      canvas.style.width = `${px}px`;
+      canvas.style.height = `${px}px`;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    };
+    syncCanvasDims();
+
+    let dprMq: MediaQueryList | null = null;
+    const updateDprListener = () => {
+      dprMq?.removeEventListener("change", syncCanvasDims);
+      dprMq = window.matchMedia(`(resolution: ${window.devicePixelRatio || 1}dpr)`);
+      dprMq.addEventListener("change", () => {
+        syncCanvasDims();
+        updateDprListener();
+      });
+    };
+    updateDprListener();
+
+    const px = GRID * CELL;
     const draw = () => {
       ctx.fillStyle = "rgba(0,0,0,0)";
       ctx.clearRect(0, 0, px, px);
@@ -144,9 +216,7 @@ export default function GameSnake() {
           ctx.fillRect(c * CELL + CELL / 2 - 1, r * CELL + CELL / 2 - 1, 2, 2);
         }
       }
-      // Один readAccent на кадр: раньше вызов был на еду И на каждую секцию
-      // змейки — 1+N getComputedStyle за кадр
-      const accent = readAccent();
+      const accent = accentRef.current;
       // Еда
       ctx.fillStyle = accent;
       ctx.beginPath();
@@ -166,8 +236,6 @@ export default function GameSnake() {
         ctx.globalAlpha = i === 0 ? 1 : 0.45 + (0.5 * (snake.length - i)) / snake.length;
         ctx.fillStyle = accent;
         ctx.beginPath();
-        // roundRect — WebKit 16.4+/Chromium 99: TypeError на старом WebKitGTK
-        // убивал rAF-цикл навсегда (игра замирала); фолбэк — обычный rect
         if (typeof ctx.roundRect === "function") {
           ctx.roundRect(s.x * CELL + 1, s.y * CELL + 1, CELL - 2, CELL - 2, 4);
         } else {
@@ -182,7 +250,6 @@ export default function GameSnake() {
     const tick = () => {
       const queued = queuedRef.current.shift();
       if (queued) {
-        // Разворот на 180° запрещён относительно текущего направления
         if (dirRef.current.x + queued.x !== 0 || dirRef.current.y + queued.y !== 0) {
           dirRef.current = queued;
         }
@@ -191,13 +258,16 @@ export default function GameSnake() {
       if (!head) return;
       const next: Pt = { x: head.x + dirRef.current.x, y: head.y + dirRef.current.y };
       // Стены и тело — смерть
-      if (next.x < 0 || next.y < 0 || next.x >= GRID || next.y >= GRID || snakeRef.current.some((s) => s.x === next.x && s.y === next.y)) {
+      if (
+        next.x < 0 ||
+        next.y < 0 ||
+        next.x >= GRID ||
+        next.y >= GRID ||
+        snakeRef.current.some((s) => s.x === next.x && s.y === next.y)
+      ) {
         overRef.current = true;
         setOver(true);
-        if (scoreRef.current > Number(localStorage.getItem(BEST_KEY) ?? 0)) {
-          localStorage.setItem(BEST_KEY, String(scoreRef.current));
-          setBest(scoreRef.current);
-        }
+        updateBest(scoreRef.current, "max");
         return;
       }
       snakeRef.current.unshift(next);
@@ -210,13 +280,9 @@ export default function GameSnake() {
       } else {
         snakeRef.current.pop();
       }
-      draw();
     };
 
     const loop = (now: number) => {
-      // Clamp: первый dt равен времени жизни страницы (rAF-timestamp), а
-      // после паузы/фона копится огромный dt — без клампа змейка получала
-      // тысячи тиков за кадр и умирала мгновенно
       const dt = Math.min(now - lastRef.current, 200);
       lastRef.current = now;
       if (!pausedRef.current && !overRef.current) {
@@ -227,12 +293,16 @@ export default function GameSnake() {
           if (overRef.current) break;
         }
       }
+      // draw вызывается строго один раз за кадр цикла, без повторного вызова внутри tick()
       draw();
       rafRef.current = requestAnimationFrame(loop);
     };
     rafRef.current = requestAnimationFrame(loop);
-    return () => cancelAnimationFrame(rafRef.current);
-  }, [reset]);
+    return () => {
+      cancelAnimationFrame(rafRef.current);
+      dprMq?.removeEventListener("change", syncCanvasDims);
+    };
+  }, [placeFood, reset, updateBest]);
 
   return (
     <div className="flex flex-col items-center">
@@ -241,7 +311,7 @@ export default function GameSnake() {
           {t("game.score")}: <b className="text-halo-text">{score}</b>
         </span>
         <span className="rounded-lg border border-halo-line bg-halo-surface/60 px-3 py-1.5 text-xs text-halo-muted">
-          {t("game.record", { n: best })}
+          {t("game.record", { n: best ?? 0 })}
         </span>
         <button
           onClick={reset}
@@ -250,12 +320,16 @@ export default function GameSnake() {
           {t("game.restart")}
         </button>
       </div>
-      <div className="relative">
+      <div
+        className="relative touch-none select-none"
+        onPointerDown={onPointerDown}
+        onPointerUp={onPointerUp}
+      >
         <canvas ref={canvasRef} className="rounded-xl border border-halo-line bg-halo-deep/60" />
         {(over || paused) && (
           <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 rounded-xl bg-halo-deep/85">
             <p className="text-lg font-semibold text-halo-text">
-              {over ? t("game.over") : t("game.paused")}
+              {won ? t("game.win") : over ? t("game.over") : t("game.paused")}
             </p>
             {over && (
               <button
@@ -268,7 +342,7 @@ export default function GameSnake() {
           </div>
         )}
       </div>
-      <p className="mt-2 text-[0.6875rem] text-halo-muted/60">WASD / ↑↓←→ · {t("game.spacePause")}</p>
+      <p className="mt-2 text-[0.6875rem] text-halo-muted/60">WASD / ↑↓←→ / свайп · {t("game.spacePause")}</p>
     </div>
   );
 }

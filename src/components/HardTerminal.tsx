@@ -24,13 +24,13 @@ export default function HardTerminal({ cwd, combo }: { cwd?: string; combo: stri
   // Подсказка выхода: показывается 4с после входа, затем тает
   const [hintVisible, setHintVisible] = useState(true);
 
-  const termShell = (() => {
+  const [termShell] = useState(() => {
     try {
       return localStorage.getItem(STORAGE_KEYS.termShell) ?? "auto";
     } catch {
       return "auto";
     }
-  })();
+  });
   // В pty_create уходит только то, что бекенд различает; остальное — auto
   const shellArg =
     termShell === "cmd" || termShell === "gitbash" || termShell === "powershell"
@@ -143,6 +143,7 @@ export default function HardTerminal({ cwd, combo }: { cwd?: string; combo: stri
           exitedRef.current = true;
           term?.write(`\r\n\x1b[31m${t("terminal.spawnFailed")}\x1b[0m\r\n`);
         }
+        if (disposed || !term) return;
         ro = new ResizeObserver(syncSize);
         ro.observe(host);
         term.focus();

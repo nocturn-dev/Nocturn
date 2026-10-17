@@ -431,6 +431,8 @@ export const en = {
     "game.spacePause": "space to pause",
     "game.undo": "Undo move",
     "game.minesFlagHint": "Right click — flag",
+    "game.flagMode": "Flag",
+    "game.digMode": "Dig",
     "nav.basics": "Basics",
     "nav.agent": "Agent capabilities",
     "nav.data": "Data and statistics",
