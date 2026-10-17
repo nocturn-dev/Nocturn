@@ -86,14 +86,19 @@ export function loadProfile(): UserProfile {
   }
 }
 
-export function saveProfile(p: UserProfile): void {
+/** Сохранить профиль. false — запись не удалась (обычно квота localStorage,
+ *  чаще всего из-за data-URL аватара): кэш при этом не трогаем, иначе UI
+ *  и buildProfileBlock показывали бы то, чего после рестарта не будет.
+ *  Вызывающий код обязан сообщить пользователю о сбое */
+export function saveProfile(p: UserProfile): boolean {
   try {
     localStorage.setItem(KEY, JSON.stringify(p));
   } catch {
-    // квота localStorage — аватар мог не влезть; поля профиля важнее
+    return false;
   }
   avatarCache = p.avatar || "";
   profileCache = { ...p };
+  return true;
 }
 
 /** Аватар для ленты (кэш, без чтения localStorage на каждый рендер) */

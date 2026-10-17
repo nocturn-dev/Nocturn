@@ -556,6 +556,7 @@ export const ja = {
     "cmds.description": "パレット内の説明",
     "cmds.template": "プロンプトテンプレート",
     "cmds.hint": "$ARGUMENTS はコマンド名の後に入力したテキストに置き換えられます。展開されたテキストは入力欄に入るので、送信前に調整できます。",
+    "cmds.notLoaded": "コマンド一覧をディスクから読み込めませんでした：commands.json を上書きしないよう保存はブロックされています。",
     "settings.hooks": "フック",
     "settings.imagegen": "画像生成",
     "ig.desc":
@@ -857,6 +858,7 @@ export const ja = {
     "main.exportBtn": "エクスポート",
     "error.nativeOnly": "「{what}」はネイティブアプリでのみ利用できます（npm run tauri dev）",
     "error.noteSaveFailed": "ノートの保存に失敗しました——内容はディスクに書き込まれていません。",
+    "error.localSaveFailed": "設定を localStorage に書き込めませんでした——ストレージが一杯の可能性があります。変更は再起動まで有効です。",
     "error.saveFailed": "チャット履歴のディスクへの保存に失敗しました。自動で再試行します。繰り返す場合はディスク容量と権限を確認してください。",
     "error.settingsCorrupted": "設定ファイルを読み取れません（{e}）。データ保護のため自動保存を停止しました。設定を明示的に保存するか、ファイルを手動で修復してください。",
     "error.sessionsCorrupted": "チャット履歴ファイルを読み取れません（{e}）。データ消失を防ぐため、このファイルへの書き込みを停止しました。",

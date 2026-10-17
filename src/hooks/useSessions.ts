@@ -293,7 +293,7 @@ export function useSessions(opts: {
     };
     /** Партиции стора: сессии проектов с папкой — в <root>/.nocturn,
      *  остальные — в глобальный sessions.json */
-    const enqueuePartitionedSave = () => {
+    const partitioned = () => {
       const list = sessionsRef.current;
       const globalList: Session[] = [];
       const byRoot = new Map<string, Session[]>();
@@ -309,6 +309,10 @@ export function useSessions(opts: {
           globalList.push(s);
         }
       }
+      return { globalList, byRoot };
+    };
+    const enqueuePartitionedSave = () => {
+      const { globalList, byRoot } = partitioned();
       enqueueSave(() => {
         if (brokenGlobalRef.current) return Promise.resolve();
         return saveSessions(JSON.stringify(globalList));
@@ -316,6 +320,22 @@ export function useSessions(opts: {
       for (const [root, items] of byRoot) {
         if (brokenRootsRef.current.has(root)) continue;
         enqueueSave(() => saveProjectSessions(root, JSON.stringify(items)));
+      }
+    };
+    /** Запись мимо очереди: размонтирование и закрытие окна не должны
+     *  вставать за долгой цепочкой stringify+IPC и погибнуть вместе с ней
+     *  непосланными. invoke уходит сразу, свежий снапшот ложится последним */
+    const directSave = () => {
+      if (brokenGlobalRef.current) return;
+      const { globalList, byRoot } = partitioned();
+      saveSessions(JSON.stringify(globalList)).catch(() =>
+        addToast(tMirror.current("error.saveFailed")),
+      );
+      for (const [root, items] of byRoot) {
+        if (brokenRootsRef.current.has(root)) continue;
+        saveProjectSessions(root, JSON.stringify(items)).catch(() =>
+          addToast(tMirror.current("error.saveFailed")),
+        );
       }
     };
     const flush = () => {
@@ -333,13 +353,13 @@ export function useSessions(opts: {
     return () => {
       window.clearInterval(id);
       window.removeEventListener("beforeunload", flush);
-      // Размонтирование (StrictMode/HMR): не теряем накопленное
-      const wasStreaming = streamingActiveRef.current;
-      streamingActiveRef.current = false;
-      if (wasStreaming) {
-        enqueuePartitionedSave();
-      } else {
-        flush();
+      // Размонтирование (StrictMode/HMR): не теряем накопленное.
+      // Прямая запись вместо постановки в очередь: последнему сохранению
+      // не за чем ждать хвост очереди, а умирающий компонент дождаться его не сможет
+      if (sessionsDirtyRef.current || streamingActiveRef.current) {
+        sessionsDirtyRef.current = false;
+        streamingActiveRef.current = false;
+        directSave();
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -13,7 +13,7 @@ describe("streamBuffer perf budgets", () => {
     for (let i = 0; i < 5000; i++) {
       buf.append(`m${i % 8}`, "токен ", i % 5 === 0 ? "мысль " : "");
     }
-    buf.drain();
+    buf.drain(() => {});
     expect(performance.now() - t0).toBeLessThan(20);
   });
 

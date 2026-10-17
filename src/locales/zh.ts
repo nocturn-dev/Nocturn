@@ -556,6 +556,7 @@ export const zh = {
     "cmds.description": "面板中的描述",
     "cmds.template": "提示词模板",
     "cmds.hint": "$ARGUMENTS 会被替换为命令名后输入的文本。展开后的文本进入输入框 — 发送前可以修改。",
+    "cmds.notLoaded": "命令列表未能从磁盘加载：为避免覆盖 commands.json，保存已被阻止。",
     "settings.hooks": "钩子",
     "settings.imagegen": "图片生成",
     "ig.desc":
@@ -857,6 +858,7 @@ export const zh = {
     "main.exportBtn": "导出",
     "error.nativeOnly": "{what}仅在原生应用中可用（npm run tauri dev）",
     "error.noteSaveFailed": "保存笔记失败——内容未写入磁盘。",
+    "error.localSaveFailed": "无法将设置写入 localStorage——存储空间可能已满。更改仅在重启前有效。",
     "error.saveFailed": "聊天记录写入磁盘失败。将自动重试；若持续失败，请检查磁盘空间和权限。",
     "error.settingsCorrupted": "设置文件无法读取（{e}）。已冻结自动保存以避免覆盖数据；请显式保存设置或手动修复该文件。",
     "error.sessionsCorrupted": "聊天记录文件无法读取（{e}）。已冻结对该文件的写入以避免数据丢失。",

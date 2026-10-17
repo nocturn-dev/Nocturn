@@ -111,7 +111,11 @@ export default function AutomationsModal({
   const show = useDelayedUnmount(open, 170);
   if (!show) return null;
 
-  const persist = (next: Automation[]) => {
+  // Каждая мутация стартует от свежего чтения localStorage, а не от items
+  // текущего рендера: тикер в App обновляет lastRunAt/runs напрямую в
+  // хранилище, и запись устаревшего снапшота теряла/дублировала запуски
+  const mutate = (fn: (list: Automation[]) => Automation[]) => {
+    const next = fn(loadAutomations());
     setItems(next);
     saveAutomations(next);
   };
@@ -120,7 +124,7 @@ export default function AutomationsModal({
     if (!n.trim() || !p.trim()) return;
     const a = makeAutomation(n.trim(), p.trim(), schedule);
     a.toVault = toVault;
-    persist([a, ...loadAutomations()]);
+    mutate((list) => [a, ...list]);
     setFormOpen(false);
     setName("");
     setPrompt("");
@@ -214,8 +218,8 @@ export default function AutomationsModal({
                   <div className="flex items-center gap-3">
                     <button
                       onClick={() =>
-                        persist(
-                          items.map((x) =>
+                        mutate((list) =>
+                          list.map((x) =>
                             x.id === a.id
                               ? {
                                   ...x,
@@ -250,8 +254,8 @@ export default function AutomationsModal({
                     {/* Отчёт в заметки vault */}
                     <button
                       onClick={() =>
-                        persist(
-                          items.map((x) =>
+                        mutate((list) =>
+                          list.map((x) =>
                             x.id === a.id ? { ...x, toVault: !x.toVault } : x,
                           ),
                         )
@@ -283,7 +287,7 @@ export default function AutomationsModal({
                     )}
                     <button
                       onClick={() =>
-                        persist(items.filter((x) => x.id !== a.id))
+                        mutate((list) => list.filter((x) => x.id !== a.id))
                       }
                       title={t("menu.delete")}
                       className="rounded p-1 text-halo-muted opacity-0 transition group-hover:opacity-100 hover:text-red-400"

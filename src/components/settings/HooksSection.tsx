@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useLang, type MsgKey } from "../../locales";
 import { type Hook, type HookEvent, type HookOutcome, HOOK_EVENTS, hooksLoad, hooksSave, hooksTest } from "../../api";
+import { withHooksFile, mergeFreshIds } from "../../configFiles";
 import { Dropdown, MiniTrashIcon } from "./parts";
 import { isWindows } from "../../platform";
 
@@ -92,6 +93,9 @@ export function HooksSection() {
   // Ref-зеркало актуального массива: next считаем из него, а не из снапшота
   // state — иначе два быстрых клика подряд перезапишут результат первого
   const hooksRef = useRef<Hook[]>([]);
+  // id, известные на момент чтения с диска: хуки, добавленные плагинами
+  // уже после чтения, при записи не стираются (mergeFreshIds)
+  const knownIdsRef = useRef<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
   // Форма добавления
   const [event, setEvent] = useState<HookEvent>("PreToolUse");
@@ -107,6 +111,7 @@ export function HooksSection() {
     hooksLoad()
       .then((f) => {
         hooksRef.current = f.hooks ?? [];
+        knownIdsRef.current = new Set(hooksRef.current.map((h) => h.id));
         setHooks(f.hooks ?? []);
       })
       .catch(() => {});
@@ -116,13 +121,24 @@ export function HooksSection() {
    *  применённом конфиге, а после рестарта хуки исчезали (revert-паттерн
    *  6af9361; конвенция применялась избирательно — McpSection
 
-   *  и секции конфигов откатывали, hooks — нет) */
+   *  и секции конфигов откатывали, hooks — нет).
+   *  Запись идёт через общую с плагинами очередь и сливается со свежим
+   *  файлом: плагин, добавивший хук после нашего чтения, не стирается
+   *  нашим снапшотом */
   const persist = async (next: Hook[]) => {
     const prev = hooksRef.current;
     hooksRef.current = next;
     setHooks(next);
     try {
-      await hooksSave({ hooks: next });
+      const merged = await withHooksFile((fresh) => {
+        const list = mergeFreshIds(next, fresh, (h) => h.id, knownIdsRef.current);
+        return hooksSave({ hooks: list }).then(() => {
+          knownIdsRef.current = new Set(list.map((h) => h.id));
+          return list;
+        });
+      });
+      hooksRef.current = merged;
+      setHooks(merged);
       setError(null);
     } catch (e) {
       hooksRef.current = prev;

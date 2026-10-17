@@ -38,16 +38,30 @@ export class StreamDeltaBuffer {
     this.subThoughts.set(callId, (this.subThoughts.get(callId) ?? "") + text);
   }
 
-  /** Выдать накопленное и очистить буфер */
-  drain(): {
-    main: Array<[string, DeltaAppend]>;
-    subThoughts: Array<[string, string]>;
-  } {
-    const main = Array.from(this.main.entries());
-    const subThoughts = Array.from(this.subThoughts.entries());
+  /**
+   * Применить накопленное и только после успешного применения очистить
+   * буфер: сбой в колбэке (упавший setSessions и т.п.) оставляет дельты
+   * внутри — следующий флаш повторит попытку, а не потеряет их безвозвратно.
+   * Колбэку отдаются копии: мутировать отданное он не может испортить
+   * то, что осталось в буфере при сбое.
+   */
+  drain(
+    apply: (data: {
+      main: Array<[string, DeltaAppend]>;
+      subThoughts: Array<[string, string]>;
+    }) => void,
+  ): void {
+    if (this.isEmpty) return;
+    const data = {
+      main: Array.from(
+        this.main,
+        ([id, d]): [string, DeltaAppend] => [id, { content: d.content, thought: d.thought }],
+      ),
+      subThoughts: Array.from(this.subThoughts.entries()),
+    };
+    apply(data);
     this.main.clear();
     this.subThoughts.clear();
-    return { main, subThoughts };
   }
 }
 

@@ -422,13 +422,15 @@ export function MainSection({
       const combo = quickentryComboFromEvent(e);
       if (!combo) return; // соло-модификатор/неподдерживаемая клавиша — ждём
       setQeRecording(false);
-      setQeBind(combo);
-      localStorage.setItem(STORAGE_KEYS.quickentryBind, combo);
-      void quickentrySetBind(combo).catch(() => {
-        // Комбо могло быть занято другим приложением — откат на прежнее
+      void quickentrySetBind(combo).then(() => {
+        // Пишем в localStorage только после успешной регистрации в бекенде:
+        // незарегистрированное комбо в хранилище переживало бы рестарты
+        setQeBind(combo);
+        localStorage.setItem(STORAGE_KEYS.quickentryBind, combo);
+      }).catch(() => {
+        // Комбо могло оказаться занято другим приложением: старое остаётся
+        // активным — переподтверждаем его и ничего не меняем в UI
         void quickentrySetBind(qeBind).catch(() => {});
-        setQeBind(qeBind);
-        localStorage.setItem(STORAGE_KEYS.quickentryBind, qeBind);
       });
     };
     window.addEventListener("keydown", onKey, true);
@@ -971,10 +973,25 @@ export function MainSection({
                 if (!window.confirm(t("main.importConfirm"))) return;
                 // settings_import_read отдаёт сырой JSON (см. api.ts): форма
                 // wrapper-а — только у нашего экспорта, сужаем на месте
+                // Все подтверждения собираются ДО первой записи: частичный
+                // импорт без отката хуже честного отказа
                 const data = (await settingsImportRead(path)) as {
                   files?: Record<string, unknown>;
                   local?: Record<string, string>;
                 };
+                // Кастомный CSS из чужого файла применяется как есть
+                // (<style id="halo-custom-css">, img-src допускает https):
+                // тот же класс честного confirm, что у исполняемых конфигов
+                // ниже — асимметрии «hooks/mcp спрашиваем, CSS нет» больше нет
+                const css = data.local?.[STORAGE_KEYS.customCss];
+                if (typeof css === "string" && css.trim()) {
+                  if (
+                    !window.confirm(
+                      t("main.importCssWarn", { chars: String(css.length) }),
+                    )
+                  )
+                    return;
+                }
                 let n = 0;
                 if (data.files && Object.keys(data.files).length > 0) {
                   // hooks.json/mcp.json исполняют произвольные команды:
@@ -992,19 +1009,9 @@ export function MainSection({
                     n = await settingsWriteAll(data.files);
                   }
                 }
-                // Кастомный CSS из чужого файла применяется как есть
-                // (<style id="halo-custom-css">, img-src допускает https):
-                // тот же класс честного confirm, что у исполняемых конфигов
-                // выше — асимметрии «hooks/mcp спрашиваем, CSS нет» больше нет
-                const css = data.local?.[STORAGE_KEYS.customCss];
-                if (typeof css === "string" && css.trim()) {
-                  if (
-                    !window.confirm(
-                      t("main.importCssWarn", { chars: String(css.length) }),
-                    )
-                  )
-                    return;
-                }
+                // Локаль-префы в localStorage — только после успешной записи
+                // конфигов: сбой settingsWriteAll не должен оставлять
+                // смесь «конфиги старые, префы новые»
                 if (data.local) restoreLocal(data.local);
                 window.alert(t("main.importDone", { n }));
                 location.reload();

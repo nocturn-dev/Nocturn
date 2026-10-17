@@ -139,8 +139,15 @@ export function loadMediaPrefs(): MediaPrefs {
   }
 }
 
-export function saveMediaPrefs(p: MediaPrefs) {
-  localStorage.setItem(LS_KEY, JSON.stringify(p));
+/** Запись. false — сбой (квота localStorage): вызывающий показывает тост,
+ *  иначе настройки минибара молча откатывались при рестарте */
+export function saveMediaPrefs(p: MediaPrefs): boolean {
+  try {
+    localStorage.setItem(LS_KEY, JSON.stringify(p));
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 const ACCEPT_KEY = "haloui-media-accepted";

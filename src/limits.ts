@@ -42,8 +42,15 @@ export function loadLimits(): HardLimits {
   }
 }
 
-export function saveLimits(l: HardLimits): void {
-  localStorage.setItem(LS_KEY, JSON.stringify(l));
+/** Запись. false — сбой (квота localStorage): вызывающий показывает тост,
+ *  иначе лимиты молча откатывались к старым при рестарте */
+export function saveLimits(l: HardLimits): boolean {
+  try {
+    localStorage.setItem(LS_KEY, JSON.stringify(l));
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** Ключ локали сработавшего лимита */

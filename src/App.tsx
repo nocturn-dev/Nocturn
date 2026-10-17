@@ -671,8 +671,9 @@ export default function App() {
   const limitsRef = useRef(limits);
   useEffect(() => {
     limitsRef.current = limits;
-    saveLimits(limits);
-  }, [limits]);
+    // Сбой записи (квота) молча откатывал бы лимиты при рестарте — тост
+    if (!saveLimits(limits)) addToast(t("error.localSaveFailed"));
+  }, [limits, addToast, t]);
   // Reasoning effort: усилие размышлений («off» — не отправлять провайдеру)
   const [effort, setEffort] = useState<"off" | "low" | "high" | "max">(() => {
     const raw = localStorage.getItem("haloui-effort");
@@ -1131,8 +1132,8 @@ export default function App() {
     null,
   );
   useEffect(() => {
-    saveMediaPrefs(mediaPrefs);
-  }, [mediaPrefs]);
+    if (!saveMediaPrefs(mediaPrefs)) addToast(t("error.localSaveFailed"));
+  }, [mediaPrefs, addToast, t]);
   // Повтор очереди YT: тумблер «Интеграций» — источник правды, плеер —
   // потребитель. Раньше поле и ветка в onTrackChange были, а синка не было:
   // тумблер молча ничего не делал
@@ -2036,7 +2037,7 @@ export default function App() {
 
   const handleSavePromptLibrary = (list: PromptPreset[]) => {
     setPromptLibrary(list);
-    savePromptLibrary(list);
+    if (!savePromptLibrary(list)) addToast(t("error.localSaveFailed"));
   };
 
   const handleSaveJailbreaks = (list: JailbreakEntry[]) => {

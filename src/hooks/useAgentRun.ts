@@ -770,28 +770,31 @@ export function useAgentRun(deps: AgentRunDeps) {
         deltaRaf = 0;
       }
       if (deltaBuf.isEmpty) return;
-      const { main, subThoughts } = deltaBuf.drain();
-      lastFlushAt = performance.now();
-      if (main.length > 0) {
-        setSessions((prev) =>
-          prev.map((s) =>
-            s.id === targetId
-              ? { ...s, messages: applyMainDeltas(s.messages, main) }
-              : s,
-          ),
-        );
-      }
-      if (subThoughts.length > 0) {
-        setSubRuns((prev) => {
-          let next = prev;
-          for (const [callId, thought] of subThoughts) {
-            const run = next[callId];
-            if (!run) continue;
-            next = { ...next, [callId]: { ...run, thought } };
-          }
-          return next;
-        });
-      }
+      // Применение внутри drain: упавший апдейт стора оставит дельты
+      // в буфере до следующего флаша, а не потеряет их
+      deltaBuf.drain(({ main, subThoughts }) => {
+        lastFlushAt = performance.now();
+        if (main.length > 0) {
+          setSessions((prev) =>
+            prev.map((s) =>
+              s.id === targetId
+                ? { ...s, messages: applyMainDeltas(s.messages, main) }
+                : s,
+            ),
+          );
+        }
+        if (subThoughts.length > 0) {
+          setSubRuns((prev) => {
+            let next = prev;
+            for (const [callId, thought] of subThoughts) {
+              const run = next[callId];
+              if (!run) continue;
+              next = { ...next, [callId]: { ...run, thought } };
+            }
+            return next;
+          });
+        }
+      });
     };
     const scheduleFlush = () => {
       if (deltaRaf) return;

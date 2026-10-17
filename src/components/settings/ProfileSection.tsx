@@ -66,9 +66,12 @@ export function ProfileSection() {
   const [avatarErr, setAvatarErr] = useState(false);
 
   // Сохранение на каждое изменение (localStorage — мгновенно), тумблеры
-  // применяются к следующим запросам без кнопки «Сохранить»
+  // применяются к следующим запросам без кнопки «Сохранить».
+  // Сбой записи (квота, обычно из-за аватара) показываем: молча пропадавший
+  // после рестарта профиль обманывал пользователя
+  const [saveFailed, setSaveFailed] = useState(false);
   useEffect(() => {
-    saveProfile(p);
+    setSaveFailed(!saveProfile(p));
   }, [p]);
 
   const set = (patch: Partial<UserProfile>) => setP((prev) => ({ ...prev, ...patch }));
@@ -115,6 +118,11 @@ export function ProfileSection() {
       <p className="mb-4 text-xs leading-relaxed text-halo-muted">
         {t("profile.desc")}
       </p>
+      {saveFailed && (
+        <p className="mb-4 break-all rounded-lg border border-red-400/30 bg-red-400/10 px-3 py-2 text-xs leading-relaxed text-red-400">
+          {t("error.localSaveFailed")}
+        </p>
+      )}
 
       {/* Кто ты */}
       <div className="rounded-xl border border-halo-line px-3.5 py-3">

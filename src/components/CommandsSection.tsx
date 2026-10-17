@@ -9,37 +9,49 @@ export default function CommandsSection() {
   const { t } = useLang();
   const [commands, setCommands] = useState<UserCommand[]>([]);
   const [error, setError] = useState<string | null>(null);
-  // Форма добавления/редактирования
-  const [editing, setEditing] = useState<number | "new" | null>(null);
+  // Успешная загрузка с диска — предусловие любой записи: сбой чтения
+  // нельзя показывать пустым списком, следующее сохранение стёрло бы
+  // весь commands.json необратимо
+  const [loaded, setLoaded] = useState(false);
+  // Форма добавления/редактирования. Редактирование — по имени команды,
+  // не по индексу: после удаления команды выше правилась бы соседняя
+  const [editing, setEditing] = useState<string | "new" | null>(null);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [template, setTemplate] = useState("");
 
   useEffect(() => {
     commandsLoad()
-      .then(setCommands)
-      .catch(() => {});
+      .then((list) => {
+        setCommands(list);
+        setLoaded(true);
+      })
+      .catch((e) => setError(String(e)));
   }, []);
 
   const persist = (next: UserCommand[]) => {
+    if (!loaded) {
+      // Запись без прочитанного списка = перезапись файла неполными данными
+      setError(t("cmds.notLoaded"));
+      return;
+    }
     setCommands(next);
     commandsSave(next).catch((e) => setError(String(e)));
   };
 
   const startNew = () => {
+    if (!loaded) return; // «+ новая» до конца загрузки уехала бы в файл неполной
     setName("");
     setDescription("");
     setTemplate(t("commands.blankTemplate"));
     setEditing("new");
   };
 
-  const startEdit = (idx: number) => {
-    const c = commands[idx];
-    if (!c) return;
+  const startEdit = (c: UserCommand) => {
     setName(c.name);
     setDescription(c.description);
     setTemplate(c.template);
-    setEditing(idx);
+    setEditing(c.name);
   };
 
   const save = () => {
@@ -51,8 +63,8 @@ export default function CommandsSection() {
       template: template,
     };
     const next =
-      typeof editing === "number"
-        ? commands.map((c, i) => (i === editing ? entry : c))
+      typeof editing === "string"
+        ? commands.map((c) => (c.name === editing ? entry : c))
         : [...commands.filter((c) => c.name !== n), entry];
     persist(next);
     setEditing(null);
@@ -73,9 +85,9 @@ export default function CommandsSection() {
             {t("cmds.empty")}
           </p>
         )}
-        {commands.map((c, i) => (
+        {commands.map((c) => (
           <div
-            key={c.name + i}
+            key={c.name}
             className="rounded-lg border border-halo-line bg-halo-surface/50 px-3 py-2.5"
           >
             <div className="flex items-center gap-2">
@@ -86,20 +98,24 @@ export default function CommandsSection() {
                 {c.description}
               </span>
               <button
-                onClick={() => (editing === i ? setEditing(null) : startEdit(i))}
+                onClick={() => (editing === c.name ? setEditing(null) : startEdit(c))}
                 className="shrink-0 rounded-md border border-halo-line px-2 py-0.5 text-[0.625rem] text-halo-muted transition-colors hover:border-halo-accent/50 hover:text-halo-accent"
               >
-                {editing === i ? t("cmds.close") : t("cmds.edit")}
+                {editing === c.name ? t("cmds.close") : t("cmds.edit")}
               </button>
               <button
-                onClick={() => persist(commands.filter((_, j) => j !== i))}
+                onClick={() => {
+                  // Правка удаляемой команды остаётся бы без цели — закрываем
+                  if (editing === c.name) setEditing(null);
+                  persist(commands.filter((x) => x.name !== c.name));
+                }}
                 title={t("cmds.delete")}
                 className="shrink-0 rounded-md p-1 text-halo-muted transition-colors hover:bg-halo-hover hover:text-red-400"
               >
                 <MiniTrashIcon />
               </button>
             </div>
-            {editing === i && (
+            {editing === c.name && (
               <div className="mt-2.5 space-y-2">
                 <FormFields
                   name={name}
@@ -156,7 +172,9 @@ export default function CommandsSection() {
         <div className="mt-3">
           <button
             onClick={startNew}
-            className="text-xs text-halo-muted transition-colors hover:text-halo-accent"
+            disabled={!loaded}
+            title={loaded ? undefined : t("cmds.notLoaded")}
+            className="text-xs text-halo-muted transition-colors hover:text-halo-accent disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:text-halo-muted"
           >
             + {t("cmds.new")}
           </button>

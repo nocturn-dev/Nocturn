@@ -79,6 +79,12 @@ export function loadPromptLibrary(): PromptPreset[] {
   }
 }
 
-export function savePromptLibrary(list: PromptPreset[]): void {
-  localStorage.setItem(LS_KEY, JSON.stringify(list));
+/** Запись. false — сбой (квота localStorage): вызывающий показывает тост */
+export function savePromptLibrary(list: PromptPreset[]): boolean {
+  try {
+    localStorage.setItem(LS_KEY, JSON.stringify(list));
+    return true;
+  } catch {
+    return false;
+  }
 }

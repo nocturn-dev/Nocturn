@@ -527,6 +527,7 @@ export const en = {
     "cmds.description": "palette description",
     "cmds.template": "Prompt template",
     "cmds.hint": "$ARGUMENTS is replaced with the text typed after the command name. The expanded prompt lands in the composer — tweak it before sending.",
+    "cmds.notLoaded": "Command list failed to load from disk: saving is blocked to protect commands.json.",
     "settings.hooks": "Hooks",
     "settings.imagegen": "Image generation",
     "ig.desc":
@@ -957,6 +958,7 @@ export const en = {
     "main.exportBtn": "Export",
     "error.nativeOnly": "{what} is only available in the native app (npm run tauri dev)",
     "error.noteSaveFailed": "Failed to save the note — the content was not written to disk.",
+    "error.localSaveFailed": "Failed to write the setting to localStorage — the storage may be full. The change lasts until restart.",
     "error.saveFailed":
       "Failed to save chat history to disk. Changes will be retried; if this persists, check disk space and permissions.",
     "error.settingsCorrupted":

@@ -8,7 +8,7 @@ import {
   type Appearance,
 } from "../appearance";
 import { loadThemeProfiles, saveThemeProfiles, type ThemeProfile } from "../themeProfiles";
-import { setTrayVariant } from "../api";
+import { setTrayVariant, wallpaperRegister, ambientRegisterVideo } from "../api";
 
 /**
  * Домен «Оформление»: тема (dark/light), стекло, кастомизация (акцент, стиль,
@@ -119,6 +119,25 @@ export function useAppearanceUi() {
     setTheme(p.theme);
     setAppearance(p.appearance);
   }, []);
+
+  // Скоуп asset-протокола живёт только в рамках процесса: обои чата и
+  // ambient-видео после рестарта (и после применения профиля с чужим
+  // путём) молча не грузились, пока файл не перерегистрируют. Регистрируем
+  // при каждой смене пути, включая старт приложения; повторная регистрация
+  // того же файла безвредна, вне Tauri API бросает — глушим
+  const registeredRef = useRef<{ wallpaper?: string; ambientVideo?: string }>({});
+  useEffect(() => {
+    const wp = appearance.chatWallpaper ?? "";
+    if (wp && registeredRef.current.wallpaper !== wp) {
+      registeredRef.current.wallpaper = wp;
+      void wallpaperRegister(wp).catch(() => {});
+    }
+    const vid = appearance.ambientVideo ?? "";
+    if (vid && registeredRef.current.ambientVideo !== vid) {
+      registeredRef.current.ambientVideo = vid;
+      void ambientRegisterVideo(vid).catch(() => {});
+    }
+  }, [appearance.chatWallpaper, appearance.ambientVideo]);
 
   return {
     theme,

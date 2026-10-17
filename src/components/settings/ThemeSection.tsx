@@ -251,6 +251,12 @@ export function ThemeSection({
       const path = await pickJsonFile();
       if (!path) return;
       const raw = await settingsImportRead(path);
+      // Чужой файл может содержать любой JSON: null/число/массив без
+      // проверки падали TypeError'ом и сырым alert'ом вместо сообщения
+      if (typeof raw !== "object" || raw === null) {
+        window.alert(t("themes.profileImportBad"));
+        return;
+      }
       const obj = raw as Record<string, unknown>;
       if (obj.kind !== "nocturn-theme") {
         window.alert(t("themes.profileImportBad"));

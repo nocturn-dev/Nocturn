@@ -9,7 +9,6 @@ import {
   mcpDisconnect,
   pluginRead,
   pluginsSave,
-  hooksLoad,
   chatExportWrite,
   pickSaveFile,
   type Hook,
@@ -18,6 +17,7 @@ import {
   type Plugin,
   type PluginPackFile,
 } from "../api";
+import { withHooksFile, withMcpServers } from "../configFiles";
 import { MiniTrashIcon } from "./settings/parts";
 
 /** Значения env/headers — только пары строк: другой тип из чужого файла
@@ -269,46 +269,49 @@ export default function PluginsSection({
 
   /** Хуки плагина в hooks.json: старые хуки этого плагина убираются по
    *  сохранённой связи, копии по содержимому не плодятся при переустановке.
-   *  Возвращает id добавленных — они ложатся в plugin.hookIds */
+   *  Возвращает id добавленных — они ложатся в plugin.hookIds.
+   *  Чтение-изменение-запись через общую очередь: правки из HooksSection,
+   *  случившиеся параллельно, не стираются */
   const installPluginHooks = async (
     pluginName: string,
     packHooks: Hook[],
   ): Promise<string[]> => {
     if (packHooks.length === 0) return [];
-    const file = await hooksLoad();
-    const existing = file.hooks ?? [];
-    const oldIds = new Set(plugins.find((x) => x.name === pluginName)?.hookIds ?? []);
-    const freshKeys = new Set(
-      packHooks.map((h) => `${h.event}|${h.matcher}|${h.command}`),
-    );
-    const kept = existing.filter(
-      (h) =>
-        !oldIds.has(h.id) &&
-        !freshKeys.has(`${h.event}|${h.matcher}|${h.command}`),
-    );
-    const added = packHooks.map((h) => ({
-      ...h,
-      id: `hook-${crypto.randomUUID()}`,
-    }));
-    await hooksSave({ hooks: [...kept, ...added] });
-    return added.map((h) => h.id);
+    return withHooksFile(async (existing) => {
+      const oldIds = new Set(plugins.find((x) => x.name === pluginName)?.hookIds ?? []);
+      const freshKeys = new Set(
+        packHooks.map((h) => `${h.event}|${h.matcher}|${h.command}`),
+      );
+      const kept = existing.filter(
+        (h) =>
+          !oldIds.has(h.id) &&
+          !freshKeys.has(`${h.event}|${h.matcher}|${h.command}`),
+      );
+      const added = packHooks.map((h) => ({
+        ...h,
+        id: `hook-${crypto.randomUUID()}`,
+      }));
+      await hooksSave({ hooks: [...kept, ...added] });
+      return added.map((h) => h.id);
+    });
   };
 
   /** MCP-серверы плагина: перезапись существующего по имени. Возвращает
    *  имена записанных — они ложатся в plugin.mcpNames */
   const installPluginMcp = async (
     packMcp: McpServerCfg[],
-    current: McpServerCfg[],
   ): Promise<string[]> => {
     if (packMcp.length === 0) return [];
-    const merged = [...current];
-    for (const srv of packMcp) {
-      const i = merged.findIndex((m) => m.name === srv.name);
-      if (i >= 0) merged[i] = srv;
-      else merged.push(srv);
-    }
-    await mcpSaveServers(merged);
-    return packMcp.map((s) => s.name);
+    return withMcpServers(async (current) => {
+      const merged = [...current];
+      for (const srv of packMcp) {
+        const i = merged.findIndex((m) => m.name === srv.name);
+        if (i >= 0) merged[i] = srv;
+        else merged.push(srv);
+      }
+      await mcpSaveServers(merged);
+      return packMcp.map((s) => s.name);
+    });
   };
 
   const confirmInstall = async () => {
@@ -337,7 +340,7 @@ export default function PluginsSection({
       // Хуки пака ставятся одним набором и связываются с первым плагином
       // пака: дедуп по содержимому внутри не даст продублировать их
       const hookIds = await installPluginHooks(pending.plugins[0]!.name, pending.hooks);
-      const mcpNames = await installPluginMcp(pending.mcp, currentServers);
+      const mcpNames = await installPluginMcp(pending.mcp);
       const merged = [...plugins];
       for (const p of pending.plugins) {
         const full: Plugin = {
@@ -372,19 +375,20 @@ export default function PluginsSection({
       setError(null);
       if (p.hookIds && p.hookIds.length > 0) {
         const ids = new Set(p.hookIds);
-        const file = await hooksLoad();
-        await hooksSave({
-          hooks: (file.hooks ?? []).map((h) =>
-            ids.has(h.id) ? { ...h, enabled: nextEnabled } : h,
-          ),
+        // Через общую очередь: параллельная правка чужих хуков сохраняется
+        await withHooksFile(async (fresh) => {
+          await hooksSave({
+            hooks: fresh.map((h) => (ids.has(h.id) ? { ...h, enabled: nextEnabled } : h)),
+          });
         });
       }
       if (p.mcpNames && p.mcpNames.length > 0) {
         const names = new Set(p.mcpNames);
-        const current = await mcpListServers();
-        await mcpSaveServers(
-          current.map((s) => (names.has(s.name) ? { ...s, enabled: nextEnabled } : s)),
-        );
+        await withMcpServers(async (current) => {
+          await mcpSaveServers(
+            current.map((s) => (names.has(s.name) ? { ...s, enabled: nextEnabled } : s)),
+          );
+        });
       }
       persist(plugins.map((x) => (x.name === p.name ? { ...x, enabled: nextEnabled } : x)));
     } catch (e) {
@@ -399,22 +403,25 @@ export default function PluginsSection({
       setError(null);
       if (p.hookIds && p.hookIds.length > 0) {
         const ids = new Set(p.hookIds);
-        const file = await hooksLoad();
-        const kept = (file.hooks ?? []).filter((h) => !ids.has(h.id));
-        if (kept.length !== (file.hooks ?? []).length) {
-          await hooksSave({ hooks: kept });
-        }
+        await withHooksFile(async (fresh) => {
+          const kept = fresh.filter((h) => !ids.has(h.id));
+          if (kept.length !== fresh.length) {
+            await hooksSave({ hooks: kept });
+          }
+        });
       }
       if (p.mcpNames && p.mcpNames.length > 0) {
         const names = new Set(p.mcpNames);
-        const current = await mcpListServers();
-        const kept = current.filter((s) => !names.has(s.name));
-        if (kept.length !== current.length) {
-          await mcpSaveServers(kept);
-          for (const n of p.mcpNames) {
-            void mcpDisconnect(n).catch(() => {});
+        const namesList = p.mcpNames;
+        await withMcpServers(async (current) => {
+          const kept = current.filter((s) => !names.has(s.name));
+          if (kept.length !== current.length) {
+            await mcpSaveServers(kept);
+            for (const n of namesList) {
+              void mcpDisconnect(n).catch(() => {});
+            }
           }
-        }
+        });
       }
       persist(plugins.filter((x) => x.name !== p.name));
     } catch (e) {

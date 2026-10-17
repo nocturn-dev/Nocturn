@@ -2,6 +2,7 @@ import { STORAGE_KEYS } from "../../storageKeys";
 import { useEffect, useRef, useState } from "react";
 import { useLang } from "../../locales";
 import { type McpServerCfg, type McpServerStatus, type McpServerState, mcpListServers, mcpSaveServers, mcpConnect, mcpDisconnect, mcpStatus, mcpOauthAuthorize, mcpOauthRevoke, invalidateToolSchemas } from "../../api";
+import { withMcpServers, mergeFreshIds } from "../../configFiles";
 import { MiniTrashIcon } from "./parts";
 
 export function McpSection() {
@@ -10,6 +11,9 @@ export function McpSection() {
   // Ref-зеркало актуального массива: next считаем из него, а не из снапшота
   // state — иначе два быстрых клика подряд перезапишут результат первого
   const serversRef = useRef<McpServerCfg[]>([]);
+  // Имена, известные на момент чтения с диска: серверы, добавленные
+  // плагинами уже после чтения, при записи не стираются (mergeFreshIds)
+  const knownNamesRef = useRef<Set<string>>(new Set());
   const [statuses, setStatuses] = useState<McpServerStatus[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -136,6 +140,7 @@ export function McpSection() {
     mcpListServers()
       .then((list) => {
         serversRef.current = list;
+        knownNamesRef.current = new Set(list.map((s) => s.name));
         setServers(list);
       })
       .catch(() => {});
@@ -163,7 +168,17 @@ export function McpSection() {
     serversRef.current = next;
     setServers(next);
     try {
-      await mcpSaveServers(next);
+      // Запись через общую с плагинами очередь и слияние со свежим файлом:
+      // сервер, добавленный плагином после нашего чтения, не стирается
+      const merged = await withMcpServers((fresh) => {
+        const list = mergeFreshIds(next, fresh, (s) => s.name, knownNamesRef.current);
+        return mcpSaveServers(list).then(() => {
+          knownNamesRef.current = new Set(list.map((s) => s.name));
+          return list;
+        });
+      });
+      serversRef.current = merged;
+      setServers(merged);
       invalidateToolSchemas();
       setError(null);
     } catch (e) {
@@ -250,7 +265,10 @@ export function McpSection() {
     const next = serversRef.current.map((s, i) =>
       i === idx ? { ...s, enabled: !s.enabled } : s,
     );
-    await persist(next);
+    // Соединение гасится только при успешной записи: откат persist не
+    // должен оставлять сервер отключённым при включённом конфиге
+    const ok = await persist(next);
+    if (!ok) return;
     // Выключили включённый сервер — отключаем соединение
     if (srv.enabled && statusOf(srv.name)?.connected) {
       await mcpDisconnect(srv.name).catch(() => {});
@@ -261,13 +279,15 @@ export function McpSection() {
   const removeServer = async (idx: number) => {
     const srv = servers[idx];
     if (!srv) return;
-    if (statusOf(srv.name)?.connected) {
+    // Сначала запись, потом disconnect: провал persist не должен
+    // отключать сервер, который остаётся в конфиге
+    const ok = await persist(serversRef.current.filter((_, i) => i !== idx));
+    if (ok && statusOf(srv.name)?.connected) {
       setBusy(srv.name);
       await mcpDisconnect(srv.name).catch(() => {});
       setBusy(null);
       refreshStatuses();
     }
-    await persist(serversRef.current.filter((_, i) => i !== idx));
   };
 
   const connect = async (name: string) => {

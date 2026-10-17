@@ -8,9 +8,17 @@ describe("StreamDeltaBuffer", () => {
     buf.append("a", "вет", "");
     buf.append("a", "", " думаю");
     expect(buf.isEmpty).toBe(false);
-    const { main, subThoughts } = buf.drain();
-    expect(main).toEqual([["a", { content: "Привет", thought: " думаю" }]]);
-    expect(subThoughts).toEqual([]);
+    // holder-объект: TS не видит присваивания в колбэках и сужает тип к null
+    const holder: {
+      main: Array<[string, { content: string; thought: string }]>;
+      subThoughts: Array<[string, string]>;
+    } = { main: [], subThoughts: [] };
+    buf.drain((data) => {
+      holder.main = data.main;
+      holder.subThoughts = data.subThoughts;
+    });
+    expect(holder.main).toEqual([["a", { content: "Привет", thought: " думаю" }]]);
+    expect(holder.subThoughts).toEqual([]);
   });
 
   it("drain empties the buffer", () => {
@@ -18,11 +26,51 @@ describe("StreamDeltaBuffer", () => {
     buf.append("a", "x", "");
     buf.appendSubThought("sub1", "раз");
     buf.appendSubThought("sub1", "два");
-    buf.drain();
+    buf.drain(() => {});
     expect(buf.isEmpty).toBe(true);
-    const second = buf.drain();
+    const second: { main: unknown[]; subThoughts: unknown[] } = { main: [], subThoughts: [] };
+    buf.drain((data) => {
+      second.main = data.main;
+      second.subThoughts = data.subThoughts;
+    });
     expect(second.main).toEqual([]);
     expect(second.subThoughts).toEqual([]);
+  });
+
+  it("drain keeps deltas when the applier throws", () => {
+    const buf = new StreamDeltaBuffer();
+    buf.append("a", "дельта", "");
+    expect(() =>
+      buf.drain(() => {
+        throw new Error("apply failed");
+      }),
+    ).toThrow();
+    expect(buf.isEmpty).toBe(false);
+    let seen = "";
+    buf.drain(({ main }) => {
+      seen = main[0]![1].content;
+    });
+    expect(seen).toBe("дельта");
+    expect(buf.isEmpty).toBe(true);
+  });
+
+  it("drain hands out copies: mutating them doesn't corrupt the buffer", () => {
+    const buf = new StreamDeltaBuffer();
+    buf.append("a", "оригинал", "");
+    expect(() =>
+      buf.drain(({ main }) => {
+        main[0]![1].content = "испорчено";
+        // сбой применения после мутации копии
+        throw new Error("boom");
+      }),
+    ).toThrow();
+    // мутация копии не должна испортить буфер — drain после сбоя не вызывался,
+    // поэтому второй drain видит исходные данные (см. тест «keeps deltas»)
+    let seen = "";
+    buf.drain(({ main }) => {
+      seen = main[0]![1].content;
+    });
+    expect(seen).toBe("оригинал");
   });
 
   it("accumulates subagent thoughts per call id", () => {
@@ -30,7 +78,10 @@ describe("StreamDeltaBuffer", () => {
     buf.appendSubThought("s1", "шаг ");
     buf.appendSubThought("s2", "другой агент");
     buf.appendSubThought("s1", "мысли");
-    const { subThoughts } = buf.drain();
+    let subThoughts: Array<[string, string]> = [];
+    buf.drain((data) => {
+      subThoughts = data.subThoughts;
+    });
     expect(subThoughts).toEqual([
       ["s1", "шаг мысли"],
       ["s2", "другой агент"],
