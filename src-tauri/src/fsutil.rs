@@ -76,7 +76,7 @@ pub fn open_write_verified(path: &Path) -> Result<(fs::File, PathBuf), String> {
 #[cfg(unix)]
 fn open_no_follow(path: &Path) -> Result<fs::File, String> {
     use std::os::unix::fs::OpenOptionsExt;
-    fs::OpenOptions::new()
+    let f = fs::OpenOptions::new()
         .read(true)
         .write(true)
         .create(true)
@@ -85,7 +85,21 @@ fn open_no_follow(path: &Path) -> Result<fs::File, String> {
         .map_err(|e| {
             // ELOOP — финальный компонент оказался симлинком (O_NOFOLLOW)
             format!("cannot open {}: {e}", path.display())
-        })
+        })?;
+    // Жёсткая ссылка на файл вне корней проекта позволяет записать чужой
+    // inode, обойдя path-гейты — fstat на дескрипторе race-free
+    {
+        use std::os::unix::io::AsRawFd;
+        let mut st: libc::stat = unsafe { std::mem::zeroed() };
+        if unsafe { libc::fstat(f.as_raw_fd(), &mut st) } == 0 && st.st_nlink > 1 {
+            return Err(format!(
+                "refused: {} has {} hard links (expected 1)",
+                path.display(),
+                st.st_nlink
+            ));
+        }
+    }
+    Ok(f)
 }
 
 #[cfg(windows)]
@@ -119,6 +133,15 @@ fn open_no_follow(path: &Path) -> Result<fs::File, String> {
         return Err(format!(
             "refused: {} is a symlink/reparse point",
             path.display()
+        ));
+    }
+    // Жёсткая ссылка на файл вне корней проекта позволяет записать чужой
+    // inode, обойдя path-гейты; !=1 включает и count=0 (ошибка ОС)
+    if info.n_number_of_links > 1 {
+        return Err(format!(
+            "refused: {} has {} hard links (expected 1)",
+            path.display(),
+            info.n_number_of_links
         ));
     }
     Ok(f)
@@ -242,7 +265,8 @@ fn win_norm(p: &Path) -> String {
 mod win {
     use std::ffi::c_void;
 
-    /// Нужен только dwFileAttributes; остальные поля держат layout корректным
+    /// Полная BY_HANDLE_FILE_INFORMATION (52 байта): без трёх хвостовых полей
+    /// GetFileInformationByHandle писал за пределы стекового буфера
     #[repr(C)]
     #[derive(Default)]
     pub struct ByHandleFileInformation {
@@ -253,13 +277,37 @@ mod win {
         pub volume_serial: u32,
         pub size_high: u32,
         pub size_low: u32,
+        /// Число жёстких ссылок — нужно для проверки hard-link'ов
+        pub n_number_of_links: u32,
+        pub file_index_high: u32,
+        pub file_index_low: u32,
     }
+
+    const _: () = assert!(
+        std::mem::size_of::<ByHandleFileInformation>() == 52,
+        "ByHandleFileInformation must be exactly 52 bytes (Win32 BY_HANDLE_FILE_INFORMATION)"
+    );
 
     #[link(name = "kernel32")]
     extern "system" {
         pub fn GetFileInformationByHandle(h: *mut c_void, info: *mut ByHandleFileInformation) -> i32;
         pub fn GetFinalPathNameByHandleW(h: *mut c_void, buf: *mut u16, len: u32, flags: u32) -> u32;
     }
+}
+
+/// Per-path мьютекс: без упорядочения параллельные записи в один путь
+/// могут перезаписать свежий снимок устаревшим (автосейв + ручное сохранение).
+/// Канонизация не нужна: конкуренция всегда по одному и тому же литеральному
+/// пути из одного и того же модуля
+fn path_lock(path: &Path) -> std::sync::Arc<std::sync::Mutex<()>> {
+    use std::collections::HashMap;
+    use std::sync::{Arc, Mutex};
+    static MAP: Mutex<Option<HashMap<PathBuf, Arc<Mutex<()>>>>> = Mutex::new(None);
+    let mut guard = MAP.lock().unwrap_or_else(|p| p.into_inner());
+    let map = guard.get_or_insert_with(HashMap::new);
+    map.entry(path.to_path_buf())
+        .or_insert_with(|| Arc::new(Mutex::new(())))
+        .clone()
 }
 
 /// Записать данные атомарно: temp-файл рядом + rename (rename в пределах
@@ -270,6 +318,8 @@ mod win {
 /// процессами, а два параллельных писателя ОДНОГО процесса (автосейв +
 /// ручное сохранение) открывали один temp и интерлировали содержимое.
 pub fn atomic_write(path: &Path, data: &[u8]) -> Result<(), String> {
+    let _lock = path_lock(path);
+    let _guard = _lock.lock().unwrap_or_else(|p| p.into_inner());
     let dir = path
         .parent()
         .ok_or_else(|| "no parent directory".to_string())?;
@@ -319,6 +369,15 @@ pub fn atomic_write(path: &Path, data: &[u8]) -> Result<(), String> {
         let _ = fs::remove_file(&tmp);
         format!("cannot rename into {}: {e}", path.display())
     })?;
+    #[cfg(unix)]
+    {
+        // На Unix rename атомарен в памяти FS, но запись имени в директорию
+        // требует fsync родительского каталога, иначе при отключении питания
+        // файл может исчезнуть или оказаться нулевого размера
+        if let Ok(dir_f) = fs::File::open(dir) {
+            let _ = dir_f.sync_all();
+        }
+    }
     Ok(())
 }
 
@@ -351,22 +410,22 @@ pub fn write_private(path: &Path, data: &[u8]) -> Result<(), String> {
     {
         use std::io::Write;
         use std::os::unix::fs::OpenOptionsExt;
-        // Аудит fsutil 174: mode(600) действует только при создании —
-        // существующий 0644-файл оставался доступным группе/всем. Права
-        // выставляются явно и при перезаписи существующего
-        if let Ok(md) = fs::symlink_metadata(path) {
-            if md.file_type().is_symlink() {
-                return Err(format!("refusing to write through symlink: {}", path.display()));
-            }
-            let _ = fs::set_permissions(path, fs::Permissions::from_mode(0o600));
-        }
+        // O_NOFOLLOW: если финальный компонент — симлинк, получим ELOOP,
+        // а не молчаливую перезапись цели (TOCTOU закрыт в точке открытия)
         let mut f = fs::OpenOptions::new()
             .write(true)
             .create(true)
             .truncate(true)
             .mode(0o600)
+            .custom_flags(libc::O_NOFOLLOW)
             .open(path)
             .map_err(|e| format!("cannot create {}: {e}", path.display()))?;
+        // fchmod на дескрипторе, а не через путь: chmod(path) следовал бы
+        // по подставленному симлинку и менял права чужого файла
+        {
+            use std::os::unix::io::AsRawFd;
+            unsafe { libc::fchmod(f.as_raw_fd(), 0o600) };
+        }
         f.write_all(data)
             .map_err(|e| format!("cannot write {}: {e}", path.display()))
     }
@@ -399,7 +458,12 @@ pub fn read_capped_string(path: &Path, limit: usize) -> Result<String, String> {
     // Аудит fsutil 176: файл мог вырасти между metadata и чтением — лимит
     // дублируется take() на самом чтении
     let file = fs::File::open(path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
-    let mut capped = Vec::with_capacity(md.len() as usize);
+    // Проверка дескриптора после открытия исключает TOCTOU с подменой пути на FIFO между metadata() и File::open()
+    let file_md = file.metadata().map_err(|e| format!("cannot stat open file {}: {e}", path.display()))?;
+    if !file_md.is_file() {
+        return Err(format!("not a regular file: {}", path.display()));
+    }
+    let mut capped = Vec::with_capacity(file_md.len().min(limit as u64) as usize);
     {
         use std::io::Read;
         file.take(limit as u64 + 1)
@@ -509,25 +573,67 @@ fn dir_size(dir: &Path) -> u64 {
 
 /// Очистить содержимое каталога, сам каталог оставить: fs-scope изображений
 /// в setup привязан к пути, и пересоздавать каталог не требуется.
-/// Возвращает число удалённых записей.
+/// Возвращает число удалённых записей. Ошибки удаления собираются списком.
 fn clear_dir_contents(dir: &Path) -> Result<usize, String> {
-    if !dir.exists() {
-        return Ok(0);
+    // symlink/junction на корне означает, что каталог вынесен на другой том;
+    // read_dir / remove_dir_all пошли бы по ссылке и удалили данные цели
+    match fs::symlink_metadata(dir) {
+        Err(_) => return Ok(0), // не существует — нечего чистить
+        Ok(md) => {
+            let ft = md.file_type();
+            if ft.is_symlink() {
+                return Err(format!(
+                    "refusing to clear through symlink: {}",
+                    dir.display()
+                ));
+            }
+            #[cfg(windows)]
+            {
+                use std::os::windows::fs::FileTypeExt;
+                if ft.is_symlink_dir() {
+                    return Err(format!(
+                        "refusing to clear through symlink/junction: {}",
+                        dir.display()
+                    ));
+                }
+            }
+            if !ft.is_dir() {
+                return Err(format!("not a directory: {}", dir.display()));
+            }
+        }
     }
     let rd = fs::read_dir(dir).map_err(|e| format!("cannot read {}: {e}", dir.display()))?;
     let mut removed = 0usize;
+    let mut errors: Vec<String> = Vec::new();
     for e in rd {
-        let e = e.map_err(|err| err.to_string())?;
+        let e = match e {
+            Ok(e) => e,
+            Err(err) => {
+                errors.push(err.to_string());
+                continue;
+            }
+        };
         let p = e.path();
         let res = if e.file_type().map(|t| t.is_dir()).unwrap_or(false) {
             fs::remove_dir_all(&p)
         } else {
             fs::remove_file(&p)
         };
-        res.map_err(|err| format!("cannot remove {}: {err}", p.display()))?;
-        removed += 1;
+        match res {
+            Ok(()) => removed += 1,
+            Err(err) => errors.push(format!("cannot remove {}: {err}", p.display())),
+        }
     }
-    Ok(removed)
+    if errors.is_empty() {
+        Ok(removed)
+    } else {
+        Err(format!(
+            "partially cleared {} entries, {} errors: {}",
+            removed,
+            errors.len(),
+            errors.join("; ")
+        ))
+    }
 }
 
 #[tauri::command(async)]

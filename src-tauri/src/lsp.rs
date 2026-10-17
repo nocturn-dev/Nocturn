@@ -115,6 +115,28 @@ pub fn set_config(cfg: LspConfig) {
     }
 }
 
+/// Реестр подтверждённых корней проектов: спавн серверов в Edit/Ask требует
+/// подтверждения пользователя, чтобы чужой репозиторий не исполнял код молча
+static TRUSTED_ROOTS: OnceLock<Mutex<std::collections::HashSet<String>>> = OnceLock::new();
+
+fn trusted_roots_lock() -> &'static Mutex<std::collections::HashSet<String>> {
+    TRUSTED_ROOTS.get_or_init(|| Mutex::new(std::collections::HashSet::new()))
+}
+
+pub fn is_root_trusted(root: &str) -> bool {
+    trusted_roots_lock()
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .contains(root)
+}
+
+pub fn trust_root(root: &str) {
+    trusted_roots_lock()
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .insert(root.to_string());
+}
+
 /// Встроенные семейства: расширение → команда по умолчанию. Приоритет
 /// разрешения: пользовательский конфиг, затем этот список по порядку
 const FAMILIES: &[(&[&str], &str, &[&str])] = &[
@@ -631,6 +653,12 @@ fn spawn_handle(entry: &LspServerEntry, root: &str) -> Result<Arc<ServerHandle>,
                     "workspace": { "workspaceFolders": true, "configuration": false },
                     "textDocument": { "synchronization": { "didSave": false } }
                 },
+                "initializationOptions": {
+                    "cargo": {
+                        "buildScripts": { "enable": false },
+                        "procMacro": { "enable": false }
+                    }
+                }
             }
         }))
         .map_err(|e| {
@@ -927,6 +955,11 @@ pub fn edit_feedback(fs_write_result: &str) -> String {
     let Some(path) = parsed["path"].as_str() else {
         return fs_write_result.to_string();
     };
+    // Фидбек запускает компиляторы и анализаторы только если корень проекта уже подтверждён
+    let root = find_workspace_root(path);
+    if !is_root_trusted(&root) {
+        return fs_write_result.to_string();
+    }
     let text = match diagnostics_for_file(path, DIAG_WAIT_FEEDBACK, SETTLE_MIN_FEEDBACK) {
         Ok(t) => t,
         Err(_) => return fs_write_result.to_string(),

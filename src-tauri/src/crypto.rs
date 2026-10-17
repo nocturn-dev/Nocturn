@@ -28,11 +28,36 @@ const MIN_BLOB: usize = NONCE_LEN + 16;
 /// сознательно нет, чтобы не соблазнять выключить безопасность вовсе.
 const VAULT_IDLE: Duration = Duration::from_secs(15 * 60);
 
+/// Типизированная ошибка расшифровки
+#[derive(Debug, PartialEq, Eq)]
+pub enum DecryptError {
+    /// Хранилище заперто (таймаут или не разблокировано)
+    Locked,
+    /// Строка не зашифрована (нет префикса enc:v1:)
+    NotEncrypted,
+    /// Неверный ключ или повреждённые данные (битый Base64/GCM-тег/длина)
+    WrongKeyOrCorrupt,
+}
+
+impl std::fmt::Display for DecryptError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            DecryptError::Locked => write!(f, "vault is locked"),
+            DecryptError::NotEncrypted => write!(f, "data is not encrypted"),
+            DecryptError::WrongKeyOrCorrupt => write!(f, "wrong key or corrupt ciphertext"),
+        }
+    }
+}
+
+impl std::error::Error for DecryptError {}
+
 /// Всё состояние хранилища под ОДНИМ мьютексом: ключ и отметки
 /// использования не могут разойтись, порядка блокировок нет вовсе —
 /// взаимоблокировка и гонка «установили ключ, но не успели продлить окно»
 /// невозможны по построению.
 struct Vault {
+    /// Настроено ли хранилище (создан ли мастер-пароль на диске)
+    configured: bool,
     /// Производный ключ. None — хранилище заперто.
     /// Zeroizing: ключ затирается при любом drop (замена, авто-лок, выход)
     key: Option<Zeroizing<Vec<u8>>>,
@@ -47,6 +72,7 @@ struct Vault {
 impl Vault {
     const fn new() -> Self {
         Vault {
+            configured: false,
             key: None,
             last_use: None,
         }
@@ -104,11 +130,28 @@ pub fn has_key() -> bool {
     vault_guard().key.is_some()
 }
 
+/// Разблокировано ли хранилище (ключ присутствует в памяти и не протух)
+pub fn is_unlocked() -> bool {
+    has_key()
+}
+
+/// Настроено ли хранилище мастер-паролем
+pub fn is_configured() -> bool {
+    VAULT.lock().unwrap_or_else(|p| p.into_inner()).configured
+}
+
+/// Выставить флаг наличия настроенного хранилища (вызывается при старте / crypto_setup / crypto_reset)
+pub fn set_configured(configured: bool) {
+    let mut guard = VAULT.lock().unwrap_or_else(|p| p.into_inner());
+    guard.configured = configured;
+}
+
 pub fn set_key(key: Zeroizing<Vec<u8>>) {
     let mut guard = VAULT.lock().unwrap_or_else(|p| p.into_inner());
     // Старый ключ (если был) затирается Drop'ом Zeroizing при замене.
     // Ключ и отметка ставятся под одной блокировкой: гонки нет
     guard.key = Some(key);
+    guard.configured = true;
     guard.touch();
 }
 
@@ -189,43 +232,47 @@ pub fn encrypt_with(key: &[u8], plain: &str) -> Result<String, String> {
     Ok(format!("{PREFIX}{}", B64.encode(blob)))
 }
 
+/// Расшифровать строку с типизированной ошибкой DecryptError.
+pub fn decrypt_typed(stored: &str) -> Result<Zeroizing<String>, DecryptError> {
+    let mut guard = vault_guard();
+    let key = guard.key.as_ref().ok_or(DecryptError::Locked)?;
+    let result = decrypt_with_typed(key, stored)?;
+    guard.touch();
+    Ok(result)
+}
+
+/// То же с явным ключом и типизированной ошибкой DecryptError.
+pub fn decrypt_with_typed(key: &[u8], stored: &str) -> Result<Zeroizing<String>, DecryptError> {
+    let raw = stored.strip_prefix(PREFIX).ok_or(DecryptError::NotEncrypted)?;
+    let blob = B64.decode(raw).map_err(|_| DecryptError::WrongKeyOrCorrupt)?;
+    if blob.len() < MIN_BLOB {
+        return Err(DecryptError::WrongKeyOrCorrupt);
+    }
+    let cipher = Aes256Gcm::new_from_slice(key).map_err(|_| DecryptError::WrongKeyOrCorrupt)?;
+    let pt = cipher
+        .decrypt(Nonce::from_slice(&blob[..NONCE_LEN]), &blob[NONCE_LEN..])
+        .map_err(|_| DecryptError::WrongKeyOrCorrupt)?;
+    match String::from_utf8(pt) {
+        Ok(s) => Ok(Zeroizing::new(s)),
+        Err(e) => {
+            let mut bytes = e.into_bytes();
+            bytes.zeroize();
+            Err(DecryptError::WrongKeyOrCorrupt)
+        }
+    }
+}
+
 /// Расшифровать строку с префиксом. None — не зашифровано или заперто.
 /// Ключ читается по месту (borrow) — без копий в heap. Plaintext обёрнут
 /// в Zeroizing: секрет затирается при drop, а не остаётся в освободившейся
 /// heap-памяти
 pub fn decrypt(stored: &str) -> Option<Zeroizing<String>> {
-    let mut guard = vault_guard();
-    let result = {
-        let key = guard.key.as_ref()?;
-        decrypt_with(key, stored)
-    };
-    if result.is_some() {
-        guard.touch();
-    }
-    result
+    decrypt_typed(stored).ok()
 }
 
 /// То же с явным ключом (миграция PBKDF2 → Argon2id)
 pub fn decrypt_with(key: &[u8], stored: &str) -> Option<Zeroizing<String>> {
-    let blob = B64.decode(stored.strip_prefix(PREFIX)?).ok()?;
-    if blob.len() < MIN_BLOB {
-        return None;
-    }
-    let cipher = Aes256Gcm::new_from_slice(key).ok()?;
-    let pt = cipher
-        .decrypt(Nonce::from_slice(&blob[..NONCE_LEN]), &blob[NONCE_LEN..])
-        .ok()?;
-    // Zeroizing: расшифрованный plaintext — секрет, затираем при drop, а не
-    // оставляем в освободившейся heap-памяти
-    match String::from_utf8(pt) {
-        Ok(s) => Some(Zeroizing::new(s)),
-        Err(e) => {
-            // Битый UTF-8 — тот же секрет: затираем байты до отбрасывания
-            let mut bytes = e.into_bytes();
-            bytes.zeroize();
-            None
-        }
-    }
+    decrypt_with_typed(key, stored).ok()
 }
 
 /// Зашифровано ли поле (есть ли префикс)
@@ -298,6 +345,7 @@ mod tests {
             )
         };
         let vault_with = |last_use| Vault {
+            configured: false,
             key: None,
             last_use,
         };
@@ -475,5 +523,58 @@ mod tests {
         set_key(b);
         assert!(decrypt(&enc).is_none());
         clear_key();
+    }
+
+    #[test]
+    fn typed_decrypt_distinguishes_error_kinds() {
+        let _serial = KEY_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        clear_key();
+        // Запертое хранилище
+        assert_eq!(decrypt_typed("enc:v1:AAAA"), Err(DecryptError::Locked));
+        // Без префикса
+        assert_eq!(decrypt_typed("plaintext"), Err(DecryptError::Locked));
+
+        let key = derive_key("pw", b"salt-salt-salt-sa");
+        set_key(key);
+        // Не зашифровано
+        assert_eq!(decrypt_typed("plaintext"), Err(DecryptError::NotEncrypted));
+        // Битый блоб
+        assert_eq!(decrypt_typed("enc:v1:AAAA"), Err(DecryptError::WrongKeyOrCorrupt));
+
+        // Успешная расшифровка
+        let enc = encrypt("secret-token").unwrap();
+        assert_eq!(decrypt_typed(&enc).unwrap().as_str(), "secret-token");
+
+        // Неверный ключ
+        let wrong_key = derive_key("pw-wrong", b"salt-salt-salt-sa");
+        set_key(wrong_key);
+        assert_eq!(decrypt_typed(&enc), Err(DecryptError::WrongKeyOrCorrupt));
+        clear_key();
+    }
+
+    #[test]
+    fn configured_and_unlocked_states_are_distinct() {
+        let _serial = KEY_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        clear_key();
+        set_configured(false);
+        assert!(!is_configured());
+        assert!(!is_unlocked());
+
+        // Настроено, но заперто
+        set_configured(true);
+        assert!(is_configured());
+        assert!(!is_unlocked());
+
+        // Разблокировано
+        let key = derive_key("pw", b"salt-salt-salt-sa");
+        set_key(key);
+        assert!(is_configured());
+        assert!(is_unlocked());
+
+        // Запирание оставляет configured=true
+        clear_key();
+        assert!(is_configured());
+        assert!(!is_unlocked());
+        set_configured(false);
     }
 }

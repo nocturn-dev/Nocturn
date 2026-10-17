@@ -545,6 +545,7 @@ pub async fn crypto_reset(app: tauri::AppHandle, confirm: String) -> Result<(), 
         return Err("confirmation required: pass confirm=\"RESET\" to wipe stored keys".into());
     }
     crypto::clear_key();
+    crypto::set_configured(false);
     tauri::async_runtime::spawn_blocking(move || {
         let meta = crypto_meta_path(&app)?;
         if meta.exists() {

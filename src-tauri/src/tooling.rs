@@ -574,6 +574,26 @@ pub async fn execute_tool_inner(
             .and_then(|v| v.as_str())
             .ok_or("missing required argument: path")?
             .to_string();
+        let root = lsp::find_workspace_root(&path);
+        if !lsp::is_root_trusted(&root) {
+            use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
+            let confirmed = app
+                .dialog()
+                .message(format!(
+                    "Allow LSP language server to run in project root?\n\n{root}\n\nLanguage servers index the workspace and may execute build scripts or compiler plugins."
+                ))
+                .title("LSP Server Execution")
+                .kind(MessageDialogKind::Warning)
+                .buttons(MessageDialogButtons::OkCancelCustom(
+                    "Allow".into(),
+                    "Cancel".into(),
+                ))
+                .blocking_show();
+            if !confirmed {
+                return Err(format!("LSP server execution cancelled by user for root: {root}"));
+            }
+            lsp::trust_root(&root);
+        }
         let work = tauri::async_runtime::spawn_blocking(move || {
             lsp::diagnostics_for_file(&path, lsp::DIAG_WAIT_TOOL, lsp::SETTLE_MIN_TOOL)
         });
@@ -736,11 +756,13 @@ pub async fn imagegen_set_config(
     // в памяти остаётся открытым текстом для запросов к провайдеру
     tauri::async_runtime::spawn_blocking(move || {
         let mut for_disk = config.clone();
-        if crypto::has_key()
-            && !for_disk.api_key.is_empty()
-            && !crypto::is_encrypted(&for_disk.api_key)
-        {
-            for_disk.api_key = crypto::encrypt(&for_disk.api_key)?;
+        if !for_disk.api_key.is_empty() && !crypto::is_encrypted(&for_disk.api_key) {
+            if crypto::is_configured() && !crypto::is_unlocked() {
+                return Err("vault is locked: unlock the vault before saving secrets".into());
+            }
+            if crypto::has_key() {
+                for_disk.api_key = crypto::encrypt(&for_disk.api_key)?;
+            }
         }
         save_json_config(&app, "imagegen.json", &for_disk)?;
         imagegen::set_config(config);
@@ -770,11 +792,13 @@ pub async fn websearch_set_config(
 ) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
         let mut for_disk = config.clone();
-        if crypto::has_key()
-            && !for_disk.brave_key.is_empty()
-            && !crypto::is_encrypted(&for_disk.brave_key)
-        {
-            for_disk.brave_key = crypto::encrypt(&for_disk.brave_key)?;
+        if !for_disk.brave_key.is_empty() && !crypto::is_encrypted(&for_disk.brave_key) {
+            if crypto::is_configured() && !crypto::is_unlocked() {
+                return Err("vault is locked: unlock the vault before saving secrets".into());
+            }
+            if crypto::has_key() {
+                for_disk.brave_key = crypto::encrypt(&for_disk.brave_key)?;
+            }
         }
         save_json_config(&app, "websearch.json", &for_disk)?;
         websearch::set_config(config);
@@ -1082,16 +1106,60 @@ pub async fn perm_set(
         "full" => perm::PermMode::Full,
         other => return Err(format!("unknown permission mode: {other}")),
     };
-    // валидация правил fail-closed — битое правило отвергает весь
-    // perm_set, защита «not synchronized» держит мутации до починки списка
+    // Валидация правил fail-closed — битое правило сбрасывает состояние
     let rules = rules.unwrap_or_default();
     let known = known_tool_names();
-    for r in &rules.allow {
-        perm::validate_rule(r, true, &known)?;
+    let validate_res = (|| {
+        for r in &rules.allow {
+            perm::validate_rule(r, true, &known)?;
+        }
+        for r in rules.deny.iter().chain(rules.always_ask.iter()) {
+            perm::validate_rule(r, false, &known)?;
+        }
+        Ok::<(), String>(())
+    })();
+    if let Err(e) = validate_res {
+        perm::reset_fail_closed();
+        return Err(e);
     }
-    for r in rules.deny.iter().chain(rules.always_ask.iter()) {
-        perm::validate_rule(r, false, &known)?;
+
+    // Проверка корней: не пустые пути, отклонение чувствительных путей, проверка существования на диске
+    for r in &roots {
+        let trimmed = r.trim();
+        if trimmed.is_empty() {
+            perm::reset_fail_closed();
+            return Err("empty root path".to_string());
+        }
+        if let Err(e) = crate::settings::rejects_sensitive_path(trimmed) {
+            perm::reset_fail_closed();
+            return Err(format!("root path rejected as sensitive: {e}"));
+        }
+        let p = std::path::Path::new(trimmed);
+        if !p.is_dir() {
+            perm::reset_fail_closed();
+            return Err(format!("root directory does not exist: {trimmed}"));
+        }
     }
+
+    // Переход в Full подтверждается нативным диалогом пользователя
+    if mode == perm::PermMode::Full {
+        use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
+        let confirmed = app
+            .dialog()
+            .message("Enable Full Access mode? The agent will be able to run arbitrary shell commands and edit system files.")
+            .title("Confirm Full Access Mode")
+            .kind(MessageDialogKind::Warning)
+            .buttons(MessageDialogButtons::OkCancelCustom(
+                "Enable Full Access".into(),
+                "Cancel".into(),
+            ))
+            .blocking_show();
+        if !confirmed {
+            perm::reset_fail_closed();
+            return Err("transition to Full permission mode was rejected by user".to_string());
+        }
+    }
+
     // Канонизация корней и config-dir — один раз здесь (FS-работа в
     // blocking-пул; на сетевом корне висела бы до таймаута), а не на каждый
     // fs_* вызов. config-dir — самозащита конфига
@@ -1102,19 +1170,23 @@ pub async fn perm_set(
         let config_dir = app_for_cfg
             .path()
             .app_config_dir()
-            .ok()
-            .map(|d| perm::norm_canonical_path(&d.to_string_lossy()));
-        (roots_canon, config_dir)
+            .map(|d| perm::norm_canonical_path(&d.to_string_lossy()))
+            .map_err(|e| format!("failed to get app config dir: {e}"))?;
+        Ok::<_, String>((roots_canon, config_dir))
     })
     .await
-    .map_err(|e| format!("perm task failed: {e}"))?;
+    .map_err(|e| format!("perm task failed: {e}"))?
+    .inspect_err(|_| {
+        perm::reset_fail_closed();
+    })?;
+
     perm::set(perm::PermState {
         mode,
         roots,
         roots_canon,
         synced: true,
         rules,
-        config_dir,
+        config_dir: Some(config_dir),
     });
     Ok(())
 }

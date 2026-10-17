@@ -640,11 +640,13 @@ pub async fn telegram_set_config(
                 }
             }
         }
-        if crate::crypto::has_key()
-            && !for_disk.bot_token.is_empty()
-            && !crate::crypto::is_encrypted(&for_disk.bot_token)
-        {
-            for_disk.bot_token = crate::crypto::encrypt(&for_disk.bot_token)?;
+        if !for_disk.bot_token.is_empty() && !crate::crypto::is_encrypted(&for_disk.bot_token) {
+            if crate::crypto::is_configured() && !crate::crypto::is_unlocked() {
+                return Err("vault is locked: unlock the vault before saving secrets".into());
+            }
+            if crate::crypto::has_key() {
+                for_disk.bot_token = crate::crypto::encrypt(&for_disk.bot_token)?;
+            }
         }
         crate::settings::save_json_config(&app_for_disk, "telegram.json", &for_disk)?;
         Ok(())

@@ -64,33 +64,42 @@ const permSrc = readFileSync(
   fileURLToPath(new URL("../../src-tauri/src/perm.rs", import.meta.url)),
   "utf8",
 );
-// Парсер привязан к текущему форматированию match-блока: при рефакторинге
-// perm.rs тест упадёт громко — обнови якорь (это и есть контракт)
-const mutatingBlock =
-  permSrc.match(/let mutating = match name \{([\s\S]*?)\n    \};/)?.[1] ?? "";
-const exactNames = mutatingBlock
+// Парсер привязан к текущему форматированию is_read_only_tool в perm.rs:
+// при рефакторинге perm.rs тест упадёт громко — обнови якорь (это и есть контракт)
+const readOnlyBlock =
+  permSrc.match(/fn is_read_only_tool\(name: &str\) -> bool \{[\s\S]*?matches!\([\s\S]*?name,([\s\S]*?)\n    \)/)?.[1] ?? "";
+const readOnlyNames = readOnlyBlock
   .split("\n")
-  .filter((l) => !l.includes("starts_with"))
   .flatMap((l) => [...l.matchAll(/"([a-z_]+)"/g)].map((m) => m[1]))
   .filter((n): n is string => !!n);
-const readExempt = [...mutatingBlock.matchAll(/"(?:browser|computer)_[a-z_]+"/g)]
-  .map((m) => m[0])
-  .filter((n): n is string => !!n)
-  .map((n) => n.replaceAll('"', ""));
 
 describe("isMutatingTool — механическое зеркало perm.rs", () => {
-  it("каждое точное имя match-блока perm.rs мутирует на фронте", () => {
-    expect(exactNames.length).toBeGreaterThan(0);
-    for (const n of exactNames) {
-      expect(isMutatingTool(n)).toBe(true);
+  it("read-only инструменты perm.rs не мутируют на фронте", () => {
+    expect(readOnlyNames.length).toBeGreaterThan(0);
+    expect(readOnlyNames).toContain("browser_read");
+    expect(readOnlyNames).toContain("computer_screenshot");
+    for (const n of readOnlyNames) {
+      expect(isMutatingTool(n)).toBe(false);
     }
   });
 
-  it("каждое исключение чтения/скриншота perm.rs не мутирует на фронте", () => {
-    expect(readExempt).toContain("browser_read");
-    expect(readExempt).toContain("computer_screenshot");
-    for (const n of readExempt) {
-      expect(isMutatingTool(n)).toBe(false);
+  it("мутирующие инструменты не входят в read-only список perm.rs", () => {
+    const mutating = [
+      "shell_run",
+      "fs_write",
+      "fs_delete",
+      "vault_write",
+      "image_generate",
+      "gguf_cut",
+      "gguf_test",
+      "browser_navigate",
+      "browser_click",
+      "computer_click",
+      "computer_key",
+    ];
+    for (const n of mutating) {
+      expect(readOnlyNames).not.toContain(n);
+      expect(isMutatingTool(n)).toBe(true);
     }
   });
 });

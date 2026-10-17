@@ -894,6 +894,15 @@ mod tests {
     #[test]
     fn fs_tools_roundtrip() {
         let dir = tmp_dir("fs");
+        let dir_str = dir.to_string_lossy().to_string();
+        crate::perm::set(crate::perm::PermState {
+            mode: crate::perm::PermMode::Full,
+            roots: vec![dir_str.clone()],
+            roots_canon: vec![crate::perm::norm_canonical_path(&dir_str)],
+            synced: true,
+            rules: crate::perm::PermRules::default(),
+            config_dir: Some("C:\\fake\\config".to_string()),
+        });
         let file = dir.join("hello.txt");
 
         let write_args = json!({ "path": file, "content": "line1\nline2" }).to_string();

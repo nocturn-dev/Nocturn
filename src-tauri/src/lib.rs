@@ -84,6 +84,9 @@ pub fn run() {
                 .path()
                 .app_config_dir()
                 .map_err(|e| e.to_string())?;
+            perm::init_config_dir(&cfg_dir);
+            // Инициализация статуса хранилища: если crypto.json существует, хранилище настроено
+            crypto::set_configured(cfg_dir.join("crypto.json").exists());
             let read = |file: &str| -> Option<serde_json::Value> {
                 let data = fs::read_to_string(cfg_dir.join(file)).ok()?;
                 serde_json::from_str(&data).ok()
