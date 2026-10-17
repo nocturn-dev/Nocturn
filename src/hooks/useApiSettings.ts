@@ -215,10 +215,11 @@ export function useApiSettings(opts: {
     [],
   );
 
-  /** Сабмит из окна гейта: создание пароля, разблокировка или отключение шифрования */
+  /** Сабмит из окна гейта: создание пароля, разблокировка или отключение шифрования.
+   *  false — неверный пароль; исключение — сбой операции: гейт показывает
+   *  другой текст, пользователь не гоняет перебор паролей при падении бекенда */
   const handleGateSubmit = useCallback(
     async (password: string) => {
-      // cryptoSetup/cryptoUnlock бросают при неверном пароле — гейт показывает ошибку
       try {
         if (cryptoGate === "create") {
           await cryptoSetup(password);
@@ -238,8 +239,11 @@ export function useApiSettings(opts: {
         await reloadSecrets();
         setCryptoGate("none");
         return true;
-      } catch {
-        return false;
+      } catch (e) {
+        // «wrong password» — единственный штатный отказ бекенда; сбой IPC
+        // и ограничение перебора пробрасываются как сбой
+        if (String(e).includes("wrong password")) return false;
+        throw e;
       }
     },
     [cryptoGate, reloadSecrets],
