@@ -1,7 +1,8 @@
 import { useMemo } from "react";
 import { useLang } from "../../locales";
 import { type ToolCallInfo } from "../../types";
-import { dangerousShellPattern, extractCommandPrefix } from "../../agent/shellRules";
+import { dangerousShellPattern } from "../../agent/shellRules";
+import { sessionAllowShellRule } from "../../agent/toolRules";
 
 export function ConfirmCard({
   call,
@@ -12,14 +13,18 @@ export function ConfirmCard({
 }) {
   const { t } = useLang();
   // [P9] Префиксное разрешение предлагается ТОЛЬКО для простых безопасных
-  // shell-команд: complex (пайпы/сцепки) не извлекает префикс, dangerous —
-  // отсекается явно («rm *» на задачу — не подарок)
+  // shell-команд: complex (пайпы/сцепки/переносы строк) не даёт префикса,
+  // dangerous — отсекается явно («rm *» на задачу — не подарок). Кнопка
+  // показывается только если из префикса собирается валидное правило —
+  // иначе она создавала бы сессионное правило, которое никогда не сработает
   const shellPrefix = useMemo(() => {
     if (call.name !== "shell_run") return null;
     try {
       const cmd = (JSON.parse(call.arguments) as { command?: string }).command ?? "";
       if (!cmd || dangerousShellPattern(cmd)) return null;
-      return extractCommandPrefix(cmd);
+      const rule = sessionAllowShellRule(cmd);
+      if (!rule) return null;
+      return rule.replace(/^shell_run\((.*) \*\)$/, "$1");
     } catch {
       return null;
     }

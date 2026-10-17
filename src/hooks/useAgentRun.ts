@@ -30,8 +30,7 @@ import { skillReinjectMessage } from "../agent/autocompact";
 import { parsePlanTasks } from "../agent/planUpdate";
 import { allowKey, parseHttpCode, ruleArgument } from "../agent/toolArgs";
 import { chatWithRetry as chatWithRetryEngine } from "../agent/chatRetry";
-import { evaluateToolRules, mergePermRules, withSessionAllowRule } from "../agent/toolRules";
-import { extractCommandPrefix } from "../agent/shellRules";
+import { evaluateToolRules, mergePermRules, sessionAllowShellRule, withSessionAllowRule } from "../agent/toolRules";
 import type { PermRules } from "../agent/permRules";
 import {
   compactHistory,
@@ -2805,10 +2804,11 @@ ${report}`;
           if (decision === "prefix") {
             // [P9] «По префиксу до конца задачи»: shell_run(<prefix> *) в
             // Session.sessionRules (формат PermRules); complex/dangerous
-            // префикс не покрывает — классификатор shell в evaluateToolRules
-            const prefix = extractCommandPrefix(ruleArg ?? "");
-            if (prefix) {
-              const rule = `shell_run(${prefix} *)`;
+            // префикс не покрывает — классификатор shell в evaluateToolRules.
+            // Сборка с валидацией: префикс, ломающий парсер правил,
+            // создал бы сессионное правило, которое никогда не сработает
+            const rule = sessionAllowShellRule(ruleArg ?? "");
+            if (rule) {
               setSessions((prev) =>
                 prev.map((s) =>
                   s.id === targetId

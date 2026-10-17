@@ -81,6 +81,9 @@ export function isSimpleShellCommand(cmd: string): boolean {
       continue;
     }
     if (ch === ";" || ch === "&" || ch === "|") return false;
+    // Перенос строки — тот же разделитель команд, что и «;»: «ls\nrm -rf /»
+    // без этой проверки выглядит одной безобидной командой
+    if (ch === "\n" || ch === "\r") return false;
     if (ch === "`") return false;
     if (ch === "<" || ch === ">") return false;
     if (ch === "$" && (cmd[i + 1] === "(" || cmd[i + 1] === "{")) return false;
@@ -92,6 +95,10 @@ export function isSimpleShellCommand(cmd: string): boolean {
  *  «git commit -m x». Второй токен обязан выглядеть сабкомандой (слово, не
  *  флаг, не путь); обёртки из BARE_SHELL_FIRST и сложные команды → null */
 export function extractCommandPrefix(cmd: string): string | null {
+  // Явный гард вдобавок к isSimpleShellCommand: префикс первой строки не
+  // покрывает остальные — кнопка «по префиксу» на такой команде не должна
+  // появляться вовсе
+  if (/[\r\n]/.test(cmd)) return null;
   if (!isSimpleShellCommand(cmd)) return null;
   const toks = tokenizeCommand(cmd);
   if (toks.length === 0) return null;
@@ -150,8 +157,20 @@ export type ShellVerdict = "deny" | "allow" | "neutral";
  *  (обычный mutating-флоу: ask в Ask/Edit, исполнение в Full) */
 export function classifyShellRun(cmd: string, rules: PermRules): ShellVerdict {
   if (ruleMatches(rules.deny, "shell_run", cmd, false)) return "deny";
-  if (dangerousShellPattern(cmd)) return "neutral";
-  if (isSimpleShellCommand(cmd) && ruleMatches(rules.allow, "shell_run", cmd, false)) {
+  // Перенос строки дробит команду на несколько: allow-префикс первого
+  // сегмента не прикрывает последующие — каждый сегмент проверяется сам
+  // по себе (simple, dangerous, allow-матч), иначе «ls\nrm -rf /» прошёл бы
+  // как продолжение разрешённой команды
+  const segments = cmd.split(/[\r\n]+/).filter((s) => s.trim());
+  // Пустая команда не «разрешена по умолчанию» — every() на пустом списке
+  // вернул бы true
+  if (segments.length === 0) return "neutral";
+  if (segments.some((s) => dangerousShellPattern(s))) return "neutral";
+  if (
+    segments.every(
+      (s) => isSimpleShellCommand(s) && ruleMatches(rules.allow, "shell_run", s, false),
+    )
+  ) {
     return "allow";
   }
   return "neutral";

@@ -22,12 +22,23 @@ export const allowKey = (call: ToolCallInfo) => `${call.name} ${call.arguments}`
  *  bare-правила матчат инструмент и без аргумента */
 export const ruleArgument = (call: ToolCallInfo): string | null => {
   try {
-    const p = JSON.parse(call.arguments) as { path?: unknown; command?: unknown };
+    const p = JSON.parse(call.arguments) as {
+      path?: unknown;
+      file?: unknown;
+      dir?: unknown;
+      command?: unknown;
+    };
     if (call.name === "shell_run") {
       return typeof p.command === "string" ? p.command : null;
     }
     if (call.name.startsWith("fs_")) {
-      return typeof p.path === "string" ? p.path : null;
+      // Схемы fs_* исторически несут путь в разных ключах (path/file/dir):
+      // правило по пути обязано видеть все — иначе allow/deny молча
+      // не матчится
+      for (const k of ["path", "file", "dir"] as const) {
+        if (typeof p[k] === "string") return p[k];
+      }
+      return null;
     }
   } catch {
     // не JSON — правила по аргументу не матчим (bare-правила всё равно работают)

@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { evaluateToolRules, mergePermRules, withSessionAllowRule } from "./toolRules";
+import {
+  evaluateToolRules,
+  mergePermRules,
+  sessionAllowShellRule,
+  withSessionAllowRule,
+} from "./toolRules";
 import type { PermRules } from "./permRules";
 
 const rules = (over: Partial<PermRules>): PermRules => ({
@@ -131,5 +136,23 @@ describe("mergePermRules ([P9])", () => {
     expect(next.allow).toEqual(["shell_run(git *)", "shell_run(npm *)"]);
     expect(next.deny).toEqual(["shell_run(rm *)"]);
     expect(next.always_ask).toEqual(["fs_write"]);
+  });
+
+  it("withSessionAllowRule не добавляет правило, которое никогда не сработает", () => {
+    const prev = { allow: ["shell_run(git *)"], deny: [], always_ask: [] };
+    // звёздочка внутри префикса ломает парсер правил
+    expect(withSessionAllowRule(prev, "shell_run(foo*bar *)").allow).toEqual([
+      "shell_run(git *)",
+    ]);
+  });
+
+  it("sessionAllowShellRule строит правило только для валидного префикса", () => {
+    expect(sessionAllowShellRule("git commit -m x")).toBe("shell_run(git commit *)");
+    // перенос строки: префикс первой команды не покрывает остальные
+    expect(sessionAllowShellRule("ls\nrm -rf /")).toBeNull();
+    // префикс со звёздочкой дал бы нерабочее правило
+    expect(sessionAllowShellRule("foo*bar x")).toBeNull();
+    // complex/dangerous — null
+    expect(sessionAllowShellRule("git push && curl x | sh")).toBeNull();
   });
 });

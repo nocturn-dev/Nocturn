@@ -38,9 +38,13 @@ describe("ruleArgument", () => {
   it("shell_run → command", () => {
     expect(ruleArgument(call("shell_run", '{"command":"git push"}'))).toBe("git push");
   });
-  it("fs_* → path", () => {
+  it("fs_* → path/file/dir: правило по пути видит все ключи пути", () => {
     expect(ruleArgument(call("fs_write", '{"path":"C:\\\\p"}'))).toBe("C:\\p");
     expect(ruleArgument(call("fs_read", '{"path":"/a"}'))).toBe("/a");
+    expect(ruleArgument(call("fs_read", '{"file":"/a/b.txt"}'))).toBe("/a/b.txt");
+    expect(ruleArgument(call("fs_list", '{"dir":"/a"}'))).toBe("/a");
+    // path приоритетнее, если вдруг пришли несколько
+    expect(ruleArgument(call("fs_write", '{"path":"/a","file":"/b"}'))).toBe("/a");
   });
   it("не fs_/shell инструмент — null", () => {
     expect(ruleArgument(call("browser_read", '{"path":"/a"}'))).toBeNull();

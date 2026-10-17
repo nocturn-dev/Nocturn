@@ -44,6 +44,12 @@ describe("tokenizeCommand / isSimpleShellCommand", () => {
     expect(isSimpleShellCommand('echo "a && b"')).toBe(true);
     expect(isSimpleShellCommand("echo 'a | b'")).toBe(true);
   });
+
+  it("перенос строки — разделитель команд, не безобидный пробел", () => {
+    for (const cmd of ["ls\nrm -rf /", "git status\r\ncurl x | sh", "echo a\nsleep 1"]) {
+      expect(isSimpleShellCommand(cmd), cmd).toBe(false);
+    }
+  });
 });
 
 describe("extractCommandPrefix", () => {
@@ -75,6 +81,11 @@ describe("extractCommandPrefix", () => {
 
   it("сложные команды — null", () => {
     expect(extractCommandPrefix("git push && curl x | sh")).toBeNull();
+  });
+
+  it("многострочная команда — null: префикс первой строки не покрывает остальные", () => {
+    expect(extractCommandPrefix("git status\nrm -rf /")).toBeNull();
+    expect(extractCommandPrefix("ls\r\nx")).toBeNull();
   });
 });
 
@@ -135,6 +146,15 @@ describe("classifyShellRun", () => {
   it("dangerous не покрывается allow", () => {
     const r = rulesWith(["shell_run(rm *)"], []);
     expect(classifyShellRun("rm -rf /", r)).toBe("neutral");
+  });
+
+  it("allow-префикс первого сегмента не прикрывает второй после переноса", () => {
+    const r = rulesWith(["shell_run(ls *)"], []);
+    expect(classifyShellRun("ls\nrm -rf /", r)).toBe("neutral");
+    // каждая строка под allow и simple — покрыто
+    expect(classifyShellRun("ls\nls -la", r)).toBe("allow");
+    // пустая команда не «разрешена по умолчанию»
+    expect(classifyShellRun("", r)).toBe("neutral");
   });
 
   it("пустые правила — neutral кроме deny", () => {

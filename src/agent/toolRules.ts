@@ -5,8 +5,8 @@
  * авторитетен — матч здесь best-effort.
  */
 
-import { ruleMatches, type PermRules } from "./permRules";
-import { classifyShellRun } from "./shellRules";
+import { EMPTY_RULES, ruleMatches, validateRule, type PermRules } from "./permRules";
+import { classifyShellRun, extractCommandPrefix } from "./shellRules";
 
 export interface ToolRuleVerdict {
   denyHit: boolean;
@@ -56,6 +56,17 @@ export function mergePermRules(
   };
 }
 
+/** [P9] Сборка сессионного allow-правила из shell-команды: префикс,
+ *  ломающий парсер правил (звёздочка не замыкающая, скобки и т.п.), дал бы
+ *  кнопку «разрешить», которая никогда не сработает. null — правило
+ *  строить нельзя, кнопку в карточке не показывать */
+export function sessionAllowShellRule(cmd: string): string | null {
+  const prefix = extractCommandPrefix(cmd);
+  if (!prefix) return null;
+  const rule = `shell_run(${prefix} *)`;
+  return validateRule(rule, true, new Set(["shell_run"])) === null ? rule : null;
+}
+
 /** [P9] Добавить сессионное allow-правило (кнопка «Разрешить «{p} *» до
  *  конца задачи» в карточке подтверждения). Чистая функция: золотые векторы
  *  в toolRules.test закрепляют дедуп по строке и сохранность deny/always_ask
@@ -65,6 +76,11 @@ export function withSessionAllowRule(
   prev: PermRules | null | undefined,
   rule: string,
 ): PermRules {
+  // Нерабочее правило хуже отсутствующего: путь вызова один (shell-префикс),
+  // но если мимо карточки всё же пришёл мусор — молча не добавляем
+  if (validateRule(rule, true, new Set(["shell_run"])) !== null) {
+    return { ...(prev ?? EMPTY_RULES) };
+  }
   return {
     allow: [...new Set([...(prev?.allow ?? []), rule])],
     deny: prev?.deny ?? [],
