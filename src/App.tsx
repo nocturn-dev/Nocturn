@@ -110,6 +110,7 @@ import {
 } from "./subagents";
 import type { VoiceSettings } from "./voice/prefs";
 import { loadLimits, saveLimits, type HardLimits } from "./limits";
+import { clearCacheGuard } from "./agent/cacheGuard";
 import { uid } from "./hooks/useAgentRun";
 import { useToasts } from "./hooks/useToasts";
 import { registerCustomFonts } from "./fonts";
@@ -2301,6 +2302,7 @@ export default function App() {
     // C12: удаление активной задачи не прерывало прогон — цикл продолжал
     // жечь токены и писать в несуществующую сессию
     if (streamingTargetRef.current === id) handleStop();
+    clearCacheGuard(id);
     setSessions((prev) => prev.filter((s) => s.id !== id));
     if (activeId === id) setActiveId(null);
   };

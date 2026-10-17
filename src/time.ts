@@ -6,17 +6,35 @@
 
 export type DayPeriod = "morning" | "afternoon" | "evening" | "night";
 
-export function dayPeriod(d: Date = new Date()): DayPeriod {
-  let hour: number;
+let cachedTimeZone: string | null = null;
+
+function getTimeZone(): string {
+  if (cachedTimeZone !== null) return cachedTimeZone;
   try {
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    hour = !tz || tz === "UTC" ? d.getUTCHours() : d.getHours();
+    cachedTimeZone = tz || "UTC";
   } catch {
+    cachedTimeZone = "UTC";
+  }
+  return cachedTimeZone;
+}
+
+export function dayPeriod(d: Date = new Date()): DayPeriod {
+  let hour: number;
+  const tz = getTimeZone();
+  if (tz === "UTC") {
     hour = d.getUTCHours();
+  } else {
+    try {
+      hour = d.getHours();
+    } catch {
+      hour = d.getUTCHours();
+    }
   }
   if (hour >= 5 && hour < 12) return "morning";
   if (hour >= 12 && hour < 18) return "afternoon";
   if (hour >= 18 && hour < 23) return "evening";
+  // Ночь: 23, 0, 1, 2, 3, 4
   return "night";
 }
 

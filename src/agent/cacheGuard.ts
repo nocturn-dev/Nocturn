@@ -42,7 +42,13 @@ interface GuardState {
   pendingToolsHash: string;
 }
 
+const MAX_SESSIONS = 100;
 const states = new Map<string, GuardState>();
+
+/** Удалить сохранённое состояние детектора кэша для удалённой сессии */
+export function clearCacheGuard(sessionId: string): void {
+  states.delete(sessionId);
+}
 
 /** FNV-1a: строковый хэш без криптографии — нужен только детект СМЕНЫ,
  *  скорость на 100КБ system-блока важнее устойчивости к коллизиям */
@@ -78,6 +84,13 @@ export function noteCacheRequest(sessionId: string, req: CacheGuardRequest): voi
   state.prevToolsHash = state.pendingToolsHash;
   state.pendingSystemHash = fnv1a(system);
   state.pendingToolsHash = fnv1a(JSON.stringify(req.tools ?? null));
+
+  // LRU: удаляем и вставляем заново для переноса в конец очереди
+  states.delete(sessionId);
+  if (states.size >= MAX_SESSIONS) {
+    const oldest = states.keys().next().value;
+    if (oldest !== undefined) states.delete(oldest);
+  }
   states.set(sessionId, state);
 }
 

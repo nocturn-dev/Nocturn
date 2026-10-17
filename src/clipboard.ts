@@ -11,20 +11,24 @@ import { clipboardWrite } from "./api";
 
 /** Скопировать текст; true — успех (любым из путей) */
 export async function copyText(text: string): Promise<boolean> {
+  if (!text) return false;
   try {
     await clipboardWrite(text);
     return true;
   } catch {
     // нет Tauri (браузерное превью) или команда упала — JS-пути ниже
+    console.warn("[clipboard] native clipboardWrite failed, falling back to navigator.clipboard");
   }
   try {
     await navigator.clipboard.writeText(text);
     return true;
   } catch {
     // clipboard API недоступен/запрещён — ручной путь через скрытую textarea
+    console.warn("[clipboard] navigator.clipboard failed, falling back to execCommand");
   }
+  let ta: HTMLTextAreaElement | null = null;
   try {
-    const ta = document.createElement("textarea");
+    ta = document.createElement("textarea");
     ta.value = text;
     ta.setAttribute("readonly", "");
     // Вне вьюпорта, но не display:none — иначе фокус/выделение не сработают
@@ -34,10 +38,12 @@ export async function copyText(text: string): Promise<boolean> {
     document.body.appendChild(ta);
     ta.select();
     ta.setSelectionRange(0, text.length);
-    const ok = document.execCommand("copy");
-    document.body.removeChild(ta);
-    return ok;
+    return document.execCommand("copy");
   } catch {
     return false;
+  } finally {
+    if (ta && ta.parentNode) {
+      ta.parentNode.removeChild(ta);
+    }
   }
 }

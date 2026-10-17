@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  clearCacheGuard,
   noteCacheRequest,
   noteCacheUsage,
   resetCacheGuardForTests,
@@ -93,6 +94,15 @@ describe("cacheGuard", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     round("s9a", { prompt: 5000, cacheRead: 4096 });
     round("s9b", { prompt: 5000, cacheRead: 0 });
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("clearCacheGuard очищает состояние сессии", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    round("s10", { prompt: 5000, cacheRead: 4096 });
+    clearCacheGuard("s10");
+    round("s10", { prompt: 6000, cacheRead: 0 });
+    // После очистки сессия считается новой — разрыв не регистрируется
     expect(warn).not.toHaveBeenCalled();
   });
 });

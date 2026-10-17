@@ -31,7 +31,8 @@ export function HardLimitSection({
   ];
   const setField = (k: keyof HardLimits, v: string) => {
     const n = Number(v);
-    onChange({ ...limits, [k]: v.trim() === "" || !Number.isFinite(n) ? null : n });
+    const parsed = v.trim() === "" || !Number.isFinite(n) ? null : k === "maxTokens" ? Math.floor(n) : n;
+    onChange({ ...limits, [k]: parsed });
   };
   return (
     <div className="mt-5 rounded-xl border border-halo-line px-3.5 py-3">

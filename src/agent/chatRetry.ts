@@ -11,7 +11,7 @@ import { parseHttpCode } from "./toolArgs";
 
 /** Ошибки провайдера, которые имеет смысл ретраить: перегрузка/лимиты/сеть */
 export const RETRYABLE_RE =
-  /\bHTTP (?:429|500|502|503|504|52\d)\b|failed to fetch|connection|timed?.?out/i;
+  /\bHTTP (?:429|500|502|503|504|52\d)\b|failed to fetch|connection\s+(?:reset|refused|closed|aborted)|timed?.?out/i;
 
 /** Опции стрима провайдера + фолбэк-модель (сам вызов — в api.chatStream) */
 export type RetryStreamOpts = Parameters<

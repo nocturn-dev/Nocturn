@@ -43,7 +43,7 @@ function runtimeError(detail: string): CodeRunResult {
     ok: false,
     stdout: "",
     stderr: "",
-    error: `pyodide runtime: ${detail} — run \`npm install\` to install the local Python runtime`,
+    error: `pyodide runtime error: ${detail}`,
   };
 }
 
@@ -60,6 +60,7 @@ function ensureWorker(): Worker {
   // маршрутизируется по id, ошибка воркера не теряется при параллельных
   // запросах и не перезаписывается каждым новым вызовом
   w.onmessage = (ev: MessageEvent) => {
+    if (worker !== w) return;
     const m = ev.data as {
       id?: number;
       ok?: boolean;
@@ -83,6 +84,7 @@ function ensureWorker(): Worker {
     });
   };
   w.onerror = () => {
+    if (worker !== w) return;
     // Воркер умер (404 статики / CSP): гасим всех ожидающих и позволяем
     // следующему запросу создать воркер заново
     dropWorker();
@@ -104,7 +106,12 @@ export async function runPython(
   if (typeof Worker === "undefined") {
     return runtimeError("Web Worker unavailable");
   }
-  const w = ensureWorker();
+  let w: Worker;
+  try {
+    w = ensureWorker();
+  } catch (e) {
+    return runtimeError(`failed to initialize sandbox worker: ${e}`);
+  }
   const id = ++seq;
   return new Promise<CodeRunResult>((resolve) => {
     const timer = window.setTimeout(() => {

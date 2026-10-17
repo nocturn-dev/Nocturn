@@ -21,7 +21,11 @@ function useWriteOnChange<T>(key: string, value: T, encode: (v: T) => string) {
   }, []);
   useEffect(() => {
     if (!dirty.current) return;
-    localStorage.setItem(key, encode(value));
+    try {
+      localStorage.setItem(key, encode(value));
+    } catch (e) {
+      console.warn(`[usePrefs] failed to write localStorage key "${key}":`, e);
+    }
     // encode — чистая функция над value, в deps не нужна
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, value]);
@@ -30,9 +34,11 @@ function useWriteOnChange<T>(key: string, value: T, encode: (v: T) => string) {
 
 /** Булев флаг: def=false читается как ==="1", def=true — как !=="0" */
 export function useBoolPref(key: string, def: boolean) {
-  const [v, setV] = useState(() =>
-    def ? localStorage.getItem(key) !== "0" : localStorage.getItem(key) === "1",
+  const read = useCallback(
+    () => (def ? localStorage.getItem(key) !== "0" : localStorage.getItem(key) === "1"),
+    [key, def],
   );
+  const [v, setV] = useState(read);
   const markDirty = useWriteOnChange(key, v, (x) => (x ? "1" : "0"));
   const update = useCallback(
     (action: SetStateAction<boolean>) => {
@@ -41,14 +47,32 @@ export function useBoolPref(key: string, def: boolean) {
     },
     [markDirty],
   );
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === key && e.newValue !== null) {
+        setV(def ? e.newValue !== "0" : e.newValue === "1");
+      }
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, [key, def]);
   return [v, update] as const;
 }
 
-/** Строка-преф; дженерик сохраняет литеральный тип (напр. "left" | "right") */
-export function useStringPref<T extends string = string>(key: string, def: T) {
-  const [v, setV] = useState<T>(
-    () => (localStorage.getItem(key) as T | null) ?? def,
-  );
+/** Строка-преф; дженерик сохраняет литеральный тип (напр. "left" | "right").
+ *  validate: проверка допустимости прочитанного из хранилища значения */
+export function useStringPref<T extends string = string>(
+  key: string,
+  def: T,
+  validate?: (val: string) => val is T,
+) {
+  const read = useCallback((): T => {
+    const raw = localStorage.getItem(key);
+    if (raw === null) return def;
+    if (validate && !validate(raw)) return def;
+    return raw as T;
+  }, [key, def, validate]);
+  const [v, setV] = useState<T>(read);
   const markDirty = useWriteOnChange(key, v, (x) => x);
   const update = useCallback(
     (action: SetStateAction<T>) => {
@@ -57,6 +81,17 @@ export function useStringPref<T extends string = string>(key: string, def: T) {
     },
     [markDirty],
   );
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === key && e.newValue !== null) {
+        if (!validate || validate(e.newValue)) {
+          setV(e.newValue as T);
+        }
+      }
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, [key, validate]);
   return [v, update] as const;
 }
 
@@ -69,11 +104,12 @@ export function useNumPref(
   fallback: number,
   validate?: (v: number) => number,
 ) {
-  const [v, setV] = useState(() => {
+  const read = useCallback(() => {
     const raw = localStorage.getItem(key);
     const n = raw === null ? NaN : Number(raw);
     return validate ? validate(n) : isNaN(n) ? fallback : n;
-  });
+  }, [key, fallback, validate]);
+  const [v, setV] = useState(read);
   const markDirty = useWriteOnChange(key, v, (x) => String(x));
   const update = useCallback(
     (action: SetStateAction<number>) => {
@@ -82,5 +118,15 @@ export function useNumPref(
     },
     [markDirty],
   );
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === key && e.newValue !== null) {
+        const n = Number(e.newValue);
+        setV(validate ? validate(n) : isNaN(n) ? fallback : n);
+      }
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, [key, fallback, validate]);
   return [v, update] as const;
 }

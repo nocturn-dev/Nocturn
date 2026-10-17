@@ -4,6 +4,8 @@
  * задача прерывается. Значения — в localStorage («haloui-limits»).
  */
 
+import { STORAGE_KEYS } from "./storageKeys";
+
 export interface HardLimits {
   /** Лимит токенов на задачу; null = без лимита */
   maxTokens: number | null;
@@ -13,7 +15,7 @@ export interface HardLimits {
   usdPer1M: number | null;
 }
 
-const LS_KEY = "haloui-limits";
+const LS_KEY = STORAGE_KEYS.limits;
 
 const DEFAULT_LIMITS: HardLimits = {
   maxTokens: null,
@@ -21,9 +23,11 @@ const DEFAULT_LIMITS: HardLimits = {
   usdPer1M: null,
 };
 
-/** Число из JSON: конечное неотрицательное — иначе null */
-function numOrNull(v: unknown): number | null {
-  return typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : null;
+/** Число из JSON: конечное неотрицательное — иначе null.
+ *  integerOnly: для счетчиков токенов, дробные значения отсекаются */
+function numOrNull(v: unknown, integerOnly = false): number | null {
+  if (typeof v !== "number" || !Number.isFinite(v) || v < 0) return null;
+  return integerOnly ? Math.floor(v) : v;
 }
 
 export function loadLimits(): HardLimits {
@@ -32,7 +36,7 @@ export function loadLimits(): HardLimits {
     if (!raw) return { ...DEFAULT_LIMITS };
     const p = JSON.parse(raw) as Partial<HardLimits>;
     return {
-      maxTokens: numOrNull(p.maxTokens),
+      maxTokens: numOrNull(p.maxTokens, true),
       maxUsd: numOrNull(p.maxUsd),
       usdPer1M: numOrNull(p.usdPer1M),
     };

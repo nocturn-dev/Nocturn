@@ -108,6 +108,29 @@ export function toApiMessage(m: Message): ChatMsgParam {
   return { role: m.role, content: toApiContent(m) };
 }
 
+/** Преобразование списка сообщений сессии в формат параметров API
+ *  с фильтрацией служебных сообщений и нормализацией пустых tool-результатов */
+export function toApiList(list: Message[]): ChatMsgParam[] {
+  return list
+    .filter((m) => {
+      // Страховка поверх санитайзера при загрузке: content не строка
+      // (повреждённая мутация) не роняет прогон, а выкидывается
+      if (typeof m.content !== "string") return false;
+      // Служебные уведомления (смена модели) в запрос не попадают
+      if (m.content.startsWith("[i]")) return false;
+      // Tool-результат не выбрасываем никогда: пустой content
+      // (runTool вернул "") рвал пару assistant.tool_calls ↔ tool
+      // ещё до обрезки окна → 400 у провайдера
+      if (m.role === "tool") return true;
+      return m.content !== "" || m.thought || m.attachments?.length || m.toolCalls;
+    })
+    .map((m) =>
+      m.role === "tool" && m.content === ""
+        ? { ...toApiMessage(m), content: "(empty result)" }
+        : toApiMessage(m),
+    );
+}
+
 /**
  * История запроса: системный промт + окно (30) + новое сообщение.
  * Служебные уведомления («[i] …») не попадают; tool-результаты не
@@ -125,24 +148,7 @@ export function buildHistory(
         ? [{ role: "system" as const, content: current.systemPrompt }]
         : []),
       ...trimContextWindow(
-        (current?.messages ?? [])
-          .filter((m) => {
-            // Страховка поверх санитайзера при загрузке: content не строка
-            // (повреждённая мутация) не роняет прогон, а выкидывается
-            if (typeof m.content !== "string") return false;
-            // Служебные уведомления (смена модели) в запрос не попадают
-            if (m.content.startsWith("[i]")) return false;
-            // Tool-результат не выбрасываем никогда: пустой content
-            // (runTool вернул "") рвал пару assistant.tool_calls ↔ tool
-            // ещё до обрезки окна → 400 у провайдера
-            if (m.role === "tool") return true;
-            return m.content !== "" || m.thought || m.attachments?.length || m.toolCalls;
-          })
-          .map((m) =>
-            m.role === "tool" && m.content === ""
-              ? { ...toApiMessage(m), content: "(empty result)" }
-              : toApiMessage(m),
-          ),
+        toApiList(current?.messages ?? []),
         30,
       ),
       { role: "user", content: toApiContent(userMsg) },
@@ -156,25 +162,12 @@ export function buildHistory(
   const { summary, baseCount } = current.compact;
   const raw = current.messages ?? [];
   const cut = Math.min(Math.max(baseCount, 0), raw.length);
-  const toApi = (list: Message[]): ChatMsgParam[] =>
-    list
-      .filter((m) => {
-        if (typeof m.content !== "string") return false;
-        if (m.content.startsWith("[i]")) return false;
-        if (m.role === "tool") return true;
-        return m.content !== "" || m.thought || m.attachments?.length || m.toolCalls;
-      })
-      .map((m) =>
-        m.role === "tool" && m.content === ""
-          ? { ...toApiMessage(m), content: "(empty result)" }
-          : toApiMessage(m),
-      );
   const rest: ChatMsgParam[] = [
     ...(current.systemPrompt
       ? [{ role: "system" as const, content: current.systemPrompt }]
       : []),
-    ...toApi(raw.slice(0, cut)).slice(-COMPACT_TAIL_MESSAGES),
-    ...toApi(raw.slice(cut)),
+    ...toApiList(raw.slice(0, cut)).slice(-COMPACT_TAIL_MESSAGES),
+    ...toApiList(raw.slice(cut)),
     { role: "user", content: toApiContent(userMsg) },
   ];
   return historyWithSummary(summary, rest, 30);

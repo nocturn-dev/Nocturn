@@ -7,6 +7,7 @@
 import { isPermissionGranted, requestPermission } from "@tauri-apps/plugin-notification";
 import { invoke } from "@tauri-apps/api/core";
 import type { MsgKey } from "./locales";
+import { STORAGE_KEYS } from "./storageKeys";
 
 export type NotifySound = "chime" | "ping" | "soft" | "custom";
 
@@ -26,7 +27,7 @@ export interface NotifyPrefs {
   customName?: string;
 }
 
-const LS_KEY = "haloui-notify";
+const LS_KEY = STORAGE_KEYS.notify;
 
 export function loadNotifyPrefs(): NotifyPrefs {
   try {

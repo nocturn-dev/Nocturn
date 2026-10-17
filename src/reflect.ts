@@ -78,6 +78,8 @@ export function buildReflect(input: ReflectInput): ReflectData {
 
   const stalled: StalledPlan[] = alive
     .filter((s) => {
+      // Исключаем протухшие планы старше 30 дней, чтобы старые брошенные задачи не висели вечно
+      if (input.nowMs - sessionLastActive(s) > 30 * DAY_MS) return false;
       const plan = s.plan ?? [];
       return plan.some((p) => p.status !== "done");
     })
@@ -113,7 +115,7 @@ export function buildReflectPrompt(
   labels: Record<string, string>,
 ): string {
   const lines: string[] = [];
-  const push = (k: string, v: string | number) => lines.push(`${labels[k]}: ${v}`);
+  const push = (k: string, v: string | number) => lines.push(`${labels[k] ?? k}: ${v}`);
   push("tasksCreated", data.tasksCreated);
   push("tasksTouched", data.tasksTouched);
   push("userMsgs", data.userMsgs);
@@ -122,15 +124,17 @@ export function buildReflectPrompt(
   push("notes", data.notesTouched);
   if (data.stalled.length > 0) {
     lines.push(
-      `${labels.stalled}: ${data.stalled
+      `${labels.stalled ?? "stalled"}: ${data.stalled
         .map(
-          (s) =>
-            `"${s.title}" (${s.inProgress} ${labels.inProgress} / ${s.pending} ${labels.pending})`,
+          (s) => {
+            const safeTitle = s.title.replace(/[\r\n"\\`]/g, " ").trim();
+            return `"${safeTitle}" (${s.inProgress} ${labels.inProgress ?? "in progress"} / ${s.pending} ${labels.pending ?? "pending"})`;
+          },
         )
         .join(", ")}`,
     );
   } else {
-    lines.push(`${labels.stalled}: ${labels.none}`);
+    lines.push(`${labels.stalled ?? "stalled"}: ${labels.none ?? "none"}`);
   }
   return lines.join("\n");
 }

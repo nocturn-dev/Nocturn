@@ -36,16 +36,21 @@ const SUMMARY_CAP_CHARS = 8_000;
 
 /** Реестр маркеров переполнения контекста (текстовые; HTTP 413 добавляет
     вызывающий через parseHttpCode). Ошибка удерживается от показа —
-    reactive-ветка делает компакцию и один повтор */
+    reactive-ветка делает компакцию и один повтор.
+    Маркеры сужены, чтобы общие ошибки конфигурации max_tokens не вызывали
+    ложной компакции */
 export function isContextLengthError(msg: string): boolean {
   const m = msg.toLowerCase();
-  return [
-    "context_length_exceeded", // OpenAI-совместимые (code)
-    "context length", // "maximum context length …" (OpenAI)
-    "prompt is too long", // Anthropic Messages API
-    "input token count", // Gemini
-    "maximum number of tokens", // прочие
-  ].some((needle) => m.includes(needle));
+  return (
+    [
+      "context_length_exceeded", // OpenAI-совместимые (code)
+      "context length", // "maximum context length …" (OpenAI)
+      "prompt is too long", // Anthropic Messages API
+      "input token count", // Gemini
+    ].some((needle) => m.includes(needle)) ||
+    /maximum.*(?:context|prompt).*tokens/.test(m) ||
+    /exceeded.*(?:maximum|limit).*tokens/.test(m)
+  );
 }
 
 /** Сериализация головы для суммаризатора: system не отдаём (он и так в

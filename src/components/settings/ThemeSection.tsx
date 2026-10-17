@@ -44,7 +44,7 @@ import {
   type StylePalette,
 } from "../../themeStyles";
 import { isWindows } from "../../platform";
-import { registerCustomFonts, UI_FONT_PRESETS, MONO_FONT_PRESETS } from "../../fonts";
+import { registerCustomFonts, unregisterCustomFont, UI_FONT_PRESETS, MONO_FONT_PRESETS } from "../../fonts";
 import { CODE_THEMES, CODE_THEME_IDS } from "../../codeThemes";
 import { TERMINAL_PALETTES } from "../../vt";
 import { StylePattern, Dropdown, CheckIcon, ToggleRow, Row, Segmented, Group } from "./parts";
@@ -289,6 +289,7 @@ export function ThemeSection({
     const family = customFonts.find((f) => f.id === id)?.family;
     try {
       await fontDelete(id);
+      unregisterCustomFont(id, family);
     } catch {
       // манифест недоступен — список обновится при следующем открытии
     }

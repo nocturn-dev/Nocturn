@@ -42,27 +42,47 @@ export class InteractionRegistry {
     return interaction.id;
   }
 
-  /** Решить по id. false — взаимодействия с таким id уже нет */
+  /** Решить по id. false — взаимодействия с таким id уже нет.
+   *  Удаление из реестра происходит до вызова функции разрешения,
+   *  а сам вызов обёрнут в try/finally, чтобы ошибки потребителя
+   *  не оставляли реестр в несогласованном состоянии */
   resolve(id: string, resolution: InteractionResolution): boolean {
     const r = this.resolvers.get(id);
     if (!r) return false;
     this.resolvers.delete(id);
-    r(resolution);
+    try {
+      r(resolution);
+    } finally {
+      // Резолвер удалён до вызова — состояние реестра очищено гарантированно
+    }
     return true;
   }
 
-  /** Закрыть все (Stop / finalize прогона). Возвращает id закрытых */
+  /** Закрыть все (Stop / finalize прогона). Возвращает id закрытых.
+   *  Сначала снимаем копию резолверов и очищаем карту, чтобы возможные
+   *  побочные эффекты или рекурсивные вызовы внутри колбэков не мутировали
+   *  коллекцию во время итерации */
   cancelAll(): string[] {
-    const closed = [...this.resolvers.keys()];
-    for (const [, r] of this.resolvers) r({ kind: "cancel" });
+    const entries = [...this.resolvers.entries()];
     this.resolvers.clear();
-    return closed;
+    for (const [, r] of entries) {
+      try {
+        r({ kind: "cancel" });
+      } catch {
+        // Ошибка отдельного резолвера не должна препятствовать отмене остальных
+      }
+    }
+    return entries.map(([id]) => id);
   }
 
   has(id: string): boolean {
     return this.resolvers.has(id);
   }
 }
+
+/** Таймаут ожидания подтверждения инструмента (по аналогии с ASK_AUTO_CONTINUE_MS) —
+ *  15 минут: если пользователь отошёл, задача не остаётся навечно в подвешенном состоянии */
+export const CONFIRM_TIMEOUT_MS = 15 * 60_000;
 
 /** Первое confirm-взаимодействие из списка (карточка [y/n/a] в чате/терминале) */
 export function firstConfirm(interactions: Interaction[]): Interaction | null {

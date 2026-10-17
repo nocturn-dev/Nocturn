@@ -1,3 +1,5 @@
+import { STORAGE_KEYS } from "./storageKeys";
+
 /**
  * Настройки медиа-минибара (вкладка «Интеграции»). Всё опционально:
  *  - bar — сама полоска над чатом (мастер-тумблер, карточка Spotify);
@@ -68,7 +70,7 @@ function shimPair(p: Partial<MediaPrefs>): { shimmerFrom: string; shimmerTo: str
   };
 }
 
-const LS_KEY = "haloui-media";
+const LS_KEY = STORAGE_KEYS.media;
 
 export function loadMediaPrefs(): MediaPrefs {
   try {

@@ -33,8 +33,16 @@ export const STORAGE_KEYS = {
   // customCss: userCss.ts (запись) + MainSection (гард confirm импорта
   // CSS: переименование ключа иначе сделало бы confirm молчаливым)
   customCss: "haloui-custom-css",
-  // Зеркала данных, у которых серверный источник истины — конфиг-файлы;
-  // ключи живут в api.ts, но реестр один (гард-тест storageKeys.test.ts)
+  // Мультимодульные настройки медиа, плеера, звуков, лимитов и устройств
+  media: "haloui-media",
+  yt: "haloui-yt",
+  notify: "haloui-notify",
+  limits: "haloui-limits",
+  audioOutput: "haloui-audio-output",
+  // Зеркала данных (localStorage-зеркала на случай браузерного превью/фолбэка).
+  // Направление синхронизации: Rust/диск -> фронтенд (основной источник истины —
+  // файлы на диске; в localStorage зеркало пишется только как локальный кэш/превью,
+  // при этом api_key никогда не сохраняется в открытом виде на постоянной основе):
   api: "haloui-api",
   profiles: "haloui-profiles",
   sessions: "haloui-sessions",

@@ -16,6 +16,8 @@
  * iframe НЕ размонтируется (звук продолжает играть), управляет минибар.
  */
 
+import { STORAGE_KEYS } from "../storageKeys";
+
 export interface YtTrack {
   videoId: string;
   title: string;
@@ -53,7 +55,7 @@ export interface YtNotice {
   seq: number;
 }
 
-const LS_KEY = "haloui-yt";
+const LS_KEY = STORAGE_KEYS.yt;
 
 let state: YtState = {
   ready: false,

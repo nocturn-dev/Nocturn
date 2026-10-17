@@ -53,6 +53,7 @@ export const MONO_FONT_PRESETS: FontPreset[] = [
   { label: "Ubuntu Mono / DejaVu (Linux)", stack: '"Ubuntu Mono", "DejaVu Sans Mono", "Liberation Mono"' },
 ];
 
+const inFlight = new Map<string, Promise<void>>();
 const registered = new Set<string>();
 
 /** Путь/URL в CSS-строке url("...") экранируется: кавычка или бэкслэш в
@@ -77,18 +78,28 @@ export async function registerBundledFonts(): Promise<void> {
   for (const f of BUNDLED_FACES) {
     const key = `${f.family}:${f.weight}`;
     if (registered.has(key)) continue;
-    try {
-      const face = new FontFace(f.family, cssUrl(f.url), {
-        weight: String(f.weight),
-        display: "swap",
-      });
-      await face.load();
-      document.fonts.add(face);
-      registered.add(key);
-    } catch {
-      // битый ассет невозможен (собран тем же vite), но старт ронять
-      // из-за шрифта нельзя — семейство молча откатится на системное
+    if (inFlight.has(key)) {
+      await inFlight.get(key);
+      continue;
     }
+    const p = (async () => {
+      try {
+        const face = new FontFace(f.family, cssUrl(f.url), {
+          weight: String(f.weight),
+          display: "swap",
+        });
+        await face.load();
+        document.fonts.add(face);
+        registered.add(key);
+      } catch {
+        // битый ассет невозможен (собран тем же vite), но старт ронять
+        // из-за шрифта нельзя — семейство молча откатится на системное
+      } finally {
+        inFlight.delete(key);
+      }
+    })();
+    inFlight.set(key, p);
+    await p;
   }
 }
 
@@ -107,15 +118,40 @@ export async function registerCustomFonts(): Promise<void> {
   }
   for (const f of fonts) {
     if (registered.has(f.id)) continue;
-    try {
-      const face = new FontFace(f.family, cssUrl(convertFileSrc(f.path)), {
-        display: "swap",
-      });
-      await face.load();
-      document.fonts.add(face);
-      registered.add(f.id);
-    } catch {
-      // файл удалён/повреждён после импорта — шрифт просто не заведётся
+    if (inFlight.has(f.id)) {
+      await inFlight.get(f.id);
+      continue;
+    }
+    const p = (async () => {
+      try {
+        const face = new FontFace(f.family, cssUrl(convertFileSrc(f.path)), {
+          weight: "400",
+          display: "swap",
+        });
+        await face.load();
+        document.fonts.add(face);
+        registered.add(f.id);
+      } catch {
+        // файл удалён/повреждён после импорта — шрифт просто не заведётся
+      } finally {
+        inFlight.delete(f.id);
+      }
+    })();
+    inFlight.set(f.id, p);
+    await p;
+  }
+}
+
+/** Снять регистрацию удалённого шрифта из памяти и document.fonts,
+ *  чтобы освободить ресурс и позволить повторный импорт с тем же id */
+export function unregisterCustomFont(id: string, family?: string): void {
+  registered.delete(id);
+  inFlight.delete(id);
+  if (typeof document !== "undefined" && family) {
+    for (const face of [...document.fonts.values()]) {
+      if (face.family === family || face.family === `"${family}"`) {
+        document.fonts.delete(face);
+      }
     }
   }
 }

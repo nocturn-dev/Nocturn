@@ -16,6 +16,13 @@ export interface VoiceSettings {
   ttsReply: boolean;
 }
 
+export const DEFAULT_VOICE_SETTINGS: VoiceSettings = {
+  wake: false,
+  model: "hey_jarvis",
+  threshold: 0.45,
+  ttsReply: false,
+};
+
 export const VOICE_MODEL_LABELS: Record<WakeModel, string> = {
   hey_jarvis: "Hey Jarvis",
   hey_mycroft: "Hey Mycroft",

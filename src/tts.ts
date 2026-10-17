@@ -1,4 +1,5 @@
 import { ttsSpeak, ttsStop } from "./api";
+import { STORAGE_KEYS } from "./storageKeys";
 
 /**
  * Готовит markdown ответа к озвучке: код-блоки вслух — мусор, картинки
@@ -49,7 +50,7 @@ export function stopSpeaking(): void {
 /** Ключ устройства вывода речи (localStorage): читается здесь, а не в
  *  вызывающих — селектор в «Основном» пишет его напрямую (паттерн
  *  haloui-mic-device) */
-export const AUDIO_OUTPUT_KEY = "haloui-audio-output";
+export const AUDIO_OUTPUT_KEY = STORAGE_KEYS.audioOutput;
 
 // Оценка длительности речи для предохранителя: 8 символов/с — нижняя
 // граница темпа синтеза (CJK медленнее латиницы), база — латентность запуска
