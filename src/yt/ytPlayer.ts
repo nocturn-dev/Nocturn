@@ -42,6 +42,15 @@ export interface YtState {
   open: boolean;
   /** Код ошибки embed (101/150 — видео запрещено встраивать и т.п.) */
   errorCode: number | null;
+  /** Одноразовое событие для тостов UI (трек пропущен/добавлен в очередь) */
+  notice: YtNotice | null;
+}
+
+export interface YtNotice {
+  kind: "skip" | "enqueued";
+  title: string;
+  /** Монотонный счётчик: UI различает повторные события одного содержания */
+  seq: number;
 }
 
 const LS_KEY = "haloui-yt";
@@ -60,13 +69,14 @@ let state: YtState = {
   queueIndex: -1,
   open: false,
   errorCode: null,
+  notice: null,
 };
 
 /** Запомненные позиции: videoId → секунда остановки (resume). Держим до
  *  50 записей — при переполнении стираем самые старые. Map, а не Record:
- *  JS-объект ставит integer-like ключи (11-значный videoId валиден по
- *  ID_RE) первыми в числовом порядке, и вытеснение по keys[0] выкидывало
- *  не самую старую запись */
+ *  полностью цифровой videoId — целеподобный ключ, объект вынес бы его
+ *  вперёд независимо от порядка вставки, и вытеснение по keys[0]
+ *  выкидывало не самую старую запись */
 let positions = new Map<string, number>();
 
 const listeners = new Set<() => void>();
@@ -152,6 +162,9 @@ function savePosition(force = false) {
   const now = Date.now();
   if (!force && now - lastPosSave < 5000) return;
   lastPosSave = now;
+  // Перезапись поверх того же ключа уносит запись в хвост порядка вставки:
+  // без delete вытеснение по «первому ключу» выкидывало не самую старую
+  positions.delete(id);
   positions.set(id, state.currentTime);
   const oldest = positions.keys().next().value;
   if (positions.size > 50 && oldest !== undefined) positions.delete(oldest);
@@ -265,30 +278,57 @@ export function ytHandshake() {
   }
 }
 
+/** Ожидаемый после последней команды трек: infoDelivery старого видео,
+ *  догнавшее переход, не должен ни ставить track, ни откатывать queueIndex */
+let pendingId: string | null = null;
+/** Дедуп конца трека: state 0 приходит дважды (infoDelivery + onStateChange) */
+let lastEndedId: string | null = null;
+let lastEndedAt = 0;
+
+let noticeSeq = 0;
+function notify(kind: YtNotice["kind"], title: string) {
+  noticeSeq += 1;
+  set({ notice: { kind, title, seq: noticeSeq } });
+}
+
+function sendLoad(videoId: string, startSec: number) {
+  pendingId = videoId;
+  send("loadVideoById", [videoId, startSec]);
+}
+
 export function handleYtMessage(data: unknown) {
   if (typeof data !== "string" || !data.startsWith("{")) return;
   let msg: {
     event?: string;
-    info?: {
-      playerState?: number;
-      currentTime?: number;
-      duration?: number;
-      videoData?: { video_id?: string; title?: string; author?: string };
-    };
+    info?:
+      | {
+          playerState?: number;
+          currentTime?: number;
+          duration?: number;
+          videoData?: { video_id?: string; title?: string; author?: string };
+        }
+      | number;
   };
   try {
     msg = JSON.parse(data);
   } catch {
     return;
   }
-  if (msg.event === "infoDelivery" && msg.info) {
+  if (msg.event === "infoDelivery" && msg.info && typeof msg.info !== "number") {
     const i = msg.info;
+    const vid = i.videoData?.video_id;
+    // Переход между треками: пока embed не подтвердил ожидаемый id,
+    // догоняющие события старого видео — шум, откатывающий queueIndex
+    if (pendingId && vid !== pendingId) return;
+    if (vid && vid === pendingId) pendingId = null;
     const patch: Partial<YtState> = {
       ready: true,
       errorCode: null,
       currentTime: typeof i.currentTime === "number" ? i.currentTime : state.currentTime,
       duration: typeof i.duration === "number" ? i.duration : state.duration,
-      playing: i.playerState === 1 || i.playerState === 3,
+      // Буферизация (3) не воспроизведение: кнопка Play на буферизующем
+      // плеере должна запускать, а не ставить паузу
+      playing: i.playerState === 1,
     };
     const vd = i.videoData;
     if (vd?.video_id) {
@@ -304,23 +344,63 @@ export function handleYtMessage(data: unknown) {
     }
     set(patch);
     // Пауза/играем — копим позицию для resume (тротлинг внутри)
-    if (i.playerState === 1 || i.playerState === 2 || i.playerState === 3) {
+    if (i.playerState === 1 || i.playerState === 2) {
       savePosition();
     }
   } else if (msg.event === "onStateChange" && typeof msg.info === "number") {
     // Убедиться, что infoDelivery несёт числа — страховка на другой формат
     if (msg.info === 0) onEnded();
-    else set({ playing: msg.info === 1 || msg.info === 3, ready: true });
+    else set({ playing: msg.info === 1, ready: true });
   } else if (msg.event === "onError" && typeof msg.info === "number") {
-    // 2/5 — плохой параметр, 100 — видео удалено, 101/150 — запрет embed
+    // 2/5 — плохой параметр, 100 — видео удалено, 101/150 — запрет embed.
+    // Тяжёлые коды пропускают трек: одна ошибка раньше глушила всю очередь
     set({ errorCode: msg.info, playing: false });
+    if (msg.info === 100 || msg.info === 101 || msg.info === 150) {
+      const failed = state.track;
+      if (state.repeatOne && state.track) {
+        // Повтор трека не спасёт — видео не встроится вообще; идём дальше
+        set({ repeatOne: false });
+      }
+      const next = state.queueIndex + 1;
+      const nt = next >= 0 ? state.queue[next] : undefined;
+      if (nt) {
+        set({ queueIndex: next });
+        sendLoad(nt.videoId, startFor(nt.videoId));
+        send("playVideo");
+        reapplyRate();
+      } else if (state.loopQueue && state.queue.length > 0) {
+        const first = state.queue[0];
+        if (first) {
+          set({ queueIndex: 0 });
+          sendLoad(first.videoId, startFor(first.videoId));
+          send("playVideo");
+          reapplyRate();
+        }
+      } else {
+        set({ playing: false });
+      }
+      notify("skip", failed?.title ?? "");
+    }
   }
 }
 
 function onEnded() {
+  const endedId = state.track?.videoId;
+  // Дедуп: конец трека приходит и из infoDelivery (state 0), и из
+  // onStateChange — без него двойное событие скипало бы два трека
+  const now = Date.now();
+  if (endedId && endedId === lastEndedId && now - lastEndedAt < 3000) return;
+  lastEndedId = endedId ?? null;
+  lastEndedAt = now;
+  // Трек доиграл до конца: resume с почти-конца заставил бы повторный
+  // запуск тут же скипаться
+  if (endedId) {
+    positions.delete(endedId);
+    persist();
+  }
   // Повтор трека: гоняем текущий с начала
   if (state.repeatOne && state.track) {
-    send("loadVideoById", [state.track.videoId, 0]);
+    sendLoad(state.track.videoId, 0);
     send("playVideo");
     reapplyRate();
     return;
@@ -329,7 +409,7 @@ function onEnded() {
   const nt = next >= 0 ? state.queue[next] : undefined;
   if (nt) {
     set({ queueIndex: next });
-    send("loadVideoById", [nt.videoId, startFor(nt.videoId)]);
+    sendLoad(nt.videoId, startFor(nt.videoId));
     send("playVideo");
     reapplyRate();
   } else if (state.loopQueue && state.queue.length > 0) {
@@ -338,7 +418,7 @@ function onEnded() {
     const first = state.queue[0];
     if (first) {
       set({ queueIndex: 0 });
-      send("loadVideoById", [first.videoId, startFor(first.videoId)]);
+      sendLoad(first.videoId, startFor(first.videoId));
       send("playVideo");
       reapplyRate();
       return;
@@ -358,13 +438,15 @@ function reapplyRate() {
 
 if (typeof window !== "undefined") {
   window.addEventListener("message", (e) => {
-    // Оба hosts embed'а: основной www.youtube.com + nocookie (запасной)
     if (
       e.origin !== "https://www.youtube.com" &&
       e.origin !== "https://www.youtube-nocookie.com"
     ) {
       return;
     }
+    // origin недостаточен: соседний youtube-iframe на странице шлёт с тем
+    // же origin — принимать только от нашего окна embed
+    if (!iframe || e.source !== iframe.contentWindow) return;
     handleYtMessage(e.data);
   });
   // Очередь/громкость прошлой сессии: восстанавливаются сразу, без автозапуска
@@ -383,7 +465,24 @@ export function ytPlayUrl(input: string): { ok: boolean; error?: string } {
   const track: YtTrack = { videoId: id, title: id, author: "" };
   if (state.track) {
     const queue = [...state.queue, track];
-    set({ queue });
+    if (!state.playing && state.ready) {
+      // Плеер простаивает: ссылка сразу играет — раньше она молча ложилась
+      // в конец очереди без автостарта и какого-либо отклика
+      set({
+        queue,
+        queueIndex: queue.length - 1,
+        playing: true,
+        currentTime: 0,
+        duration: 0,
+        errorCode: null,
+      });
+      sendLoad(id, startFor(id));
+      send("playVideo");
+      reapplyRate();
+    } else {
+      set({ queue });
+      notify("enqueued", track.title);
+    }
     persist();
     return { ok: true };
   }
@@ -399,7 +498,7 @@ export function ytPlayUrl(input: string): { ok: boolean; error?: string } {
   persist();
   if (iframe) {
     // Повторный первый-плей после сброса очереди: iframe уже жив
-    send("loadVideoById", [id, startFor(id)]);
+    sendLoad(id, startFor(id));
     send("playVideo");
     reapplyRate();
   }
@@ -444,7 +543,7 @@ export function ytSeek(secs: number): void {
 export function ytOnIframeReady(): void {
   const id = state.track?.videoId;
   if (id && startFor(id) > 0) {
-    send("loadVideoById", [id, startFor(id)]);
+    sendLoad(id, startFor(id));
     send("playVideo");
   }
   reapplyRate();
@@ -468,11 +567,15 @@ export function ytSetLoopQueue(v: boolean): void {
   set({ loopQueue: v });
 }
 
+let volumePersistTimer: ReturnType<typeof setTimeout> | null = null;
 export function ytSetVolume(v: number): void {
   const vol = Math.min(100, Math.max(0, Math.round(v)));
   set({ volume: vol });
   send("setVolume", [vol]);
-  persist();
+  // Ползунок шлёт события на каждый шаг: persist debounced, иначе запись
+  // localStorage на каждый градус громкости
+  if (volumePersistTimer) clearTimeout(volumePersistTimer);
+  volumePersistTimer = setTimeout(persist, 800);
 }
 
 export function ytNext(): void {
@@ -481,7 +584,7 @@ export function ytNext(): void {
   if (!nt) return;
   savePosition(true);
   set({ queueIndex: next, playing: true, currentTime: 0, duration: 0 });
-  send("loadVideoById", [nt.videoId, startFor(nt.videoId)]);
+  sendLoad(nt.videoId, startFor(nt.videoId));
   send("playVideo");
   reapplyRate();
 }
@@ -492,17 +595,24 @@ export function ytPrev(): void {
   if (!pt) return;
   savePosition(true);
   set({ queueIndex: prev, playing: true, currentTime: 0, duration: 0 });
-  send("loadVideoById", [pt.videoId, startFor(pt.videoId)]);
+  sendLoad(pt.videoId, startFor(pt.videoId));
   send("playVideo");
   reapplyRate();
 }
 
 export function ytRemoveAt(index: number): void {
   if (index < 0 || index >= state.queue.length) return;
+  const removed = state.queue[index];
   const queue = state.queue.filter((_, i) => i !== index);
   let queueIndex = state.queueIndex;
   if (index < state.queueIndex) queueIndex -= 1;
-  else if (index === state.queueIndex) queueIndex = -1;
+  else if (index === state.queueIndex) {
+    // Удалён текущий: индекс остаётся на месте — под ним теперь следующий
+    // трек. Раньше здесь был -1, и по окончании трека переход уходил на
+    // первый пункт очереди вместо естественного продолжения
+    queueIndex = Math.min(queueIndex, queue.length - 1);
+  }
+  if (removed) positions.delete(removed.videoId);
   set({ queue, queueIndex });
   persist();
 }
@@ -528,7 +638,7 @@ export function ytPlayAt(index: number): void {
     return;
   }
   set({ queueIndex: index, playing: true, currentTime: 0, duration: 0 });
-  send("loadVideoById", [it.videoId, startFor(it.videoId)]);
+  sendLoad(it.videoId, startFor(it.videoId));
   send("playVideo");
   reapplyRate();
 }
@@ -554,5 +664,9 @@ export function ytReset(): void {
     queue: [],
     queueIndex: -1,
     errorCode: null,
+    notice: null,
   });
+  // Очередь очищена сознательным действием — иначе после рестарта
+  // loadYtPersisted вернёт её из localStorage
+  persist();
 }

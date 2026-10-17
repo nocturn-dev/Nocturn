@@ -1582,6 +1582,8 @@ export const ja = {
     "media.ytHint": "ウィンドウを折りたたむ: {bind} — 再生は継続",
     "media.ytClose": "折りたたむ（再生は継続）",
     "media.ytBlocked": "この動画は埋め込みが禁止されています — ブラウザで開いてください",
+    "media.ytNoticeSkip": "スキップしました（埋め込み不可）：{title}",
+    "media.ytNoticeEnqueued": "キューに追加しました：{title}",
     "media.ytBadUrl": "YouTubeのリンクではないようです — 確認して再試行してください",
     "media.ytHowTo": "YouTube が有効になりました：ミニバーの Play を押してリンクを貼り付けてください。ウィンドウは ×、背景、{bind} で折りたたみます",
     "media.ytAdded": "動画を追加しました — チャットのミニバーで Play を押すとプレイヤーが開きます",

@@ -114,6 +114,9 @@ export function AmbientLayer({
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
+  // Пуск/остановка rAF-цикла canvas-сцены: цикл глушится на паузе и
+  // перезапускается по её снятию (эффект ниже), а не тикает вхолостую
+  const loopControlsRef = useRef<{ start: () => void; stop: () => void } | null>(null);
   const [videoError, setVideoError] = useState(false);
   const pausedRef = useRef(paused);
   // Синхронизация через эффект: запись ref во время рендера — антипаттерн
@@ -121,12 +124,22 @@ export function AmbientLayer({
     pausedRef.current = paused;
   }, [paused]);
 
+  // Тумблер паузы: без этого цикл возобновлялся бы только по фокусу/
+  // visibility-событиям окна
+  useEffect(() => {
+    const c = loopControlsRef.current;
+    if (!c) return;
+    if (paused) c.stop();
+    else c.start();
+  }, [paused]);
+
   const isVideo = scene === "video";
   const src = isVideo && videoPath ? convertFileSrc(videoPath) : "";
 
   // Видео: пауза в скрытом/нефокусном окне и при системном reduce-motion.
-  // комментарий раньше обещал несуществующее
-  // комментарий раньше обещал несуществующее
+  // autoPlay убран: атрибут стартовал воспроизведение до того, как эффект
+  // успевал увидеть ref и погасить его на паузе/reduce-motion — паузу
+  // обеспечивает sync() после монтирования
   useEffect(() => {
     if (!isVideo) return;
     // Новый источник — сброс ошибки кодека (mkv/ogv на Chromium-движке)
@@ -168,7 +181,8 @@ export function AmbientLayer({
     let h = 0;
 
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    const rand = rng(scene === "fog" ? 42 : scene === "snow" ? 7 : scene === "city" ? 2026 : 1998);
+    const sceneSeed = scene === "fog" ? 42 : scene === "snow" ? 7 : scene === "city" ? 2026 : 1998;
+    let rand = rng(sceneSeed);
     // prefers-reduced-motion: рисуем один статичный кадр без цикла — CSS-глоу
     // глушится media-запросом в index.css, canvas-сцены подчиняются той же
     // системной настройке
@@ -321,6 +335,9 @@ export function AmbientLayer({
     };
 
     const resize = () => {
+      // PRNG пересеивается с тем же seed: продолжение последовательности
+      // перетасовывало частицы на каждом ресайзе, ломая детерминированность
+      rand = rng(sceneSeed);
       w = window.innerWidth;
       h = window.innerHeight;
       canvas.width = Math.round(w * dpr);
@@ -462,29 +479,64 @@ export function AmbientLayer({
     };
 
     const render = (now: number) => {
+      // Полная очистка перед кадром: bgLayer полупрозрачен, drawImage
+      // поверх прошлого кадра накапливал альфу — небо быстро темнело
+      // до непрозрачности, «шлейфы» тянулись за снегом и звёздами
+      ctx.clearRect(0, 0, w, h);
       if (scene === "fog") drawFog();
       else if (scene === "snow") drawSnow(now);
       else if (scene === "city") drawCity(now);
       else drawStars(now);
     };
 
-    const loop = (now: number) => {
-      if (!alive) return;
-      raf = requestAnimationFrame(loop);
-      if (pausedRef.current || document.hidden || !document.hasFocus()) return;
-      if (now - last < 33) return; // 30 fps ceiling
+    const frame = (now: number) => {
+      if (!alive || !running) return;
+      // Пауза/скрытое окно: планирование следующего кадра прекращается —
+      // перезапуск сделают focus/visibility-события или эффект paused
+      if (pausedRef.current || document.hidden || !document.hasFocus()) {
+        running = false;
+        return;
+      }
+      if (now - last < 33) {
+        raf = requestAnimationFrame(frame);
+        return; // 30 fps ceiling
+      }
       last = now;
       render(now);
+      raf = requestAnimationFrame(frame);
     };
+    let running = false;
+    const startLoop = () => {
+      if (running || reduceMotion || pausedRef.current) return;
+      running = true;
+      last = 0;
+      raf = requestAnimationFrame(frame);
+    };
+    const stopLoop = () => {
+      running = false;
+      cancelAnimationFrame(raf);
+    };
+    const wake = () => {
+      if (pausedRef.current || document.hidden || !document.hasFocus()) stopLoop();
+      else startLoop();
+    };
+    loopControlsRef.current = { start: startLoop, stop: stopLoop };
+    document.addEventListener("visibilitychange", wake);
+    window.addEventListener("blur", wake);
+    window.addEventListener("focus", wake);
     if (reduceMotion) {
       render(performance.now());
     } else {
-      raf = requestAnimationFrame(loop);
+      startLoop();
     }
 
     return () => {
       alive = false;
-      cancelAnimationFrame(raf);
+      stopLoop();
+      loopControlsRef.current = null;
+      document.removeEventListener("visibilitychange", wake);
+      window.removeEventListener("blur", wake);
+      window.removeEventListener("focus", wake);
       window.removeEventListener("resize", onResize);
     };
   }, [scene, isVideo, density, paletteKey]);
@@ -500,7 +552,6 @@ export function AmbientLayer({
           ref={videoRef}
           className="ambient-video"
           src={src}
-          autoPlay
           muted
           loop
           playsInline

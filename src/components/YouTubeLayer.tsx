@@ -23,6 +23,8 @@ import {
   type YtTrack,
 } from "../yt/ytPlayer";
 import { NextTrackIcon, PauseIcon, PlayIcon, PrevTrackIcon, XSmallIcon } from "./cards/icons";
+import { useToasts } from "../hooks/useToasts";
+import Toasts from "./Toast";
 
 function mmss(secs: number): string {
   const s = Math.max(0, Math.floor(secs));
@@ -30,6 +32,9 @@ function mmss(secs: number): string {
 }
 
 const RATES = [0.75, 1, 1.25, 1.5, 2] as const;
+// Таймер отложенного сброса на уровне модуля: StrictMode монтирует слой
+// дважды, и таймер должен переживать замену экземпляра эффекта
+let pendingResetTimer: ReturnType<typeof setTimeout> | null = null;
 const SIZE_CLASSES: Record<"s" | "m" | "l", string> = {
   s: "w-[min(640px,92vw)]",
   m: "w-[min(820px,92vw)]",
@@ -63,14 +68,49 @@ export function YouTubeLayer({
 }) {
   const { t } = useLang();
   const yt = useSyncExternalStore(subscribeYt, getYtState);
+  const { toasts, addToast } = useToasts();
   const [src, setSrc] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [draftError, setDraftError] = useState(false);
   const [scrub, setScrub] = useState<number | null>(null);
+  const scrubRef = useRef<number | null>(null);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   // Драг за шапку: смещение от центра (flex-центр остаётся базой)
   const [drag, setDrag] = useState({ x: 0, y: 0 });
   const dragRef = useRef<{ px: number; py: number; x: number; y: number } | null>(null);
+  // События драйвера (пропуск/добавление) — в тосты; seq отсекает повторы
+  const lastNoticeSeq = useRef(0);
+  useEffect(() => {
+    const n = yt.notice;
+    if (!n || n.seq === lastNoticeSeq.current) return;
+    lastNoticeSeq.current = n.seq;
+    addToast(
+      n.kind === "skip"
+        ? t("media.ytNoticeSkip", { title: n.title })
+        : t("media.ytNoticeEnqueued", { title: n.title }),
+    );
+  }, [yt.notice, addToast, t]);
+
+  // Коммит перемотки: mouseup/touchend на самом слайдере не срабатывают,
+  // если курсор ушёл с него — позиция застревала в драфте. Слушаем
+  // документ; клавиатурная перемотка (стрелки) коммитится на keyup
+  useEffect(() => {
+    const commit = () => {
+      const s = scrubRef.current;
+      if (s !== null) ytSeek(s);
+      scrubRef.current = null;
+      setScrub(null);
+    };
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (e.key.startsWith("Arrow")) commit();
+    };
+    document.addEventListener("pointerup", commit);
+    document.addEventListener("keyup", onKeyUp);
+    return () => {
+      document.removeEventListener("pointerup", commit);
+      document.removeEventListener("keyup", onKeyUp);
+    };
+  }, []);
 
   // Первый трек: один раз создаём iframe с его id в src; дальше —
   // loadVideoById без перезагрузок
@@ -93,9 +133,19 @@ export function YouTubeLayer({
     return;
   }, [src]);
 
-  // Размонтирование слоя = интеграция выключена: полный сброс
-  useEffect(() => () => ytReset(), []);
-
+  // Размонтирование слоя = интеграция выключена: полный сброс. Отложенный
+  // таймер отменяется повторным монтированием — в StrictMode слой
+  // перемонтируется сразу, и мгновенный сброс стирал бы восстановленную
+  // очередь вместе с треком
+  useEffect(() => {
+    if (pendingResetTimer !== null) {
+      clearTimeout(pendingResetTimer);
+      pendingResetTimer = null;
+    }
+    return () => {
+      pendingResetTimer = setTimeout(() => ytReset(), 0);
+    };
+  }, []);
   // Фоновый режим: после старта воспроизведения окно сворачивается само
   useEffect(() => {
     if (!autoCollapse || !yt.playing || !yt.open) return;
@@ -112,6 +162,8 @@ export function YouTubeLayer({
 
   const onDragStart = (e: React.PointerEvent) => {
     if (!draggable) return;
+    // Кнопки/поля шапки не ручка: клик по крестику раньше начинал драг
+    if ((e.target as HTMLElement).closest("button, input, a")) return;
     dragRef.current = { px: e.clientX, py: e.clientY, x: drag.x, y: drag.y };
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
   };
@@ -140,26 +192,25 @@ export function YouTubeLayer({
   const pos = scrub ?? yt.currentTime;
 
   return (
-    <div
-      className={`fixed inset-0 z-[var(--halo-z-modal)] flex items-center justify-center p-6 ${
-        yt.open ? "pointer-events-auto" : "pointer-events-none"
-      }`}
-    >
+    <div className="fixed inset-0 z-[var(--halo-z-modal)] flex items-center justify-center p-6 pointer-events-none">
       {/* Фон: затемнение + лёгкий блюр интерфейса (blur — условно, правило
-          дома). keepOpen: фон прозрачен для кликов — чат работает, окно
-          не сворачивается (закрывать крестиком/биндом) */}
+          дома). Прозрачен для кликов сам по себе; ловит клики (сворачивание)
+          только когда окно открыто и keepOpen выключен — иначе оверлей
+          перехватывал бы клики по чату. keepOpen: чат работает, окно
+          закрывают крестиком/биндом */}
       <div
         onClick={() => {
           if (!keepOpen) ytSetOpen(false);
         }}
         className={`absolute inset-0 bg-black/50 transition-opacity duration-200 ${
-          yt.open ? "opacity-100 backdrop-blur-sm" : "opacity-0"
-        } ${keepOpen ? "pointer-events-none" : ""}`}
+          yt.open && !keepOpen ? "opacity-100 backdrop-blur-sm pointer-events-auto" : "opacity-0"
+        }`}
       />
       {/* Обёртка драга: transform живёт здесь, чтобы не конфликтовать
-          с transition окна (yt-pop анимирует transform) */}
+          с transition окна (yt-pop анимирует transform); клики проходят
+          только в само окно */}
       <div
-        className="relative"
+        className={`relative ${yt.open ? "pointer-events-auto" : ""}`}
         style={draggable ? { transform: `translate(${drag.x}px, ${drag.y}px)` } : undefined}
       >
       <div
@@ -322,13 +373,19 @@ export function YouTubeLayer({
             max={duration || 1}
             step={1}
             value={pos}
-            onChange={(e) => setScrub(Number(e.target.value))}
+            onChange={(e) => {
+              const v = Number(e.target.value);
+              scrubRef.current = v;
+              setScrub(v);
+            }}
             onMouseUp={() => {
               if (scrub !== null) ytSeek(scrub);
+              scrubRef.current = null;
               setScrub(null);
             }}
             onTouchEnd={() => {
               if (scrub !== null) ytSeek(scrub);
+              scrubRef.current = null;
               setScrub(null);
             }}
             className="min-w-0 flex-1"
@@ -442,6 +499,7 @@ export function YouTubeLayer({
         </p>
       </div>
       </div>
+      <Toasts items={toasts} />
     </div>
   );
 }

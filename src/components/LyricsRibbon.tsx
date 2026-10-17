@@ -72,8 +72,28 @@ export function LyricsRibbon({
     return () => mo.disconnect();
   }, []);
 
-  // Смена активной строки → кроссфейд: rAF-цикл живёт только FADE_MS,
-  // cleanup гасит его на анмаунте и при следующей смене (утечки нет).
+  // Размер буфера — только на реальном ресайзе: выставление width/height
+  // при каждой отрисовке пересоздаёт canvas-буфер (каждый кадр кроссфейда
+  // был аллокацией полного экрана)
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const setDims = () => {
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      canvas.width = Math.round(window.innerWidth * dpr);
+      canvas.height = Math.round(window.innerHeight * dpr);
+      const ctx = canvas.getContext("2d");
+      ctx?.setTransform(dpr, 0, 0, dpr, 0, 0);
+    };
+    setDims();
+    window.addEventListener("resize", setDims);
+    return () => window.removeEventListener("resize", setDims);
+  }, []);
+
+  // Смена активной строки → кроссфейд: rAF-цикл живёт только FADE_MS.
+  // Cleanup у эффекта нет сознательно: снимок обновляется каждым тиком
+  // плеера, и отмена в cleanup обрывала фейд на полпути — цикл гасится
+  // сам по истечении FADE_MS, а на анмаунте — отдельным эффектом ниже.
   // Эффект объявлен ДО отрисовки: fadeRef ставится синхронно в том же
   // коммите — первый кадр перехода рисуется уже с ease≈0, без вспышки
   useEffect(() => {
@@ -104,8 +124,10 @@ export function LyricsRibbon({
       }
     };
     rafRef.current = requestAnimationFrame(step);
-    return () => cancelAnimationFrame(rafRef.current);
   }, [snap]);
+
+  // Анмаунт-отмена фейда: живёт отдельно, чтобы не мешать основному эффекту
+  useEffect(() => () => cancelAnimationFrame(rafRef.current), []);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -114,10 +136,6 @@ export function LyricsRibbon({
     if (!ctx) return;
     const w = window.innerWidth;
     const h = window.innerHeight;
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    canvas.width = Math.round(w * dpr);
-    canvas.height = Math.round(h * dpr);
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, w, h);
     if (!snap || snap.lines.length < 2) return;
 

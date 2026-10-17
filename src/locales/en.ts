@@ -1556,6 +1556,8 @@ export const en = {
     "media.ytHint": "Collapse window: {bind} — playback continues",
     "media.ytClose": "Collapse (playback continues)",
     "media.ytBlocked": "Embedding is not allowed for this video — open it in a browser",
+    "media.ytNoticeSkip": "Track skipped (embedding not allowed): {title}",
+    "media.ytNoticeEnqueued": "Added to queue: {title}",
     "media.ytBadUrl": "Doesn't look like a YouTube link — check it and try again",
     "media.ytHowTo": "YouTube is on: press Play in the mini-bar and paste a link. Collapse the window with ×, the backdrop or {bind}",
     "media.ytAdded": "Video added — press Play in the mini-bar in your chat, the player opens by itself",

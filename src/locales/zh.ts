@@ -1582,6 +1582,8 @@ export const zh = {
     "media.ytHint": "收起窗口：{bind} — 播放继续",
     "media.ytClose": "收起（播放继续）",
     "media.ytBlocked": "该视频禁止内嵌播放 — 请在浏览器中打开",
+    "media.ytNoticeSkip": "已跳过（禁止内嵌）：{title}",
+    "media.ytNoticeEnqueued": "已加入队列：{title}",
     "media.ytBadUrl": "看起来不是 YouTube 链接 — 请检查后重试",
     "media.ytHowTo": "YouTube 已启用：在迷你条中按 Play 并粘贴链接。用 ×、背景或 {bind} 收起窗口",
     "media.ytAdded": "视频已添加 — 在聊天迷你条中按 Play，播放器会自动打开",
