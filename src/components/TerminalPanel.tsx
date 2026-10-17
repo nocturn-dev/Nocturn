@@ -7,7 +7,8 @@ import {
   parseWriteResult,
   summarizeArguments,
 } from "../diff";
-import { ptyCreate, ptyKill, ptyResize, ptyWrite } from "../api";
+import { ptyCreate, ptyResize, ptyWrite } from "../api";
+import { usePtyRestart } from "../hooks/usePtyRestart";
 import { Vt, type VtSpan } from "../vt";
 import { cssVarColor } from "../appearance";
 import { getPlatform } from "../platform";
@@ -68,17 +69,38 @@ function measureCharWidth(style: CSSStyleDeclaration): number | null {
   }
 }
 
-/** ANSI SGR-коды. Акцент — живой токен темы (cssVarColor при каждом
- *  использовании): зашитый #D97757 не перекрашивался при смене акцента
- *. Остальные — семантика статусов, вне тем сознательно */
+// Акцент терминала — живой токен темы, но дёргать getComputedStyle на
+// каждое обращение (заголовок каждого сообщения проекции) дорого: кэширую
+// готовую ANSI-последовательность и инвалидирую наблюдением за корнем —
+// applyAppearance красит тему через style-атрибут и класс на documentElement
+let accentCache: string | null = null;
+let accentWatch: MutationObserver | null = null;
+const accentAnsi = (): string => {
+  if (accentCache) return accentCache;
+  if (!accentWatch && typeof MutationObserver !== "undefined") {
+    accentWatch = new MutationObserver(() => {
+      accentCache = null;
+    });
+    accentWatch.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["style", "class"],
+    });
+  }
+  const [r, g, b] = cssVarColor("--halo-accent", "#d97757");
+  accentCache = `\x1b[38;2;${r};${g};${b}m`;
+  return accentCache;
+};
+
+/** ANSI SGR-коды. Акцент — живой токен темы (через кэш accentAnsi):
+ *  зашитый #D97757 не перекрашивался при смене акцента. Остальные —
+ *  семантика статусов, вне тем сознательно */
 const C = {
   reset: "\x1b[0m",
   dim: "\x1b[2m",
   bold: "\x1b[1m",
   italic: "\x1b[3m",
   get accent() {
-    const [r, g, b] = cssVarColor("--halo-accent", "#d97757");
-    return `\x1b[38;2;${r};${g};${b}m`;
+    return accentAnsi();
   },
   cyan: "\x1b[38;2;94;175;220m",
   green: "\x1b[38;2;95;190;130m",
@@ -208,6 +230,34 @@ export default function TerminalPanel({
     decisionRef.current = onConfirmDecision;
   }, [onConfirmDecision]);
 
+  // Публикация буфера в стейт — раз в кадр, а не на каждый write:
+  // setLines копирует весь буфер (до 2000 строк), и на стриме это был
+  // ререндер панели на каждую дельту. rAF не тикает в скрытом окне —
+  // фолбэк-таймер держит темп, как в VT-канале консоли
+  const linesSyncPendingRef = useRef(false);
+  const linesSyncTimerRef = useRef<number | undefined>(undefined);
+  const flushLines = () => {
+    linesSyncPendingRef.current = false;
+    linesSyncTimerRef.current = undefined;
+    setLines([...linesRef.current]);
+  };
+  const scheduleLinesSync = () => {
+    if (linesSyncPendingRef.current) return;
+    linesSyncPendingRef.current = true;
+    if (document.hidden) {
+      linesSyncTimerRef.current = window.setTimeout(flushLines, 50);
+    } else {
+      requestAnimationFrame(flushLines);
+    }
+  };
+  useEffect(
+    () => () => {
+      if (linesSyncTimerRef.current !== undefined)
+        window.clearTimeout(linesSyncTimerRef.current);
+    },
+    [],
+  );
+
   /** Дописываем ANSI-строку в буфер строк (append-only) */
   const write = (s: string) => {
     const buf = linesRef.current;
@@ -246,7 +296,7 @@ export default function TerminalPanel({
       setLinesBase(lineBaseRef.current);
     }
 
-    setLines([...linesRef.current]);
+    scheduleLinesSync();
   };
 
   // ---------- Приветствие при монтировании ----------
@@ -265,7 +315,10 @@ export default function TerminalPanel({
   // сообщения СТАРОЙ (или лента замерзала на чужом содержимом). Смена
   // session.id — полный сброс: буфер, курсор, живое сообщение. Буфер строк —
   // только проекция агента: консоль (PTY) рендерится из отдельного VT
-  const projSessionRef = useRef<string | undefined>(undefined);
+  // Стартовое значение — текущий id: иначе эффект сброса на первом рендере
+  // считал смену задачи и дописывал второе приветствие к приветствию из
+  // эффекта монтирования
+  const projSessionRef = useRef<string | undefined>(session?.id);
   useEffect(() => {
     if (projSessionRef.current === session?.id) return;
     projSessionRef.current = session?.id;
@@ -487,6 +540,9 @@ export default function TerminalPanel({
       ) {
         return;
       }
+      // Фокус в консольном PTY: клавиши принадлежат шеллу, и без этого
+      // гарда y/a/n уходили и в PTY, и в обработчик подтверждения
+      if (tgt && consoleRef.current?.contains(tgt)) return;
       // Раскладконезависимо: действие определяем по e.code — физическая
       // клавиша Y/A/N (на русской раскладке Y даёт e.key = «н»)
       const action =
@@ -526,7 +582,7 @@ export default function TerminalPanel({
   // Локальная константа вместо vtRef.current!: внутри колбэка useState
   // сужение типов теряется, а гарантия ненуля здесь есть по построению
   const vtInstance = vtRef.current;
-  const createdRef = useRef(false);
+  const pty = usePtyRestart(PTY_ID);
   const exitedRef = useRef(false);
   const [consoleRows, setConsoleRows] = useState(() => vtInstance.render());
 
@@ -575,15 +631,19 @@ export default function TerminalPanel({
     };
     void (async () => {
       try {
-        if (!createdRef.current) {
-          await ptyCreate(
-            PTY_ID,
-            projectRoot,
-            PTY_COLS,
-            PTY_ROWS,
-            shellArg,
-          );
-          createdRef.current = true;
+        const ok = await pty.ensureCreated(() =>
+          ptyCreate(PTY_ID, projectRoot, PTY_COLS, PTY_ROWS, shellArg),
+        );
+        // Сбой запуска шелла раньше тонул в общем catch: экран просто
+        // не отвечал, без причины и подсказки. exitedRef включает
+        // рестарт по Enter
+        if (!ok && !pty.restartingRef.current) {
+          exitedRef.current = true;
+          const vt = vtRef.current;
+          if (vt) {
+            vt.feed(`\r\n\x1b[31m${t("terminal.spawnFailed")}\x1b[0m\r\n`);
+            setConsoleRows(vt.render());
+          }
         }
         const offOut = await listen<{ id: string; data: string }>(
           "pty-output",
@@ -659,21 +719,18 @@ export default function TerminalPanel({
         rows !== ptySizeRef.current.rows
       ) {
         ptySizeRef.current = { cols, rows };
-        if (createdRef.current && !exitedRef.current) {
+        if (pty.createdRef.current && !exitedRef.current) {
           void ptyResize(PTY_ID, cols, rows).catch(() => {});
         }
       }
     });
     ro.observe(el);
     return () => ro.disconnect();
+    // createdRef — реф из общего хука, стабильный по построению
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode]);
 
-  // Закрытие панели — глушим шелл
-  useEffect(() => {
-    return () => {
-      if (createdRef.current) void ptyKill(PTY_ID).catch(() => {});
-    };
-  }, []);
+  // Глушение шелла при закрытии панели — в usePtyRestart
 
   /** Клавиша → байты для PTY */
   const keyToBytes = (e: React.KeyboardEvent): string | null => {
@@ -682,11 +739,14 @@ export default function TerminalPanel({
       if (e.code === "KeyC") {
         // Копирование выделения: Cmd+C на macOS (системная конвенция —
         // раньше Meta+C уходил в PTY как SIGINT и убивал активную команду)
-        // и Ctrl+Shift+C везде; «голый» Ctrl+C остаётся SIGINT
+        // и Ctrl+Shift+C везде; без выделения это всё-таки SIGINT —
+        // раньше «пустое» копирование проглатывалось молча
         if ((e.metaKey && getPlatform() === "macos") || e.shiftKey) {
           const sel = window.getSelection()?.toString();
-          if (sel) void navigator.clipboard.writeText(sel).catch(() => {});
-          return null;
+          if (sel) {
+            void navigator.clipboard.writeText(sel).catch(() => {});
+            return null;
+          }
         }
         return "\x03"; // SIGINT
       }
@@ -715,30 +775,31 @@ export default function TerminalPanel({
   };
 
   const handleConsoleKey = (e: React.KeyboardEvent) => {
+    // Между kill и resolve create канал мёртв: клавиши в него уходить
+    // не должны — раньше окно рестарта молча теряло ввод
+    if (pty.restartingRef.current) return;
     // Перезапуск шелла после выхода — Enter (isComposing: не по IME-энтеру)
     if (exitedRef.current) {
       if (e.key === "Enter" && !e.nativeEvent.isComposing) {
         e.preventDefault();
         exitedRef.current = false;
         vtRef.current = new Vt(PTY_COLS, PTY_ROWS, termPalette);
-        setConsoleRows(vtRef.current.render());        createdRef.current = false;
-        // Сначала дожидаемся kill, только потом создаём: иначе create
-        // может сработать до завершения kill и потерять шелл
-        void ptyKill(PTY_ID)
-          .catch(() => {})
-          .then(() =>
-            ptyCreate(
-              PTY_ID,
-              projectRoot,
-              PTY_COLS,
-              PTY_ROWS,
-              shellArg,
-            ),
+        setConsoleRows(vtRef.current.render());
+        void pty
+          .restart(() =>
+            ptyCreate(PTY_ID, projectRoot, PTY_COLS, PTY_ROWS, shellArg),
           )
-          .then(() => {
-            createdRef.current = true;
-          })
-          .catch(() => {});
+          .then((ok) => {
+            if (ok) return;
+            // Поднять шелл не вышло — возвращаем «мёртвый» режим,
+            // Enter повторит попытку; раньше сбой тонул в catch(() => {})
+            exitedRef.current = true;
+            const vt = vtRef.current;
+            if (vt) {
+              vt.feed(`\r\n\x1b[31m${t("terminal.spawnFailed")}\x1b[0m\r\n`);
+              setConsoleRows(vt.render());
+            }
+          });
       }
       return;
     }
@@ -751,7 +812,7 @@ export default function TerminalPanel({
 
   const handleConsolePaste = (e: React.ClipboardEvent) => {
     const text = e.clipboardData.getData("text");
-    if (text && !exitedRef.current) {
+    if (text && !exitedRef.current && !pty.restartingRef.current) {
       e.preventDefault();
       void ptyWrite(PTY_ID, text.replace(/\r?\n/g, "\r"));
     }

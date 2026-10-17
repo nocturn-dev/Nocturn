@@ -206,6 +206,7 @@ export const zh = {
     "terminal.modeAgent": "代理",
     "terminal.modeConsole": "控制台",
     "terminal.exited": "进程已结束 — 按 Enter 开启新 shell",
+    "terminal.spawnFailed": "无法启动 shell — 按 Enter 重试",
     // Поиск
     "search.placeholder": "搜索任务…",
     "search.empty": "没有找到",

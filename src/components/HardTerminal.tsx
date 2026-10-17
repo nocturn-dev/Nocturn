@@ -1,7 +1,8 @@
 import { STORAGE_KEYS } from "../storageKeys";
 import { useEffect, useRef, useState } from "react";
 import { useLang } from "../locales";
-import { ptyCreate, ptyKill, ptyResize, ptyWrite } from "../api";
+import { ptyCreate, ptyResize, ptyWrite } from "../api";
+import { usePtyRestart } from "../hooks/usePtyRestart";
 
 /**
  * Hard-Mode: полноэкранный живой PTY-терминал на xterm.js (та же библиотека,
@@ -18,9 +19,8 @@ export default function HardTerminal({ cwd, combo }: { cwd?: string; combo: stri
   const hostRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<import("@xterm/xterm").Terminal | null>(null);
   const fitRef = useRef<import("@xterm/addon-fit").FitAddon | null>(null);
-  const createdRef = useRef(false);
+  const pty = usePtyRestart(PTY_ID);
   const exitedRef = useRef(false);
-  const [exited, setExited] = useState(false);
   // Подсказка выхода: показывается 4с после входа, затем тает
   const [hintVisible, setHintVisible] = useState(true);
 
@@ -92,7 +92,10 @@ export default function HardTerminal({ cwd, combo }: { cwd?: string; combo: stri
 
         // Клавиатура/вставка: xterm сам превращает клавиши в VT-последовательности
         term.onData((data) => {
-          if (!exitedRef.current) void ptyWrite(PTY_ID, data);
+          // Между kill и resolve create канал мёртв — печать в него
+          // терялась, поэтому рестарт блокирует ввод
+          if (!exitedRef.current && !pty.restartingRef.current)
+            void ptyWrite(PTY_ID, data);
         });
 
         const { listen } = await import("@tauri-apps/api/event");
@@ -108,7 +111,6 @@ export default function HardTerminal({ cwd, combo }: { cwd?: string; combo: stri
         const offExit = await listen<string>("pty-exit", (e) => {
           if (e.payload !== PTY_ID || disposed || !term) return;
           exitedRef.current = true;
-          setExited(true);
           term.write(`\r\n\x1b[2m${t("terminal.exited")}\x1b[0m\r\n`);
         });
         if (disposed) {
@@ -125,17 +127,21 @@ export default function HardTerminal({ cwd, combo }: { cwd?: string; combo: stri
             void ptyResize(PTY_ID, dims.cols, dims.rows).catch(() => {});
           }
         };
-        if (!createdRef.current) {
-          syncSize();
-          const dims = fitRef.current.proposeDimensions();
-          await ptyCreate(
-            PTY_ID,
-            cwd ?? null,
-            dims?.cols ?? 120,
-            dims?.rows ?? 34,
-            shellArg,
-          );
-          createdRef.current = true;
+        // Размеры перед create считаю один раз через fit и без фолбэка
+        // 120×34: шелл, стартовавший с неверной шириной, оставался
+        // сломанным до первого ресайза
+        fitRef.current.fit();
+        const dims = fitRef.current.proposeDimensions();
+        const ok = await pty.ensureCreated(() => {
+          if (!dims || dims.cols <= 4 || dims.rows <= 2)
+            return Promise.reject(new Error("terminal-size"));
+          return ptyCreate(PTY_ID, cwd ?? null, dims.cols, dims.rows, shellArg);
+        });
+        // Поднять шелл не вышло — включаю режим рестарта по Enter вместо
+        // молчаливого мёртвого экрана
+        if (!ok && !pty.restartingRef.current) {
+          exitedRef.current = true;
+          term?.write(`\r\n\x1b[31m${t("terminal.spawnFailed")}\x1b[0m\r\n`);
         }
         ro = new ResizeObserver(syncSize);
         ro.observe(host);
@@ -149,43 +155,62 @@ export default function HardTerminal({ cwd, combo }: { cwd?: string; combo: stri
       disposed = true;
       ro?.disconnect();
       for (const off of unlistens) off();
-      if (createdRef.current) void ptyKill(PTY_ID).catch(() => {});
-      createdRef.current = false;
-      exitedRef.current = false;
+      // Глушение шелла при закрытии — в usePtyRestart
       term?.dispose();
       termRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Рестарт после выхода шелла: Enter в мёртвом терминале
+  // Рестарт после выхода шелла — Enter. Слушаю window, а не host: фокус
+  // мог остаться вне терминала (клик мимо host), и подсказка не срабатывала
   useEffect(() => {
-    if (!exited) return;
-    const host = hostRef.current;
-    if (!host) return;
     const onKey = (e: KeyboardEvent) => {
+      if (!exitedRef.current) return;
       // isComposing: энтер IME-композиции не перезапускает шелл
-      if (e.key === "Enter" && !e.isComposing) {
-        e.preventDefault();
-        setExited(false);
-        exitedRef.current = false;
-        termRef.current?.clear();
-        void ptyKill(PTY_ID)
-          .catch(() => {})
-          .then(() =>
-            ptyCreate(
-              PTY_ID,
-              cwd ?? null,
-              fitRef.current?.proposeDimensions()?.cols ?? 120,
-              fitRef.current?.proposeDimensions()?.rows ?? 34,
-              shellArg,
-            ),
-          );
+      if (e.key !== "Enter" || e.isComposing) return;
+      const tgt = e.target as HTMLElement | null;
+      if (
+        tgt &&
+        (tgt.tagName === "INPUT" ||
+          tgt.tagName === "TEXTAREA" ||
+          tgt.isContentEditable)
+      ) {
+        return;
       }
+      e.preventDefault();
+      exitedRef.current = false;
+      // reset, а не clear: clear оставляет scrollback, и старый вывод
+      // нового шелла оставался в истории прокрутки
+      termRef.current?.reset();
+      void pty
+        .restart(async () => {
+          const fit = fitRef.current;
+          if (!fit) throw new Error("terminal-size");
+          fit.fit();
+          // Размеры один раз перед create, как при первичном запуске
+          const dims = fit.proposeDimensions();
+          if (!dims || dims.cols <= 4 || dims.rows <= 2)
+            throw new Error("terminal-size");
+          await ptyCreate(PTY_ID, cwd ?? null, dims.cols, dims.rows, shellArg);
+        })
+        .then((ok) => {
+          if (ok) {
+            termRef.current?.focus();
+            return;
+          }
+          // Поднять шелл не вышло — возвращаю «мёртвый» режим, Enter
+          // повторит попытку
+          exitedRef.current = true;
+          termRef.current?.write(
+            `\r\n\x1b[31m${t("terminal.spawnFailed")}\x1b[0m\r\n`,
+          );
+        });
     };
-    host.addEventListener("keydown", onKey);
-    return () => host.removeEventListener("keydown", onKey);
-  }, [exited, cwd, shellArg]);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cwd, shellArg, t]);
 
   return (
     <div

@@ -204,6 +204,7 @@ export const en = {
     "terminal.modeAgent": "Agent",
     "terminal.modeConsole": "Console",
     "terminal.exited": "Process exited — press Enter for a new shell",
+    "terminal.spawnFailed": "Failed to start the shell — press Enter to retry",
     "search.placeholder": "Search tasks…",
     "search.empty": "Nothing found",
     "chat.new": "New chat",

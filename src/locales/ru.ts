@@ -203,6 +203,7 @@ export const ru = {
     "terminal.modeAgent": "Агент",
     "terminal.modeConsole": "Консоль",
     "terminal.exited": "Процесс завершён — Enter для нового шелла",
+    "terminal.spawnFailed": "Не удалось запустить шелл — Enter для повторной попытки",
     // Поиск
     "search.placeholder": "Поиск по задачам…",
     "search.empty": "Ничего не найдено",

@@ -206,6 +206,7 @@ export const ja = {
     "terminal.modeAgent": "エージェント",
     "terminal.modeConsole": "コンソール",
     "terminal.exited": "プロセスが終了しました — Enter で新しいシェル",
+    "terminal.spawnFailed": "シェルの起動に失敗しました — Enter で再試行",
     // Поиск
     "search.placeholder": "タスクを検索…",
     "search.empty": "見つかりません",
