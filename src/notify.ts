@@ -72,14 +72,33 @@ async function playCustom(): Promise<void> {
   await el.play().catch(() => {});
 }
 
+// Один контекст на все звуки приложения: AudioContext на каждый вызов
+// упирается в браузерный лимит при серии уведомлений, а создание в
+// асинхронном колбэке без жеста даёт suspended-контекст — беззвучный
+// и молчащий. Переиспользование + resume() снимают обе проблемы
+let sharedCtx: AudioContext | null = null;
+
+function audioContext(): AudioContext | null {
+  try {
+    if (!sharedCtx) sharedCtx = new AudioContext();
+    if (sharedCtx.state === "suspended") {
+      void sharedCtx.resume().catch(() => {});
+    }
+    return sharedCtx;
+  } catch {
+    return null;
+  }
+}
+
 /** Три коротких мелодии на осцилляторах — без аудиофайлов */
 export function playSound(kind: NotifySound) {
   if (kind === "custom") {
     void playCustom();
     return;
   }
+  const ctx = audioContext();
+  if (!ctx) return; // без звука — не критично
   try {
-    const ctx = new AudioContext();
     const now = ctx.currentTime;
     const tone = (freq: number, at: number, dur: number, gain = 0.12, type: OscillatorType = "sine") => {
       const osc = ctx.createOscillator();
@@ -106,12 +125,16 @@ export function playSound(kind: NotifySound) {
       tone(523.3, 0, 0.28, 0.09);
       tone(392, 0.1, 0.3, 0.07);
     }
-    // Контекст закрывается сам после последнего тона
-    setTimeout(() => void ctx.close().catch(() => {}), 1200);
   } catch {
     // без звука — не критично
   }
 }
+
+// После явного отказа повторный requestPermission на каждое событие —
+// спам системных диалогов: отказ запоминается до перезапуска приложения
+// (isPermissionGranted всё равно проверяется — пользователь может выдать
+// разрешение в настройках системы)
+let permissionDenied = false;
 
 /**
  * Уведомить о завершении: только если окно не в фокусе и тумблер включён.
@@ -130,9 +153,13 @@ export async function notifyTaskDone(
   playSound(prefs.sound);
   try {
     let granted = await isPermissionGranted();
-    if (!granted) {
+    if (!granted && !permissionDenied) {
       const perm = await requestPermission();
-      granted = perm === "granted";
+      if (perm === "granted") {
+        granted = true;
+      } else {
+        permissionDenied = true;
+      }
     }
     if (granted) {
       // Свой тост (notify.rs): атрибуция Nocturn вместо PowerShell и клик,
@@ -186,17 +213,24 @@ export function saveRunSoundPrefs(p: RunSoundPrefs) {
 }
 
 /** Анти-шторм: цепочка автоматизаций и очередь поправок финалайзят прогоны
- *  подряд — чаще одного звука в 3с не играем вовсе */
+ *  подряд — чаще одного звука в 3с не играем вовсе. Ошибка — исключение:
+ *  о падении юзер должен узнать сразу, очередь на неё не действует */
 let lastRunSoundAt = 0;
 
 export function playRunSound(event: RunSoundEvent): void {
-  if (!loadRunSoundPrefs()[event]) return;
+  const runPrefs = loadRunSoundPrefs();
+  if (!runPrefs[event]) return;
+  // Настройки читаем один раз на вызов: раздельные чтения могли разойтись
+  // между гардом фокуса и выбором мелодии
+  const notifyPrefs = loadNotifyPrefs();
   // Координация с уведомлениями: когда окно не в фокусе и уведомления
-  // включены, звук уже сыграет notifyTaskDone (плюс системный тост) —
-  // двойной сигнал не нужен. В фокусе играем всегда: это фидбек в приложении
-  if (!document.hasFocus() && loadNotifyPrefs().enabled) return;
+  // включены, звук завершения уже сыграет notifyTaskDone (плюс системный
+  // тост) — двойной сигнал не нужен. confirm/error так не гасим: карточка
+  // подтверждения ждёт решения именно в другом приложении, и без этого
+  // звука юзер не узнает о ней вовсе
+  if (event === "complete" && !document.hasFocus() && notifyPrefs.enabled) return;
   const now = Date.now();
-  if (now - lastRunSoundAt < 3000) return;
+  if (event !== "error" && now - lastRunSoundAt < 3000) return;
   lastRunSoundAt = now;
-  playSound(loadNotifyPrefs().sound);
+  playSound(notifyPrefs.sound);
 }

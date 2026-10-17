@@ -30,6 +30,8 @@ export interface WakeOptions {
   threshold: number;
   onWake: (utteranceBase64: string) => void;
   onError: (message: string) => void;
+  /** Некритичное предупреждение (откат микрофона): слушатель продолжает работать */
+  onWarn?: (message: string) => void;
   onState?: (state: WakeState) => void;
 }
 
@@ -51,11 +53,24 @@ const MAX_CAPTURE_SAMPLES = SAMPLE_RATE * 12;
 const MIN_UTTERANCE_SAMPLES = SAMPLE_RATE * 0.4;
 const SILENCE_HANGOVER_MS = 700;
 const COOLDOWN_MS = 1200;
+/** Захват без единого признака речи не держим до полного лимита: ложный
+ *  триггер на помехе не должен молчать 12 секунд */
+const NO_SPEECH_TIMEOUT_MS = 4000;
+/** Глубина очереди инференса: на слабом CPU блоки копились без предела
+ *  и детектор отвечал минутами позже. Запаздывающий скор бесполезен —
+ *  честнее выбросить блок */
+const MAX_PENDING_BLOCKS = 3;
+/** Инференс гасим только после серии ошибок подряд: WASM/драйвер иногда
+ *  спотыкается, одна осечка — не повод хоронить слушателя */
+const MAX_INFERENCE_ERRORS = 3;
+const THRESHOLD_MIN = 0.3;
+const THRESHOLD_MAX = 0.9;
 
 type F32 = Float32Array;
 
 interface Sess {
   run(input: F32, dims: number[]): Promise<F32>;
+  release(): void;
 }
 
 async function makeSess(
@@ -67,15 +82,20 @@ async function makeSess(
   });
   const inputName = session.inputNames[0] ?? "input";
   const outputName = session.outputNames[0] ?? "output";
-  return {
-    async run(input: F32, dims: number[]): Promise<F32> {
-      const tensor = new ort.Tensor("float32", input, dims);
-      const res = await session.run({ [inputName]: tensor });
-      const out = res[outputName];
-      if (!out) throw new Error("wake model produced no output");
-      return out.data as F32;
-    },
-  };
+    return {
+      async run(input: F32, dims: number[]): Promise<F32> {
+        const tensor = new ort.Tensor("float32", input, dims);
+        const res = await session.run({ [inputName]: tensor });
+        const out = res[outputName];
+        if (!out) throw new Error("wake model produced no output");
+        return out.data as F32;
+      },
+      release() {
+        // WASM-сессии держат заметную память: без release она росла
+        // с каждым циклом выключить/включить слушателя
+        session.release().catch(() => {});
+      },
+    };
 }
 
 /** Включён ли микрофон другими частями приложения (диктовка): слушатель
@@ -100,9 +120,18 @@ export class VoiceWake {
   private stream: MediaStream | null = null;
   private node: ScriptProcessorNode | null = null;
 
-  private mel!: Sess;
-  private emb!: Sess;
-  private wake!: Sess;
+  private mel: Sess | null = null;
+  private emb: Sess | null = null;
+  private wake: Sess | null = null;
+
+  // Инференс-буферы сбрасываются поколением: блок, набиравшийся до сброса
+  // (захват фразы, пауза), уходит из цепочки молча — его окно протухло
+  private inferEpoch = 0;
+  private pendingBlocks = 0;
+  private inferErrors = 0;
+  // Параллельные openMic (resume + onBusyEvent в один тик) создавали
+  // второй AudioContext, а прежний утекал вместе с устройством
+  private opening: Promise<void> | null = null;
 
   // Стрим-буфер инференса: непотреблённые сэмплы между блоками.
   // Блок = окно 1792, потребляем 1280 → 512 «хвоста» переиспользуются.
@@ -136,7 +165,6 @@ export class VoiceWake {
   private cooldownUntil = 0;
   // Адаптивный пол шума (EMA RMS в режиме слушания)
   private noiseFloor = 0.01;
-  private noiseSeen = false;
 
   constructor(opts: WakeOptions) {
     this.opts = opts;
@@ -186,11 +214,21 @@ export class VoiceWake {
     else if (!micBusy() && this.state === "suspended") void this.resume();
   };
 
-  private async openMic(): Promise<void> {
+  private openMic(): Promise<void> {
+    // resume() и onBusyEvent могут сработать в один тик: без сериализации
+    // открывались два контекста и прежний утекал вместе с устройством
+    if (this.opening) return this.opening;
+    this.opening = this.doOpenMic().finally(() => {
+      this.opening = null;
+    });
+    return this.opening;
+  }
+
+  private async doOpenMic(): Promise<void> {
     if (this.stopped) return;
+    let stream: MediaStream;
     try {
       const micId = localStorage.getItem(STORAGE_KEYS.micDevice) ?? "";
-      let stream: MediaStream;
       try {
         stream = await navigator.mediaDevices.getUserMedia({
           audio: {
@@ -201,14 +239,25 @@ export class VoiceWake {
           },
         });
       } catch {
+        // Откат на устройство по умолчанию: выбранное мог отвалиться.
+        // Молчать нельзя — пользователь думает, что слушает его микрофон
+        this.opts.onWarn?.("mic fallback");
         stream = await navigator.mediaDevices.getUserMedia({
           audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
         });
       }
-      if (this.stopped || this.suspended) {
-        stream.getTracks().forEach((tr) => tr.stop());
-        return;
-      }
+    } catch {
+      // Микрофон недоступен — это отказ в доступе, а не сбой аудио-стека:
+      // гасим слушателя честно, тумблер выключается
+      this.stop();
+      this.opts.onError("mic denied");
+      return;
+    }
+    if (this.stopped || this.suspended) {
+      stream.getTracks().forEach((tr) => tr.stop());
+      return;
+    }
+    try {
       const ctx = new AudioContext({ sampleRate: SAMPLE_RATE });
       // Запрошенные 16 кГц драйвер/устройство могут подменить (48 к и пр.) —
       // фиксируем фактическую частоту и ресемпллируем чанки вручную
@@ -225,12 +274,20 @@ export class VoiceWake {
       this.ctx = ctx;
       this.stream = stream;
       this.node = node;
-      this.setState("listening");
-    } catch {
-      // Микрофон недоступен: гасим слушателя — тумблер выключается честно
+    } catch (e) {
+      // Контекст/граф не поднялся — это не «mic denied»: устройство может
+      // быть исправно. Отличимый текст, чтобы диагностика не врала
+      stream.getTracks().forEach((tr) => tr.stop());
       this.stop();
-      this.opts.onError("mic denied");
+      this.opts.onError(`audio context: ${String(e).slice(0, 80)}`);
+      return;
     }
+    if (this.stopped || this.suspended) {
+      // Контекст открылся, пока нас успели остановить/приостановить
+      this.closeMic();
+      return;
+    }
+    this.setState("listening");
   }
 
   private closeMic(): void {
@@ -244,6 +301,9 @@ export class VoiceWake {
 
   suspend(): void {
     if (this.stopped || this.state === "suspended") return;
+    // Захват переживать паузу нельзя: буфер с до-паузным аудио ушёл бы
+    // в транскрипт после возврата — стираем
+    if (this.capturing) this.discardCapture();
     this.suspended = true;
     this.closeMic();
     this.setState("suspended");
@@ -252,6 +312,9 @@ export class VoiceWake {
   resume(): void {
     if (this.stopped || !this.suspended) return;
     this.suspended = false;
+    // Аудио за время паузы не записывалось: размогрев детектора с чистого
+    // состояния, иначе первый скор считается по до-паузному окну
+    this.resetInferenceState();
     void this.openMic();
   }
 
@@ -259,7 +322,41 @@ export class VoiceWake {
     this.stopped = true;
     document.removeEventListener("nocturn-voice-busy", this.onBusyEvent);
     this.closeMic();
+    this.releaseSessions();
     this.setState("suspended");
+  }
+
+  private releaseSessions(): void {
+    this.mel?.release();
+    this.emb?.release();
+    this.wake?.release();
+    this.mel = null;
+    this.emb = null;
+    this.wake = null;
+  }
+
+  /** Полный размогрев инференса: стрим-хвост, mel-окно (единичный размогрев,
+   *  как np.ones в openwakeword), история эмбеддингов и скоров */
+  private resetInferenceState(): void {
+    this.inferEpoch++;
+    this.melStream = [];
+    this.melStreamLen = 0;
+    this.frames = Array.from({ length: MEL_WINDOW }, () =>
+      new Float32Array(MELS).fill(1),
+    );
+    this.embHist = [];
+    this.scoreHist = [];
+    this.inferErrors = 0;
+  }
+
+  /** Прервать захват без отдачи фразы (пауза, suspend) */
+  private discardCapture(): void {
+    this.capturing = false;
+    this.capture = [];
+    this.captureSamples = 0;
+    this.speechSeen = false;
+    this.silenceMs = 0;
+    this.resetInferenceState();
   }
 
   private onAudio(rawChunk: F32): void {
@@ -287,16 +384,19 @@ export class VoiceWake {
         this.silenceMs += (chunk.length / SAMPLE_RATE) * 1000;
       }
       const enoughSilence = this.speechSeen && this.silenceMs >= SILENCE_HANGOVER_MS;
+      // Речь так и не началась (ложный триггер на помехе): не держим захват
+      // до полного 12-секундного лимита — микрофон «занят» без пользы
+      const noSpeech = !this.speechSeen && this.silenceMs >= NO_SPEECH_TIMEOUT_MS;
       const tooLong = this.captureSamples >= MAX_CAPTURE_SAMPLES;
-      if (enoughSilence || tooLong) this.finishCapture();
+      if (enoughSilence || noSpeech || tooLong) this.finishCapture();
       return;
     }
 
-    // Слушание: обновляем пол шума и копим стрим до полного окна инференса
+    // Слушание: пол шума дрейфует вслед за обстановкой (EMA на каждом
+    // чанке) — замороженный после первого чанка пол не был «адаптивным»
     const rms = rmsOf(chunk);
-    if (!this.noiseSeen && rms > 0) {
+    if (rms > 0) {
       this.noiseFloor = this.noiseFloor * 0.95 + rms * 0.05;
-      this.noiseSeen = true;
     }
 
     this.melStream.push(chunk);
@@ -322,15 +422,27 @@ export class VoiceWake {
       const rest = all.subarray(HOP);
       this.melStream = [Float32Array.from(rest)];
       this.melStreamLen = rest.length;
-      // Сериализация: чанки приходят чаще, чем выполняется WASM
+      // Сериализация: чанки приходят чаще, чем выполняется WASM.
+      // Очередь с пределом: при отставании блок выбрасывается — детектор
+      // обязан работать в реальном времени, отложенный скор бесполезен
+      if (this.pendingBlocks >= MAX_PENDING_BLOCKS) continue;
+      const epoch = this.inferEpoch;
+      this.pendingBlocks++;
       this.chain = this.chain
-        .then(() => this.processBlock(win))
-        .catch(() => {});
+        .then(() => this.processBlock(win, epoch))
+        .catch(() => {})
+        .finally(() => {
+          this.pendingBlocks--;
+        });
     }
   }
 
-  private async processBlock(win: F32): Promise<void> {
+  private async processBlock(win: F32, epoch: number): Promise<void> {
+    // Окно набиралось до сброса буферов (захват/пауза) — его содержимое
+    // протухло, честнее пропустить, чем считать мусорный скор
+    if (epoch !== this.inferEpoch) return;
     if (this.stopped || this.capturing || this.state === "suspended") return;
+    if (!this.mel || !this.emb || !this.wake) return;
     try {
       const mel = await this.mel.run(win, [1, MEL_WIN]);
       // Выход (1, 1, 8, 32), кадр-мажор: кадр f = данные [f*32 .. f*32+32).
@@ -363,11 +475,22 @@ export class VoiceWake {
       if (this.scoreHist.length > 5) this.scoreHist.shift();
       const sorted = [...this.scoreHist].sort((a, b) => a - b);
       const median = sorted[Math.floor(sorted.length / 2)] ?? 0;
-      if (median >= this.opts.threshold && Date.now() >= this.cooldownUntil) {
+      // Порог клампится в точке чтения: слайдер пишет его в opts напрямую
+      // (живое изменение без пересоздания слушателя), конструктор тут бессилен
+      const threshold = Math.min(
+        THRESHOLD_MAX,
+        Math.max(THRESHOLD_MIN, this.opts.threshold),
+      );
+      if (median >= threshold && Date.now() >= this.cooldownUntil) {
         this.beginCapture();
       }
+      // Удачный блок — осечка не серийная: счётчик ошибок обнуляется
+      this.inferErrors = 0;
     } catch (e) {
-      // Ошибка инференса не должна уронить цикл: гасим слушателя, сообщаем
+      this.inferErrors++;
+      if (this.inferErrors < MAX_INFERENCE_ERRORS) return;
+      // Серия ошибок инференса — слушатель мёртв: гасим честно и сообщаем,
+      // «вечное молчание с включённым тумблером» хуже честного выключения
       this.stop();
       this.opts.onError(String(e));
     }
@@ -394,12 +517,20 @@ export class VoiceWake {
   }
 
   private finishCapture(): void {
-    this.capturing = false;
+    const utterance = this.capture;
+    const samples = this.captureSamples;
+    this.discardCapture();
     this.cooldownUntil = Date.now() + COOLDOWN_MS;
     this.setState("listening");
-    if (this.captureSamples < MIN_UTTERANCE_SAMPLES) return;
+    // Буферы детектора сброшены (discardCapture → resetInferenceState):
+    // окно с произнесённой фразой держало медианный скор высоким дольше
+    // кулдауна — срабатывание задваивалось. Pre-roll тоже очищен: фраза
+    // уже ушла в utterance
+    this.ringAt = 0;
+    this.ringFilled = 0;
+    if (samples < MIN_UTTERANCE_SAMPLES) return;
     // pre-roll (~2 с) уже включает саму фразу активации — шлём всё
-    this.opts.onWake(floatChunksToBase64(this.capture));
+    this.opts.onWake(floatChunksToBase64(utterance));
   }
 }
 

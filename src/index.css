@@ -1960,6 +1960,21 @@ html.motion-reduced .usage-draw,
 html.motion-reduced .usage-cell {
   stroke-dashoffset: 0;
 }
+
+/* ---------- Индетерминированная полоса загрузки: бекенд не всегда знает
+   total (нет content-length) — полоса едет, вместо вечного «0%» ---------- */
+.dl-indet {
+  width: 30%;
+  animation: dl-indet 1.4s ease-in-out infinite;
+}
+@keyframes dl-indet {
+  from {
+    transform: translateX(-110%);
+  }
+  to {
+    transform: translateX(380%);
+  }
+}
 @media (prefers-reduced-motion: reduce) {
   .anim-fade-up,
   .anim-pop,
@@ -1986,6 +2001,7 @@ html.motion-reduced .usage-cell {
   .snake-preview-seg,
   .group:hover .snake-preview-seg,
   .ask-ping,
+  .dl-indet,
   .nok-body,
   .nok-aura,
   .nok-lamp,

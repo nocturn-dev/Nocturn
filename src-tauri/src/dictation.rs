@@ -188,14 +188,24 @@ pub async fn dictation_download_model(app: tauri::AppHandle) -> Result<(), Strin
         }
     }
     let _guard = FlagGuard;
-    match tokio::time::timeout(std::time::Duration::from_secs(600), do_download(&app))
+    let outcome = match tokio::time::timeout(std::time::Duration::from_secs(600), do_download(&app))
         .await
     {
         Ok(r) => r,
         // Total-таймаут: shared_client ставит только connect_timeout —
         // stalled-соединение висело вечно
         Err(_) => Err("model download timed out after 600s".into()),
+    };
+    if let Err(e) = &outcome {
+        // Окно прогресса слышит только события: без этого рапорта оно молча
+        // исчезает или висит на последнем проценте при срыве загрузки
+        let _ = app.emit_to(
+            "main",
+            "dictation-progress",
+            json!({ "received": 0u64, "total": 0u64, "error": e }),
+        );
     }
+    outcome
 }
 
 async fn do_download(app: &tauri::AppHandle) -> Result<(), String> {

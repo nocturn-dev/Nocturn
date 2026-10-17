@@ -1796,6 +1796,11 @@ export default function App() {
       onError: (msg) => {
         addToast(msg === "mic denied" ? t("voice.micDenied") : t("voice.failed", { e: msg.slice(0, 90) }));
       },
+      onWarn: () => {
+        // Откат на дефолтный микрофон не гасит слушателя, но молчать нельзя:
+        // пользователь уверен, что слушает выбранное им устройство
+        addToast(t("voice.micFallback"));
+      },
       onWake: (b64) => {
         void (async () => {
           try {

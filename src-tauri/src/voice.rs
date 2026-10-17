@@ -259,9 +259,19 @@ async fn do_download(app: &tauri::AppHandle, wake_model: &str) -> Result<(), Str
             );
             Ok::<(), String>(())
         };
-        tokio::time::timeout(std::time::Duration::from_secs(120), dl)
+        let outcome = tokio::time::timeout(std::time::Duration::from_secs(120), dl)
             .await
-            .map_err(|_| format!("model download {name}: timed out after 120s"))??;
+            .unwrap_or_else(|_| Err(format!("model download {name}: timed out after 120s")));
+        if let Err(e) = &outcome {
+            // Окно прогресса слышит только события: без этого рапорта оно
+            // молча исчезает или висит на последнем проценте при срыве
+            let _ = app.emit_to(
+                "main",
+                "voice-progress",
+                json!({ "file": name, "received": 0u64, "total": 0u64, "error": e }),
+            );
+        }
+        outcome?;
     }
     Ok(())
 }
