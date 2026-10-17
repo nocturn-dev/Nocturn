@@ -196,6 +196,16 @@ export const DEFAULT_APPEARANCE: Appearance = {
 
 const LS_KEY = STORAGE_KEYS.appearance;
 
+/** Порядок слоёв темы в head — единственный источник истины для
+ *  applyAppearance (см. комментарий к переносу там) */
+const THEME_LAYER_IDS = [
+  "halo-theme-styles",
+  "halo-custom-styles",
+  "halo-official",
+  "halo-full-claude",
+  "halo-custom-css",
+] as const;
+
 export const AMBIENT_SCENES = [
   "glow",
   "fog",
@@ -244,22 +254,22 @@ export function loadAppearance(): Appearance {
       glassBlur: clamp(p.glassBlur ?? DEFAULT_APPEARANCE.glassBlur, 4, 20),
       termFont: clamp(p.termFont ?? DEFAULT_APPEARANCE.termFont, 10, 16),
       markStyle: p.markStyle === "classic" ? "classic" : "bold",
-      sidebarGlass: p.sidebarGlass ?? DEFAULT_APPEARANCE.sidebarGlass,
+      sidebarGlass: bool(p.sidebarGlass, DEFAULT_APPEARANCE.sidebarGlass),
       customGreeting:
         typeof p.customGreeting === "string"
           ? p.customGreeting
           : DEFAULT_APPEARANCE.customGreeting,
-      official: p.official ?? DEFAULT_APPEARANCE.official,
-      reduceMotion: p.reduceMotion ?? DEFAULT_APPEARANCE.reduceMotion,
+      official: bool(p.official, DEFAULT_APPEARANCE.official),
+      reduceMotion: bool(p.reduceMotion, DEFAULT_APPEARANCE.reduceMotion),
       // clamp: шкала слайдера ThemeSection 0.7/1/1.4; кривое значение с
       // диска/профиля иначе уходило в --motion-scale сырым
       motionScale: clamp(p.motionScale ?? 1, 0.7, 1.4),
-      officialOled: p.officialOled ?? DEFAULT_APPEARANCE.officialOled,
-      officialContrast: p.officialContrast ?? DEFAULT_APPEARANCE.officialContrast,
-      officialMonoCode: p.officialMonoCode ?? DEFAULT_APPEARANCE.officialMonoCode,
-      fullClaude: p.fullClaude ?? DEFAULT_APPEARANCE.fullClaude,
-      fullClaudeSerif: p.fullClaudeSerif ?? DEFAULT_APPEARANCE.fullClaudeSerif,
-      fullClaudeGlass: p.fullClaudeGlass ?? DEFAULT_APPEARANCE.fullClaudeGlass,
+      officialOled: bool(p.officialOled, DEFAULT_APPEARANCE.officialOled),
+      officialContrast: bool(p.officialContrast, DEFAULT_APPEARANCE.officialContrast),
+      officialMonoCode: bool(p.officialMonoCode, DEFAULT_APPEARANCE.officialMonoCode),
+      fullClaude: bool(p.fullClaude, DEFAULT_APPEARANCE.fullClaude),
+      fullClaudeSerif: bool(p.fullClaudeSerif, DEFAULT_APPEARANCE.fullClaudeSerif),
+      fullClaudeGlass: bool(p.fullClaudeGlass, DEFAULT_APPEARANCE.fullClaudeGlass),
       fullClaudeRadius: clamp(
         p.fullClaudeRadius ?? DEFAULT_APPEARANCE.fullClaudeRadius,
         0.4,
@@ -278,10 +288,10 @@ export function loadAppearance(): Appearance {
         /^#[0-9a-fA-F]{6}$/.test(p.fullClaudeAccent)
           ? p.fullClaudeAccent.toLowerCase()
           : "",
-      serifChat: p.serifChat ?? DEFAULT_APPEARANCE.serifChat,
+      serifChat: bool(p.serifChat, DEFAULT_APPEARANCE.serifChat),
       inlineCodeClaude:
-        p.inlineCodeClaude ?? DEFAULT_APPEARANCE.inlineCodeClaude,
-      textShimmer: p.textShimmer ?? DEFAULT_APPEARANCE.textShimmer,
+        bool(p.inlineCodeClaude, DEFAULT_APPEARANCE.inlineCodeClaude),
+      textShimmer: bool(p.textShimmer, DEFAULT_APPEARANCE.textShimmer),
       shimmerFrom:
         typeof p.shimmerFrom === "string" && /^#[0-9a-fA-F]{6}$/.test(p.shimmerFrom)
           ? p.shimmerFrom
@@ -291,7 +301,7 @@ export function loadAppearance(): Appearance {
           ? p.shimmerTo
           : DEFAULT_APPEARANCE.shimmerTo,
       markColor: typeof p.markColor === "string" ? p.markColor : "",
-      ambient: p.ambient ?? DEFAULT_APPEARANCE.ambient,
+      ambient: bool(p.ambient, DEFAULT_APPEARANCE.ambient),
       ambientScene: isAmbientScene(p.ambientScene) ? p.ambientScene : "glow",
       ambientVideo: typeof p.ambientVideo === "string" ? p.ambientVideo : "",
       ambientBrightness: clamp(
@@ -312,13 +322,13 @@ export function loadAppearance(): Appearance {
       msgScale: clamp(p.msgScale ?? 1, 0.85, 1.4),
       density: clamp(p.density ?? 1, 0.6, 1.6),
       contentWidth: clamp(p.contentWidth ?? 768, 640, 1600),
-      showMsgTime: p.showMsgTime ?? false,
+      showMsgTime: bool(p.showMsgTime, false),
       codeStyle: p.codeStyle === "light" ? "light" : "dark",
       radius: clamp(p.radius ?? 1, 0.4, 1.6),
-      accentGradient: p.accentGradient ?? false,
+      accentGradient: bool(p.accentGradient, false),
       chatWallpaper: typeof p.chatWallpaper === "string" ? p.chatWallpaper : "",
-      profileTheme: p.profileTheme ?? false,
-      projectAccent: p.projectAccent ?? false,
+      profileTheme: bool(p.profileTheme, false),
+      projectAccent: bool(p.projectAccent, false),
       ambientGradFrom: typeof p.ambientGradFrom === "string" ? p.ambientGradFrom : "#16213e",
       ambientGradTo: typeof p.ambientGradTo === "string" ? p.ambientGradTo : "#0f3460",
       ambientGradAngle: clamp(p.ambientGradAngle ?? 135, 0, 360),
@@ -377,6 +387,14 @@ export function withStyleAccent(a: Appearance, style: Appearance["style"]): Appe
 
 function clamp(v: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, v));
+}
+
+/** Булеан с диска только «честным» типом: JSON со строкой "false" или
+ *  числом иначе проходил через `??` как true, и настройка включалась сама.
+ *  Дженерик сохраняет опциональность поля: у reduceMotion?/serifChat? и пр.
+ *  «не задано» — легальное значение, обязательные поля остаются boolean */
+function bool<T extends boolean | undefined>(v: unknown, def: T): T {
+  return typeof v === "boolean" ? (v as T) : def;
 }
 
 /** Затемнение hex-цвета для производной --halo-accent-deep */
@@ -688,8 +706,10 @@ export function fullClaudeCss(a: Appearance): string {
       : null,
   ].filter((l): l is string => l !== null);
   // Чат-ответы серифом (user sans / assistant serif). Тумблер темы
-  // возвращает системный sans
-  const serifChat = (a.fullClaudeSerif ?? true)
+  // возвращает системный sans. Дефолт — из DEFAULT_APPEARANCE, не локальный
+  // true: у поля дефолт false (claude.ai — sans-serif), а второй источник
+  // правды для одного значения гарантированно расходится
+  const serifChat = (a.fullClaudeSerif ?? DEFAULT_APPEARANCE.fullClaudeSerif)
     ? [
         "html.full-claude .markdown {",
         '  font-family: Georgia, Charter, "Iowan Old Style", "Palatino Linotype", serif;',
@@ -1051,16 +1071,17 @@ export function applyAppearance(a: Appearance) {
   if (shimTo) root.style.setProperty("--shim-to", shimTo);
   else root.style.removeProperty("--shim-to");
 
-  // Пользовательский CSS — верхний слой «поверх тем»: теги тем re-append'ятся
-  // в конец head (см. official/full-claude выше), а halo-custom-css создан
-  // в main.tsx ДО рендера и оставался выше палитр — community-темы молча
-  // проигрывали каскад data-style-палитрам (0-2-1). appendChild существующего
-  // узла переносит его в конец head — порядок восстанавливается при каждом
-  // applyAppearance. Против !important жёстких тем юзерский CSS выигрывает
-  // только собственным !important — осознанный порядок слоёв
-  const userCssTag = document.getElementById("halo-custom-css");
-  if (userCssTag) document.head.appendChild(userCssTag);
-
+  // Слои темы в head — фиксированный порядок вместо «истории вызовов»:
+  // палитры стилей → палитры конструктора → Official → Full Claude →
+  // пользовательский CSS (верхний слой «поверх тем»). Каждый существующий
+  // тег переносится appendChild'ом в конец — при равной специфичности решает
+  // позиция, и она теперь детерминирована при любом числе вызовов. Против
+  // !important жёстких тем юзерский CSS выигрывает только собственным
+  // !important — осознанный порядок слоёв
+  for (const id of THEME_LAYER_IDS) {
+    const el = document.getElementById(id);
+    if (el) document.head.appendChild(el);
+  }
   // Цвет рамки окна/мета theme-color: в index.html статично зашита тёмная —
   // светлые темы всегда получали тёмную рамку независимо от темы
   try {

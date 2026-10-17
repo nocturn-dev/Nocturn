@@ -51,6 +51,10 @@ html[data-mark="classic"] .nocturn-mark .mark-bold {
   --halo-scrollbar-thumb-hover: rgba(255, 255, 255, 0.2);
   --halo-code-bg: #1a1918;
   --halo-term-font: 11.5px; /* размер шрифта терминала (кастомизация) */
+  /* Блюр стекла: дефолт до первого applyAppearance (рантайм пишет инлайн
+     из glassBlur). Одна константа здесь — var() по файлу без локальных
+     фолбэков, иначе «14px» жил бы в каждом blur() своим литералом */
+  --halo-blur: 14px;
   /* Z-шкала: объявленная лестница слоёв вместо подбора значений. Raw CSS
      читает переменные здесь, TSX — утилиты z-[var(--halo-z-*)] */
   --halo-z-behind: -1; /* ambient-сцена «за интерфейсом» */
@@ -449,13 +453,6 @@ html[data-settings-dir="back"]::view-transition-new(settings-content) {
   0%, 100% { transform: translateX(0); }
   50% { transform: translateX(6px); }
 }
-/* Глушители ПОЛНЫМ селектором (0-4-0 / 0-3-0): короткая форма проигрывала
-   hover-правилу (0-3-0) — reduce-motion не глушил ползание при наведении */
-html.motion-reduced .group:hover .snake-preview-seg,
-html.motion-reduced .snake-preview-seg {
-  animation: none;
-}
-
 /* Найденный через поиск пункт: короткая вспышка акцентом.
    color-mix в keyframes внутри @supports не завернуть — вынесен в
    переменную с фолбэком (WebKitGTK < 2.40 отбрасывал бы декларацию
@@ -495,16 +492,6 @@ html.voice-listening body::after {
 @keyframes voice-blink {
   0%, 100% { opacity: 0.9; }
   50% { opacity: 0.3; }
-}
-html.motion-reduced.voice-listening body::after {
-  animation: none;
-}
-/* Системный «уменьшить движение» гасит бесконечный voice-blink так же,
-   как ручной тумблер выше — раньше точка микрофона пульсировала вечно */
-@media (prefers-reduced-motion: reduce) {
-  html.voice-listening body::after {
-    animation: none;
-  }
 }
 
 /* ---------- Zen-режим (бинд toggle_zen, дефолт Ctrl+Alt+Z) ----------
@@ -608,33 +595,6 @@ html.zen.voice-listening body::after {
     transform: translateX(28px);
   }
 }
-@media (prefers-reduced-motion: reduce) {
-  /* Базы этих селекторов объявлены ВЫШЕ блока — глушители работают.
-     Селекторы, чьи базы стоят ниже по файлу (.typing-dot, .splash-pulse,
-     .work-status-*, .shimmer::after, .nav-tick-in, .ask-ping), гасит
-     консолидированный блок В КОНЦЕ файла: при равной специфичности
-     побеждает позднее правило, здесь они были мертвы */
-  .anim-fade-up,
-  .anim-pop,
-  .anim-pop-out,
-  .anim-fade,
-  .anim-fade-out,
-  .anim-slide-left,
-  .anim-slide-left-out,
-  /* змейка и search-hit глушились и тумблером html.motion-reduced —
-     список ниже обязан совпадать с этим */
-  .snake-preview-seg,
-  /* hover-правило (0-3-0) специфичностью бьёт короткую форму (0-1-0) —
-     глушим полным селектором */
-  .group:hover .snake-preview-seg,
-  .search-hit,
-  .usage-draw,
-  .usage-cell,
-  .usage-arc {
-    animation: none;
-  }
-}
-
 /* Splash: пульс лого (S9: раньше <style> реинжектился из компонента
    на каждый рендер); при системном reduce-motion глушится блоком
    в конце файла — здесь он был мёртв (база ниже) */
@@ -657,7 +617,7 @@ html.zen.voice-listening body::after {
    старбёрст вращается медленно и ЛИНЕЙНО (непрерывное вращение —
    единственный легальный случай linear), текст статуса мягко «дышит»
    opacity 1 → 0.45. Только transform/opacity; бесконечные анимации
-   гасятся в ОБОИХ reduce-блоках ниже ---------- */
+   гасится единым reduce-блоком в конце файла ---------- */
 .work-status-star {
   animation: work-star-spin 10s linear infinite;
 }
@@ -697,7 +657,7 @@ html.zen.voice-listening body::after {
 
 /* ---------- Шиммер загрузки (вуаль живого артефакта, скелетоны): блик
    едет transform'ом по нейтральной подложке — чистый композитинг без
-   repaint'а. Бесконечная анимация — гасится в ОБОИХ reduce-блоках ---------- */
+   repaint'а. Бесконечная анимация гасится reduce-блоком в конце файла ---------- */
 .shimmer {
   position: relative;
   overflow: hidden;
@@ -719,54 +679,6 @@ html.zen.voice-listening body::after {
   to {
     transform: translateX(100%);
   }
-}
-
-/* Reduce-motion глушит и tailwind-овские бесконечные анимации
-   (animate-pulse у курсора терминала, PlanPanel, SubagentCard) —
-   собственные keyframes гасились, а библиотечные — нет */
-@media (prefers-reduced-motion: reduce) {
-  .animate-pulse,
-  .caret-blink,
-  .step-live,
-  .shimmer-text {
-    animation: none !important;
-  }
-}
-
-/* Motion/Reduced: тумблер в «Кастомизации» форсит то же
-   глушение поверх системной настройки — тот же список + ambient-glow.
-   Canvas-сцены ставит на паузу App (paused у AmbientLayer).
-   Синхронно со списком prefers-reduced-motion выше: anim-slide-left(-out),
-   anim-fade-out, search-hit, usage-* там гасятся — и здесь обязаны */
-html.motion-reduced .anim-fade-up,
-html.motion-reduced .anim-pop,
-html.motion-reduced .anim-pop-out,
-html.motion-reduced .anim-fade,
-html.motion-reduced .anim-fade-out,
-html.motion-reduced .anim-slide-left,
-html.motion-reduced .anim-slide-left-out,
-html.motion-reduced .typing-dot,
-html.motion-reduced .nav-tick-in,
-html.motion-reduced .splash-pulse,
-html.motion-reduced .search-hit,
-html.motion-reduced .usage-draw,
-html.motion-reduced .usage-cell,
-html.motion-reduced .usage-arc,
-html.motion-reduced .work-status-star,
-html.motion-reduced .work-status-text,
-html.motion-reduced .shimmer::after,
-html.motion-reduced .shimmer-text,
-/* Змейка-превью: без этой строки hover-правило (0-3-0) переигрывало
-   короткую форму ниже (!important блок уже перебивает, но селектор
-   обязан быть в списке — комментарий списка требует синхронности) */
-html.motion-reduced .group:hover .snake-preview-seg,
-html.motion-reduced .snake-preview-seg,
-html.motion-reduced .animate-pulse,
-html.motion-reduced .caret-blink,
-html.motion-reduced .step-live,
-html.motion-reduced .settings-page-stagger > *,
-html.motion-reduced body::before {
-  animation: none !important;
 }
 
 ::selection {
@@ -1071,8 +983,8 @@ html.light.inline-code-claude .markdown code:not(pre code) {
 
 /* ---------- Маскот Нок (светлячок у композера) ----------
    Все темпы — через --motion-scale; reduce-motion глушит общей плиткой
-   ниже (спрайт остаётся статичным). Группы .nok-aura/.nok-lamp пульсируют
-   групповой прозрачностью: базовые opacity клеток не трогаются */
+   в конце файла (спрайт остаётся статичным). Группы .nok-aura/.nok-lamp
+   пульсируют групповой прозрачностью: базовые opacity клеток не трогаются */
 @keyframes nok-bob {
   0%,
   100% {
@@ -1133,6 +1045,11 @@ html.light.inline-code-claude .markdown code:not(pre code) {
 .nok {
   cursor: pointer;
   position: relative;
+  /* Направление полётов: 1 = насест слева, -1 = зеркально (.nok-perch-right).
+     Дефолт объявлен здесь, а не фолбэком в каждом var(): полётные кадры
+     ссылаются на переменную в десятке мест, и любой пропущенный фолбэк
+     молча оставлял бы Нока на месте */
+  --nok-dir: 1;
   /* Полёт между позами: насест (левый угол) ↔ работа (за левым краем
      композера, рядом с полем ввода) ↔ обиженный уход за экран.
      Сдвиги умножаются на --nok-scale: крупный Нок летит дальше */
@@ -1141,8 +1058,7 @@ html.light.inline-code-claude .markdown code:not(pre code) {
     opacity calc(0.55s * var(--motion-scale)) ease;
 }
 /* Насест справа: все позы и полёты зеркалятся по X (--nok-dir), иначе
-   «работа» и «Буу» уводят Нока ВНУТРЬ композера, а не за внешний край.
-   Переменную объявляет обёртка (ChatArea) — .nok только наследует */
+   «работа» и «Буу» уводят Нока ВНУТРЬ композера, а не за внешний край */
 .nok-perch-right {
   --nok-dir: -1;
 }
@@ -1152,12 +1068,12 @@ html.light.inline-code-claude .markdown code:not(pre code) {
    текста; «к тексту» = внутрь = +dir, для правого насеста зеркально) */
 .nok-streaming,
 .nok-thinking {
-  transform: translate(calc(10px * var(--nok-dir, 1) * var(--nok-scale, 1)), calc(-14px * var(--nok-scale, 1))) rotate(calc(-10deg * var(--nok-dir, 1)));
+  transform: translate(calc(10px * var(--nok-dir) * var(--nok-scale, 1)), calc(-14px * var(--nok-scale, 1))) rotate(calc(-10deg * var(--nok-dir)));
 }
 /* Обиженный уход: растворяется за экраном, pointer-events выключены —
    вернётся по таймеру (класс держит трансформ, не анмаунт) */
 .nok-storm {
-  transform: translate(calc(-46px * var(--nok-dir, 1) * var(--nok-scale, 1)), calc(-12px * var(--nok-scale, 1))) scale(0.8);
+  transform: translate(calc(-46px * var(--nok-dir) * var(--nok-scale, 1)), calc(-12px * var(--nok-scale, 1))) scale(0.8);
   opacity: 0;
   pointer-events: none;
 }
@@ -1185,6 +1101,11 @@ html.light.inline-code-claude .markdown code:not(pre code) {
   position: absolute;
   bottom: calc(100% + 8px);
   left: 50%;
+  /* Скрыта по умолчанию: видимость держат кейфреймы (0% → 14% → 100%),
+     forwards удерживает финальный ноль. Без явного нуля reduce-motion
+     (animation: none) возвращал бы реплике базовую непрозрачность —
+     «вечная» реплика до срабатывания таймера Nok.tsx */
+  opacity: 0;
   /* Локальный слой внутри контейнера маскота (не лестница страницы) */
   z-index: 6;
   pointer-events: none;
@@ -1249,25 +1170,25 @@ html.light.inline-code-claude .markdown code:not(pre code) {
     transform: translate(0, 0) rotate(0);
   }
   16% {
-    transform: translate(calc(8px * var(--nok-dir, 1)), -54px) rotate(calc(12deg * var(--nok-dir, 1)));
+    transform: translate(calc(8px * var(--nok-dir)), -54px) rotate(calc(12deg * var(--nok-dir)));
   }
   36% {
-    transform: translate(calc(-14px * var(--nok-dir, 1)), -36px) rotate(calc(190deg * var(--nok-dir, 1)));
+    transform: translate(calc(-14px * var(--nok-dir)), -36px) rotate(calc(190deg * var(--nok-dir)));
   }
   56% {
-    transform: translate(calc(-34px * var(--nok-dir, 1)), -12px) rotate(calc(330deg * var(--nok-dir, 1)));
+    transform: translate(calc(-34px * var(--nok-dir)), -12px) rotate(calc(330deg * var(--nok-dir)));
   }
   70% {
-    transform: translate(calc(-42px * var(--nok-dir, 1)), 4px) rotate(calc(360deg * var(--nok-dir, 1)));
+    transform: translate(calc(-42px * var(--nok-dir)), 4px) rotate(calc(360deg * var(--nok-dir)));
   }
   79% {
-    transform: translate(calc(-36px * var(--nok-dir, 1)), -12px) rotate(calc(352deg * var(--nok-dir, 1)));
+    transform: translate(calc(-36px * var(--nok-dir)), -12px) rotate(calc(352deg * var(--nok-dir)));
   }
   87% {
-    transform: translate(calc(-42px * var(--nok-dir, 1)), 2px) rotate(calc(360deg * var(--nok-dir, 1)));
+    transform: translate(calc(-42px * var(--nok-dir)), 2px) rotate(calc(360deg * var(--nok-dir)));
   }
   100% {
-    transform: translate(calc(-42px * var(--nok-dir, 1)), 4px) rotate(calc(360deg * var(--nok-dir, 1)));
+    transform: translate(calc(-42px * var(--nok-dir)), 4px) rotate(calc(360deg * var(--nok-dir)));
   }
 }
 .nok-tumble {
@@ -1282,28 +1203,28 @@ html.light.inline-code-claude .markdown code:not(pre code) {
     transform: translate(0, 0) rotate(0);
   }
   14% {
-    transform: translate(calc(-70px * var(--nok-dir, 1)), -92px) rotate(calc(-18deg * var(--nok-dir, 1)));
+    transform: translate(calc(-70px * var(--nok-dir)), -92px) rotate(calc(-18deg * var(--nok-dir)));
   }
   30% {
-    transform: translate(calc(-224px * var(--nok-dir, 1)), -10px) rotate(calc(180deg * var(--nok-dir, 1)));
+    transform: translate(calc(-224px * var(--nok-dir)), -10px) rotate(calc(180deg * var(--nok-dir)));
   }
   46% {
-    transform: translate(calc(-224px * var(--nok-dir, 1)), -10px) rotate(calc(180deg * var(--nok-dir, 1)));
+    transform: translate(calc(-224px * var(--nok-dir)), -10px) rotate(calc(180deg * var(--nok-dir)));
   }
   60% {
-    transform: translate(calc(-224px * var(--nok-dir, 1)), -10px) rotate(calc(180deg * var(--nok-dir, 1)));
+    transform: translate(calc(-224px * var(--nok-dir)), -10px) rotate(calc(180deg * var(--nok-dir)));
   }
   68% {
-    transform: translate(calc(-190px * var(--nok-dir, 1)), -8px) rotate(calc(240deg * var(--nok-dir, 1)));
+    transform: translate(calc(-190px * var(--nok-dir)), -8px) rotate(calc(240deg * var(--nok-dir)));
   }
   78% {
-    transform: translate(calc(-110px * var(--nok-dir, 1)), -4px) rotate(calc(320deg * var(--nok-dir, 1)));
+    transform: translate(calc(-110px * var(--nok-dir)), -4px) rotate(calc(320deg * var(--nok-dir)));
   }
   88% {
-    transform: translate(calc(-30px * var(--nok-dir, 1)), -2px) rotate(calc(400deg * var(--nok-dir, 1)));
+    transform: translate(calc(-30px * var(--nok-dir)), -2px) rotate(calc(400deg * var(--nok-dir)));
   }
   100% {
-    transform: translate(0, 0) rotate(calc(430deg * var(--nok-dir, 1)));
+    transform: translate(0, 0) rotate(calc(430deg * var(--nok-dir)));
   }
 }
 .nok-scare {
@@ -1354,16 +1275,16 @@ html.light.inline-code-claude .markdown code:not(pre code) {
     transform: translate(0, 0);
   }
   15% {
-    transform: translate(calc(60px * var(--nok-dir, 1)), -190px) rotate(calc(8deg * var(--nok-dir, 1)));
+    transform: translate(calc(60px * var(--nok-dir)), -190px) rotate(calc(8deg * var(--nok-dir)));
   }
   35% {
-    transform: translate(calc(240px * var(--nok-dir, 1)), -260px) rotate(calc(-6deg * var(--nok-dir, 1)));
+    transform: translate(calc(240px * var(--nok-dir)), -260px) rotate(calc(-6deg * var(--nok-dir)));
   }
   55% {
-    transform: translate(calc(60px * var(--nok-dir, 1)), -300px) rotate(calc(6deg * var(--nok-dir, 1)));
+    transform: translate(calc(60px * var(--nok-dir)), -300px) rotate(calc(6deg * var(--nok-dir)));
   }
   75% {
-    transform: translate(calc(280px * var(--nok-dir, 1)), -180px) rotate(calc(-4deg * var(--nok-dir, 1)));
+    transform: translate(calc(280px * var(--nok-dir)), -180px) rotate(calc(-4deg * var(--nok-dir)));
   }
   100% {
     transform: translate(0, 0);
@@ -1375,8 +1296,8 @@ html.light.inline-code-claude .markdown code:not(pre code) {
 }
 /* Взмах крыльев в полёте: два кадра спрайта (низ/верх), жёсткая смена
    на середине цикла. Альтернативный кадр скрыт вне полёта; reduce-motion
-   оставляет статичный БАЗОВЫЙ кадр: и базовый, и альт в списках отключения
-   ниже, а opacity-оверрайд гасит альт (иначе двойной спрайт) */
+   оставляет статичный БАЗОВЫЙ кадр: глушитель в конце файла дополнительно
+   гасит opacity альт-кадра (иначе двойной спрайт поверх базового) */
 @keyframes nok-wing-a {
   0%,
   49.9% {
@@ -1427,78 +1348,6 @@ html.light.inline-code-claude .markdown code:not(pre code) {
 }
 .nok-coding .nok-body {
   animation: nok-type calc(0.35s * var(--motion-scale)) steps(2) infinite;
-}
-html.motion-reduced .nok-fly,
-html.motion-reduced .nok-code,
-html.motion-reduced .nok-wings,
-html.motion-reduced .nok-fly .nok-wings,
-html.motion-reduced .nok-fly .nok-wings-alt,
-html.motion-reduced .nok-surprised .nok-body,
-html.motion-reduced .nok-tumble,
-html.motion-reduced .nok-scare,
-html.motion-reduced .nok-groove .nok-body,
-html.motion-reduced .nok-groove .nok-phones,
-html.motion-reduced .nok-anger .nok-body,
-html.motion-reduced .nok-coding .nok-code,
-html.motion-reduced .nok-coding .nok-body,
-html.motion-reduced .ask-ping,
-/* Реплика: opacity:0 нужен ЯВНО — база .nok-quip непрозрачна (видимость
-   держали кейфреймы, animation: none её возвращает), таймер Nok.tsx
-   удаляет квип по расписанию */
-html.motion-reduced .nok-quip {
-  animation: none;
-}
-/* Opacity:1 альт-крыла живёт при animation:none — без
-
-   оверрайда под reduce видны ОБА кадра (двойной спрайт поверх статичного
-   базового); reduce оставляет базовый кадр */
-html.motion-reduced .nok-fly .nok-wings-alt,
-html.motion-reduced .nok-quip {
-  opacity: 0;
-}
-@media (prefers-reduced-motion: reduce) {
-  .nok-fly,
-  .nok-code,
-  .nok-wings,
-  .nok-fly .nok-wings,
-  .nok-fly .nok-wings-alt,
-  .nok-surprised .nok-body,
-  .nok-tumble,
-  .nok-scare,
-  .nok-groove .nok-body,
-  .nok-groove .nok-phones,
-  .nok-anger .nok-body,
-  .nok-coding .nok-code,
-  .nok-coding .nok-body,
-  .nok-quip {
-    animation: none;
-  }
-  /* Альт-крыло и квип — как в motion-reduced выше: opacity гасится явно.
-     .ask-ping здесь не был: его база (1323) ниже блока — глушит конец файла */
-  .nok-fly .nok-wings-alt,
-  .nok-quip {
-    opacity: 0;
-  }
-}
-html.motion-reduced .nok-body,
-html.motion-reduced .nok-aura,
-html.motion-reduced .nok-lamp,
-html.motion-reduced .nok-dot,
-html.motion-reduced .nok-burst,
-html.motion-reduced .nok-float,
-html.motion-reduced .nok-z {
-  animation: none;
-}
-@media (prefers-reduced-motion: reduce) {
-  .nok-body,
-  .nok-aura,
-  .nok-lamp,
-  .nok-dot,
-  .nok-burst,
-  .nok-float,
-  .nok-z {
-    animation: none;
-  }
 }
 
 /* Подсветка панели вопроса: клик по ждущему Ноку («здесь нужен ты»).
@@ -1608,15 +1457,12 @@ html.glass .bg-halo-raised {
    Интенсивность управляется переменной --halo-blur (слайдер в «Темах») */
 html.glass aside,
 html.glass .glass-pane {
-  backdrop-filter: blur(var(--halo-blur, 14px)) saturate(1.25);
-  -webkit-backdrop-filter: blur(var(--halo-blur, 14px)) saturate(1.25);
+  backdrop-filter: blur(var(--halo-blur)) saturate(1.25);
+  -webkit-backdrop-filter: blur(var(--halo-blur)) saturate(1.25);
 }
-/* Экономим GPU при reduce-motion — глушители ВСЕХ blur-носителей
-   переехали в САМЫЙ КОНЕЦ файла (блок после reduce-motion-хвоста ниже):
-   при равной специфичности базы sidebar-glass/msg-glass объявлены ниже
-   этого места и побеждали, глушители были мертвы (
-
- неполный фикс из bad3ced) */
+/* Экономим GPU при reduce-motion — глушители ВСЕХ blur-носителей живут
+   в едином reduce-блоке В САМОМ КОНЦЕ файла: при равной специфичности базы
+   sidebar-glass/msg-glass объявлены ниже этого места и побеждали бы */
 
 /* Выход модалок при активном стекле: .anim-pop-out объявлен выше с
    backdrop-filter: none, но специфичностью (0,1,0) проигрывает
@@ -1635,8 +1481,8 @@ html.glass .anim-fade-out {
    сайдбара молча подменялся общим */
 html.sidebar-glass aside.bg-halo-deep {
   background-color: color-mix(in srgb, var(--halo-surface, #30302e) 42%, transparent);
-  backdrop-filter: blur(calc(var(--halo-blur, 14px) * 1.6)) saturate(1.35);
-  -webkit-backdrop-filter: blur(calc(var(--halo-blur, 14px) * 1.6)) saturate(1.35);
+  backdrop-filter: blur(calc(var(--halo-blur) * 1.6)) saturate(1.35);
+  -webkit-backdrop-filter: blur(calc(var(--halo-blur) * 1.6)) saturate(1.35);
   box-shadow: inset -1px 0 0 color-mix(in srgb, var(--halo-line, #3d3c38) 80%, transparent);
 }
 /* Пауза ambient на время стрима
@@ -1795,9 +1641,6 @@ input[type="range"]::-webkit-slider-thumb:active {
 .usage-cell {
   animation: usage-cell 0.35s ease-out both;
 }
-@media (prefers-reduced-motion: reduce) {
-  .usage-draw, .usage-cell { animation: none; stroke-dashoffset: 0; }
-}
 
 /* Дуги доната «разворачиваются» из нуля, сегмент за сегментом.
    Правило animation раньше отсутствовало вовсе — keyframes были мёртвыми */
@@ -1806,9 +1649,6 @@ input[type="range"]::-webkit-slider-thumb:active {
 }
 @keyframes usage-arc {
   from { stroke-dasharray: 0 999; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .usage-arc { animation: none !important; }
 }
 
 /* ---------- Тема Official: строгий монохром (Кастомизация → тумблер).
@@ -1851,11 +1691,6 @@ html.ambient:not([data-ambient-scene]) body::before {
 @keyframes ambient-drift {
   from { transform: translate3d(-2%, -1.5%, 0) scale(1); }
   to { transform: translate3d(2%, 2%, 0) scale(1.06); }
-}
-@media (prefers-reduced-motion: reduce) {
-  /* Полный селектор базы: короткая форма (0-1-3) проигрывала базе (0-2-3)
-     и системный reduce-motion не глушил дыхание glow */
-  html.ambient:not([data-ambient-scene]) body::before { animation: none; }
 }
 
 /* ---------- Ambient: слой сцен/видео (fog, snow, city, stars, video).
@@ -1993,8 +1828,8 @@ html[data-media-ribbon="1"]:not(.glass) .chat-surface .bg-halo-surface\/50 {
    (равная специфичность 0-2-1 — решает позиция) */
 html:not(.glass) .msg-glass {
   background: color-mix(in srgb, var(--halo-deep) 70%, transparent);
-  backdrop-filter: blur(var(--halo-blur, 14px)) saturate(1.25);
-  -webkit-backdrop-filter: blur(var(--halo-blur, 14px)) saturate(1.25);
+  backdrop-filter: blur(var(--halo-blur)) saturate(1.25);
+  -webkit-backdrop-filter: blur(var(--halo-blur)) saturate(1.25);
 }
 
 /* ---------- Тема Official: гашение стекла (конец файла — последняя
@@ -2026,37 +1861,6 @@ html:not(.has-wallpaper):not([data-ambient-render="behind"]).official aside.bg-h
   -webkit-backdrop-filter: none;
 }
 
-/* ---------- prefers-reduced-motion: базы ниже ранних глушителей ----------
-   Системный тумблер ОС. При равной специфичности побеждает позднее правило,
-   поэтому глушители селекторов, чьи базы объявлены выше в файле, обязаны
-   стоять В САМОМ КОНЦЕ (семь глушителей в ранних блоках были
-   мертвы — typing-dot, splash-pulse, work-status-*, shimmer, nav-tick-in,
-   ask-ping продолжали крутиться при включённой системной настройке).
-   Ранние блоки (497+, 1258+) покрывают свои базы и остаются; этот — хвост */
-@media (prefers-reduced-motion: reduce) {
-  .typing-dot,
-  .nav-tick-in,
-  .splash-pulse,
-  .work-status-star,
-  .work-status-text,
-  .shimmer::after,
-  .ask-ping,
-  .settings-page-stagger > * {
-    animation: none;
-  }
-  /* Хвост reduce-motion: глушители blur ВСЕХ носителей — базы
-
-     html.glass aside/.glass-pane, sidebar-glass и msg-glass объявлены выше
-     по файлу, при равной специфичности решает позиция. По образцу самого
- reduce-motion-блока выше (урок ) */
-  html.glass aside,
-  html.glass .glass-pane,
-  html.sidebar-glass aside.bg-halo-deep,
-  html:not(.glass) .msg-glass {
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
-  }
-}
 
 /* Свечение активной строки палитры и чипа скилла: акцент через color-mix,
    фолбэк по конвенции — без mix остаётся плоская обводка/фон */
@@ -2083,5 +1887,144 @@ html:not(.has-wallpaper):not([data-ambient-render="behind"]).official aside.bg-h
   .skill-chip {
     background: var(--halo-hover);
     border-color: var(--halo-line);
+  }
+}
+
+/* ---------- Reduce-motion: единый блок ----------
+   Оба механизма — ручной тумблер (html.motion-reduced) и системный
+   (prefers-reduced-motion) — держат ОДИН и тот же список селекторов,
+   консолидированный В САМОМ КОНЦЕ файла. Причина позиции: при равной
+   специфичности каскад решает порядок, и базы большинства анимаций
+   объявлены выше — рассыпанные по файлу глушители часть правил молча
+   проигрывали. Список отсортирован по зонам интерфейса; новые анимации
+   добавляются сразу в обе ветки. Canvas-сцены ambient ставит на паузу
+   App (paused у AmbientLayer) — это не CSS-анимации */
+html.motion-reduced .anim-fade-up,
+html.motion-reduced .anim-pop,
+html.motion-reduced .anim-pop-out,
+html.motion-reduced .anim-fade,
+html.motion-reduced .anim-fade-out,
+html.motion-reduced .anim-slide-left,
+html.motion-reduced .anim-slide-left-out,
+html.motion-reduced .typing-dot,
+html.motion-reduced .caret-blink,
+html.motion-reduced .step-live,
+html.motion-reduced .nav-tick-in,
+html.motion-reduced .splash-pulse,
+html.motion-reduced .search-hit,
+html.motion-reduced .work-status-star,
+html.motion-reduced .work-status-text,
+html.motion-reduced .shimmer::after,
+html.motion-reduced .shimmer-text,
+html.motion-reduced .animate-pulse,
+html.motion-reduced .settings-page-stagger > *,
+html.motion-reduced .usage-draw,
+html.motion-reduced .usage-cell,
+html.motion-reduced .usage-arc,
+html.motion-reduced .snake-preview-seg,
+html.motion-reduced .group:hover .snake-preview-seg,
+html.motion-reduced .ask-ping,
+html.motion-reduced body::before,
+html.motion-reduced.voice-listening body::after,
+html.motion-reduced .nok-body,
+html.motion-reduced .nok-aura,
+html.motion-reduced .nok-lamp,
+html.motion-reduced .nok-dot,
+html.motion-reduced .nok-wings,
+html.motion-reduced .nok-code,
+html.motion-reduced .nok-burst,
+html.motion-reduced .nok-float,
+html.motion-reduced .nok-z,
+html.motion-reduced .nok-fly,
+html.motion-reduced .nok-fly .nok-wings,
+html.motion-reduced .nok-fly .nok-wings-alt,
+html.motion-reduced .nok-surprised .nok-body,
+html.motion-reduced .nok-tumble,
+html.motion-reduced .nok-scare,
+html.motion-reduced .nok-groove .nok-body,
+html.motion-reduced .nok-groove .nok-phones,
+html.motion-reduced .nok-anger .nok-body,
+html.motion-reduced .nok-coding .nok-code,
+html.motion-reduced .nok-coding .nok-body,
+html.motion-reduced .nok-quip {
+  animation: none !important;
+}
+/* Реплика Нока скрыта базой (opacity: 0); альт-кадр крыла при animation:none
+   вернул бы базовую для .nok-fly .nok-wings-alt единицу — двойной спрайт */
+html.motion-reduced .nok-fly .nok-wings-alt {
+  opacity: 0;
+}
+/* Линии тренда без анимации обязаны быть «дорисованными»: база держит
+   stroke-dashoffset: 1 (невидимая линия), ключевые кадры ведут его к нулю */
+html.motion-reduced .usage-draw,
+html.motion-reduced .usage-cell {
+  stroke-dashoffset: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .anim-fade-up,
+  .anim-pop,
+  .anim-pop-out,
+  .anim-fade,
+  .anim-fade-out,
+  .anim-slide-left,
+  .anim-slide-left-out,
+  .typing-dot,
+  .caret-blink,
+  .step-live,
+  .nav-tick-in,
+  .splash-pulse,
+  .search-hit,
+  .work-status-star,
+  .work-status-text,
+  .shimmer::after,
+  .shimmer-text,
+  .animate-pulse,
+  .settings-page-stagger > *,
+  .usage-draw,
+  .usage-cell,
+  .usage-arc,
+  .snake-preview-seg,
+  .group:hover .snake-preview-seg,
+  .ask-ping,
+  .nok-body,
+  .nok-aura,
+  .nok-lamp,
+  .nok-dot,
+  .nok-wings,
+  .nok-code,
+  .nok-burst,
+  .nok-float,
+  .nok-z,
+  .nok-fly,
+  .nok-fly .nok-wings,
+  .nok-fly .nok-wings-alt,
+  .nok-surprised .nok-body,
+  .nok-tumble,
+  .nok-scare,
+  .nok-groove .nok-body,
+  .nok-groove .nok-phones,
+  .nok-anger .nok-body,
+  .nok-coding .nok-code,
+  .nok-coding .nok-body,
+  .nok-quip,
+  html.voice-listening body::after,
+  html.ambient:not([data-ambient-scene]) body::before {
+    animation: none;
+  }
+  .nok-fly .nok-wings-alt {
+    opacity: 0;
+  }
+  .usage-draw,
+  .usage-cell {
+    stroke-dashoffset: 0;
+  }
+  /* Глушители blur ВСЕХ носителей: базы glass-правил объявлены выше,
+     при равной специфичности решает позиция этого блока */
+  html.glass aside,
+  html.glass .glass-pane,
+  html.sidebar-glass aside.bg-halo-deep,
+  html:not(.glass) .msg-glass {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
   }
 }

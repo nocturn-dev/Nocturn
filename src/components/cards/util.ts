@@ -1,17 +1,6 @@
-import type { Lang } from "../../locales";
+import { localeTag, type Lang } from "../../locales";
 
-/** BCP-47 тег для Intl по языку UI. D15: "ru-RU" был захардкожен в десятке
- *  мест — zh/ja видели русское форматирование чисел и дат */
-export function localeTag(lang: Lang): string {
-  switch (lang) {
-    case "ru":
-      return "ru-RU";
-    case "ja":
-      return "ja-JP";
-    default:
-      return "en-US";
-  }
-}
+export { localeTag };
 
 /** Разделение тысяч по локали UI */
 export function fmtInt(n: number, lang: Lang): string {

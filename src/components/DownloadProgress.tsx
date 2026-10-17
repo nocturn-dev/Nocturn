@@ -7,7 +7,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import { useLang } from "../locales";
+import { localeTag, useLang } from "../locales";
 
 interface DownloadEvent {
   /** dictation-progress (whisper) поле не шлёт — показываем общий тайтл */
@@ -63,7 +63,13 @@ export default function DownloadProgress() {
   if (!progress) return null;
   const pct =
     progress.total > 0 ? Math.min(100, Math.round((progress.received / progress.total) * 100)) : 0;
-  const mb = (n: number) => (n / 1048576).toFixed(1);
+  // Мегабайты в локали UI: ru видел «0.0» с точкой — десятичный разделитель
+  // обязан следовать языку интерфейса
+  const mb = (n: number) =>
+    (n / 1048576).toLocaleString(localeTag(lang), {
+      minimumFractionDigits: 1,
+      maximumFractionDigits: 1,
+    });
   const unit = lang === "ru" ? "МБ" : "MB";
 
   return (

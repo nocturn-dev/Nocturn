@@ -6,7 +6,7 @@
  * отбрасываются, частичные добираются дефолтами Appearance.
  */
 
-import { isAmbientScene, type Appearance } from "./appearance";
+import { DEFAULT_APPEARANCE, isAmbientScene, type Appearance } from "./appearance";
 import { isCustomStyleId } from "./themeStyles";
 import { STYLE_PALETTES } from "./themeStyles";
 import type { Theme } from "./types";
@@ -42,7 +42,10 @@ export function parseProfile(raw: unknown): ThemeProfile | null {
     name,
     theme,
     appearance: {
-      accent: typeof a.accent === "string" ? a.accent : "#d97757",
+      // Дефолты — из DEFAULT_APPEARANCE, не локальные литералы: акцент и
+      // fullClaudeSerif здесь уже разошлись с каноническим дефолтом, и
+      // применение профиля молча красило UI не тем значением
+      accent: typeof a.accent === "string" ? a.accent : DEFAULT_APPEARANCE.accent,
       // custom-* пропускается: на чужой машине (шеринг темы) палитры нет —
       // честная деградация в claude на уровне CSS, definition не возим
       style:
@@ -64,7 +67,7 @@ export function parseProfile(raw: unknown): ThemeProfile | null {
       fullClaude: a.fullClaude === true,
       // Настройки Full Claude возим вместе с темой: serif-чат/стекло,
       // радиус и шрифты темы (пустая строка = системный стек)
-      fullClaudeSerif: a.fullClaudeSerif ?? true,
+      fullClaudeSerif: a.fullClaudeSerif ?? DEFAULT_APPEARANCE.fullClaudeSerif,
       fullClaudeGlass: a.fullClaudeGlass === true,
       fullClaudeRadius: num(a.fullClaudeRadius, 1, 0.4, 1.6),
       fullClaudeUiFont: typeof a.fullClaudeUiFont === "string" ? a.fullClaudeUiFont : "",

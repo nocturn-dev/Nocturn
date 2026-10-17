@@ -18,7 +18,7 @@ import {
   type Schedule,
 } from "../automations";
 import { keepAwake } from "../api";
-import { useLang, type MsgKey } from "../locales";
+import { localeTag, useLang, type MsgKey } from "../locales";
 import { isWindows } from "../platform";
 import { XSmallIcon } from "./cards/icons";
 import { ToggleRow } from "./settings/parts";
@@ -144,7 +144,7 @@ export default function AutomationsModal({
   const fmtNext = (a: Automation): string => {
     if (!a.enabled) return t("auto.paused");
     const d = new Date(a.nextRunAt);
-    const time = d.toLocaleTimeString(lang === "ru" ? "ru-RU" : "en-US", {
+    const time = d.toLocaleTimeString(localeTag(lang), {
       hour: "2-digit",
       minute: "2-digit",
     });
@@ -157,7 +157,7 @@ export default function AutomationsModal({
         ? t("auto.today")
         : days === 1
           ? t("auto.tomorrow")
-          : d.toLocaleDateString(lang === "ru" ? "ru-RU" : "en-US", {
+          : d.toLocaleDateString(localeTag(lang), {
               day: "2-digit",
               month: "2-digit",
             });
@@ -305,7 +305,7 @@ export default function AutomationsModal({
                         >
                           <span className="size-1.5 rounded-full bg-emerald-400/70" />
                           {new Date(ts).toLocaleString(
-                            lang === "ru" ? "ru-RU" : "en-US",
+                            localeTag(lang),
                             { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" },
                           )}
                         </li>

@@ -3,6 +3,7 @@ import { useDelayedUnmount } from "../motion";
 import { diffLines } from "../diff";
 import { langFromPath } from "../highlight";
 import { useLang } from "../locales";
+import { STATUS_ERR } from "../statusColors";
 import { DiffView } from "./cards/DiffView";
 import { ChevronDownIcon, XSmallIcon } from "./cards/icons";
 
@@ -106,7 +107,7 @@ export function DiffPanel({
           <p className="mt-0.5 text-[0.6875rem] text-halo-muted">
             {t("agent.filesChanged", { n: files.length })}{" "}
             <span className="font-medium text-emerald-400">+{total.added}</span>{" "}
-            <span className="font-medium text-red-400">−{total.removed}</span>
+            <span className="font-medium" style={{ color: STATUS_ERR }}>−{total.removed}</span>
           </p>
         </div>
         <button
@@ -148,7 +149,10 @@ export function DiffPanel({
                 <span className="shrink-0 font-mono text-[0.625rem] text-emerald-400">
                   +{f.added}
                 </span>
-                <span className="shrink-0 font-mono text-[0.625rem] text-red-400">
+                <span
+                  className="shrink-0 font-mono text-[0.625rem]"
+                  style={{ color: STATUS_ERR }}
+                >
                   −{f.removed}
                 </span>
               </button>

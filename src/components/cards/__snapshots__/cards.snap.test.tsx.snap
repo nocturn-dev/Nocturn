@@ -278,14 +278,16 @@ exports[`chat cards snapshots > AssistantCard: с thinking-блоком 1`] = `
 
 exports[`chat cards snapshots > ToolStepCard: denied 1`] = `
 <div
-  class="anim-fade-up mr-auto w-fit max-w-[85%] rounded-xl border bg-halo-surface/40 px-3 py-2 transition-colors duration-150 border-red-400/40"
+  class="anim-fade-up mr-auto w-fit max-w-[85%] rounded-xl border bg-halo-surface/40 px-3 py-2 transition-colors duration-150 "
   data-mid="m2"
+  style="border-color: rgba(209, 75, 75, 0.4);"
 >
   <button
     class="flex w-full items-center gap-2 text-left"
   >
     <span
-      class="text-red-400"
+      class=""
+      style="color: rgb(209, 75, 75);"
     >
       <svg
         fill="none"
@@ -308,7 +310,8 @@ exports[`chat cards snapshots > ToolStepCard: denied 1`] = `
       fs_write
     </span>
     <span
-      class="shrink-0 text-[0.625rem] text-red-400"
+      class="shrink-0 text-[0.625rem] "
+      style="color: rgb(209, 75, 75);"
     >
       Denied by user
     </span>

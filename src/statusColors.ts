@@ -16,3 +16,14 @@ export const STATUS_ERR = "#d14b4b";
 export const STATUS_INFO = "#5f87d4";
 /** Предупреждение с прозрачностью (рёбра висящих ссылок) */
 export const STATUS_WARN_DIM = "rgba(212,170,80,0.5)";
+
+/** Полупрозрачная производная статуса (rgba из hex) для подложек и рамок:
+ *  раньше рядом с константами жили Tailwind-литералы (text-red-400 и пр.) —
+ *  тот же «красный» существовал в двух разных оттенках, и при правке одного
+ *  второй молча оставался старым */
+export function statusAlpha(hex: string, alpha: number): string {
+  const m = /^#([0-9a-f]{6})$/i.exec(hex);
+  if (!m) return hex;
+  const n = parseInt(m[1] ?? "", 16);
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
+}

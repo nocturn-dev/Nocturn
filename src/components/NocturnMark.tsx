@@ -9,9 +9,10 @@ import { useId } from "react";
  * Вариант выбирается CSS (display), а не пропсами — компонент везде один.
  */
 export default function NocturnMark({ size = 16 }: { size?: number }) {
-  const uid = useId();
-  const boldId = `mark-bold-${uid}`;
-  const classicId = `mark-classic-${uid}`;
+  // useId в React даёт ":r0:" — двоеточие в url(#...) парсер ссылок SVG
+  // на WebKitGTK не понимает, и градиент отваливается. Чистим до безопасного
+  const uid = useId().replace(/:/g, "");
+  const gradientId = `mark-grad-${uid}`;
   // Порезы: линии параллельны среднему штриху N, координаты — юниты 24×24
   const cutDir = { x: 0.472, y: 0.881 };
   const cutLine = (px: number, py: number) => {
@@ -34,32 +35,32 @@ export default function NocturnMark({ size = 16 }: { size?: number }) {
         {/* Цвет знака переопределяется кастомизацией (--halo-mark-from/-to,
             Кастомизация → Брендинг); пусто — градиент из акцента темы:
             фирменный циан→синий был зашит и конфликтовал с любой темой,
-            кроме «синих» (знак оставался голубым на зелёном/розовом) */}
-        <linearGradient id={boldId} x1="0" y1="1" x2="1" y2="0">
-          <stop offset="0" stopColor="var(--halo-mark-from, var(--halo-accent))" />
-          <stop offset="1" stopColor="var(--halo-mark-to, var(--halo-accent-deep))" />
-        </linearGradient>
-        <linearGradient id={classicId} x1="0" y1="1" x2="1" y2="0">
-          <stop offset="0" stopColor="var(--halo-mark-from, var(--halo-accent))" />
-          <stop offset="1" stopColor="var(--halo-mark-to, var(--halo-accent-deep))" />
+            кроме «синих» (знак оставался голубым на зелёном/розовом).
+            var() живёт только в CSS-значении — stop-color презентационным
+            атрибутом его не принимает, поэтому через style */}
+        <linearGradient id={gradientId} x1="0" y1="1" x2="1" y2="0">
+          <stop offset="0" style={{ stopColor: "var(--halo-mark-from, var(--halo-accent))" }} />
+          <stop offset="1" style={{ stopColor: "var(--halo-mark-to, var(--halo-accent-deep))" }} />
         </linearGradient>
         {/* Маска порезов: чёрные полосы вырезают штрих насквозь */}
-        <mask id={`${boldId}-mask`} maskUnits="userSpaceOnUse" x="0" y="0" width="24" height="24">
+        <mask id={`${gradientId}-mask`} maskUnits="userSpaceOnUse" x="0" y="0" width="24" height="24">
           <rect width="24" height="24" fill="white" />
           <path d={cutLine(5.8, 7.6)} stroke="black" strokeWidth="1.8" />
           <path d={cutLine(18.2, 16.2)} stroke="black" strokeWidth="1.8" />
         </mask>
       </defs>
 
-      {/* Новый знак: широкая N с порезами */}
+      {/* Новый знак: широкая N с порезами. Оба варианта ссылаются на один
+          градиент — раньше их определения дублировались и разъезжались бы
+          при первой правке цвета */}
       <g className="mark-bold">
         <path
           d="M4.2 20.2 L7.6 3.8 L16.4 20.2 L19.8 3.8"
-          stroke={`url(#${boldId})`}
+          stroke={`url(#${gradientId})`}
           strokeWidth="2.9"
           strokeLinecap="round"
           strokeLinejoin="round"
-          mask={`url(#${boldId}-mask)`}
+          mask={`url(#${gradientId}-mask)`}
         />
       </g>
 
@@ -67,7 +68,7 @@ export default function NocturnMark({ size = 16 }: { size?: number }) {
       <g className="mark-classic">
         <path
           d="M5.4 19.8 L8.7 4.4 L15.3 19.6 L18.6 4.2"
-          stroke={`url(#${classicId})`}
+          stroke={`url(#${gradientId})`}
           strokeWidth="2.3"
           strokeLinecap="round"
           strokeLinejoin="round"

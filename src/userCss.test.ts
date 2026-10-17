@@ -37,4 +37,36 @@ describe("sanitizeUserCss", () => {
     const css = ".card{position:fixed;inset:0;animation:x 1s infinite linear;filter:blur(4px)}";
     expect(sanitizeUserCss(css)).toBe(css);
   });
+
+  it("does not stop @import at a semicolon inside a quoted url", () => {
+    const out = sanitizeUserCss('@import url("a;b.css"); body{color:red}');
+    expect(out).toBe(" body{color:red}");
+  });
+
+  it("keeps relative urls with escaped characters", () => {
+    const css = 'a{background:url("img/loc\\)al.png")}';
+    expect(sanitizeUserCss(css)).toBe(css);
+  });
+
+  it("blocks urls smuggled through a broken quote", () => {
+    // Незакрытая кавычка тянет «хвост» внутрь одного токена: внешний хост
+    // обязан вырезаться, а не проходить как раньше (fail-open)
+    const out = sanitizeUserCss(
+      'a{background:url("https://evil.com/x\\"; background:url(http://y")}',
+    );
+    expect(out).not.toContain("evil.com");
+    expect(out).toContain("none");
+  });
+
+  it("blocks protocol-relative urls hidden by hex escapes", () => {
+    const out = sanitizeUserCss("a{background:url(\\2f \\2f evil.com/x.png)}");
+    expect(out).not.toContain("evil.com");
+    expect(out).toContain("none");
+  });
+
+  it("disables unparsable url tokens entirely (fail-closed)", () => {
+    const out = sanitizeUserCss('a{background:url("https://evil.com/x.png}');
+    expect(out).not.toContain("url(");
+    expect(out).toContain("url-disabled(");
+  });
 });

@@ -2,6 +2,7 @@ import { memo, useMemo, useState } from "react";
 import { diffLines } from "../../diff";
 import type { StepRow } from "../../agent/steps";
 import { useLang, type MsgKey } from "../../locales";
+import { STATUS_ERR, statusAlpha } from "../../statusColors";
 import { DiffView } from "./DiffView";
 
 /**
@@ -106,16 +107,24 @@ export function StepAccordion({
               s.running ? "step-live " : ""
             }${
               flat
-                ? `rounded-lg ${s.failed ? "bg-red-400/5" : ""}`
-                : `rounded-lg border bg-halo-deep/30 ${
-                    s.failed ? "border-red-400/30" : "border-halo-line/50"
-                  }`
+                ? "rounded-lg"
+                : "rounded-lg border border-halo-line/50 bg-halo-deep/30"
             }`}
-            // Ряд «распускается» при появлении: CSS-анимация играет только на
-            // монтирование (ключи стабильны — обновления контента не
-            // переигрывают её), задержка по индексу даёт мягкий stagger,
-            // кап 240мс не заставляет поздние ряды ждать
-            style={{ animationDelay: `${Math.min(i * 40, 240)}ms` }}
+            style={{
+              // Ряд «распускается» при появлении: CSS-анимация играет только на
+              // монтирование (ключи стабильны — обновления контента не
+              // переигрывают её), задержка по индексу даёт мягкий stagger,
+              // кап 240мс не заставляет поздние ряды ждать
+              animationDelay: `${Math.min(i * 40, 240)}ms`,
+              // Ошибка ряда — из statusColors (единый оттенок со шкалой
+              // контекста), не Tailwind-литерал; инлайн перекрывает
+              // border-halo-line/50 только у упавшего ряда
+              ...(s.failed
+                ? flat
+                  ? { background: statusAlpha(STATUS_ERR, 0.05) }
+                  : { borderColor: statusAlpha(STATUS_ERR, 0.3) }
+                : {}),
+            }}
           >
             <button
               onClick={() => toggle(s.id)}
@@ -140,11 +149,14 @@ export function StepAccordion({
               {s.stats && (
                 <span className="shrink-0 font-mono text-[0.625rem]">
                   <span className="text-emerald-400">+{s.stats.added}</span>{" "}
-                  <span className="text-red-400">−{s.stats.removed}</span>
+                  <span style={{ color: STATUS_ERR }}>−{s.stats.removed}</span>
                 </span>
               )}
               {s.failed && (
-                <span className="shrink-0 text-[0.625rem] text-red-400">
+                <span
+                  className="shrink-0 text-[0.625rem]"
+                  style={{ color: STATUS_ERR }}
+                >
                   {s.failed === "denied"
                     ? "denied"
                     : s.failed === "exit"

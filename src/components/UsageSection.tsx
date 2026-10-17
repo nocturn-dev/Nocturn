@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Session, UsageEvent } from "../types";
 import { dayKeyLocal } from "../time";
-import { useLang, type TFn } from "../locales";
+import { localeTag, useLang, type Lang, type TFn } from "../locales";
 import { shortModelName } from "./ProviderIcon";
 import { usageColorsLoad, usageColorsSave } from "../api";
 import { CHART_BLUE_RGB, CHART_COLORS } from "../chartColors";
@@ -209,7 +209,7 @@ export default function UsageSection({
   }, [events, data.models, range, tick]);
 
   const fmtDate = (d: Date) =>
-    d.toLocaleDateString(lang === "ru" ? "ru-RU" : "en-US", { day: "numeric", month: "short" });
+    d.toLocaleDateString(localeTag(lang), { day: "numeric", month: "short" });
 
   const heatColor = (v: number, max: number) => {
     if (v <= 0) return "var(--halo-line)";
@@ -358,11 +358,11 @@ function Heatmap({
   mode: "daily" | "weekly" | "cumulative";
   cumByDay: Map<string, number>;
   color: (v: number, max: number) => string;
-  lang: string;
+  lang: Lang;
 }) {
   const max = Math.max(1, ...weeks.flat().map((c) => c.value));
   const monthLabel = (d: Date) =>
-    d.toLocaleDateString(lang === "ru" ? "ru-RU" : "en-US", { month: "short" });
+    d.toLocaleDateString(localeTag(lang), { month: "short" });
 
   if (mode === "weekly") {
     // Одна полоса: сумма за неделю

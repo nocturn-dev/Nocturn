@@ -1,6 +1,7 @@
 import { diffLines, diffStats, parseWriteResult, summarizeArguments } from "../../diff";
 import { useLang } from "../../locales";
 import { type ToolCallInfo } from "../../types";
+import { STATUS_ERR, statusAlpha } from "../../statusColors";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { DiffView } from "./DiffView";
 import { ChevronDownIcon, ToolIcon } from "./icons";
@@ -87,9 +88,12 @@ function ToolStepCardBase({
 
   const summary = call ? summarizeArguments(name, call.arguments) : "";
 
-  // Цвет статуса: красный — неудача, зелёный — запись файла или картинка, серый — прочее
-  const statusColor = failed
-    ? "text-red-400"
+  // Цвет статуса: красный — неудача, зелёный — запись файла или картинка,
+  // серый — прочее. Красный — из statusColors (единый оттенок со шкалой
+  // контекста), не Tailwind-литерал
+  const statusStyle = failed ? { color: STATUS_ERR } : undefined;
+  const statusClass = failed
+    ? ""
     : write || imageResult
       ? "text-emerald-400"
       : "text-halo-muted";
@@ -111,17 +115,18 @@ function ToolStepCardBase({
       data-mid={mid}
       className={`anim-fade-up mr-auto w-fit max-w-[85%] rounded-xl border bg-halo-surface/40 px-3 py-2 transition-colors duration-150 ${
         failed
-          ? "border-red-400/40"
+          ? ""
           : write
             ? "border-emerald-400/40"
             : "border-halo-line/60"
       }`}
+      style={failed ? { borderColor: statusAlpha(STATUS_ERR, 0.4) } : undefined}
     >
       <button
         onClick={() => setOpen((v) => !v)}
         className="flex w-full items-center gap-2 text-left"
       >
-        <span className={statusColor}>
+        <span className={statusClass} style={statusStyle}>
           <ToolIcon />
         </span>
         <span className="font-mono text-[0.6875rem] font-semibold text-halo-text">
@@ -132,7 +137,9 @@ function ToolStepCardBase({
             {summary}
           </span>
         )}
-        <span className={`shrink-0 text-[0.625rem] ${statusColor}`}>{statusLabel}</span>
+        <span className={`shrink-0 text-[0.625rem] ${statusClass}`} style={statusStyle}>
+          {statusLabel}
+        </span>
         <ChevronDownIcon className={open ? "" : "-rotate-90"} />
       </button>
 
@@ -162,7 +169,10 @@ function ToolStepCardBase({
                 <span className="text-[0.625rem] text-emerald-400">
                   {t("agent.diffLinesAdded", { n: added })}
                 </span>
-                <span className="text-[0.625rem] text-red-400">
+                <span
+                  className="text-[0.625rem]"
+                  style={{ color: STATUS_ERR }}
+                >
                   {t("agent.diffLinesRemoved", { n: removed })}
                 </span>
               </div>

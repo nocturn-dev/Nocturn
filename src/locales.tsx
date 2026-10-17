@@ -13,6 +13,22 @@ import { en } from "./locales/en";
 
 export type Lang = "ru" | "en" | "zh" | "ja";
 
+/** BCP-47 тег для Intl по языку UI. Раньше "ru-RU"/"en-US" были захардкожены
+ *  в десятке мест — zh/ja видели русское или английское форматирование чисел
+ *  и дат. zh обязан быть zh-CN (не zh): голый тег Intl трактует иначе */
+export function localeTag(lang: Lang): string {
+  switch (lang) {
+    case "ru":
+      return "ru-RU";
+    case "ja":
+      return "ja-JP";
+    case "zh":
+      return "zh-CN";
+    default:
+      return "en-US";
+  }
+}
+
 export type MsgKey = keyof typeof ru;
 
 type LangDict = Record<MsgKey, string>;
