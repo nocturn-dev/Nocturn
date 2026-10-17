@@ -181,6 +181,37 @@ export function useSessions(opts: {
       }
       {
         if (parsed.length > 0) {
+          // Бэкфилл журнала использования из старой истории
+          // (без дат сообщений — относим расход ко дню создания задачи).
+          // Общая функция: вызывается и из ветки авто-архива с её ранним
+          // return, и из обычного пути — раньше архивная ветка бэкфилл
+          // пропускала, и статистика за старые задачи не восстанавливалась
+          // при включённом авто-архиве
+          const backfillUsage = () => {
+            if (
+              localStorage.getItem(STORAGE_KEYS.usageBackfill) ||
+              localStorage.getItem(STORAGE_KEYS.usage)
+            ) {
+              return;
+            }
+            const backfill: UsageEvent[] = [];
+            for (const s of parsed) {
+              const day = dayKeyLocal(new Date(s.createdAt));
+              for (const m of s.messages) {
+                if (m.role === "assistant" && m.usage) {
+                  backfill.push({
+                    day,
+                    prompt: m.usage.prompt,
+                    completion: m.usage.completion,
+                    model: m.model ?? "?",
+                    workedMs: m.workedMs ?? 0,
+                  });
+                }
+              }
+            }
+            if (backfill.length > 0) setUsageLog(backfill);
+            localStorage.setItem(STORAGE_KEYS.usageBackfill, "1");
+          };
           // Авто-архив при старте: старые задачи (кроме закреплённых) — в архив
           if (autoArchive) {
             const cutoff = Date.now() - archiveRetention * 86_400_000;
@@ -195,6 +226,7 @@ export function useSessions(opts: {
                 .map((s) => s.id),
             );
             if (staleIds.size > 0) {
+              backfillUsage();
               setSessions((prev) => {
                 // C4: сессии, созданные пользователем, пока история
                 // читалась с диска, не должны затираться снапшотом
@@ -222,30 +254,7 @@ export function useSessions(opts: {
             const localOnly = prev.filter((s) => !diskIds.has(s.id));
             return localOnly.length > 0 ? [...localOnly, ...parsed] : parsed;
           });
-          // Бэкфилл журнала использования из старой истории
-          // (без дат сообщений — относим расход ко дню создания задачи)
-          if (
-            !localStorage.getItem(STORAGE_KEYS.usageBackfill) &&
-            !localStorage.getItem(STORAGE_KEYS.usage)
-          ) {
-            const backfill: UsageEvent[] = [];
-            for (const s of parsed) {
-              const day = dayKeyLocal(new Date(s.createdAt));
-              for (const m of s.messages) {
-                if (m.role === "assistant" && m.usage) {
-                  backfill.push({
-                    day,
-                    prompt: m.usage.prompt,
-                    completion: m.usage.completion,
-                    model: m.model ?? "?",
-                    workedMs: m.workedMs ?? 0,
-                  });
-                }
-              }
-            }
-            if (backfill.length > 0) setUsageLog(backfill);
-            localStorage.setItem(STORAGE_KEYS.usageBackfill, "1");
-          }
+          backfillUsage();
         }
       }
       historyLoadedRef.current = true;

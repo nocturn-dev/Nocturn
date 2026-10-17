@@ -366,6 +366,11 @@ export function useAgentRun(deps: AgentRunDeps) {
     /** Собственный флаг отмены: abortedRef чистится finalize'ом родителя,
      *  а фоновый субагент по замыслу переживает основной прогон */
     cancelled: boolean;
+    /** Ссылка на аккумулятор расхода прогона-родителя: onUsage фонового
+     *  субагента мутирует ТОТ ЖЕ объект, поэтому авто-подхват (wake) в
+     *  момент пробуждения видит фактический суммарный расход — родитель +
+     *  все фоновые задачи этого прогона — и передаёт его бюджетом дальше */
+    usage: { prompt: number; completion: number };
   }
   const bgRegistryRef = useRef(new Map<string, BgSubTask>());
   const bgCounterRef = useRef(0);
@@ -1518,8 +1523,10 @@ export function useAgentRun(deps: AgentRunDeps) {
       setTyping(true);
       setActivity(t("activity.thinking"));
 
-      // причина остановки текущего раунда (доезжает в usage)
-      let roundStopReason: string | null = null;
+      // причина остановки текущего раунда (доезжает в usage). Holder-объект:
+      // присваивание живёт в колбэке onUsage, и голый let TS сужает к null —
+      // тот же паттерн, что calls/thinking ниже
+      const stopHolder: { reason: string | null } = { reason: null };
       const toolCallsHolder: { calls: ToolCallInfo[] | null } = { calls: null };
       // Текст, отстрименный до вызова инструментов, — попадёт в историю
       // вместе с tool_calls, иначе модель «забывает» то, что уже написала
@@ -1608,7 +1615,7 @@ export function useAgentRun(deps: AgentRunDeps) {
             usageAcc.lastPrompt = usage.prompt;
             // [P2] обнуление кэш-попаданий между раундами = разрыв префикса
             noteCacheUsage(targetId, usage);
-            roundStopReason = usage.stopReason ?? roundStopReason;
+            stopHolder.reason = usage.stopReason ?? stopHolder.reason;
             checkHardLimit();
             // FIX: клонируем только целевую сессию, а не все сессии стора
             setSessions((prev) =>
@@ -1717,7 +1724,7 @@ export function useAgentRun(deps: AgentRunDeps) {
         if (
           !failed &&
           !abortedRef.current.has(requestId) &&
-          (roundStopReason === "length" || roundStopReason === "max_tokens") &&
+          (stopHolder.reason === "length" || stopHolder.reason === "max_tokens") &&
           recoveryCount < 3
         ) {
           recoveryCount += 1;
@@ -2305,6 +2312,9 @@ export function useAgentRun(deps: AgentRunDeps) {
                 report: null,
                 runId: requestId,
                 cancelled: false,
+                // Тот же объект, что мутируют onUsage родителя и фоновых
+                // задач: снимок для бюджета авто-подхвата всегда актуален
+                usage: usageAcc,
               });
               // Реестр не растёт бесконечно: храним последние 50 записей,
               // вытесняя самые старые завершённые
@@ -2632,6 +2642,26 @@ ${report}`;
       }
       const wfCalls = toolCalls.filter((c) => c.name === "workflow_run");
       for (const call of wfCalls) {
+        // Режим плана блокирует сценарий до всякого подтверждения — как
+        // subagent_run/skill_run: иначе пользователю сначала показывался
+        // вопрос «запустить?», и отказ после согласия выглядел противоречиво
+        if (permMode === "plan") {
+          pushMessage({
+            id: uid(),
+            role: "tool",
+            content: t("agent.planBlocked"),
+            toolCallId: call.id,
+            toolName: call.name,
+            status: "denied",
+          });
+          history.push({
+            role: "tool",
+            tool_call_id: call.id,
+            name: call.name,
+            content: t("agent.planBlocked"),
+          });
+          continue;
+        }
         // Тот же FIX [SECURITY], что у subagent_run выше: шаги сценария
         // исполняют инструменты без поинструментных подтверждений фронтенда,
         // поэтому сам запуск сценария в ask/edit — mutating-действие.
@@ -3019,10 +3049,34 @@ ${report}`;
     }
     autoWakeCountsRef.current.set(sessionId, count + 1);
     addToast(t("sub.bgWaking", { s: roleName }));
+    // Бюджет пробуждения = фактический расход родительских прогонов вместе
+    // с их фоновыми задачами (поле usage в BgSubTask — живая ссылка на их
+    // аккумуляторы). Аккумуляторы собираю по runId: у нескольких фоновых
+    // задач одного прогона объект общий, суммировать его дважды нельзя.
+    // Без carry каждое авто-продолжение стартовало с нулевым бюджетом
+    // Hard Limit и позволяло добить лимит заново
+    const accByRun = new Map<string, { prompt: number; completion: number }>();
+    for (const b of bgRegistryRef.current.values()) {
+      if (b.sessionId === sessionId) accByRun.set(b.runId, b.usage);
+    }
+    let carryPrompt = 0;
+    let carryCompletion = 0;
+    for (const acc of accByRun.values()) {
+      carryPrompt += acc.prompt;
+      carryCompletion += acc.completion;
+    }
+    const carry =
+      carryPrompt + carryCompletion > 0
+        ? { prompt: carryPrompt, completion: carryCompletion }
+        : undefined;
     void handleSendRef.current?.(
       t("sub.bgWakePrompt", { report: note }),
       undefined,
       sessionId,
+      undefined,
+      undefined,
+      undefined,
+      carry,
     );
   };
 

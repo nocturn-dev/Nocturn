@@ -218,7 +218,7 @@ export interface ChatMsgParam {
   thinking?: unknown;
 }
 
-let cachedSchemas: unknown = null;
+let cachedSchemas: { deferred: boolean; data: unknown } | null = null;
 
 /** OpenAI-схемы инструментов агента (+ инструменты MCP-серверов).
     Кэш сбрасывается при изменении набора соединений — вызов дешёвый. */
@@ -226,15 +226,17 @@ export async function getToolSchemas(): Promise<unknown> {
   if (!inTauri) {
     throw nativeOnly("Agent mode");
   }
-  // FIX: кэш существовал, но никогда не читался (write-only) — каждый агентный
-  // send платил лишний IPC-раундтрип. Читаем до invoke; invalidateToolSchemas
-  // снова обретает смысл.
-  if (cachedSchemas !== null) return cachedSchemas;
-  // deferred-режим схем (дефолт ON, тумблер в McpSection)
-  cachedSchemas = await invoke<unknown>("get_tool_schemas", {
-    deferred: localStorage.getItem(STORAGE_KEYS.mcpDeferred) !== "0",
-  });
-  return cachedSchemas;
+  // deferred — часть ключа кэша: инвалидация из тумблера McpSection стоит,
+  // но invoke, стартовавший ДО переключения, писал результат со старым
+  // флагом уже ПОСЛЕ инвалидации — и схемы жили в старом режиме до
+  // перезапуска приложения
+  const deferred = localStorage.getItem(STORAGE_KEYS.mcpDeferred) !== "0";
+  if (cachedSchemas !== null && cachedSchemas.deferred === deferred) {
+    return cachedSchemas.data;
+  }
+  const data = await invoke<unknown>("get_tool_schemas", { deferred });
+  cachedSchemas = { deferred, data };
+  return data;
 }
 
 export function invalidateToolSchemas(): void {
@@ -1343,22 +1345,46 @@ export function contextLimitFor(
   models: ModelInfo[] | null | undefined,
 ): number {
   const withCtx = (models ?? []).filter(
-    (m) => typeof m.context === "number" && m.context > 0,
+    (m): m is ModelInfo & { context: number } =>
+      typeof m.context === "number" && m.context > 0,
   );
   const hit = withCtx.find((m) => m.id === model);
   if (hit?.context) return hit.context;
-  // Нечёткий матч — только для непустой модели: includes("") совпадает
-  // с любым id. Из совпавших берём самый длинный id (самый специфичный),
-  // порядок выдачи /models не решает
+  // Нечёткий матч — по СЕГМЕНТАМ id (границы по не-алфанумерикам), а не
+  // подстрокой: короткий id ("o3") находился внутри чужого имени
+  // ("proto3-max") и отдавал модели чужой лимит, ломая автокомпакт
   const q = model.toLowerCase();
   if (q) {
-    const fuzzy = withCtx
-      .filter(
-        (m) =>
-          m.id.toLowerCase().includes(q) || q.includes(m.id.toLowerCase()),
-      )
-      .sort((a, b) => b.id.length - a.id.length);
-    if (fuzzy[0]?.context) return fuzzy[0].context;
+    const qSegs = q.split(/[^a-z0-9]+/).filter(Boolean);
+    const qSet = new Set(qSegs);
+    if (qSet.size > 0) {
+      let best: { context: number; score: number; id: string } | null = null;
+      for (const m of withCtx) {
+        const id = m.id.toLowerCase();
+        // Короткая из двух строк короче 4 символов матчится только точным
+        // равенством (выше) — иначе подстрочные совпадения слишком дёшевы
+        if (Math.min(id.length, q.length) < 4) continue;
+        const segs = id.split(/[^a-z0-9]+/).filter(Boolean);
+        if (segs.length === 0) continue;
+        const idSet = new Set(segs);
+        const inQuery = segs.filter((s) => qSet.has(s)).length;
+        const inId = qSegs.filter((s) => idSet.has(s)).length;
+        // Матч — кандидат целиком состоит из сегментов имени модели,
+        // либо имя модели целиком из сегментов кандидата
+        if (inQuery !== segs.length && inId !== qSet.size) continue;
+        // Приоритет — числу совпавших сегментов, затем более длинному id
+        // (самому специфичному)
+        const score = Math.max(inQuery, inId);
+        if (
+          !best ||
+          score > best.score ||
+          (score === best.score && id.length > best.id.length)
+        ) {
+          best = { context: m.context, score, id };
+        }
+      }
+      if (best) return best.context;
+    }
   }
   // "…-256k" / "128k" прямо в имени модели
   const km = /(?:^|[^a-z0-9])(\d{2,4})\s*k(?:[a-z]|$)/i.exec(model);
