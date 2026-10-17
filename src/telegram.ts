@@ -27,10 +27,11 @@ export function telegramNotify(
   text: string,
   buttons: TgButton[] = [],
 ): void {
-  void notifyInvoke(kind, text, buttons).catch((e) => {
+  void notifyInvoke(kind, text, buttons).catch(() => {
     // Чат от сбоя не зависит, но полная тишина прятала сам факт, что
-    // уведомления не уходят
+    // уведомления не уходят. Сам объект ошибки не логируем: он может нести
+    // URL бота с токеном — в консоль идёт только тип уведомления и счётчик
     failures++;
-    console.warn(`telegram notify (${kind}) failed:`, e);
+    console.warn(`telegram notify (${kind}) failed (#${failures})`);
   });
 }

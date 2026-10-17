@@ -55,6 +55,11 @@ export const MONO_FONT_PRESETS: FontPreset[] = [
 
 const registered = new Set<string>();
 
+/** Путь/URL в CSS-строке url("...") экранируется: кавычка или бэкслэш в
+ *  имени файла ломала строку, в худшем случае — инъекция в FontFace */
+const cssUrl = (u: string): string =>
+  `url("${u.replace(/[\\"\n\r]/g, "\\$&")}")`;
+
 /** Встроенные шрифты (Nocturn Sans/Mono, по три веса): регистрируются
  *  всегда, без гейта на Tauri — ассеты раздаёт vite и в dev, и в бандле.
  *  display: swap: файлы локальные и грузятся мгновенно, но swap гарантирует,
@@ -73,7 +78,7 @@ export async function registerBundledFonts(): Promise<void> {
     const key = `${f.family}:${f.weight}`;
     if (registered.has(key)) continue;
     try {
-      const face = new FontFace(f.family, `url("${f.url}")`, {
+      const face = new FontFace(f.family, cssUrl(f.url), {
         weight: String(f.weight),
         display: "swap",
       });
@@ -103,7 +108,7 @@ export async function registerCustomFonts(): Promise<void> {
   for (const f of fonts) {
     if (registered.has(f.id)) continue;
     try {
-      const face = new FontFace(f.family, `url("${convertFileSrc(f.path)}")`, {
+      const face = new FontFace(f.family, cssUrl(convertFileSrc(f.path)), {
         display: "swap",
       });
       await face.load();

@@ -139,21 +139,38 @@ const TONE_EN: Record<Exclude<Tone, "">, string> = {
   formal: "formal and professional",
 };
 
+/** Свободный текст пользователя уходит в system-блок модели: перенос строки
+ *  рисовал бы новый пункт списка (инъекция в системные инструкции), а
+ *  вставленный по ошибке секрет уезжал бы провайдеру. null — поле не
+ *  инъектируем */
+const sanitizeShared = (raw: string): string | null => {
+  const v = raw.replace(/[\r\n]+/g, " ").trim();
+  if (!v) return null;
+  // Явные маркеры секретов: чаще всего это случайная вставка не в то поле
+  if (
+    /\bsk-[a-z0-9_-]{8,}/i.test(v) ||
+    /\b(api[-_ ]?key|access[-_ ]?token|secret|password|пароль|секрет|токен)\b\s*[:=]/i.test(v)
+  ) {
+    return null;
+  }
+  return v;
+};
+
 /** Собрать system-блок профиля из ТОЛЬКО расшаренных полей.
  *  null — нечего инъектировать (всё выключено или пусто) */
 export function buildProfileBlock(): string | null {
   const p = loadProfile();
   const lines: string[] = [];
-  const add = (share: boolean, value: string, line: string) => {
-    const v = value.trim();
-    if (share && v) lines.push(`- ${line}`);
+  const add = (share: boolean, value: string, line: (v: string) => string) => {
+    const v = sanitizeShared(value);
+    if (share && v) lines.push(`- ${line(v)}`);
   };
-  add(p.nameShare, p.name, `Name: ${p.name.trim()} (address the user by name)`);
+  add(p.nameShare, p.name, (v) => `Name: ${v} (address the user by name)`);
   const roleEn = p.role ? ROLE_EN[p.role] : "";
   add(
     p.roleShare,
     p.role === "other" ? p.roleCustom : roleEn,
-    `Field of work: ${p.role === "other" ? p.roleCustom.trim() : roleEn}`,
+    (v) => `Field of work: ${v}`,
   );
   if (p.langShare && p.answersLang) {
     lines.push(`- Always respond in ${LANG_EN[p.answersLang]}`);
@@ -161,9 +178,9 @@ export function buildProfileBlock(): string | null {
   if (p.toneShare && p.tone) {
     lines.push(`- Preferred answer style: ${TONE_EN[p.tone]}`);
   }
-  add(p.stackShare, p.stack, `Preferred stack/tools: ${p.stack.trim()}`);
-  add(p.focusShare, p.focus, `Currently working on: ${p.focus.trim()}`);
-  add(p.instructionsShare, p.instructions, `Extra user instructions: ${p.instructions.trim()}`);
+  add(p.stackShare, p.stack, (v) => `Preferred stack/tools: ${v}`);
+  add(p.focusShare, p.focus, (v) => `Currently working on: ${v}`);
+  add(p.instructionsShare, p.instructions, (v) => `Extra user instructions: ${v}`);
   if (lines.length === 0) return null;
   return `User profile (stored locally, shared by the user):\n${lines.join("\n")}`;
 }
