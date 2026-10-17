@@ -17,19 +17,22 @@
 interface Fence {
   char: string;
   len: number;
+  closeRe: RegExp;
 }
 
 /** Открывающий фенс: ``` / ~~~ (до 3 пробелов отступа, маркер ≥3) */
 function fenceOpen(line: string): Fence | null {
   const m = /^ {0,3}(`{3,}|~{3,})/.exec(line);
   if (!m || !m[1]) return null;
-  return { char: m[1][0] ?? "`", len: m[1].length };
+  const char = m[1][0] ?? "`";
+  const len = m[1].length;
+  const closeRe = new RegExp(`^ {0,3}[${char === "`" ? "`" : "~"}]{${len},}\\s*$`);
+  return { char, len, closeRe };
 }
 
-/** Закрывающий фенс: тот же символ, длина ≥ открывшего, только маркер */
+/** Закрывающий фенс: проверка предкомпилированной регуляркой открывшего фенса */
 function fenceClose(line: string, f: Fence): boolean {
-  const re = new RegExp(`^ {0,3}[${f.char === "`" ? "`" : "~"}]{${f.len},}\\s*$`);
-  return re.test(line);
+  return f.closeRe.test(line);
 }
 
 /** Элемент списка в начале строки (отступ до 3 пробелов) */

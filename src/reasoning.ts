@@ -33,7 +33,7 @@ const NO_REASONING: RegExp[] = [
   /^gemini-(pro|flash)-\d/i,
   /^llama/i,
   /^mistral/i,
-  /^qwen2?(\.|-|$)/i,
+  /^qwen(-?[12](\.|-|$)|2(\.|-|$)|$)/i,
   /^phi/i,
   /^gemma/i,
 ];

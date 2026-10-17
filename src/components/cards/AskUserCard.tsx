@@ -49,8 +49,17 @@ export function AskPanel({
     });
   };
 
-  // Клавиши: ↑/↓ — фокус по вариантам, цифры 1..N — мгновенный выбор
+  // Клавиши: ↑/↓ — фокус по вариантам, цифры 1..N — мгновенный выбор (только вне полей ввода)
   const onKeyDown = (e: React.KeyboardEvent) => {
+    const target = e.target as HTMLElement | null;
+    if (
+      target &&
+      (target.tagName === "INPUT" ||
+        target.tagName === "TEXTAREA" ||
+        target.isContentEditable)
+    ) {
+      return;
+    }
     if (/^[1-9]$/.test(e.key)) {
       const i = Number(e.key) - 1;
       if (i < ask.options.length) {

@@ -1750,5 +1750,8 @@ export const en = {
   "steps.kindTerminal": "Terminal",
   "steps.kindExplore": "Explore",
   "steps.kindAsked": "Asked",
+  "steps.outputTruncated": "Showing {n} of {total} lines",
+  "agent.undoConfirm": "Confirm undo?",
+  "chart.pieFirstSeries": "Pie chart: showing first series only",
   "composer.dropFiles": "Drop to add attachments",
 } satisfies Record<MsgKey, string>; // Полный Record — пропущенный ключ = ошибка компиляции, а не молчаливый фолбэк

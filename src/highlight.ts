@@ -73,7 +73,9 @@ function escapeHtml(s: string): string {
   return s
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 const cache = new Map<string, string>();
@@ -88,14 +90,22 @@ export function highlightLine(text: string, lang: string | null): string {
   if (!lang || !text) return escapeHtml(text);
   const key = `${lang}\u0000${text}`;
   const hit = cache.get(key);
-  if (hit !== undefined) return hit;
+  if (hit !== undefined) {
+    cache.delete(key);
+    cache.set(key, hit);
+    return hit;
+  }
   let out: string;
   try {
     out = hljs.highlight(text, { language: lang, ignoreIllegals: true }).value;
   } catch {
     out = escapeHtml(text);
   }
-  if (cache.size > 8000) cache.clear();
+  // Вытеснение по одной старейшей записи (LRU) вместо полного сброса
+  if (cache.size >= 8000) {
+    const oldest = cache.keys().next().value;
+    if (oldest !== undefined) cache.delete(oldest);
+  }
   cache.set(key, out);
   return out;
 }

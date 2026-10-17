@@ -29,6 +29,8 @@ export interface ChartSpec {
   series: ChartSeries[];
   xLabel?: string;
   yLabel?: string;
+  /** Предупреждение о структуре данных (например, круговая диаграмма с несколькими сериями) */
+  warning?: "pie_multi_series";
 }
 
 export interface QuizQuestion {
@@ -45,11 +47,12 @@ export interface QuizSpec {
   questions: QuizQuestion[];
 }
 
-/** djb2: стабильный короткий ключ прогресса по содержимому блока */
+/** djb2 + длина: стабильный короткий ключ прогресса по содержимому блока без коллизий */
 export function blockHash(code: string): string {
   let h = 5381;
-  for (let i = 0; i < code.length; i++) h = ((h << 5) + h + code.charCodeAt(i)) | 0;
-  return (h >>> 0).toString(36);
+  const len = code.length;
+  for (let i = 0; i < len; i++) h = ((h << 5) + h + code.charCodeAt(i)) | 0;
+  return `${(h >>> 0).toString(36)}_${len.toString(36)}`;
 }
 
 function asObject(v: unknown): Record<string, unknown> | null {
@@ -109,11 +112,18 @@ function parseAnswer(v: unknown, optionCount: number): number[] | null {
     else if (
       typeof item === "string" &&
       item.length === 1 &&
-      /[a-zA-Zа-яА-Я]/.test(item)
+      /[a-zA-Zа-яА-ЯёЁ]/.test(item)
     ) {
-      // Буквенные метки: латиница A=0, кириллица А=0 — модели любят оба
+      // Буквенные метки: латиница A=0, кириллица А=0 — модели любят оба.
+      // Кириллица: А-Я (0x0410..0x042F), отдельная Ё (0x0401)
       const c = item.toUpperCase().charCodeAt(0);
-      idx = c >= 0x0410 && c <= 0x042f ? c - 0x0410 : c - 65;
+      if (c === 0x0401) {
+        idx = 6;
+      } else if (c >= 0x0410 && c <= 0x042f) {
+        idx = c > 0x0415 ? c - 0x0410 + 1 : c - 0x0410;
+      } else {
+        idx = c - 65;
+      }
     } else {
       const n = Number(item);
       if (!Number.isInteger(n)) return null;
@@ -175,6 +185,9 @@ export function parseChartBlock(code: string): ChartSpec | null {
   const firstValues = spec.series[0]?.values;
   if (spec.type === "pie") {
     if (spec.labels.length !== firstValues?.length) return null;
+    if (spec.series.length > 1) {
+      spec.warning = "pie_multi_series";
+    }
   } else if (
     spec.labels.length > 0 &&
     spec.labels.length !== firstValues?.length

@@ -2,11 +2,10 @@ import { memo, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Project, Session } from "../types";
 import WindowControls from "./WindowControls";
 import { pickFolder, pickAnyFile, type NoteInfo } from "../api";
-import {  } from "../diff";
 import { ACCENT_PRESETS } from "../appearance";
 import { useLang, type MsgKey, type Lang, type TFn } from "../locales";
 import NocturnMark from "./NocturnMark";
-import {  } from "./settings/parts";
+import { FileIcon, FolderIcon, PlusIcon, XSmallIcon } from "./cards/icons";
 
 interface SidebarProps {
   sessions: Session[];
@@ -1015,21 +1014,6 @@ function BrandMark() {
   return <NocturnMark size={16} />;
 }
 
-function PlusIcon() {
-  return (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-    >
-      <path d="M12 5v14M5 12h14" />
-    </svg>
-  );
-}
 
 function SearchIcon() {
   return (
@@ -1082,41 +1066,6 @@ function ChevronSmallIcon({ className }: { className?: string }) {
   );
 }
 
-function FolderIcon() {
-  return (
-    <svg
-      width="13"
-      height="13"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" />
-    </svg>
-  );
-}
-
-
-function FileIcon() {
-  return (
-    <svg
-      width="12"
-      height="12"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" />
-      <path d="M14 2v4a2 2 0 0 0 2 2h4" />
-    </svg>
-  );
-}
 
 function GraphIcon() {
   return (
@@ -1129,18 +1078,4 @@ function GraphIcon() {
   );
 }
 
-function XSmallIcon() {
-  return (
-    <svg
-      width="10"
-      height="10"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2.5"
-      strokeLinecap="round"
-    >
-      <path d="M18 6 6 18M6 6l12 12" />
-    </svg>
-  );
-}
+

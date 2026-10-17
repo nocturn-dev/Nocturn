@@ -127,22 +127,7 @@ export function YouTubeIcon({ size = 28 }: { size?: number }) {
   );
 }
 
-export function WrenchIcon() {
-  return (
-    <svg
-      width="12"
-      height="12"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
-    </svg>
-  );
-}
+export const WrenchIcon = ToolIcon;
 
 export function ShieldIcon() {
   return (
@@ -683,7 +668,7 @@ export function SaveIcon() {
   );
 }
 
-/** Открыть вовне (↗): реview-панель, внешние ссылки */
+/** Открыть вовне (↗): Review-панель, внешние ссылки */
 export function ArrowUpRightIcon() {
   return (
     <svg
@@ -797,9 +782,7 @@ export function MineFaceIcon({ mood }: { mood: "play" | "won" | "lost" }) {
     >
       <circle cx="12" cy="12" r="9" />
       {mood === "lost" ? (
-        <>
-          <path d="m8.5 9 3 3-3 3M15.5 9l-3 3 3 3" />
-        </>
+        <path d="m8.5 9 3 3-3 3M15.5 9l-3 3 3 3" />
       ) : (
         <>
           <path d="M9 10h.01M15 10h.01" strokeWidth="2.6" />
@@ -810,6 +793,26 @@ export function MineFaceIcon({ mood }: { mood: "play" | "won" | "lost" }) {
           )}
         </>
       )}
+    </svg>
+  );
+}
+
+/** Иконка мысли: искра-мозг (ряд Thought в ленте хода) */
+export function ThoughtIcon() {
+  return (
+    <svg
+      width={12}
+      height={12}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.8}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="shrink-0"
+    >
+      <path d="M12 3a5 5 0 0 1 5 5c0 1.7-.9 3.2-2.2 4.1-.5.4-.8.9-.8 1.5V15h-4v-1.4c0-.6-.3-1.1-.8-1.5A5 5 0 0 1 12 3Z" />
+      <path d="M10 18h4M11 21h2" />
     </svg>
   );
 }

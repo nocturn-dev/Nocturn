@@ -9,7 +9,7 @@ import {
   type ComponentPropsWithoutRef,
   type ReactNode,
 } from "react";
-import { StopIcon } from "./icons";
+import { StopIcon, ThoughtIcon } from "./icons";
 import { type Message, type ToolCallInfo } from "../../types";
 import type { StepRow } from "../../agent/steps";
 import { useLang } from "../../locales";
@@ -53,25 +53,7 @@ function fmtDur(ms: number, lang: string): string {
   return m > 0 ? `${m}m ${s}s` : `${s}s`;
 }
 
-/** Иконка мысли: искра-мозг (как ряд Thought в референс) */
-function ThoughtIcon() {
-  return (
-    <svg
-      width={12}
-      height={12}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.8}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className="shrink-0"
-    >
-      <path d="M12 3a5 5 0 0 1 5 5c0 1.7-.9 3.2-2.2 4.1-.5.4-.8.9-.8 1.5V15h-4v-1.4c0-.6-.3-1.1-.8-1.5A5 5 0 0 1 12 3Z" />
-      <path d="M10 18h4M10.5 21h3" />
-    </svg>
-  );
-}
+
 
 // Стабильные пустые массивы для раундов без шагов/тулов: inline ?? [] на
 // каждый рендер рвал memo исторических раундов

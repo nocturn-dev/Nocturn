@@ -1,3 +1,5 @@
+import type { ChatUsage } from "./api";
+
 export type Role = "user" | "assistant" | "tool";
 
 export interface Attachment {
@@ -17,14 +19,18 @@ export interface ToolCallInfo {
   arguments: string;
 }
 
-/** Вопрос пользователю от агента (инструмент ask_user) */
-export interface AskQuestion {
+/** Спецификация вопроса агента к пользователю (ask_user) */
+export interface AskUserSpec {
   question: string;
   /** Короткий ярлык-заголовок карточки */
   header?: string;
   options: { label: string; description?: string; preview?: string }[];
   /** Разрешить выбор нескольких вариантов */
   multiSelect?: boolean;
+}
+
+/** Вопрос пользователю от агента (инструмент ask_user) с ответом в истории */
+export interface AskQuestion extends AskUserSpec {
   /** Ответ пользователя. null/undefined — ответа ещё нет */
   answer?: { answers: string[]; custom?: string } | null;
   /** Вопрос закрыт без ответа (Stop / конец прогона) */
@@ -51,7 +57,7 @@ export interface Message {
   /** Прикреплённые изображения (скриншоты, файлы) */
   attachments?: Attachment[];
   /** Расход токенов от провайдера */
-  usage?: { prompt: number; completion: number; total: number };
+  usage?: ChatUsage;
   /** Вызовы инструментов (агентный режим) */
   toolCalls?: ToolCallInfo[];
   /** Вопрос пользователю (ask_user): задан этим сообщением */
@@ -139,6 +145,8 @@ export interface Session {
   /** Происхождение ветки (edit-and-resend): сессия и сообщение, от которых
    *  форкнулись. Оригинальная сессия при форке не меняется */
   branchedFrom?: { sessionId: string; messageId: string };
+  /** Пути файлов, для которых выполнен откат (undo) изменений агента */
+  undoneWrites?: string[];
 }
 
 export interface Project {

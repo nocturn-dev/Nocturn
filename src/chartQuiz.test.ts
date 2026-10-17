@@ -135,6 +135,37 @@ describe("parseQuizBlock", () => {
     expect(spec!.questions[0]!.answer).toEqual([0]);
   });
 
+  it("кириллическая буквенная метка Ё (U+0401) учитывается в диапазоне", () => {
+    const spec = parseQuizBlock(
+      JSON.stringify({
+        questions: [
+          {
+            question: "Q",
+            options: ["1", "2", "3", "4", "5", "6"],
+            answer: "Е",
+          },
+        ],
+      }),
+    );
+    // Е = 5
+    expect(spec!.questions[0]!.answer).toEqual([5]);
+  });
+
+  it("pie с несколькими сериями получает warning", () => {
+    const spec = parseChartBlock(
+      JSON.stringify({
+        type: "pie",
+        labels: ["a", "b"],
+        series: [
+          { name: "S1", values: [1, 2] },
+          { name: "S2", values: [3, 4] },
+        ],
+      }),
+    );
+    expect(spec).not.toBeNull();
+    expect(spec!.warning).toBe("pie_multi_series");
+  });
+
   it("отбраковка: нет вопросов, <2 опций, >6 опций, ответ вне диапазона", () => {
     expect(parseQuizBlock(JSON.stringify({ questions: [] }))).toBeNull();
     expect(
@@ -167,5 +198,10 @@ describe("blockHash", () => {
   it("стабилен и чувствителен к содержимому", () => {
     expect(blockHash("abc")).toBe(blockHash("abc"));
     expect(blockHash("abc")).not.toBe(blockHash("abd"));
+  });
+
+  it("включает длину строки для защиты от коллизий", () => {
+    expect(blockHash("a")).toContain("_1");
+    expect(blockHash("abc")).toContain("_3");
   });
 });

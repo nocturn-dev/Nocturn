@@ -1760,5 +1760,8 @@ export const zh = {
     "steps.kindTerminal": "终端",
     "steps.kindExplore": "浏览",
     "steps.kindAsked": "提问",
+    "steps.outputTruncated": "显示第 {n} 行（共 {total} 行）",
+    "agent.undoConfirm": "确认撤销？",
+    "chart.pieFirstSeries": "饼图：仅显示第一个系列",
     "composer.dropFiles": "松开以添加附件",
 } satisfies Record<MsgKey, string>; // Полный Record — пропущенный ключ = ошибка компиляции, а не молчаливый фолбэк

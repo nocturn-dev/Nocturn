@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useLangState, useLangSetter } from "../../locales";
 import type { Appearance } from "../../appearance";
+import { CheckIcon, ChevronDownIcon } from "../cards/icons";
 
 /** Обёртка-рамка паттерна стиля: объявлена на уровне модуля — инлайн-компонент
  *  пересоздавался на каждый рендер StylePattern, и все SVG монтировались
@@ -616,36 +617,4 @@ export function XIcon() {
   );
 }
 
-export function ChevronDownIcon() {
-  return (
-    <svg
-      width="14"
-      height="14"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="m6 9 6 6 6-6" />
-    </svg>
-  );
-}
-
-export function CheckIcon() {
-  return (
-    <svg
-      width="15"
-      height="15"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2.4"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="m5 13 4 4L19 7" />
-    </svg>
-  );
-}
+export { ChevronDownIcon, CheckIcon } from "../cards/icons";

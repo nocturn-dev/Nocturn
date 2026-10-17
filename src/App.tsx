@@ -328,18 +328,6 @@ export default function App() {
   const [resetOpen, setResetOpen] = useState(false);
   const [resetBusy, setResetBusy] = useState(false);
 
-  // созданный — удаляем
-  const handleUndoWrite = useCallback(async (f: ChangedFile) => {
-    if (f.created || f.before == null) {
-      await runTool("fs_delete", JSON.stringify({ path: f.path })).catch(
-        () => undefined,
-      );
-    } else {
-      await runTool("fs_write", JSON.stringify({ path: f.path, content: f.before })).catch(
-        () => undefined,
-      );
-    }
-  }, []);
 
   // ---------- Review: живой дифф прогона в правой панели ----------
   const [diffReview, setDiffReview] = useState<{
@@ -623,6 +611,31 @@ export default function App() {
     streamingActiveRef,
     projectsRef,
   });
+
+  // Откат записи файла: созданный удаляем, изменённый возвращаем к before;
+  // путь запоминаем в сессии, чтобы статус «откатан» переживал перемонтирование карточки
+  const handleUndoWrite = useCallback(async (f: ChangedFile) => {
+    if (f.created || f.before == null) {
+      await runTool("fs_delete", JSON.stringify({ path: f.path })).catch(
+        () => undefined,
+      );
+    } else {
+      await runTool("fs_write", JSON.stringify({ path: f.path, content: f.before })).catch(
+        () => undefined,
+      );
+    }
+    const np = normalizePath(f.path);
+    setSessions((prev) =>
+      prev.map((s) =>
+        s.id === activeSessionRef.current?.id
+          ? {
+              ...s,
+              undoneWrites: [...(s.undoneWrites ?? []), np],
+            }
+          : s,
+      ),
+    );
+  }, [setSessions, activeSessionRef]);
   // «Пустая лента» по ЕДИНОЙ формуле с ChatArea (filterVisibleMessages):
   // раньше App смотрел сырой messages.length, и при скрытых сообщениях
   // пользователя композер центрировался, а лента лирики рисовалась в

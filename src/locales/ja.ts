@@ -1760,5 +1760,8 @@ export const ja = {
     "steps.kindTerminal": "ターミナル",
     "steps.kindExplore": "調査",
     "steps.kindAsked": "質問",
+    "steps.outputTruncated": "全 {total} 行中 {n} 行を表示",
+    "agent.undoConfirm": "元に戻しますか？",
+    "chart.pieFirstSeries": "円グラフ：最初の系列のみ表示",
     "composer.dropFiles": "ドロップしてファイルを添付",
 } satisfies Record<MsgKey, string>; // Полный Record — пропущенный ключ = ошибка компиляции, а не молчаливый фолбэк

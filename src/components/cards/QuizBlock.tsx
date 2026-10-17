@@ -63,7 +63,6 @@ export function QuizBlock({ code }: { code: string }) {
   const [progress, setProgress] = useState<QuizProgress | null>(null);
   const [selected, setSelected] = useState<number[]>([]);
   const [hintShown, setHintShown] = useState(false);
-  const [lastResult, setLastResult] = useState<boolean | null>(null);
 
   // Прогресс читаем один раз на монтировании блока: содержимое квиза
   // неизменно, внешних изменений хранилища не ждём
@@ -90,6 +89,7 @@ export function QuizBlock({ code }: { code: string }) {
   // После ответа на последний вопрос индекс указывает за пределы массива
   const q = finished ? spec.questions[0]! : spec.questions[base.i]!;
   const answered = answeredMap[base.i] !== undefined;
+  const isCorrect = answeredMap[base.i] === true;
   const multi = q.answer.length > 1;
   const score = base.score;
 
@@ -119,12 +119,10 @@ export function QuizBlock({ code }: { code: string }) {
       score: base.score + (ok ? 1 : 0),
       answered: { ...base.answered, [base.i]: ok },
     });
-    setLastResult(ok);
   };
 
   const advance = () => {
     commit({ ...base, i: base.i + 1 });
-    setLastResult(null);
     setHintShown(false);
     setSelected([]);
   };
@@ -134,7 +132,6 @@ export function QuizBlock({ code }: { code: string }) {
     setProgress(null);
     setSelected([]);
     setHintShown(false);
-    setLastResult(null);
   };
 
   return (
@@ -228,13 +225,13 @@ export function QuizBlock({ code }: { code: string }) {
           {answered && (
             <div
               className={`rounded-md border px-2.5 py-1.5 text-xs leading-relaxed ${
-                lastResult
+                isCorrect
                   ? "border-emerald-500/40 bg-emerald-500/5 text-halo-text"
                   : "border-red-500/40 bg-red-500/5 text-halo-text"
               }`}
             >
               <span className="font-medium">
-                {lastResult ? t("quiz.correct") : t("quiz.wrong")}
+                {isCorrect ? t("quiz.correct") : t("quiz.wrong")}
               </span>
               {q.explanation && ` — ${q.explanation}`}
             </div>

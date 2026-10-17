@@ -1,5 +1,5 @@
 import { memo, useMemo, useState } from "react";
-import { diffLines } from "../../diff";
+import { diffLines, type DiffLine } from "../../diff";
 import type { StepRow } from "../../agent/steps";
 import { useLang, type MsgKey } from "../../locales";
 import { STATUS_ERR, statusAlpha } from "../../statusColors";
@@ -12,15 +12,58 @@ import { DiffView } from "./DiffView";
  * в AssistantCard; subagent_run — живые карточки SubagentCard.
  */
 
-/** Дифф ряда: diffLines (LCS до 1500×1500 + O(n·m) отсечение) считается
- *  ТОЛЬКО здесь и кэшируется по (before, after). В теле рендера ряда он
- *  пересчитывался на каждый флеш стрима — derived-кэш ChatArea пересобирает
- *  ход стримящегося сообщения, memo(RunCard) пробит */
+/** Кэш вычисленных диффов для аккордеона:
+ *  diffLines (LCS до 1500×1500) кэшируется по ключу шага и длине строк,
+ *  чтобы при сворачивании и повторном раскрытии ряда не гонять расчёт заново */
+const DIFF_CACHE_LIMIT = 64;
+const diffCache = new Map<string, DiffLine[]>();
 
-const RowDiff = memo(function RowDiff({ before, after }: { before: string; after: string }) {
-  const lines = useMemo(() => diffLines(before, after), [before, after]);
+function getCachedDiff(key: string, before: string, after: string): DiffLine[] {
+  const existing = diffCache.get(key);
+  if (existing) return existing;
+  const lines = diffLines(before, after);
+  if (diffCache.size >= DIFF_CACHE_LIMIT) {
+    const oldest = diffCache.keys().next().value;
+    if (oldest !== undefined) diffCache.delete(oldest);
+  }
+  diffCache.set(key, lines);
+  return lines;
+}
+
+const RowDiff = memo(function RowDiff({
+  stepId,
+  before,
+  after,
+}: {
+  stepId: string;
+  before: string;
+  after: string;
+}) {
+  const lines = useMemo(
+    () => getCachedDiff(`${stepId}:${before.length}:${after.length}`, before, after),
+    [stepId, before, after],
+  );
   return <DiffView lines={lines} hasBefore />;
 });
+
+const MAX_OUTPUT_LINES = 250;
+
+function formatStepOutput(
+  raw: string,
+  t: (key: MsgKey, params?: Record<string, string | number>) => string,
+): { text: string; truncatedNote?: string } {
+  const lines = raw.split("\n");
+  if (lines.length <= MAX_OUTPUT_LINES) {
+    return { text: raw };
+  }
+  return {
+    text: lines.slice(0, MAX_OUTPUT_LINES).join("\n"),
+    truncatedNote: t("steps.outputTruncated", {
+      n: MAX_OUTPUT_LINES,
+      total: lines.length,
+    }),
+  };
+}
 
 const KIND_LABEL: Record<StepRow["kind"], MsgKey> = {
   edit: "steps.kindEdit",
@@ -192,14 +235,24 @@ export function StepAccordion({
 
             {isOpen && s.diff && (
               <div className="px-2 pb-2">
-                <RowDiff before={s.diff.before} after={s.diff.after} />
+                <RowDiff stepId={s.id} before={s.diff.before} after={s.diff.after} />
               </div>
             )}
-            {isOpen && s.output && (
-              <pre className="mx-2 mb-2 max-h-48 overflow-auto whitespace-pre-wrap rounded-md border border-halo-line/40 bg-halo-raised/30 px-2.5 py-2 font-mono text-[0.625rem] leading-relaxed text-halo-muted scroll-slim">
-                {s.output}
-              </pre>
-            )}
+            {isOpen && s.output && (() => {
+              const { text, truncatedNote } = formatStepOutput(s.output, t);
+              return (
+                <div className="mx-2 mb-2 rounded-md border border-halo-line/40 bg-halo-raised/30 px-2.5 py-2 font-mono text-[0.625rem] leading-relaxed text-halo-muted">
+                  <pre className="max-h-48 overflow-auto whitespace-pre-wrap scroll-slim">
+                    {text}
+                  </pre>
+                  {truncatedNote && (
+                    <div className="mt-1.5 border-t border-halo-line/30 pt-1 text-[0.5625rem] italic text-halo-muted/70">
+                      {truncatedNote}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
             {isOpen && s.question && (
               <div className="mx-2 mb-2 space-y-1 rounded-md border border-halo-line/40 bg-halo-raised/30 px-2.5 py-2 text-[0.6875rem] leading-relaxed">
                 <p className="whitespace-pre-wrap text-halo-text">{s.question}</p>

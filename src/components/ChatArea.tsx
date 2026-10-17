@@ -2186,6 +2186,7 @@ export default function ChatArea({
                     }
                     onOpenExternal={onOpenFileExternal}
                     projectRoot={projectRoot}
+                    undoneWrites={session?.undoneWrites}
                   />,
                 );
               }

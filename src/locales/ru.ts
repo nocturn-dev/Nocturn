@@ -1768,5 +1768,8 @@ export const ru = {
     "steps.kindTerminal": "Терминал",
     "steps.kindExplore": "Обзор",
     "steps.kindAsked": "Вопросы",
+    "steps.outputTruncated": "Показано {n} из {total} строк",
+    "agent.undoConfirm": "Точно откатить?",
+    "chart.pieFirstSeries": "Круговая диаграмма: показана только первая серия",
     "composer.dropFiles": "Отпустите, чтобы прикрепить файлы",
 } as const;

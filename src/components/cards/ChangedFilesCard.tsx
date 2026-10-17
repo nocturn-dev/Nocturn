@@ -7,7 +7,7 @@ import { type ChangedFile } from "../../types";
 import { DiffView } from "./DiffView";
 import { ChevronDownIcon, ToolIcon } from "./icons";
 import ContextMenu, { type MenuItem } from "../ContextMenu";
-import { memo, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowUpRightIcon, UndoIcon } from "./icons";
 
 /** Абсолютный путь для «Копировать путь»: путь от fs_write может быть
@@ -25,6 +25,7 @@ function ChangedFilesCardBase({
   onReview,
   onOpenExternal,
   projectRoot,
+  undoneWrites,
 }: {
   files: ChangedFile[];
   onUndo: (f: ChangedFile) => void;
@@ -36,11 +37,28 @@ function ChangedFilesCardBase({
   onOpenExternal?: (path: string, mode: "open" | "explorer" | "vscode") => void;
   /** Корень проекта — для «Копировать абсолютный путь» */
   projectRoot?: string | null;
+  /** Пути уже откатанных файлов из сессии для персистентности */
+  undoneWrites?: string[];
 }) {
   const { t } = useLang();
   const [open, setOpen] = useState(false);
   const [openFile, setOpenFile] = useState<string | null>(null);
-  const [undone, setUndone] = useState<Set<string>>(new Set());
+  const [localUndone, setLocalUndone] = useState<Set<string>>(new Set());
+  const undone = useMemo(() => {
+    const s = new Set(localUndone);
+    for (const p of undoneWrites ?? []) s.add(normalizePath(p));
+    return s;
+  }, [localUndone, undoneWrites]);
+  const [confirmPath, setConfirmPath] = useState<string | null>(null);
+  const confirmTimerRef = useRef<number | null>(null);
+
+  // Очищаем таймер подтверждения при размонтировании карточки
+  useEffect(() => {
+    return () => {
+      if (confirmTimerRef.current) window.clearTimeout(confirmTimerRef.current);
+    };
+  }, []);
+
   /** Меню Open-кнопки (Проводник/VS Code/копирование путей) — координаты
    *  клика, рендер через портал ContextMenu */
   const [menu, setMenu] = useState<{ x: number; y: number; path: string } | null>(null);
@@ -54,7 +72,9 @@ function ChangedFilesCardBase({
           setCopied(true);
           window.setTimeout(() => setCopied(false), 1600);
         })
-        .catch(() => {});
+        .catch((err) => {
+          console.warn("[ChangedFilesCard] Failed to copy path to clipboard:", err);
+        });
     };
     return [
       {
@@ -98,7 +118,7 @@ function ChangedFilesCardBase({
 
   const undo = (f: ChangedFile) => {
     onUndo(f);
-    setUndone((prev) => new Set(prev).add(normalizePath(f.path)));
+    setLocalUndone((prev) => new Set(prev).add(normalizePath(f.path)));
   };
 
   return (
@@ -229,13 +249,32 @@ function ChangedFilesCardBase({
                     </span>
                   ) : (
                     canUndo && (
-                      <button
-                        onClick={() => undo(f)}
-                        title={t("agent.undo")}
-                        className="shrink-0 rounded-md p-1 text-[0.6875rem] text-halo-muted transition-colors hover:bg-halo-hover hover:text-halo-text"
-                      >
-                        <UndoIcon />
-                      </button>
+                      confirmPath === normalizePath(f.path) ? (
+                        <button
+                          onClick={() => {
+                            if (confirmTimerRef.current) window.clearTimeout(confirmTimerRef.current);
+                            setConfirmPath(null);
+                            undo(f);
+                          }}
+                          title={t("agent.undoConfirm")}
+                          className="shrink-0 rounded-md bg-red-500/15 px-1.5 py-0.5 text-[0.5625rem] font-medium text-red-400 transition-colors hover:bg-red-500/25"
+                        >
+                          {t("agent.undoConfirm")}
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => {
+                            const np = normalizePath(f.path);
+                            setConfirmPath(np);
+                            if (confirmTimerRef.current) window.clearTimeout(confirmTimerRef.current);
+                            confirmTimerRef.current = window.setTimeout(() => setConfirmPath(null), 4000);
+                          }}
+                          title={t("agent.undo")}
+                          className="shrink-0 rounded-md p-1 text-[0.6875rem] text-halo-muted transition-colors hover:bg-halo-hover hover:text-halo-text"
+                        >
+                          <UndoIcon />
+                        </button>
+                      )
                     )
                   )}
                 </div>

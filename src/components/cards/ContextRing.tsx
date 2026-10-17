@@ -2,7 +2,7 @@ import type { MsgKey } from "../../locales";
 import { useLang } from "../../locales";
 import { fmtInt, fmtTokens } from "./util";
 import { STATUS_ERR, STATUS_OK, STATUS_WARN } from "../../statusColors";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 export function ContextRing({
   used,
@@ -17,24 +17,49 @@ export function ContextRing({
 }) {
   const { lang, t } = useLang();
   const [open, setOpen] = useState(false);
+  const [pinned, setPinned] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!pinned) return;
+    const handleOutside = (e: PointerEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setPinned(false);
+        setOpen(false);
+      }
+    };
+    window.addEventListener("pointerdown", handleOutside);
+    return () => window.removeEventListener("pointerdown", handleOutside);
+  }, [pinned]);
+
   const pct = limit > 0 ? Math.min(1, used / limit) : 0;
   const color = pct >= 0.85 ? STATUS_ERR : pct >= 0.6 ? STATUS_WARN : STATUS_OK;
   const R = 6;
   const C = 2 * Math.PI * R;
 
   return (
-    <div className="relative">
+    <div ref={containerRef} className="relative">
       <button
-        onClick={() => setOpen((v) => !v)}
-        onMouseEnter={() => setOpen(true)}
-        onMouseLeave={() => setOpen(false)}
+        onClick={() => {
+          setPinned((prev) => {
+            const next = !prev;
+            setOpen(next);
+            return next;
+          });
+        }}
+        onMouseEnter={() => {
+          if (!pinned) setOpen(true);
+        }}
+        onMouseLeave={() => {
+          if (!pinned) setOpen(false);
+        }}
         title={t("ctx.title")}
         className="flex size-6 items-center justify-center rounded-md transition-colors hover:bg-halo-hover"
       >
         {/* Чистое кольцо заполнения без цифры («0» внутри
             выпирало) — детали по hover в поповере. Тонкие 2px, как у референс */}
         <svg width="16" height="16" viewBox="0 0 16 16">
-          <circle cx="8" cy="8" r={R} fill="none" stroke="var(--halo-line)" strokeWidth={2} />
+          <circle cx="8" cy="8" r={R} fill="none" style={{ stroke: "var(--halo-line)" }} strokeWidth={2} />
           {pct > 0.005 && (
             <circle
               cx="8"
@@ -84,7 +109,9 @@ export function ContextRing({
                   />
                   <span className="flex-1 text-halo-muted">{t(r.label)}</span>
                   <span className="text-halo-text/80">
-                    {rowPct > 0 ? `${rowPct.toFixed(1)}%` : "0%"}
+                    {rowPct > 0
+                      ? `${rowPct.toFixed(1).replace(".", lang === "ru" ? "," : ".")}%`
+                      : "0%"}
                   </span>
                 </p>
               );

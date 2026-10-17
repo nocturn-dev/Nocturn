@@ -76,7 +76,7 @@ function firstString(raw: string, keys: string[]): string {
 }
 
 /** Строка выхода shell: код возврата считается фейлом, кроме 0 */
-function shellExit(content: string): number | null {
+export function parseExitCode(content: string): number | null {
   const m = content.match(/exit code: (-?\d+)/);
   return m?.[1] != null ? parseInt(m[1], 10) : null;
 }
@@ -122,7 +122,7 @@ export function buildStepRows(assistants: Message[], toolMsgs: Message[]): StepR
       } else if (kind === "terminal") {
         const cmd = firstString(tc.arguments, ["command"]);
         row.label = truncate(cmd, 80);
-        const code = shellExit(content);
+        const code = parseExitCode(content);
         if (code != null) {
           row.exitCode = code;
           if (code !== 0) row.failed = "exit";

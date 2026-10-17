@@ -2733,13 +2733,15 @@ ${report}`;
             // не JSON — отдаем как есть
           }
         }
+        const finalStatus =
+          toolStatus ?? (result.startsWith("tool error:") ? "error" : undefined);
         pushMessage({
           id: uid(),
           role: "tool",
           content: toolContent,
           toolCallId: call.id,
           toolName: call.name,
-          status: toolStatus, // FIX: "denied" доезжает до рендера машинно
+          status: finalStatus,
         });
         history.push({
           role: "tool",

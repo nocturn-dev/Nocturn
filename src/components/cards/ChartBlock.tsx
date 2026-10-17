@@ -22,7 +22,7 @@ function themeColors(): {
     accent: pick("--halo-accent", "#c88e9b"),
     series: [
       pick("--halo-accent", "#c88e9b"),
-      pick("--halo-live", "#7fa6a3"),
+      "#7fa6a3",
       "#e0b060",
       "#8fb573",
       "#a08ec4",
@@ -99,7 +99,7 @@ export function ChartBlock({ code }: { code: string }) {
     let hostEl: HTMLDivElement | null = null;
     (async () => {
       try {
-        const [U, ] = await Promise.all([
+        const [U] = await Promise.all([
           import("uplot"),
           import("uplot/dist/uPlot.min.css"),
         ]);
@@ -213,9 +213,9 @@ export function ChartBlock({ code }: { code: string }) {
       plotRef.current?.destroy();
       plotRef.current = null;
     };
-    // spec из пропа code: пересоздание только на смене блока или темы
+    // spec из пропа code: пересоздание при смене блока, темы или переключении режима код/график
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [code, light]);
+  }, [code, light, showCode]);
 
   if (!spec) {
     return (
@@ -242,6 +242,11 @@ export function ChartBlock({ code }: { code: string }) {
       <div className="my-1 rounded-lg border border-halo-line/60 bg-halo-deep/40 px-2 py-3">
         {spec.title && (
           <div className="mb-1 text-center text-xs text-halo-muted">{spec.title}</div>
+        )}
+        {spec.warning === "pie_multi_series" && (
+          <div className="mb-1 text-center text-[0.625rem] text-halo-muted/80">
+            {t("chart.pieFirstSeries")}
+          </div>
         )}
         <div className="flex flex-wrap items-center justify-center gap-4">
           <svg width={size} height={size} role="img">

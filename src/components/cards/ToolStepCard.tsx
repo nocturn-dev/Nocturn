@@ -7,6 +7,7 @@ import { DiffView } from "./DiffView";
 import { ChevronDownIcon, ToolIcon } from "./icons";
 import { memo, useMemo, useState } from "react";
 import { Lightbox } from "../Lightbox";
+import { parseExitCode } from "../../agent/steps";
 
 /** Результат image_generate → {path}; мусор/ошибки — null */
 function parseImageResult(content: string): { path: string } | null {
@@ -40,15 +41,11 @@ function ToolStepCardBase({
   const name = call?.name ?? "";
 
   // Статус шага: отказ пользователя, ошибка инструмента, ненулевой exit-код.
-  // FIX: "denied" берётся из машинного поля Message.status; сравнение с
+  // "denied" берётся из машинного поля Message.status; сравнение с
   // локализованной строкой оставлено как фолбэк для старых сессий
   const denied = status === "denied" || content === t("agent.denied");
   const toolError = status === "error" || content.startsWith("tool error:");
-  let exitCode: number | null = null;
-  if (name === "shell_run") {
-    const m = content.match(/exit code: (-?\d+)/);
-    if (m) exitCode = parseInt(m[1] ?? "", 10);
-  }
+  const exitCode = name === "shell_run" ? parseExitCode(content) : null;
   const failed = denied || toolError || (exitCode !== null && exitCode !== 0);
 
   // fs_write: новый формат — JSON с before/after, старый — просто текст.
@@ -137,6 +134,11 @@ function ToolStepCardBase({
             {summary}
           </span>
         )}
+        {write?.created && (
+          <span className="shrink-0 rounded bg-emerald-400/15 px-1.5 py-0.5 text-[0.5625rem] font-medium text-emerald-400">
+            {t("agent.diffCreated")}
+          </span>
+        )}
         <span className={`shrink-0 text-[0.625rem] ${statusClass}`} style={statusStyle}>
           {statusLabel}
         </span>
@@ -151,7 +153,9 @@ function ToolStepCardBase({
           className="mt-2 max-h-72 w-auto cursor-zoom-in rounded-lg border border-halo-line/60 object-cover"
         />
       )}
-      <Lightbox src={viewer} onClose={() => setViewer(null)} />
+      {imageSrc && viewer && (
+        <Lightbox src={viewer} onClose={() => setViewer(null)} />
+      )}
 
       {open && (
         <div className="anim-fade-up mt-2">

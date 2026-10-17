@@ -1,20 +1,5 @@
-import type { AskQuestion, ToolCallInfo } from "./types";
-
-/**
- * Реестр ожидающих взаимодействий агента с пользователем.
- *
- * Раньше подтверждение tool-call держалось на одном глобальном резолвере —
- * второе одновременное взаимодействие (вопрос ask_user, второй confirm
- * параллельного вызова) затирало бы первое. Реестр хранит каждое
- * взаимодействие под своим id: карточка в чате резолвит по id, Stop/finalize
- * гасят все разом.
- */
-
-/** Спецификация вопроса пользователю (без ответа — он появляется в истории) */
-export type AskUserSpec = Pick<
-  AskQuestion,
-  "question" | "header" | "options" | "multiSelect"
->;
+import type { AskUserSpec, ToolCallInfo } from "./types";
+export type { AskUserSpec };
 
 /** Ожидающее взаимодействие: подтверждение инструмента или вопрос */
 export type Interaction =

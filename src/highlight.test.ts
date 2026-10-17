@@ -28,6 +28,9 @@ describe("highlight — золотые векторы", () => {
     );
     // экранирование живёт и внутри hljs-ветки (ignoreIllegals)
     expect(highlightLine("<b>&", "rust")).not.toContain("<b>");
+    expect(highlightLine(`"hello" 'world'`, null)).toBe(
+      "&quot;hello&quot; &#39;world&#39;",
+    );
     expect(highlightLine("", "rust")).toBe("");
   });
 });

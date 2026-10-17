@@ -50,6 +50,41 @@ describe("parseAskSpec", () => {
     expect(parseAskSpec(JSON.stringify({ question: "q", header: long, options: [{ label: "a" }, { label: "b" }] }))?.header).toHaveLength(24);
     expect(parseAskSpec(JSON.stringify({ question: "q", header: 42, options: [{ label: "a" }, { label: "b" }] }))?.header).toBeUndefined();
   });
+  it("сохраняет description и preview опций", () => {
+    const spec = parseAskSpec(
+      JSON.stringify({
+        question: "Выбор",
+        options: [
+          { label: "Вариант 1", description: "Описание 1", preview: "код 1" },
+          { label: "Вариант 2" },
+        ],
+      }),
+    );
+    expect(spec?.options).toEqual([
+      { label: "Вариант 1", description: "Описание 1", preview: "код 1" },
+      { label: "Вариант 2" },
+    ]);
+  });
+  it("поддерживает опции-строки", () => {
+    const spec = parseAskSpec(
+      JSON.stringify({
+        question: "Вопрос",
+        options: ["Да", "Нет"],
+      }),
+    );
+    expect(spec?.options).toEqual([{ label: "Да" }, { label: "Нет" }]);
+  });
+  it("безопасно обрезает header с эмодзи без разрезания суррогатных пар", () => {
+    const header = "🌟".repeat(30);
+    const spec = parseAskSpec(
+      JSON.stringify({
+        question: "Вопрос",
+        header,
+        options: ["1", "2"],
+      }),
+    );
+    expect(Array.from(spec?.header ?? "")).toHaveLength(24);
+  });
   it("multiSelect только при явном true; битый JSON — null", () => {
     expect(parseAskSpec('{"question":"q","options":[{"label":"a"},{"label":"b"}],"multiSelect":true}')?.multiSelect).toBe(true);
     expect(parseAskSpec('{"question":"q","options":[{"label":"a"},{"label":"b"}],"multiSelect":"yes"}')?.multiSelect).toBe(false);

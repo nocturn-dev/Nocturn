@@ -23,6 +23,7 @@ import {
   PauseIcon,
   PlayIcon,
   PrevTrackIcon,
+  YouTubeIcon,
 } from "./cards/icons";
 
 // parseLyrics/LyricLine вынесены в src/lyrics.ts (чистый
@@ -294,10 +295,7 @@ export function MediaBar({
           />
         ) : (
           <div className="flex h-7 w-12 shrink-0 items-center justify-center rounded-md bg-halo-surface text-halo-muted/60">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-              <rect x="1.5" y="4.5" width="21" height="15" rx="4.5" />
-              <path d="M10 8.8v6.4l5.6-3.2L10 8.8z" fill="var(--halo-deep)" />
-            </svg>
+            <YouTubeIcon size={14} />
           </div>
         )}
         <div className="w-40 shrink-0 leading-tight" title={tr?.title}>

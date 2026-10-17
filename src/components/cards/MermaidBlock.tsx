@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useContext, useEffect, useRef, useState } from "react";
 import { useLang } from "../../locales";
+import { CodeStreamingContext } from "./AssistantCard";
 
 /**
  * Mermaid-диаграмма из ```mermaid-блока ответа модели.
@@ -19,13 +20,26 @@ export function MermaidBlock({
   onSendSource?: (edited: string) => void;
 }) {
   const { t } = useLang();
+  const isStreaming = useContext(CodeStreamingContext);
   const [svg, setSvg] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
   const [showCode, setShowCode] = useState(false);
-  // Черновик правки: синхронизируется с кодом сообщения, но не мешает
-  // пользователю дописывать свои правки, пока стрим идёт
+  // Черновик правки: синхронизируется с кодом сообщения, но не затирает
+  // ручной ввод пользователя при входящих чанках стрима
   const [draft, setDraft] = useState(code);
-  useEffect(() => setDraft(code), [code]);
+  const isEditedRef = useRef(false);
+
+  useEffect(() => {
+    if (!isEditedRef.current) {
+      setDraft(code);
+    }
+  }, [code]);
+
+  useEffect(() => {
+    if (!isStreaming && !isEditedRef.current) {
+      setDraft(code);
+    }
+  }, [isStreaming, code]);
   // Тема приложения — класс light на <html>: следим, чтобы диаграмма
   // перекрашивалась вместе с темой без перезапуска сообщения
   const [light, setLight] = useState(
@@ -98,7 +112,10 @@ export function MermaidBlock({
           <>
             <textarea
               value={draft}
-              onChange={(e) => setDraft(e.target.value)}
+              onChange={(e) => {
+                isEditedRef.current = e.target.value !== code;
+                setDraft(e.target.value);
+              }}
               spellCheck={false}
               rows={Math.min(24, Math.max(4, draft.split("\n").length + 1))}
               className="w-full resize-y overflow-x-auto rounded-lg border border-halo-line/60 bg-halo-code-bg px-3 py-2 font-mono text-xs leading-relaxed text-halo-text outline-none focus:border-halo-accent/40"
