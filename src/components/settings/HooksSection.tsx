@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { useLang } from "../../locales";
+import { useLang, type MsgKey } from "../../locales";
 import { type Hook, type HookEvent, type HookOutcome, HOOK_EVENTS, hooksLoad, hooksSave, hooksTest } from "../../api";
 import { Dropdown, MiniTrashIcon } from "./parts";
+import { isWindows } from "../../platform";
 
 const HOOK_EVENT_KEYS = {
   PreToolUse: "hook.event.PreToolUse",
@@ -11,23 +12,23 @@ const HOOK_EVENT_KEYS = {
   SessionStart: "hook.event.SessionStart",
 } as const;
 
+type PresetId =
+  | "blockDelete"
+  | "beepStop"
+  | "blockShell"
+  | "blockMcp"
+  | "worklog"
+  | "gitAdd";
+
 export function HooksSection() {
   const { t } = useLang();
-  const addPreset = async (
-    preset:
-      | "blockDelete"
-      | "beepStop"
-      | "blockShell"
-      | "blockMcp"
-      | "worklog"
-      | "gitAdd",
-  ) => {
+  const addPreset = async (preset: PresetId) => {
     const presets = {
-      // ПРЕСЕТЫ. (1) команды — Windows powershell, на
-
-      // macOS/Linux пресет сохранится, но процесс не даст блокирующего
-      // вердикта — честного платформенного гейта нет сознательно, пресеты
-      // редактируемы; (2) reason-строки русские — это ДАННЫЕ пресета
+      // ПРЕСЕТЫ. (1) echo-пресеты кроссплатформенны — бекенд парсит
+      // JSON-вердикт независимо от шелла; powershell-пресеты показываются
+      // только на Windows (гейт в списке ниже): на Unix они сохранялись,
+      // но процесс не давал ни звука, ни вердикта; (2) reason-строки
+      // русские — это ДАННЫЕ пресета
       // (попадают в карточку отказа инструмента), поязыковая локализация
       // пресетов — отдельная фича, не делалась
       // Запрет удаления файлов агентом
@@ -183,6 +184,22 @@ export function HooksSection() {
     }
   };
 
+  // echo-пресеты работают на любой платформе, powershell-пресеты — только
+  // на Windows: молча нерабочая кнопка («запрет удаления», которого нет)
+  // хуже отсутствующей
+  const presetChips: Array<[PresetId, MsgKey]> = [
+    ["blockDelete", "hook.preset.blockDelete"],
+    ["blockShell", "hook.preset.blockShell"],
+    ["blockMcp", "hook.preset.blockMcp"],
+  ];
+  if (isWindows()) {
+    presetChips.push(
+      ["beepStop", "hook.preset.beepStop"],
+      ["worklog", "hook.preset.worklog"],
+      ["gitAdd", "hook.preset.gitAdd"],
+    );
+  }
+
   return (
     <div>
       <h3 className="mb-1 text-sm font-semibold text-halo-text">
@@ -194,16 +211,7 @@ export function HooksSection() {
       {hooks.length === 0 && !showAdd && (
         <div className="mb-3 flex flex-wrap items-center gap-2 press rounded-lg border border-halo-line px-3 py-2.5">
           <span className="text-[0.6875rem] text-halo-muted">{t("hook.presets")}:</span>
-          {(
-            [
-              ["blockDelete", "hook.preset.blockDelete"],
-              ["blockShell", "hook.preset.blockShell"],
-              ["blockMcp", "hook.preset.blockMcp"],
-              ["beepStop", "hook.preset.beepStop"],
-              ["worklog", "hook.preset.worklog"],
-              ["gitAdd", "hook.preset.gitAdd"],
-            ] as const
-          ).map(([id, key]) => (
+          {presetChips.map(([id, key]) => (
             <button
               key={id}
               onClick={() => void addPreset(id)}
