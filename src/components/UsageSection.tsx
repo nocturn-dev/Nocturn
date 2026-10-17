@@ -12,6 +12,22 @@ import { CHART_BLUE_RGB, CHART_COLORS } from "../chartColors";
 const MODEL_COLORS = CHART_COLORS;
 const DAY = 86_400_000;
 
+/** Добавление календарных дней: чистая арифметика 86400000 на DST-неделе
+ *  (23/25-часовые сутки) сдвигала серии дней и рвала тепловую карту */
+const addDays = (d: Date, n: number): Date => {
+  const nd = new Date(d);
+  nd.setDate(nd.getDate() + n);
+  return nd;
+};
+
+/** Разница в календарных днях (обе даты — местная полночь): UTC-компоненты
+ *  не зависят от перевода часов, Math.round гасит часовой сдвиг */
+const dayDiff = (a: Date, b: Date): number => {
+  const ua = Date.UTC(a.getFullYear(), a.getMonth(), a.getDate());
+  const ub = Date.UTC(b.getFullYear(), b.getMonth(), b.getDate());
+  return Math.round((ua - ub) / DAY);
+};
+
 function hashString(s: string): number {
   let h = 0;
   for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
@@ -120,20 +136,20 @@ export default function UsageSection({
     const sortedDays = [...days].sort();
     let longestStreak = 0;
     let run = 0;
-    let prev: number | null = null;
+    let prev: Date | null = null;
     for (const d of sortedDays) {
-      const time = new Date(d + "T00:00:00").getTime();
-      run = prev !== null && time - prev === DAY ? run + 1 : 1;
+      const cur = new Date(d + "T00:00:00");
+      run = prev !== null && dayDiff(cur, prev) === 1 ? run + 1 : 1;
       longestStreak = Math.max(longestStreak, run);
-      prev = time;
+      prev = cur;
     }
     let currentStreak = 0;
     let cursor = new Date();
     cursor.setHours(0, 0, 0, 0);
-    if (!days.has(dayKey(cursor))) cursor = new Date(cursor.getTime() - DAY);
+    if (!days.has(dayKey(cursor))) cursor = addDays(cursor, -1);
     while (days.has(dayKey(cursor))) {
       currentStreak++;
-      cursor = new Date(cursor.getTime() - DAY);
+      cursor = addDays(cursor, -1);
     }
     // Топ моделей по расходу; цвет — пользовательский или стабильный по хэшу
     const models = [...byModel.entries()]
@@ -147,13 +163,13 @@ export default function UsageSection({
     // Последние 365 дней для тепловой карты (выравнивание по неделям, вс=первый ряд)
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const end = new Date(today.getTime() + (6 - today.getDay()) * DAY);
-    const start = new Date(end.getTime() - 363 * DAY);
+    const end = addDays(today, 6 - today.getDay());
+    const start = addDays(end, -363);
     const weeks: { key: string; value: number; date: Date }[][] = [];
     for (let w = 0; w < 52; w++) {
       const col: { key: string; value: number; date: Date }[] = [];
       for (let d = 0; d < 7; d++) {
-        const date = new Date(start.getTime() + (w * 7 + d) * DAY);
+        const date = addDays(start, w * 7 + d);
         col.push({ key: dayKey(date), value: byDay.get(dayKey(date)) ?? 0, date });
       }
       weeks.push(col);
@@ -165,6 +181,13 @@ export default function UsageSection({
       acc += byDay.get(d) ?? 0;
       cumByDay.set(d, acc);
     }
+    // Суммы день|модель одним проходом: тренд раньше фильтровал события
+    // на каждый день×модель — O(дни×модели×события) на каждый пересчёт
+    const byDayModel = new Map<string, number>();
+    for (const e of events) {
+      const k = `${e.day}\u0000${e.model}`;
+      byDayModel.set(k, (byDayModel.get(k) ?? 0) + e.prompt + e.completion);
+    }
 
     return {
       total,
@@ -175,18 +198,19 @@ export default function UsageSection({
       models,
       weeks,
       cumByDay,
+      byDayModel,
       maxDay: Math.max(1, ...[...byDay.values()]),
     };
   }, [events, tick, colorOf]);
 
-  // Дневной тренд за выбранный диапазон: топ-2 модели
+  // Дневной тренд за выбранный диапазон: топ-2 модели. Суммы берём из
+  // предвычисленной карты день|модель (см. data.byDayModel) — без фильтров
   const trend = useMemo(() => {
-    void tick;
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const daysList: string[] = [];
     for (let i = range - 1; i >= 0; i--) {
-      daysList.push(dayKey(new Date(today.getTime() - i * DAY)));
+      daysList.push(dayKey(addDays(today, -i)));
     }
     const top = data.models.slice(0, 2).map((m) => m.model);
     const series = top.map((model) => ({
@@ -194,13 +218,10 @@ export default function UsageSection({
       // find из slice того же массива — не может не найтись; фолбэк вместо
       // non-null assertion, хрупкой к рефакторингу источника
       color: data.models.find((m) => m.model === model)?.color ?? "var(--halo-accent)",
-      values: daysList.map((d) => {
-        const dayEvents = events.filter((e) => e.day === d && e.model === model);
-        return dayEvents.reduce((acc, e) => acc + e.prompt + e.completion, 0);
-      }),
+      values: daysList.map((d) => data.byDayModel.get(`${d}\u0000${model}`) ?? 0),
     }));
     return { daysList, series };
-  }, [events, data.models, range, tick]);
+  }, [data.models, data.byDayModel, range]);
 
   const fmtDate = (d: Date) =>
     d.toLocaleDateString(localeTag(lang), { day: "numeric", month: "short" });
@@ -263,7 +284,10 @@ export default function UsageSection({
             ))}
           </div>
         </div>
-        <Heatmap key={`hm-${tick}-${mode}`} weeks={data.weeks} mode={mode} cumByDay={data.cumByDay} color={heatColor} lang={lang} />
+        {/* key только с tick (Refresh): mode/range в ключе пересоздавали
+            SVG целиком при переключении режима/диапазона — анимации
+            переигрывались заново, хотя достаточно пропса */}
+        <Heatmap key={`hm-${tick}`} weeks={data.weeks} mode={mode} cumByDay={data.cumByDay} color={heatColor} lang={lang} />
       </div>
 
       {/* Диапазон + тренд: при управлении из «Обзора» селектор наверху */}
@@ -291,7 +315,7 @@ export default function UsageSection({
         {data.total === 0 ? (
           <p className="py-10 text-center text-xs text-halo-muted">{t("usage.noData")}</p>
         ) : (
-          <TrendChart key={`tr-${tick}-${range}`} days={trend.daysList} series={trend.series} fmtDate={fmtDate} lang={lang} />
+          <TrendChart key={`tr-${tick}`} days={trend.daysList} series={trend.series} fmtDate={fmtDate} lang={lang} />
         )}
       </div>
 

@@ -39,9 +39,14 @@ export function PlanSidePanel({
         p.status === "done" ? "[x]" : p.status === "in_progress" ? "[~]" : "[ ]";
       return `${mark} ${p.title}`;
     });
-    // Тост только при реальном успехе: фолбэк внутри copyText (старый WebKitGTK)
-    if (await copyText(lines.join("\n"))) {
-      onCopied();
+    // Тост только при реальном успехе: фолбэк внутри copyText (старый WebKitGTK);
+    // сбой буфера обмена не должен становиться unhandledrejection
+    try {
+      if (await copyText(lines.join("\n"))) {
+        onCopied();
+      }
+    } catch {
+      // Буфер недоступен — молча ничего не делаем, тост не показываем
     }
   };
 

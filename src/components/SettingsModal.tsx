@@ -568,8 +568,11 @@ export default function SettingsModal({
   }, [open, initialSection]);
 
   // Скролл к найденному пункту: после рендера секции ищем в контенте
-  // элемент с этим текстом (самый короткий совпавший), прокручиваем к нему
-  // и подсвечиваем. Работает для обеих областей и внутри текущей секции
+  // элемент с этим текстом, прокручиваем к нему и подсвечиваем. Матч по
+  // ТОЧНОМУ совпадению текста элемента с самым коротким фолбэком на
+  // «включает»: раньше слово из подписи ловило абзац описания — скролл
+  // уезжал мимо строки настройки
+  const highlightTimerRef = useRef<number | null>(null);
   useEffect(() => {
     if (!pendingItem) return;
     const pane = contentPaneRef.current;
@@ -582,19 +585,36 @@ export default function SettingsModal({
       for (const el of Array.from(els) as HTMLElement[]) {
         if (el.children.length > 3) continue;
         const txt = el.textContent?.trim().toLowerCase() ?? "";
-        if (txt.includes(label) && txt.length < bestLen) {
-          best = el;
-          bestLen = txt.length;
-        }
+        if (!txt.includes(label) || txt.length >= bestLen) continue;
+        best = el;
+        bestLen = txt.length;
+        // Точное совпадение дальше искать бессмысленно
+        if (txt === label) break;
       }
       if (best) {
         best.scrollIntoView({ block: "center", behavior: "smooth" });
         best.classList.add("search-hit");
-        window.setTimeout(() => best.classList.remove("search-hit"), 1800);
+        // Таймер подсветки снимается cleanup'ом: без него класс мог висеть
+        // на элементе следующего перехода
+        if (highlightTimerRef.current !== null)
+          window.clearTimeout(highlightTimerRef.current);
+        highlightTimerRef.current = window.setTimeout(
+          () => {
+            best?.classList.remove("search-hit");
+            highlightTimerRef.current = null;
+          },
+          1800,
+        );
       }
       setPendingItem(null);
     }, 60);
-    return () => window.clearTimeout(timer);
+    return () => {
+      window.clearTimeout(timer);
+      if (highlightTimerRef.current !== null) {
+        window.clearTimeout(highlightTimerRef.current);
+        highlightTimerRef.current = null;
+      }
+    };
   }, [pendingItem]);
 
   // Закрытие по Escape

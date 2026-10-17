@@ -122,9 +122,13 @@ export default function AutomationsModal({
 
   const create = (n: string, p: string, schedule: Schedule, toVault: boolean) => {
     if (!n.trim() || !p.trim()) return;
+    // Дедуп по имени: двойной клик по шаблону (или создание дубликата)
+    // не должен плодить одинаковые задачи — существующая остаётся как есть
     const a = makeAutomation(n.trim(), p.trim(), schedule);
     a.toVault = toVault;
-    mutate((list) => [a, ...list]);
+    mutate((list) =>
+      list.some((x) => x.name === a.name) ? list : [a, ...list],
+    );
     setFormOpen(false);
     setName("");
     setPrompt("");
