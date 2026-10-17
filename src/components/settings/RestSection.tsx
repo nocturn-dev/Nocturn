@@ -17,7 +17,7 @@ export type GameId = "2048" | "mines" | "snake";
 function Preview2048() {
   const cells = [2, 4, 8, 16, 32, 64, 128, 256, 512];
   return (
-    <div className="grid grid-cols-3 gap-1 p-3">
+    <div className="grid w-full aspect-square grid-cols-3 gap-1 p-3">
       {cells.map((v) => (
         <div
           key={v}
@@ -33,7 +33,7 @@ function Preview2048() {
 
 function PreviewMines() {
   return (
-    <div className="grid grid-cols-4 gap-1 p-3">
+    <div className="grid w-full aspect-square grid-cols-4 gap-1 p-3">
       {["1", "F", "", "2", "", "3", "1", "", "B", "2", "", "1", "", "1", "", ""].map((c, i) => (
         <div
           key={i}
@@ -47,18 +47,20 @@ function PreviewMines() {
 }
 
 function PreviewSnake() {
+  const snake = [19, 20, 21, 29, 37, 36];
+  const food = 43;
   return (
-    <div className="grid grid-cols-8 gap-1 p-3">
-      {Array.from({ length: 24 }).map((_, i) => {
-        const snake = [10, 11, 12, 18].includes(i);
-        const food = i === 21;
+    <div className="grid w-full aspect-square grid-cols-8 gap-1 p-3">
+      {Array.from({ length: 64 }).map((_, i) => {
+        const isSnake = snake.includes(i);
+        const isFood = i === food;
         return (
           <div
             key={i}
-            className={`aspect-square rounded-[3px] ${
-              snake
+            className={`aspect-square rounded-[2px] ${
+              isSnake
                 ? "bg-halo-accent snake-preview-seg"
-                : food
+                : isFood
                   ? "bg-halo-accent/50"
                   : "bg-halo-surface/40"
             }`}
@@ -140,19 +142,21 @@ export function RestSection({
         {(["2048", "mines", "snake"] as GameId[]).map((id) => (
           <div
             key={id}
-            className="group overflow-hidden rounded-xl border border-halo-line bg-halo-surface/50 transition-[transform,border-color] duration-200 hover:-translate-y-1 hover:border-halo-accent/40"
+            className="group flex flex-col overflow-hidden rounded-xl border border-halo-line bg-halo-surface/50 transition-[transform,border-color] duration-200 hover:-translate-y-1 hover:border-halo-accent/40"
           >
-            {/* Превью игры */}
-            <div className="border-b border-halo-line/60 bg-halo-deep/40">
+            {/* Превью игры в квадратном блоке фиксированного аспекта */}
+            <div className="flex aspect-square items-center justify-center border-b border-halo-line/60 bg-halo-deep/40">
               {PREVIEWS[id]}
             </div>
-            <div className="p-3">
-              <p className="text-sm font-medium text-halo-text">
-                {id === "2048" ? "2048" : t(TITLE_KEYS[id])}
-              </p>
-              <p className="mt-0.5 text-[0.6875rem] text-halo-muted">
-                {t("game.record", { n: records[id] })}
-              </p>
+            <div className="flex flex-1 flex-col justify-between p-3">
+              <div>
+                <p className="text-sm font-medium text-halo-text">
+                  {id === "2048" ? "2048" : t(TITLE_KEYS[id])}
+                </p>
+                <p className="mt-0.5 text-[0.6875rem] text-halo-muted">
+                  {t("game.record", { n: records[id] })}
+                </p>
+              </div>
               <button
                 onClick={() => onGameChange(id)}
                 className="mt-2.5 w-full rounded-lg border border-halo-accent/50 bg-halo-accent/10 px-3 py-1.5 text-xs font-medium text-halo-accent transition-colors hover:bg-halo-accent/20"
