@@ -78,6 +78,9 @@ export default function CompareModal({ open, onClose, profiles, current }: Compa
   const [running, setRunning] = useState(false);
   const reqIdsRef = useRef<string[]>([]);
   const remainingRef = useRef(0);
+  // requestId, остановленные пользователем: признак «это Stop», без разбора
+  // текста ошибки (он зависит от бекенда и локали)
+  const stoppedRef = useRef<Set<string>>(new Set());
 
   // Цели и разумный дефолт выбора (первые две) — на каждое открытие
   useEffect(() => {
@@ -172,6 +175,7 @@ export default function CompareModal({ open, onClose, profiles, current }: Compa
   };
 
   const stopAll = () => {
+    stoppedRef.current = new Set(reqIdsRef.current);
     reqIdsRef.current.forEach((rid) => void abortChat(rid).catch(() => {}));
   };
 
@@ -218,6 +222,7 @@ export default function CompareModal({ open, onClose, profiles, current }: Compa
     setLanes(initial);
     // Буфер от прошлого прогона не должен втекать в новые полосы
     laneBufRef.current.clear();
+    stoppedRef.current = new Set();
     // Заложенный rAF прошлого прогона в свёрнутом окне не тикает и навсегда
     // держит гард scheduleLaneFlush — новые дельты копились без флаша.
     // Отменяем вместе с буфером: следующий scheduleLaneFlush стартует заново
@@ -237,6 +242,9 @@ export default function CompareModal({ open, onClose, profiles, current }: Compa
       if (!rid) continue;
       const t0 = performance.now();
       let firstDelta = true;
+      // Usage копится: провайдеры шлют несколько событий (промт/финал),
+      // и последнее затирало предыдущие
+      let usageAcc: ChatUsage | null = null;
       const messages: ChatMsgParam[] = [{ role: "user", content: clean }];
       void chatStream({
         requestId: rid,
@@ -258,10 +266,25 @@ export default function CompareModal({ open, onClose, profiles, current }: Compa
           scheduleLaneFlush();
         },
         onThought: () => {},
-        onUsage: (usage) => setLane(tg.key, { usage }),
+        onUsage: (usage) => {
+          usageAcc = usageAcc
+            ? {
+                prompt: usageAcc.prompt + usage.prompt,
+                completion: usageAcc.completion + usage.completion,
+                total: usageAcc.total + usage.total,
+              }
+            : usage;
+          setLane(tg.key, { usage: usageAcc });
+        },
       })
         .then(() => laneFinished(tg.key, Math.round(performance.now() - t0), null))
-        .catch((e) => laneFinished(tg.key, Math.round(performance.now() - t0), String(e)));
+        .catch((e) =>
+          laneFinished(
+            tg.key,
+            Math.round(performance.now() - t0),
+            stoppedRef.current.has(rid) ? "__stopped__" : String(e),
+          ),
+        );
     }
   };
 
@@ -276,7 +299,6 @@ export default function CompareModal({ open, onClose, profiles, current }: Compa
   };
 
   const fmtSec = (ms: number): string => `${(ms / 1000).toFixed(1)}s`;
-  const isAborted = (e: string): boolean => e.toLowerCase().includes("abort");
 
   if (!show) return null;
 
@@ -415,7 +437,11 @@ export default function CompareModal({ open, onClose, profiles, current }: Compa
                         <span className="typing-dot size-1.5 rounded-full bg-halo-muted" />
                       ) : lane.error ? (
                         <span className="text-xs text-red-400">
-                          {isAborted(lane.error) ? t("cmp.stopped") : lane.error}
+                          {/* Маркер Stop ставится локально в catch (см.
+                              stoppedRef): текст ошибки бекенда не парсим */}
+                          {lane.error === "__stopped__"
+                            ? t("cmp.stopped")
+                            : lane.error}
                         </span>
                       ) : null}
                     </div>

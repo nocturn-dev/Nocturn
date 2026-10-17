@@ -35,12 +35,14 @@ function mmssFmt(secs: number): string {
 }
 
 /** Название YT-ролика → кандидат для lrclib: срезаем скобочный мусор
- *  («(Official Video)», «【MV】») и хвостовые разделители канала */
+ *  («(Official Video)», «【MV】») и хвостовые разделители канала.
+ *  Класс тире/разделителей сверен с референсом: один U+2014 достаточен,
+ *  «-» последним в классе — литерал */
 function cleanYtTitle(raw: string): string {
   return raw
     .replace(/\([^)]*\)|\[[^\]]*\]|【[^】]*】|「[^」]*」/g, " ")
-    .replace(/[\s|／·–——-]*$/u, "")
-    .replace(/^[\s|／·–——-]+/u, "")
+    .replace(/[\s|／·–—-]*$/u, "")
+    .replace(/^[\s|／·–—-]+/u, "")
     .replace(/\s{2,}/g, " ")
     .trim();
 }
@@ -171,16 +173,18 @@ export function MediaBar({
   const ytTrackTitle = yt.track?.title ?? "";
   const ytTrackDuration = yt.duration;
   // Смена трека наверх (Нок: «О, моя любимая!» / «Что смотришь?»).
-  // Гард: трек/видео, уже лежащие на паузе при старте, — не событие
+  // Гард: трек/видео, уже лежащие на паузе при старте, — не событие.
+  // Spotify-ветка смотрит на СВОЁ состояние (state.playing): общий playing
+  // учитывает YouTube-режим, и играющий embed «будил» бы SMTC-трек как новый
   const trackPrevRef = useRef<string | null>(null);
   useEffect(() => {
     const id = state?.trackId ?? null;
     const prev = trackPrevRef.current;
     trackPrevRef.current = id;
     if (!id || id === prev) return;
-    if (prev === null && !playing) return;
+    if (prev === null && !state?.playing) return;
     onTrackChange?.("spotify");
-  }, [state?.trackId, playing, onTrackChange]);
+  }, [state?.trackId, state?.playing, onTrackChange]);
   const ytTrackPrevRef = useRef<string | null>(null);
   useEffect(() => {
     const id = ytTrackId;
@@ -230,7 +234,14 @@ export function MediaBar({
   const lyricsSnapRef = useRef<{ lines: LyricLine[] | null; i: number } | null>(
     null,
   );
+  // Колбэк в реф: инлайн-стрелка родителя не должна пересоздавать эффект
+  // снимка (дедуп спасал, но зависимость была фиктивной)
+  const onLyricsRef = useRef(onLyrics);
   useEffect(() => {
+    onLyricsRef.current = onLyrics;
+  }, [onLyrics]);
+  useEffect(() => {
+    const onLyrics = onLyricsRef.current;
     if (!onLyrics) return;
     const push = (lines: LyricLine[] | null, idx: number) => {
       const prev = lyricsSnapRef.current;
@@ -264,9 +275,10 @@ export function MediaBar({
       -1,
     );
     push(lyrics, idx);
-  }, [onLyrics, prefs.youtube, ytLyrics, yt.currentTime, lyrics, state, tick]);
+    // onLyrics/push — через реф: deps только реальные источники снимка
+  }, [prefs.youtube, ytLyrics, yt.currentTime, lyrics, state, tick]);
   // Размонтирование бара — лента гаснет
-  useEffect(() => () => onLyrics?.(null), [onLyrics]);
+  useEffect(() => () => onLyricsRef.current?.(null), []);
 
   // Режим YouTube: интеграция — радио с Spotify (bar=false), минибар
   // показывает трек embed-плеера; без трека — узкая полоска-вход в плеер
