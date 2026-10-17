@@ -3,9 +3,15 @@ import type { MsgKey } from "../../locales";
 /**
  * Чистая логика Нока: FSM настроений и выбор квипа после
  * прогона вытянуты из компонента, чтобы приоритеты покрывались табличными
- * тестами (тот же подход, что у зеркал toolFilter). Порядок проверок
- * pickMood = приоритет реакции: прямой контакт пользователя (гнев/шторм)
- * и системные сигналы (вопрос агента, ошибка) бьют самодеятельность.
+ * тестами (тот же подход, что у зеркал toolFilter).
+ *
+ * Лестница приоритетов pickMood (первая подошедшая ступень выигрывает):
+ *   шторм → гнев → вопрос агента → ошибка → полёт (явная команда) →
+ *   удивление → испуг → конфетти завершения → поглаживание →
+ *   стрим/thinking → сон → кувырок → ноутбук → музыка → покой.
+ * Логика порядка: прямой контакт пользователя и системные сигналы агента
+ * бьют самодеятельность; полёт — явная команда пользователя, поэтому выше
+ * случайных мимолётных состояний.
  */
 
 export type NokMood =
@@ -133,6 +139,15 @@ export type NokQuipKind =
   | "idle" // печатал и замолк > 30 с
   | "longtext"; // простыня текста в черновике
 
+/**
+ * События, приходящие в Нок извне (проп event). done — не событие: реплика
+ * «готово» имеет единственный путь через pickPostRunQuip — иначе упавший
+ * прогон мог бы отыграться бодрым квипом мимо решения (failed → null) или
+ * задублировать postRun-реплику. wake/night — тоже не события: это
+ * внутренний контекст старта, который Нок выбирает сам по времени/сну.
+ */
+export type NokEventKind = Exclude<NokQuipKind, "done" | "wake" | "night">;
+
 export const QUIP_KEYS: Record<NokQuipKind, MsgKey[]> = {
   start: [
     "mascot.quip.start1",
@@ -227,11 +242,14 @@ export function shouldQuip(
 }
 
 /** Фабрика колод: на каждый пул — своя перетасованная колода, фраза не
- *  повторится, пока не кончится вся (rnd инъектится для тестов) */
+ *  повторится, пока не кончится вся (rnd инъектится для тестов). На стыке
+ *  колод первая карта новой перетасовки не равна последней взятой — иначе
+ *  перетасовка из одной карты на остатке дублировала фразу подряд */
 export function makeQuipDecks(
   rnd: () => number = Math.random,
 ): (kind: NokQuipKind) => MsgKey {
   const decks = new Map<NokQuipKind, MsgKey[]>();
+  const lastDrawn = new Map<NokQuipKind, MsgKey>();
   return (kind) => {
     let deck = decks.get(kind);
     if (!deck || deck.length === 0) {
@@ -240,8 +258,15 @@ export function makeQuipDecks(
         const j = Math.floor(rnd() * (i + 1));
         [deck[i], deck[j]] = [deck[j]!, deck[i]!];
       }
+      const prev = lastDrawn.get(kind);
+      if (prev && deck.length > 1 && deck[deck.length - 1] === prev) {
+        const j = Math.floor(rnd() * (deck.length - 1));
+        [deck[deck.length - 1], deck[j]] = [deck[j]!, deck[deck.length - 1]!];
+      }
       decks.set(kind, deck);
     }
-    return deck.pop()!;
+    const card = deck.pop()!;
+    lastDrawn.set(kind, card);
+    return card;
   };
 }

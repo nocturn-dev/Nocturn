@@ -1046,6 +1046,8 @@ export const ru = {
     "mascot.quip.break": "Задач сегодня: {n}. Может, перерыв?",
     "mascot.quip.error": "Внизу что-то сломалось… это не я!",
     "mascot.quip.wait": "Эй! Тебя ждут!",
+    "mascot.ariaConfirm": "Открыть вопрос агента",
+    "mascot.ariaError": "Показать ошибку прогона",
     "mascot.menu.fly": "Полетать",
     "mascot.menu.home": "Домой",
     "mascot.menu.sleep": "Спать",

@@ -1034,6 +1034,8 @@ export const en = {
     "mascot.quip.break": "{n} tasks today. Maybe a break?",
     "mascot.quip.error": "Something broke down there… wasn't me!",
     "mascot.quip.wait": "Hey! They're waiting for you!",
+    "mascot.ariaConfirm": "Open the agent's question",
+    "mascot.ariaError": "Show the failed run's error",
     "mascot.menu.fly": "Fly around",
     "mascot.menu.home": "Home",
     "mascot.menu.sleep": "Sleep",

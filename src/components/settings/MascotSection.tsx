@@ -1,6 +1,6 @@
 import { useLang, type MsgKey } from "../../locales";
 import { Nok } from "../mascot/Nok";
-import { NOK_ROWS } from "../mascot/nokSprites";
+import { nokPerchTop } from "../mascot/nokSprites";
 import { Row, Segmented, ToggleRow } from "./parts";
 
 /**
@@ -19,6 +19,12 @@ const FALLBACK_HEX: Record<"body" | "glow" | "wing", string> = {
   glow: "#e8864a",
   wing: "#8a8178",
 };
+
+/** Значение из хранилища может не совпасть ни с одним пресетом (правка
+ *  руками/миграция): Segmented без совпадения не подсветит ничего —
+ *  клампим к ближайшей ступени */
+const nearestPreset = (v: number, presets: number[]): number =>
+  presets.reduce((best, p) => (Math.abs(p - v) < Math.abs(best - v) ? p : best), presets[0]!);
 
 export function MascotSection({
   mascot,
@@ -68,6 +74,8 @@ export function MascotSection({
 }) {
   const { t } = useLang();
   const displayName = mascotName.trim() || t("mascot.name");
+  const sizePreset = nearestPreset(size, SIZES);
+  const glowPreset = nearestPreset(glow, GLOWS);
   const colorRow = (part: "body" | "glow" | "wing", key: MsgKey) => (
     <div className="flex items-center justify-between gap-2">
       <span className="text-sm text-halo-text">{t(key)}</span>
@@ -106,7 +114,7 @@ export function MascotSection({
         <div className="relative h-24">
           <div
             className="absolute left-6 z-10"
-            style={{ top: 36 - NOK_ROWS * 3 * size + 3 }}
+            style={{ top: nokPerchTop(size, 36) }}
           >
             <Nok
               streaming={false}
@@ -188,7 +196,7 @@ export function MascotSection({
             label={t("mascot.size")}
             extra={
               <Segmented
-                value={String(size) as "0.8" | "1" | "1.3"}
+                value={String(sizePreset) as "0.8" | "1" | "1.3"}
                 onChange={(v) => onSizeChange(Number(v))}
                 options={SIZES.map((v, i) => ({
                   value: String(v) as "0.8" | "1" | "1.3",
@@ -204,7 +212,7 @@ export function MascotSection({
             label={t("mascot.glow")}
             extra={
               <Segmented
-                value={String(glow) as "0.7" | "1" | "1.5"}
+                value={String(glowPreset) as "0.7" | "1" | "1.5"}
                 onChange={(v) => onGlowChange(Number(v))}
                 options={GLOWS.map((v, i) => ({
                   value: String(v) as "0.7" | "1" | "1.5",

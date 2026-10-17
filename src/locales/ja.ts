@@ -1058,6 +1058,8 @@ export const ja = {
     "mascot.quip.break": "今日もう {n} 件。少し休憩しませんか？",
     "mascot.quip.error": "下でエラーが出たみたい……僕のせいじゃないよ！",
     "mascot.quip.wait": "ねえ！返事を待ってるよ！",
+    "mascot.ariaConfirm": "エージェントの質問を開く",
+    "mascot.ariaError": "実行エラーを表示する",
     "mascot.menu.fly": "飛んでみる",
     "mascot.menu.home": "帰る",
     "mascot.menu.sleep": "寝る",

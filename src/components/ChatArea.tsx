@@ -6,8 +6,8 @@ import { MediaBar } from "./MediaBar";
 import { Nok } from "./mascot/Nok";
 import { FileCard } from "./FileCard";
 import { matchNokTrigger } from "./mascot/nokTriggers";
-import { isPathLikeDraft, pickPostRunQuip, type PostRunQuip, type NokQuipKind } from "./mascot/nokMood";
-import { NOK_ROWS } from "./mascot/nokSprites";
+import { isPathLikeDraft, pickPostRunQuip, type PostRunQuip, type NokEventKind } from "./mascot/nokMood";
+import { nokPerchTop } from "./mascot/nokSprites";
 import ContextMenu, { type MenuItem } from "./ContextMenu";
 import type { PromptPreset } from "../presets";
 import type { JailbreakEntry } from "../jailbreaks";
@@ -440,9 +440,9 @@ export default function ChatArea({
   // Событийный канал Нока (старт/долгий цикл/вкладка/shell/музыка/лимит…):
   // seq монотонный — потерянные промежуточные события не страшны, шансы и
   // кулдауны решает Нок
-  const [nokEvent, setNokEvent] = useState<{ seq: number; kind: NokQuipKind } | null>(null);
+  const [nokEvent, setNokEvent] = useState<{ seq: number; kind: NokEventKind } | null>(null);
   const nokEventSeqRef = useRef(0);
-  const pushNokEvent = useCallback((kind: NokQuipKind) => {
+  const pushNokEvent = useCallback((kind: NokEventKind) => {
     nokEventSeqRef.current += 1;
     setNokEvent({ seq: nokEventSeqRef.current, kind });
   }, []);
@@ -1820,9 +1820,10 @@ export default function ChatArea({
     }
     if (!text && pendingImages.length === 0) return;
     // Пасхалки Нока: «Эй Нок, полетай» — команда перехватывается
-    // ДО отправки, модели не видна (как slash-команды); черновик гасим
+    // ДО отправки, модели не видна (как slash-команды); черновик гасим.
+    // Кастомное имя из настроек — маскот отзывается и на него
     if (mascot && mascotEaster) {
-      const cmd = matchNokTrigger(text);
+      const cmd = matchNokTrigger(text, mascotName);
       if (cmd === "fly") {
         setNokFlySeq((v) => v + 1);
         setDraft("");
@@ -2612,7 +2613,7 @@ export default function ChatArea({
                   mascotSide === "right" ? " nok-perch-right" : ""
                 }`}
                 style={{
-                  top: -(NOK_ROWS * 3 * mascotSize) + 3,
+                  top: nokPerchTop(mascotSize, 0),
                   ...(mascotSide === "left" ? { left: 6 } : { right: 6 }),
                 }}
                 onPointerDown={onNokPointerDown}

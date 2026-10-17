@@ -1,8 +1,16 @@
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { useLang, type MsgKey } from "../../locales";
 import { motionScale } from "../../motion";
 import { NOK_BASE, NOK_BLINK, NOK_COLS, NOK_FLY, NOK_ROWS } from "./nokSprites";
-import { pickMood, makeQuipDecks, shouldQuip, type NokMood, type NokQuipKind, type PostRunQuip } from "./nokMood";
+import {
+  pickMood,
+  makeQuipDecks,
+  shouldQuip,
+  type NokEventKind,
+  type NokMood,
+  type NokQuipKind,
+  type PostRunQuip,
+} from "./nokMood";
 
 /** Реплика с подстановками: {n} — число, {name} — имя маскота (кастомное
  *  или локализованное «Нок»). Строки без плейсхолдеров проходят как есть */
@@ -48,6 +56,61 @@ const BURST: Array<{ x: number; y: number; dx: number; dy: number }> = [
   { x: 5, y: 3, dx: 0, dy: -6 },
   { x: 5.5, y: 7, dx: 1, dy: 5 },
 ];
+
+/** Реплики самодеятельности: мысль вслух и строчки за ноутбуком.
+ *  Живут на уровне модуля — пулы стабильны, эффект планировщика не зависит
+ *  от пересоздаваемых сущностей и обходится без глушения eslint */
+const CODE_QUIPS: MsgKey[] = [
+  "mascot.quip.npm",
+  "mascot.quip.rs",
+  "mascot.quip.notabug",
+];
+const THOUGHT_QUIPS: MsgKey[] = [
+  "mascot.quip.todo",
+  "mascot.quip.hello",
+  "mascot.quip.think",
+  "mascot.quip.letter",
+];
+const pickQuip = (pool: MsgKey[]): MsgKey =>
+  pool[Math.floor(Math.random() * pool.length)] ?? "mascot.quip.think";
+
+/** Реплика плавает над головой и тает. src разделяет мысли самодеятельности
+ *  и внешние реплики (готово/ошибка/ожидание): гард стрима гасит только
+ *  «свои» мысли — чужая реплика, прилетевшая в том же батче, что стрим,
+ *  раньше стиралась целиком */
+type QuipSrc = "self" | "ext";
+
+interface FloatingQuip {
+  id: number;
+  key: MsgKey;
+  dx: number;
+  n?: number;
+  text: string;
+  src: QuipSrc;
+}
+
+/**
+ * Одноразовый таймер вспышки (ошибка/облегчение/конфетти): id живёт в ref и
+ * переживает ре-ран эффекта. Зависимости вроде spawnQuip пересоздаются на
+ * смене языка/имени — cleanup такого эффекта больше не обрывает выступление
+ * на середине (лампа ошибки и прикрытые глаза не залипают навсегда).
+ */
+function useFlashTimer(): (fire: () => void, ms: number) => void {
+  const timerRef = useRef<number | null>(null);
+  useEffect(
+    () => () => {
+      if (timerRef.current) window.clearTimeout(timerRef.current);
+    },
+    [],
+  );
+  return useCallback((fire: () => void, ms: number) => {
+    if (timerRef.current) window.clearTimeout(timerRef.current);
+    timerRef.current = window.setTimeout(() => {
+      timerRef.current = null;
+      fire();
+    }, ms);
+  }, []);
+}
 
 /** Темп анимаций (настройка «Скорость анимации», --motion-scale 0.7/1/1.4
  *  на html). Таймеры выступлений обязаны идти в том же темпе, что их
@@ -113,8 +176,10 @@ export function Nok({
   /** Квип после завершения прогона (±дифф / «перерыв» / пул «готово») */
   postRunQuip?: PostRunQuip | null;
   /** Событие жизни (старт задачи, вкладка, shell, музыка…): рост seq —
-   *  новое событие; шансы/кулдауны/колоды решаются внутри Нока */
-  event?: { seq: number; kind: NokQuipKind } | null;
+   *  новое событие; шансы/кулдауны/колоды решаются внутри Нока.
+   *  Тип сужен до NokEventKind: done/wake/night в канал событий не входят —
+   *  у «готово» единственный путь через postRunQuip */
+  event?: { seq: number; kind: NokEventKind } | null;
   /** Рост счётчика — «Спать» из меню */
   napSeq?: number;
   /** Клик в waiting/error ведёт к карточке (скролл/подсветка) — не гладит */
@@ -137,9 +202,11 @@ export function Nok({
   const [surprised, setSurprised] = useState(false); // смена темы
   const [errorFlash, setErrorFlash] = useState(false); // прогон упал
   const [visTick, setVisTick] = useState(0); // свёрнутое окно: сон/пробуждение
-  const [quips, setQuips] = useState<{ id: number; key: MsgKey; dx: number; n?: number; text: string }[]>([]);
+  const [quips, setQuips] = useState<FloatingQuip[]>([]);
   const quipIdRef = useRef(0);
-  const quipTimerRef = useRef<number | null>(null);
+  // Таймеры растворения — по реплике: теперь в очереди могут жить и мысль,
+  // и внешняя реплика одновременно, общий таймер гасил чужое удаление
+  const quipRemovalRef = useRef<Map<number, number>>(new Map());
 
   const lastClickRef = useRef(0);
   const angerDecayRef = useRef<number | null>(null);
@@ -150,17 +217,27 @@ export function Nok({
   // (ошибка, завершение прогона, ожидание подтверждения)
   const displayName = mascotName.trim() || t("mascot.name");
   const spawnQuip = useCallback(
-    (key: MsgKey, n?: number) => {
+    (key: MsgKey, n?: number, src: QuipSrc = "ext") => {
       const id = ++quipIdRef.current;
-      setQuips([
-        { id, key, dx: Math.round(Math.random() * 26 - 13), n, text: fmtQuip(t, key, n, displayName) },
+      // Новая реплика вытесняет только предыдущую своего источника: мысль
+      // и реплика о завершении могут сосуществовать, не мешая друг другу
+      setQuips((q) => [
+        ...q.filter((x) => x.src !== src),
+        {
+          id,
+          key,
+          dx: Math.round(Math.random() * 26 - 13),
+          n,
+          text: fmtQuip(t, key, n, displayName),
+          src,
+        },
       ]);
-      if (quipTimerRef.current) window.clearTimeout(quipTimerRef.current);
-      quipTimerRef.current = window.setTimeout(
-        () => setQuips((q) => q.filter((x) => x.id !== id)),
+      const timer = window.setTimeout(() => {
+        quipRemovalRef.current.delete(id);
+        setQuips((q) => q.filter((x) => x.id !== id));
         // Реплика живёт ровно столько, сколько её CSS-анимация (2.7s * scale)
-        2_700 * motionScale(),
-      );
+      }, 2_700 * motionScale());
+      quipRemovalRef.current.set(id, timer);
     },
     [t, displayName],
   );
@@ -174,51 +251,58 @@ export function Nok({
   }, [spawnQuip]);
   useEffect(
     () => () => {
-      if (quipTimerRef.current) window.clearTimeout(quipTimerRef.current);
+      quipRemovalRef.current.forEach((timer) => window.clearTimeout(timer));
+      quipRemovalRef.current.clear();
     },
     [],
   );
 
   // Событийные квипы: колода без повторов на каждый пул + глобальный
-  // кулдаун (анти-заучивание; механика в nokMood.ts)
-  const quipDecksRef = useRef(makeQuipDecks());
+  // кулдаун (анти-заучивание; механика в nokMood.ts). Колода ленивая:
+  // перетасовка двадцати пулов при монтировании не нужна. Присваивание
+  // в теле рендера не видно TS — вызовы через non-null
+  const quipDecksRef = useRef<ReturnType<typeof makeQuipDecks> | null>(null);
+  if (!quipDecksRef.current) quipDecksRef.current = makeQuipDecks();
   const lastQuipAtRef = useRef(0);
   const quipFromPool = useCallback(
     (kind: NokQuipKind) => {
       if (!shouldQuip(kind, lastQuipAtRef.current, Date.now())) return;
       lastQuipAtRef.current = Date.now();
-      spawnQuip(quipDecksRef.current(kind));
+      spawnQuip(quipDecksRef.current!(kind));
     },
     [spawnQuip],
   );
 
   // Завершение прогона: вспышка + конфетти (переход streaming true→false).
-  // Ошибка бьёт конфетти: её отыгрывает эффект errorSeq ниже
+  // Ошибка бьёт конфетти: её отыгрывает эффект errorSeq ниже. Таймер гашения
+  // — в useFlashTimer: не гасится ре-раном эффекта по errorSeq
   const prevStreamingRef = useRef(streaming);
   const seenErrorRef = useRef(errorSeq);
+  const endDonePulse = useFlashTimer();
   useEffect(() => {
     const was = prevStreamingRef.current;
     prevStreamingRef.current = streaming;
-    if (was && !streaming) {
-      if (errorSeq !== seenErrorRef.current) return;
+    if (was && !streaming && errorSeq === seenErrorRef.current) {
       setDonePulse(true);
-      const t = window.setTimeout(() => setDonePulse(false), 1_600 * motionScale());
-      return () => window.clearTimeout(t);
+      endDonePulse(() => setDonePulse(false), 1_600 * motionScale());
     }
-  }, [streaming, errorSeq]);
+  }, [streaming, errorSeq, endDonePulse]);
 
   // Прогон упал: тревожная вспышка — лампа краснеет, «!» над головой,
   // реплика из пула (важное — перебивает кулдаун); клик в этом состоянии
-  // ведёт к карточке ошибки
+  // ведёт к карточке ошибки. Таймер в useFlashTimer: ре-ран эффекта по
+  // пересозданному quipFromPool (язык/имя) раньше гасил таймер cleanup'ом,
+  // а ранний return по seenErrorRef не давал его перезапустить — лампа
+  // краснела навсегда
+  const endErrorFlash = useFlashTimer();
   useEffect(() => {
     if (errorSeq <= seenErrorRef.current) return;
     seenErrorRef.current = errorSeq;
     setErrorFlash(true);
     setAsleep(false);
     quipFromPool("error");
-    const t = window.setTimeout(() => setErrorFlash(false), 3_000);
-    return () => window.clearTimeout(t);
-  }, [errorSeq, quipFromPool]);
+    endErrorFlash(() => setErrorFlash(false), 3_000);
+  }, [errorSeq, quipFromPool, endErrorFlash]);
 
   // Квип после завершения (дифф / десятка / пул «готово»): решение
   // принимает ChatArea (pickPostRunQuip), фразу «готово» — колода здесь
@@ -230,7 +314,7 @@ export function Nok({
       const o = postRunQuip.outcome;
       if (o.kind === "diff") spawnQuip("mascot.quip.diff", o.n);
       else if (o.kind === "break") spawnQuip("mascot.quip.break", o.n);
-      else spawnQuip(quipDecksRef.current("done"));
+      else spawnQuip(quipDecksRef.current!("done"));
     }
   }, [postRunQuip, spawnQuip]);
 
@@ -336,41 +420,36 @@ export function Nok({
   // activity не перезапускают планировщик — иначе cleanup убивал кувырок/
   // испуг на полпути (класс слетал — мгновенный снап на насест). Завершение
   // выступлений — в темпе CSS (3.2s/3.9s * --motion-scale)
-  const CODE_QUIPS: MsgKey[] = [
-    "mascot.quip.npm",
-    "mascot.quip.rs",
-    "mascot.quip.notabug",
-  ];
-  const THOUGHT_QUIPS: MsgKey[] = [
-    "mascot.quip.todo",
-    "mascot.quip.hello",
-    "mascot.quip.think",
-    "mascot.quip.letter",
-  ];
-  const pick = (pool: MsgKey[]): MsgKey =>
-    pool[Math.floor(Math.random() * pool.length)] ?? "mascot.quip.think";
   useEffect(() => {
     // spawnQuip — через latest-ref (см. выше): ре-ран на смену t/displayName
     // здесь запрещён — cleanup гасит таймеры завершения выступлений, а
     // состояния не сбрасывает
 
-    const quip = (key: MsgKey, n?: number) => spawnQuipRef.current(key, n);
+    const quip = (key: MsgKey, n?: number) => spawnQuipRef.current(key, n, "self");
     if (streaming || !selfActivity) {
       setCoding(false);
       setTumble(false);
       setScaring(false);
-      setQuips([]);
+      // Гасим только мысли самодеятельности: внешняя реплика (ошибка,
+      // «готово»), прилетевшая в этом же батче, должна дожить свой срок
+      setQuips((q) => q.filter((x) => x.src !== "self"));
       return;
     }
     let alive = true;
-    const timers: number[] = [];
+    // Сработавшие таймеры удаляются: раньше массив только рос — долгий
+    // простой копил сотни мёртвых id
+    const timers = new Set<number>();
     const later = (fn: () => void, ms: number) => {
-      timers.push(window.setTimeout(() => alive && fn(), ms));
+      const id = window.setTimeout(() => {
+        timers.delete(id);
+        if (alive) fn();
+      }, ms);
+      timers.add(id);
     };
     const startCoding = () => {
       setCoding(true);
       // Серединная реплика во время кодинга — не всегда (шанс 40%)
-      if (Math.random() < 0.4) later(() => quip(pick(CODE_QUIPS)), 3_200);
+      if (Math.random() < 0.4) later(() => quip(pickQuip(CODE_QUIPS)), 3_200);
       later(() => {
         setCoding(false);
         quip("mascot.quip.after");
@@ -397,17 +476,16 @@ export function Nok({
       }, 3_900 * motionScale()); // анимация испуга: 3.9s * scale
     };
     const schedule = (delay: number) => {
-      t1 = window.setTimeout(() => {
-        if (!alive) return;
+      later(() => {
         const roll = Math.random();
         if (roll < 0.4) {
           // Мысль сама по себе — ноутбука не будет
-          quip(pick(THOUGHT_QUIPS));
+          quip(pickQuip(THOUGHT_QUIPS));
           schedule(9_000 + Math.random() * 22_000);
         } else if (roll < 0.65) {
           // Ноутбук: в половине случаев мысль прилетает за секунду до
           if (Math.random() < 0.5) {
-            quip(pick(THOUGHT_QUIPS));
+            quip(pickQuip(THOUGHT_QUIPS));
             later(startCoding, 1_500);
           } else {
             startCoding();
@@ -419,7 +497,6 @@ export function Nok({
         }
       }, delay);
     };
-    let t1 = 0;
     schedule(10_000 + Math.random() * 18_000);
     // Состояния выступлений НЕ сбрасываем: их завершают СВОИ таймеры выше.
     // Re-run сюда приходит только при смене streaming/selfActivity — а та
@@ -427,28 +504,27 @@ export function Nok({
     return () => {
       alive = false;
       timers.forEach((id) => window.clearTimeout(id));
-      window.clearTimeout(t1);
+      timers.clear();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- spawnQuip через ref, пулы стабильны по смыслу
   }, [streaming, selfActivity]);
 
   // Настройки закрылись: «Фух» — перестали тыкать (глаза прикрыты сами
-  // морганием: relief держит их закрытыми 1.4с)
+  // морганием: relief держит их закрытыми 1.4с). Таймер в useFlashTimer:
+  // ре-ран по пересозданному spawnQuip не гасит его cleanup'ом
   const [relief, setRelief] = useState(false);
   const prevSettingsRef = useRef(settingsClosedSeq);
+  const endRelief = useFlashTimer();
   useEffect(() => {
     if (settingsClosedSeq > prevSettingsRef.current) {
       setRelief(true);
-      const timer = window.setTimeout(() => setRelief(false), 1_400);
+      endRelief(() => setRelief(false), 1_400);
       // spawnQuip, а не прямой setQuips: таймер удаления — часть контракта
       // реплики (2.7s * scale), прямая запись оставляла узел в DOM навсегда
       spawnQuip("mascot.quip.relief");
-      prevSettingsRef.current = settingsClosedSeq;
-      return () => window.clearTimeout(timer);
     }
     prevSettingsRef.current = settingsClosedSeq;
-    // t/displayName в deps: имя меняется редко, реплика одна — честные deps
-  }, [settingsClosedSeq, t, displayName, spawnQuip]);
+    // spawnQuip уже тянет t/displayName — honest deps короче исходных
+  }, [settingsClosedSeq, spawnQuip, endRelief]);
 
   // Удивление: смена темы — глаза по пять копеек и подпрыгивает
   const prevThemeRef = useRef<string | undefined>(undefined);
@@ -567,31 +643,86 @@ export function Nok({
   const glowBoost =
     glowCfg * (mood === "sleeping" ? 0.35 : mood === "petting" ? 1.15 : 1);
 
-  const cellFill = (ch: string): string =>
-    ch === "a"
-      ? lampFill
-      : ch === "e"
-        ? eyeFill
-        : ch === "G" || ch === "g"
-          ? lampFill
-          : ch === "w"
-            ? wingColor
-            : bodyColor;
-  const cellOpacity = (ch: string): number =>
-    ch === "G" ? Math.min(0.85 * glowBoost, 1) : ch === "g" ? 0.32 * glowBoost : 1;
-
   const matrix = blink || mood === "sleeping" ? NOK_BLINK : NOK_BASE;
+
+  // Клетки тела/крыльев/лампы пересобираются из матрицы в memo: стрим и
+  // моргание перерисовывают компонент часто, а состав клеток меняется
+  // только с матрицей (моргание/сон), настроением или палитрой
+  const { bodyCells, wingCells, lampCells, flyWingCells } = useMemo(() => {
+    const cell = (ch: string, x: number, y: number) => {
+      if (ch === "G" || ch === "g") {
+        return (
+          <rect
+            key={`${x}:${y}`}
+            x={x}
+            y={y}
+            width={1}
+            height={1}
+            fill={lampFill}
+            opacity={ch === "G" ? Math.min(0.85 * glowBoost, 1) : 0.32 * glowBoost}
+          />
+        );
+      }
+      // Глаза = text-токен: светлая точка на тёмном теле в тёмных темах
+      // и тёмная на deep-теле в светлых (bg в тёмной теме слишком близок
+      // к deep — глаза пропадали); при удивлении/исуге/ошибке — крупнее
+      const wide = ch === "e" && (mood === "surprised" || mood === "scare" || mood === "error");
+      // «a» — усики в цвет лампы (accent), «e» — глаза, «w» — крылья
+      const fill = ch === "a" ? lampFill : ch === "e" ? eyeFill : ch === "w" ? wingColor : bodyColor;
+      return (
+        <rect
+          key={`${x}:${y}`}
+          x={wide ? x - 0.15 : x}
+          y={wide ? y - 0.15 : y}
+          width={wide ? 1.3 : 1}
+          height={wide ? 1.3 : 1}
+          fill={fill}
+          opacity={ch === "w" ? 0.75 : undefined}
+        />
+      );
+    };
+    const cellsOf = (src: string[], keep: (ch: string) => boolean) =>
+      src.flatMap((row, y) =>
+        [...row].flatMap((ch, x) => (keep(ch) ? [cell(ch, x, y)] : [])),
+      );
+    return {
+      bodyCells: cellsOf(matrix, (ch) => ch !== "." && ch !== "G" && ch !== "g" && ch !== "w"),
+      wingCells: cellsOf(matrix, (ch) => ch === "w"),
+      lampCells: cellsOf(matrix, (ch) => ch === "G" || ch === "g"),
+      flyWingCells: cellsOf(NOK_FLY, (ch) => ch === "w"),
+    };
+  }, [matrix, mood, bodyColor, eyeFill, lampFill, wingColor, glowBoost]);
 
   // Улетевший остаётся смонтированным: обидчивый отлёт/возврат — CSS-переход
   // на обёртке (класс nok-storm), pointer-events гасятся, таймер вернёт
+
+  // Ожидание подтверждения и ошибка — навигационные состояния: клик и
+  // клавиатура (Enter/Space) ведут к карточке, поэтому корень на время
+  // становится кнопкой, а не картинкой
+  const interactive = waitingConfirm || errorFlash;
+  const handleKeyDown = (e: ReactKeyboardEvent) => {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    // Enter IME-подтверждения (китайский/японский ввод) не должен «тыкать»
+    if (e.nativeEvent.isComposing) return;
+    e.preventDefault();
+    handleClick();
+  };
 
   return (
     <div
       className={`nok nok-${mood} select-none`}
       onClick={handleClick}
+      onKeyDown={interactive ? handleKeyDown : undefined}
       title={displayName}
-      role="img"
-      aria-label={displayName}
+      role={interactive ? "button" : "img"}
+      aria-label={
+        interactive
+          ? waitingConfirm
+            ? t("mascot.ariaConfirm")
+            : t("mascot.ariaError")
+          : displayName
+      }
+      tabIndex={interactive ? 0 : undefined}
       // --nok-scale: полётные сдвиги в CSS умножают на масштаб, чтобы
       // «крупный» Нок летел так же далеко относительно себя
       style={{ "--nok-scale": scale } as CSSProperties}
@@ -720,67 +851,12 @@ export function Nok({
         {/* Тело: усики, голова, глаза (при удивлении — по пять копеек);
             крылышки мерцают отдельной группой; лампа-брюшко тоже отдельно
             (пульс свечения — на группе, чтобы не спорить с opacity клеток) */}
-        <g className="nok-body">
-          {matrix.flatMap((row, y) =>
-            [...row].flatMap((ch, x) => {
-              if (ch === "." || ch === "G" || ch === "g" || ch === "w") return [];
-              const big =
-                ch === "e" && (mood === "surprised" || mood === "scare" || mood === "error");
-              return [
-                <rect
-                  key={`${x}:${y}`}
-                  x={big ? x - 0.15 : x}
-                  y={big ? y - 0.15 : y}
-                  width={big ? 1.3 : 1}
-                  height={big ? 1.3 : 1}
-                  fill={cellFill(ch)}
-                />,
-              ];
-            }),
-          )}
-        </g>
-        <g className="nok-wings">
-          {matrix.flatMap((row, y) =>
-            [...row].flatMap((ch, x) => {
-              if (ch !== "w") return [];
-              return [
-                <rect key={`${x}:${y}`} x={x} y={y} width={1} height={1} fill={cellFill("w")} opacity={0.75} />,
-              ];
-            }),
-          )}
-        </g>
+        <g className="nok-body">{bodyCells}</g>
+        <g className="nok-wings">{wingCells}</g>
         {/* Полётный кадр крыльев (подняты): кадры низ/верх меняет CSS,
             компонент на взмахах не перерисовывается */}
-        {mood === "fly" && (
-          <g className="nok-wings-alt">
-            {NOK_FLY.flatMap((row, y) =>
-              [...row].flatMap((ch, x) => {
-                if (ch !== "w") return [];
-                return [
-                  <rect key={`${x}:${y}`} x={x} y={y} width={1} height={1} fill={cellFill("w")} opacity={0.75} />,
-                ];
-              }),
-            )}
-          </g>
-        )}
-        <g className="nok-lamp">
-          {matrix.flatMap((row, y) =>
-            [...row].flatMap((ch, x) => {
-              if (ch !== "G" && ch !== "g") return [];
-              return [
-                <rect
-                  key={`${x}:${y}`}
-                  x={x}
-                  y={y}
-                  width={1}
-                  height={1}
-                  fill={lampFill}
-                  opacity={cellOpacity(ch)}
-                />,
-              ];
-            }),
-          )}
-        </g>
+        {mood === "fly" && <g className="nok-wings-alt">{flyWingCells}</g>}
+        <g className="nok-lamp">{lampCells}</g>
 
         {/* Наушники: под музыкой (Spotify/YouTube) — поёт в два пикселя */}
         {musicPlaying && mood !== "sleeping" && (

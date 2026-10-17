@@ -1058,6 +1058,8 @@ export const zh = {
     "mascot.quip.break": "今天已经 {n} 个任务了。要休息一下吗？",
     "mascot.quip.error": "下面好像出错了……不是我干的！",
     "mascot.quip.wait": "喂！在等你回复呢！",
+    "mascot.ariaConfirm": "打开代理的提问",
+    "mascot.ariaError": "查看本次运行的错误",
     "mascot.menu.fly": "飞一圈",
     "mascot.menu.home": "回来",
     "mascot.menu.sleep": "睡觉",

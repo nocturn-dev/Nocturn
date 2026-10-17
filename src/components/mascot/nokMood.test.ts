@@ -157,6 +157,21 @@ describe("makeQuipDecks — без повторов, пока колода не 
     expect(a).not.toBe(b);
     expect(QUIP_KEYS.shell).toContain(a);
   });
+
+  it("на стыке колод фраза не повторяется", () => {
+    // rnd ≈ 1: Фишер-Йейтс не переставляет — обе колоды в исходном порядке,
+    // без защиты на стыке первая карта нового цикла повторит последнюю
+    const next = makeQuipDecks(() => 0.999);
+    const keys = QUIP_KEYS.start;
+    let prevCard = "";
+    for (let cycle = 0; cycle < 3; cycle++) {
+      for (let i = 0; i < keys.length; i++) {
+        const card = next("start");
+        expect(card).not.toBe(prevCard);
+        prevCard = card;
+      }
+    }
+  });
 });
 
 describe("shouldQuip — кулдаун и шансы", () => {
