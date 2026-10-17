@@ -7,7 +7,10 @@ import { CheckIcon } from "../cards/icons";
 export function BrowserUseSection() {
   const { t } = useLang();
   const [cfg, setCfg] = useState<BrowserConfig>({
-    enabled: true,
+    // Дефолт как в Rust (disabled): до ответа бекенда тумблер не показывает
+    // «включено» — включённый браузер агента это не то, что честно считать
+    // дефолтом
+    enabled: false,
     headless: true,
     executable: "",
     allowPrivateNetworks: false,

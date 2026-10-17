@@ -253,6 +253,7 @@ export const zh = {
   "network.caPh": "例如 C:/certs/root-ca.pem",
   "network.save": "保存",
   "network.saved": "已保存",
+  "network.loadErr": "无法读取网络配置：{e}。已禁止保存 — 空配置会覆盖磁盘上的文件。",
     "composer.send": "发送 (Enter)",
     "composer.stop": "停止生成",
     "composer.attach": "附加图片",
@@ -782,16 +783,6 @@ export const zh = {
     "mcp.importBtn": "导入",
     "mcp.importOk": "已导入服务器：{n} 个",
     "mcp.importFail": "无法解析 JSON — 请检查格式。",
-    // Allowlist агента (настройки)
-    "agent.allowlistDesc":
-      "通过「本任务总是允许」放行的命令：代理执行它们无需确认。列表按任务保存。",
-    "agent.allowlistEmpty":
-      "还没有放行任何命令。在代理请求中点击「本任务总是允许」，命令会出现在这里。",
-    "agent.allowlistClear": "清空列表",
-    "agent.allowlistOf": "任务：「{title}」",
-    "agent.allowlistAllTitle": "所有任务放行的命令",
-    "agent.allowlistAllEmpty":
-      "还没有任务放行过命令。在代理对话中点击「本任务总是允许」，列表会出现在这里。",
     "main.version": "版本",
     "main.autostart": "开机自启",
     "main.autoUpdate": "启动时检查更新",
@@ -1557,6 +1548,7 @@ export const zh = {
     "tg.correctionSent": "来自 Telegram 的修正已发送到正在运行的任务",
     "tg.taskQueued": "来自 Telegram 的任务已加入队列",
     "tg.privacy": "令牌加密存储且不会进入设置导出；机器人只写 入绑定的聊天；关闭开关后 — 零请求。",
+    "tg.tokenShow": "显示/隐藏令牌",
     "tg.started": "▶️ 任务已启动：{task}",
     "tg.finished": "任务已完成：{task}",
     "tg.stopped": "任务已停止：{task}",

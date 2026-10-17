@@ -1,10 +1,7 @@
-import type { ModelInfo } from "../../api";
-
-export interface ApiStatus {
-  kind: "idle" | "checking" | "ok" | "error";
-  message?: string;
-  models?: ModelInfo[];
-}
+import type { ApiStatus } from "../../api";
+// Статус соединения определяется в api.ts (рядом с ModelInfo); реэкспорт
+// держит старые импорты («./types») рабочими
+export type { ApiStatus };
 
 export type Section =
   | "main"
@@ -32,7 +29,7 @@ export type Section =
   | "integrations"
   | "docs";
 
-/** Навигация настроек: аккордеон из 5 групп и 14 страниц (NAV в
+/** Навигация настроек: аккордеон из 5 групп и 24 страниц (NAV в
  *  SettingsModal). Тип Section — идентификаторы СТАРЫХ разделов: остался
  *  для глубоких ссылок (App/ChatArea) и поискового индекса, маппится на
  *  страницу */

@@ -1,15 +1,21 @@
 import type { MsgKey } from "../../locales";
-import type { Section } from "./types";
+import type { Section, SettingsPage } from "./types";
 
 /**
  * Индекс поиска по настройкам: ключи локалей строк внутри каждой секции.
  * Поиск матчится по локализованным подписям в рантайме (t(key)) — работает
  * во всех четырёх языках. Пополняется при добавлении новых настроек.
+ * section несёт и старые Section-иды, и новые SettingsPage: страницы без
+ * своей Section-иды (gguf, jailbreaks) ведут сразу на страницу — gotoSection
+ * пропускает неизвестные маппингу иды насквозь.
  * ВАЖНО: ключи обязаны существовать во всех словарях — отсутствующий ключ
  * ломает t() (undefined.toLowerCase()) в поиске. Тип MsgKey переносит эту
  * проверку в компиляцию: протухший ключ в индексе больше не собирается.
  */
-export const SETTINGS_SEARCH_INDEX: { section: Section; keys: MsgKey[] }[] = [
+export const SETTINGS_SEARCH_INDEX: {
+  section: Section | SettingsPage;
+  keys: MsgKey[];
+}[] = [
   {
     section: "main",
     keys: [
@@ -98,8 +104,6 @@ export const SETTINGS_SEARCH_INDEX: { section: Section; keys: MsgKey[] }[] = [
   {
     section: "api",
     keys: [
-      "ggufLab.entry",
-      "ggufLab.entryDesc",
       "api.baseUrl",
       "api.model",
       "api.fallbackModel",
@@ -109,12 +113,23 @@ export const SETTINGS_SEARCH_INDEX: { section: Section; keys: MsgKey[] }[] = [
     ],
   },
   {
+    // GGUF Lab — самостоятельная страница диагностики: раньше вёл из поиска
+    // на «apiKeys», где самой карточки входа нет
+    section: "gguf",
+    keys: ["ggufLab.entry", "ggufLab.entryDesc", "ggufLab.title", "ggufLab.desc"],
+  },
+  {
     section: "browser",
     keys: [
       "bu.desc",
       "bu.enabled",
       "bu.executable",
       "bu.headless",
+      // Веб-поиск переехал в раздел «Browser Use» (одна тема: сеть)
+      "ws.enabled",
+      "ws.provider",
+      "ws.searxngUrl",
+      "ws.braveKeyDesc",
     ],
   },
   {
@@ -177,16 +192,14 @@ export const SETTINGS_SEARCH_INDEX: { section: Section; keys: MsgKey[] }[] = [
     keys: ["ig.enabled", "ig.baseUrl", "ig.fallbackHint"],
   },
   {
-    // Веб-поиск переехал в раздел «Browser Use» (одна тема: сеть)
-    section: "browser",
-    keys: ["ws.enabled", "ws.provider", "ws.searxngUrl", "ws.braveKeyDesc"],
+    section: "prompts",
+    keys: ["prompts.desc", "prompts.add", "prompts.empty"],
   },
   {
-    section: "prompts",
+    // Джейлбрейки — самостоятельная страница: раньше вёл из поиска на
+    // «prompts», где карточка рендерится только в compat-режиме
+    section: "jailbreaks",
     keys: [
-      "prompts.desc",
-      "prompts.add",
-      "prompts.empty",
       "jb.title",
       "jb.desc",
       "jb.ownTitle",
@@ -205,11 +218,6 @@ export const SETTINGS_SEARCH_INDEX: { section: Section; keys: MsgKey[] }[] = [
   {
     section: "skills",
     keys: ["skills.desc", "skills.palette", "skills.fromPlugin"],
-  },
-  {
-    // Allowlist'ы агента живут в разделе «Команды»
-    section: "commands",
-    keys: ["agent.allowlistDesc", "agent.allowlistAllTitle"],
   },
   {
     section: "commands",

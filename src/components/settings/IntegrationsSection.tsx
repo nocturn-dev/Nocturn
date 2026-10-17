@@ -42,6 +42,8 @@ export function IntegrationsSection({
   const [tgOpen, setTgOpen] = useState(false);
   const [tgBusy, setTgBusy] = useState(false);
   const [tgError, setTgError] = useState("");
+  // Токен — секрет: поле всегда маскировано, показ по явной кнопке
+  const [tgShowToken, setTgShowToken] = useState(false);
   const tgOn = tg?.enabled ?? false;
   useEffect(() => {
     let disposed = false;
@@ -63,8 +65,15 @@ export function IntegrationsSection({
     setTgBusy(true);
     setTgError("");
     try {
-      await telegramSetConfig(next);
-      setTg(next);
+      // chat_id привязывается /start'ом на бекенде в обход UI: перед записью
+      // подтягиваем его с сервера — иначе сохранение с устаревшим пустым
+      // chatId стирало живую привязку (сервер пишет chat_id как прислали).
+      // Заодно это снимает гонку с фоновым опросом: опрос читает только
+      // статус, конфликтов записи больше нет
+      const server = await telegramGetConfig().catch(() => null);
+      const saved = { ...next, chatId: next.chatId || server?.chatId || "" };
+      await telegramSetConfig(saved);
+      setTg(saved);
       const st = await telegramStatus().catch(() => null);
       if (st) setTgStatus(st);
     } catch (e) {
@@ -125,7 +134,9 @@ export function IntegrationsSection({
 
   // Живой статус привязки: /start в TG обновляет бекенд БЕЗ ведома UI —
   // без опроса карточка вечно показывала «не привязан» при фактической
-  // привязке. Конфиг тоже: chat_id доезжает с диска
+  // привязке. Опрашивается ТОЛЬКО статус: полный конфиг с (зашифрованным)
+  // токеном гонять по IPC каждые 3 с незачем, chat_id подхватывается
+  // в saveTg в момент записи
   useEffect(() => {
     if (!tgOn) return;
     let disposed = false;
@@ -133,16 +144,6 @@ export function IntegrationsSection({
       void telegramStatus()
         .then((s) => {
           if (!disposed) setTgStatus(s);
-        })
-        .catch(() => {});
-      void telegramGetConfig()
-        .then((c) => {
-          if (disposed) return;
-          // Мерджим только серверные поля (enabled/chatId), не весь объект:
-          // полная замена каждые 3 с откатывала черновик токена посреди
-          // ввода к старому значению. Первый ответ —
-          // целиком, локального стейта ещё нет
-          setTg((prev) => (prev ? { ...prev, enabled: c.enabled, chatId: c.chatId } : c));
         })
         .catch(() => {});
     };
@@ -532,6 +533,7 @@ export function IntegrationsSection({
           </div>
           <div className="flex items-center gap-2 px-2">
             <input
+              type={tgShowToken ? "text" : "password"}
               value={tg?.botToken ?? ""}
               onChange={(e) => {
                 setTg((prev) => prev ? { ...prev, botToken: e.target.value } : prev);
@@ -541,7 +543,19 @@ export function IntegrationsSection({
               className="h-8 min-w-0 flex-1 rounded-lg border border-halo-line bg-halo-deep px-2.5 font-mono text-xs text-halo-text outline-none placeholder:text-halo-muted/50 focus:border-halo-accent/50"
             />
             <button
-              onClick={() => (tgOn ? void saveTg({ ...tg!, enabled: false }) : connectTg())}
+              onClick={() => setTgShowToken((v) => !v)}
+              title={t("tg.tokenShow")}
+              aria-label={t("tg.tokenShow")}
+              className={`flex size-8 shrink-0 items-center justify-center rounded-lg border transition-colors ${
+                tgShowToken
+                  ? "border-halo-accent/50 text-halo-accent"
+                  : "border-halo-line text-halo-muted hover:text-halo-text"
+              }`}
+            >
+              <EyeIcon open={tgShowToken} />
+            </button>
+            <button
+              onClick={() => (tgOn && tg ? void saveTg({ ...tg, enabled: false }) : connectTg())}
               disabled={tgBusy || !tg}
               className="h-8 shrink-0 rounded-lg border border-halo-accent/40 bg-halo-accent/10 px-3 text-xs font-medium text-halo-accent transition-colors hover:bg-halo-accent/20 disabled:opacity-40"
             >
@@ -619,6 +633,27 @@ export function IntegrationsSection({
         {t("integrations.experimental")}
       </p>
     </div>
+  );
+}
+
+/** Иконка «показать/скрыть» для поля токена (как в CryptoGate) */
+function EyeIcon({ open }: { open: boolean }) {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8Z" />
+      <circle cx="12" cy="12" r="3" />
+      {!open && <path d="M2 2l20 20" />}
+    </svg>
   );
 }
 

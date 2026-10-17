@@ -23,9 +23,9 @@ import {
   testConnection,
   type ApiProfile,
   type ApiSettings,
+  type ApiStatus,
   type LocalRuntime,
   type LocalRuntimes,
-  type ModelInfo,
 } from "../api";
 import { useLang } from "../locales";
 import type { Session } from "../types";
@@ -51,11 +51,7 @@ export function useApiSettings(opts: {
   const [apiSettings, setApiSettings] = useState<ApiSettings>({
     ...DEFAULT_SETTINGS,
   });
-  const [apiStatus, setApiStatus] = useState<{
-    kind: "idle" | "checking" | "ok" | "error";
-    message?: string;
-    models?: ModelInfo[];
-  }>({ kind: "idle" });
+  const [apiStatus, setApiStatus] = useState<ApiStatus>({ kind: "idle" });
   // Профили ключей — отдельное хранилище profiles.json
   const [profiles, setProfiles] = useState<ApiProfile[]>([]);
   const [activeProfileId, setActiveProfileId] = useState("");
@@ -77,6 +73,13 @@ export function useApiSettings(opts: {
   });
   // Ожидание создания мастер-пароля при включении тумблера шифрования
   const encPendingRef = useRef(false);
+  // Резолвер промиса тумблера: тумблер ждёт финала гейта (успех/отмена),
+  // а не получает true сразу — иначе вызывающий не отличал успех от отмены
+  const encResultRef = useRef<((ok: boolean) => void) | null>(null);
+  const resolveEnc = useCallback((ok: boolean) => {
+    encResultRef.current?.(ok);
+    encResultRef.current = null;
+  }, []);
 
   /** Первичная загрузка: настройки + профили + гейт пароля. Один вызов */
   const loadInitial = useCallback(() => {
@@ -201,17 +204,20 @@ export function useApiSettings(opts: {
   }, []);
 
   /** Тумблер шифрования: включение открывает окно создания мастер-пароля,
-      выключение — окно разблокировки (расшифровать можно только с паролем) */
+      выключение — окно разблокировки (расшифровать можно только с паролем).
+      Промис резолвится финалом гейта: false — отмена или неудача, true —
+      режим действительно сменился */
   const handleEncryptionToggle = useCallback(
-    async (enable: boolean) => {
-      if (enable) {
-        encPendingRef.current = true;
-        setCryptoGate("create");
-        return true;
-      }
-      setCryptoGate("disable");
-      return true;
-    },
+    (enable: boolean) =>
+      new Promise<boolean>((resolve) => {
+        encResultRef.current = resolve;
+        if (enable) {
+          encPendingRef.current = true;
+          setCryptoGate("create");
+        } else {
+          setCryptoGate("disable");
+        }
+      }),
     [],
   );
 
@@ -229,15 +235,28 @@ export function useApiSettings(opts: {
           }
           await reloadSecrets();
           setCryptoGate("none");
+          resolveEnc(true);
           return true;
         }
         // unlock и disable: сначала проверяем пароль
         await cryptoUnlock(password);
         if (cryptoGate === "disable") {
-          await setKeyEncryption(false);
+          try {
+            await setKeyEncryption(false);
+          } catch {
+            // Пароль верный и хранилище уже разблокировано — висеть окну
+            // нечему: закрываем, а неудачу отключения показывает тумблер
+            // (resolveEnc(false)), состояние encrypt_keys не меняем
+            encPendingRef.current = false;
+            await reloadSecrets().catch(() => {});
+            setCryptoGate("none");
+            resolveEnc(false);
+            return true;
+          }
         }
         await reloadSecrets();
         setCryptoGate("none");
+        resolveEnc(true);
         return true;
       } catch (e) {
         // «wrong password» — единственный штатный отказ бекенда; сбой IPC
@@ -246,22 +265,25 @@ export function useApiSettings(opts: {
         throw e;
       }
     },
-    [cryptoGate, reloadSecrets],
+    [cryptoGate, reloadSecrets, resolveEnc],
   );
 
-  /** «Забыли пароль»: сброс шифрования, зашифрованные ключи утеряны */
+  /** «Забыли пароль»: сброс шифрования, зашифрованные ключи утеряны.
+      Тумблер, открывший гейт, получает false — включить шифрование не вышло */
   const handleGateReset = useCallback(async () => {
     await cryptoReset().catch(() => {});
     encPendingRef.current = false;
     await reloadSecrets();
     setCryptoGate("none");
-  }, [reloadSecrets]);
+    resolveEnc(false);
+  }, [reloadSecrets, resolveEnc]);
 
   /** Отмена гейта, открытого из тумблера: ничего не включаем/не выключаем */
   const handleGateCancel = useCallback(() => {
     encPendingRef.current = false;
     setCryptoGate("none");
-  }, []);
+    resolveEnc(false);
+  }, [resolveEnc]);
 
   // Idle-lock: если хранилище само заперлось (15 мин без операций с ключом) —
   // при возврате в окно показываем гейт разблокировки, иначе зашифрованные
@@ -400,6 +422,9 @@ export function useApiSettings(opts: {
           : "http://localhost:11434/v1",
       model: id,
       provider: "custom",
+      // Облачный fallback локальной модели бессмыслен и опасен тратой
+      // ключа: при исчерпании ретраев прогон ушёл бы в облако
+      fallback_model: undefined,
     }));
   };
 
@@ -415,6 +440,8 @@ export function useApiSettings(opts: {
       base_url: baseUrl,
       model,
       provider: "custom",
+      // Локальный llama-server не должен падать в облачный fallback
+      fallback_model: undefined,
     }));
   }, []);
 

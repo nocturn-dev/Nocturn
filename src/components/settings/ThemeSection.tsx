@@ -285,12 +285,29 @@ export function ThemeSection({
   };
 
   const removeFont = async (id: string) => {
+    const family = customFonts.find((f) => f.id === id)?.family;
     try {
       await fontDelete(id);
     } catch {
       // манифест недоступен — список обновится при следующем открытии
     }
     setCustomFonts((prev) => prev.filter((f) => f.id !== id));
+    // Поля, ссылающиеся на удалённое семейство, сбрасываются на системный:
+    // иначе дропдаун пустеет (значение вне списка), а CSS продолжает
+    // применять несуществующий шрифт — молча деградируя на фолбэк
+    if (family) {
+      // ui/mono-поля опциональные, fullClaude* — обязательные (string):
+      // один дроп для обоих видов ломал тип обязательных
+      const dropOpt = (v: string | undefined) => (v === family ? "" : v);
+      const dropReq = (v: string) => (v === family ? "" : v);
+      onAppearanceChange({
+        ...appearance,
+        uiFont: dropOpt(appearance.uiFont),
+        monoFont: dropOpt(appearance.monoFont),
+        fullClaudeUiFont: dropReq(appearance.fullClaudeUiFont),
+        fullClaudeMonoFont: dropReq(appearance.fullClaudeMonoFont),
+      });
+    }
   };
 
   // Витринные палитры Official для карточек: те же значения, что генерирует

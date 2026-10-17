@@ -49,8 +49,9 @@ export function ApiSection({
   onRescanLocal: () => void;
   onUseLocalModel: (id: string, runtime: LocalRuntime) => void;
 }) {
-  // Импорт provider-конфига Codex-стиля (config.toml и подобные, волна
-  // «такие API»): парс в Rust, подстановка в текущие настройки
+  const { t } = useLang();
+  // Импорт provider-конфига Codex-стиля (config.toml и подобные):
+  // парс в Rust, подстановка в текущие настройки
   const [tomlMsg, setTomlMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [tomlBusy, setTomlBusy] = useState(false);
   const importToml = async () => {
@@ -77,7 +78,6 @@ export function ApiSection({
     }
   };
 
-  const { t } = useLang();
   const [saved, setSaved] = useState(false);
   const [manual, setManual] = useState(false);
   const [modelQuery, setModelQuery] = useState("");
@@ -124,14 +124,28 @@ export function ApiSection({
     saveColibriLocal(next);
   };
 
+  // base_url пресета Colibri синхронизируется с портом конфига в ОДНОМ
+  // месте — здесь. Раньше порт вписывали и cbStart, и обработчик поля,
+  // каждый из своего settings из замыкания: правка настроек между рендером
+  // и стартом терялась (onChange получает объект целиком). Явно указанный
+  // не-локальный адрес не трогаем — пользователь мог увести соединение
+  // с пресета сознательно
+  useEffect(() => {
+    if (settings.provider !== "colibri") return;
+    const want = `http://localhost:${colibri.port}/v1`;
+    const cur = settings.base_url.trim();
+    if (cur === want) return;
+    if (cur !== "" && !/^https?:\/\/(localhost|127\.0\.0\.1)/.test(cur)) return;
+    onChange({ ...settings, base_url: want });
+    // settings/onChange не в deps: эффект должен отработать только на смену
+    // провайдера/порта, иначе он спорил бы с ручной правкой Base URL
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settings.provider, colibri.port]);
+
   const cbStart = async () => {
     setCbBusy(true);
     setCbError(null);
     saveColibriLocal(colibri);
-    // Порт из конфига синхронно с base_url соединения (для пресета Colibri)
-    if (settings.provider === "colibri") {
-      onChange({ ...settings, base_url: `http://localhost:${colibri.port}/v1` });
-    }
     try {
       setCbStatus(
         await colibriStart({
@@ -371,9 +385,11 @@ export function ApiSection({
               // providerFromBaseUrl его не выводит: без гарда один keystroke
               // в Base URL молча возвращал чат-провод и Responses-провайдер
               // ломался на /chat/completions. Смена провода —
-              // через чипы пресетов, не через правку URL
+              // через чипы пресетов, не через правку URL.
+              // custom не сбрасываем тоже: ручной выбор чипа — сознательное
+              // решение, автодетект по хосту не должен его отменять
               provider:
-                settings.provider === "openai-responses"
+                settings.provider === "openai-responses" || settings.provider === "custom"
                   ? settings.provider
                   : providerFromBaseUrl(base_url),
             });
@@ -694,9 +710,6 @@ export function ApiSection({
               onChange={(e) => {
                 const port = Number(e.target.value);
                 setCbField({ port: Number.isFinite(port) ? port : 8000 });
-                if (settings.provider === "colibri") {
-                  onChange({ ...settings, base_url: `http://localhost:${port}/v1` });
-                }
               }}
               className="w-full rounded-lg border border-halo-line bg-halo-surface px-2 py-1.5 text-center text-xs text-halo-text outline-none transition-colors focus:border-halo-accent/60"
             />

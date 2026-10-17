@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { useDelayedUnmount, withViewTransition } from "../motion";
 import type { Session, Theme, UsageEvent } from "../types";
 import { ReflectSection } from "./settings/ReflectSection";
@@ -35,7 +35,7 @@ import { DocsSection } from "./settings/DocsSection";
 import { MemorySection } from "./settings/MemorySection";
 import { ThemeSection } from "./settings/ThemeSection";
 import { MascotSection } from "./settings/MascotSection";
-import { PromptsSection } from "./settings/AgentSection";
+import { PromptsSection } from "./settings/PromptsSection";
 import { JailbreaksCard } from "./settings/JailbreaksCard";
 import { ApiSection } from "./settings/ApiSection";
 import { SectionIcon, ExpandWinIcon, CollapseWinIcon, XIcon, Segmented } from "./settings/parts";
@@ -451,19 +451,40 @@ export default function SettingsModal({
   // Поиск по настройкам: запрос + область (везде / только кастомизация).
   // Непустой запрос заменяет навигацию списком результатов (клик — открыть
   // секцию). Матч по локализованным подписям — работает во всех языках
-  // Активная мини-игра во вкладке «Отдых»: Esc закрывает игру, потом модалку
-  const [restGame, setRestGame] = useState<GameId | null>(null);
-  // Зеркало для Escape-хендлера: апдейтеры setState обязаны быть чистыми —
-  // StrictMode зовёт их дважды, и onClose дёргался по два раза
-  const restGameRef = useRef<GameId | null>(restGame);
+  // Активная мини-игра во вкладке «Отдых»: Esc закрывает игру, потом модалку.
+  // Редьюсер, а не state+ref-зеркало: два Escape в одном кадре проходят через
+  // очередь диспетчей ПОСЛЕДОВАТЕЛЬНО — первый закрывает игру, второй ставит
+  // флаг закрытия; зеркало через эффект успевало протухнуть между ними
+  const [restState, dispatchRest] = useReducer(
+    (
+      s: { game: GameId | null; closeTick: number },
+      a: { type: "escape" } | { type: "game"; game: GameId | null },
+    ) => {
+      switch (a.type) {
+        case "game":
+          return { ...s, game: a.game };
+        case "escape":
+          return s.game !== null
+            ? { ...s, game: null }
+            : { ...s, closeTick: s.closeTick + 1 };
+      }
+    },
+    { game: null, closeTick: 0 },
+  );
+  const restGame = restState.game;
   // Предупреждение «Локальный хардкор»: принято в этой сессии?
   const [mediaWarnAccepted, setMediaWarnAccepted] = useState(false);
-  const mediaWarnAcceptedRef = useRef(loadMediaAccepted());
-  // Синхронизация зеркала через эффект — как в App/ChatArea/AmbientLayer:
-  // запись ref в теле рендера — антипаттерн (React Compiler)
+  // Ленивая инициализация: аргумент useRef вычисляется на КАЖДЫЙ рендер,
+  // а loadMediaAccepted ходит в localStorage — читаем один раз при первом
+  // рендере модалки
+  const mediaWarnAcceptedRef = useRef<boolean | null>(null);
+  if (mediaWarnAcceptedRef.current === null) mediaWarnAcceptedRef.current = loadMediaAccepted();
+  // Флаг закрытия из редьюсера дёргает onClose снаружи (побочка — не в редьюсере)
   useEffect(() => {
-    restGameRef.current = restGame;
-  }, [restGame]);
+    if (restState.closeTick > 0) onClose();
+    // onClose в deps не нужен: реакция только на новый тик закрытия
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [restState.closeTick]);
   const [searchQ, setSearchQ] = useState("");
   const [searchScope, setSearchScope] = useState<"all" | "custom">("all");
   // Окно «Поддержать проект»: адреса + QR кошельков
@@ -474,7 +495,7 @@ export default function SettingsModal({
   const searchResults = useMemo(() => {
     const query = searchQ.trim().toLowerCase();
     if (query === "") return null;
-    const out: { section: Section; label: string; sectionTitle: string }[] = [];
+    const out: { section: Section | SettingsPage; label: string; sectionTitle: string }[] = [];
     const seen = new Set<string>();
     // Сами страницы — тоже результаты (по названию)
     for (const g of NAV) {
@@ -485,24 +506,27 @@ export default function SettingsModal({
           const id = `s:${item.id}`;
           if (!seen.has(id)) {
             seen.add(id);
-            out.push({ section: item.id as Section, label: title, sectionTitle: t("settings.title") });
+            out.push({ section: item.id, label: title, sectionTitle: t("settings.title") });
           }
         }
       }
     }
-    // Строки настроек внутри секций (индекс ведёт старыми Section-идами:
-    // результат открывает merged-страницу через gotoSection)
+    // Строки настроек внутри секций (индекс ведёт старыми Section-идами
+    // и новыми страницами: результат открывает merged-страницу через
+    // gotoSection). Дедуп по section+key: одинаковые подписи в двух секциях
+    // показываются обе, дубль внутри секции один
     for (const group of SETTINGS_SEARCH_INDEX) {
       if (searchScope === "custom" && group.section !== "theme") continue;
+      const page = PAGE_FOR_SECTION[group.section as Section] ?? group.section;
       const sectionTitle = t(
-        NAV.flatMap((g) => g.items).find((i) => i.id === PAGE_FOR_SECTION[group.section])?.key ??
-          "settings.title",
+        NAV.flatMap((g) => g.items).find((i) => i.id === page)?.key ?? "settings.title",
       );
       for (const key of group.keys) {
         // Ключи индекса типизированы MsgKey: протухший ключ не собирается
         const label = t(key);
-        if (label.toLowerCase().includes(query) && !seen.has(`${key}`)) {
-          seen.add(`${key}`);
+        const dedupe = `${group.section}:${key}`;
+        if (label.toLowerCase().includes(query) && !seen.has(dedupe)) {
+          seen.add(dedupe);
           out.push({ section: group.section, label, sectionTitle });
         }
       }
@@ -582,12 +606,9 @@ export default function SettingsModal({
         // текста (промт роли, заметка, форма автоматизации) терялся без спроса
         const tgt = e.target as HTMLElement | null;
         if (tgt && (tgt.tagName === "INPUT" || tgt.tagName === "TEXTAREA" || tgt.isContentEditable)) return;
-        // Сначала — мини-игра «Отдыха», потом сама модалка
-        if (restGameRef.current !== null) {
-          setRestGame(null);
-        } else {
-          onClose();
-        }
+        // Сначала — мини-игра «Отдыха», потом сама модалка (порядок держит
+        // редьюсер, см. restState)
+        dispatchRest({ type: "escape" });
       }
     };
     window.addEventListener("keydown", onKey);
@@ -948,7 +969,10 @@ export default function SettingsModal({
           {section === "lsp" && <LspSection />}
           {/* Rest: мини-игры паузы */}
           {section === "rest" && (
-            <RestSection game={restGame} onGameChange={setRestGame} />
+            <RestSection
+              game={restGame}
+              onGameChange={(g) => dispatchRest({ type: "game", game: g })}
+            />
           )}
           {/* GGUF Lab: карточка входа — сама лаборатория открывается модалкой */}
           {section === "gguf" && (

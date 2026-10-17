@@ -57,6 +57,9 @@ export function ImageGenSection() {
         />
         {cfg.enabled && (
           <>
+            {/* Поля пишутся по blur (как в WebSearchSection): раньше
+                сохранялись только при переключении тумблера или кнопкой у
+                модели — ключ/размер/URL без явного действия молча терялись */}
             <div className="rounded-lg px-2.5 py-2.5">
               <span className="mb-1.5 block text-xs font-medium text-halo-muted">
                 {t("ig.baseUrl")}
@@ -68,6 +71,7 @@ export function ImageGenSection() {
                 type="text"
                 value={cfg.base_url}
                 onChange={(e) => setCfg({ ...cfg, base_url: e.target.value })}
+                onBlur={() => void apply(cfg)}
                 placeholder="https://api.openai.com/v1"
                 className="w-full rounded-lg border border-halo-line bg-halo-surface px-3 py-2 font-mono text-xs text-halo-text outline-none transition-colors placeholder:text-halo-muted/60 focus:border-halo-accent/60"
               />
@@ -83,6 +87,7 @@ export function ImageGenSection() {
                 type="password"
                 value={cfg.api_key}
                 onChange={(e) => setCfg({ ...cfg, api_key: e.target.value })}
+                onBlur={() => void apply(cfg)}
                 className="w-full rounded-lg border border-halo-line bg-halo-surface px-3 py-2 font-mono text-xs text-halo-text outline-none transition-colors focus:border-halo-accent/60"
               />
             </div>
@@ -98,6 +103,7 @@ export function ImageGenSection() {
                   type="text"
                   value={cfg.model}
                   onChange={(e) => setCfg({ ...cfg, model: e.target.value })}
+                  onBlur={() => void apply(cfg)}
                   placeholder="dall-e-3 / flux-… / gemini-2.5-flash-image"
                   className="min-w-0 flex-1 rounded-lg border border-halo-line bg-halo-surface px-3 py-2 font-mono text-xs text-halo-text outline-none transition-colors placeholder:text-halo-muted/60 focus:border-halo-accent/60"
                 />
@@ -120,6 +126,7 @@ export function ImageGenSection() {
                 type="text"
                 value={cfg.size}
                 onChange={(e) => setCfg({ ...cfg, size: e.target.value })}
+                onBlur={() => void apply(cfg)}
                 placeholder="1024x1024"
                 className="w-full rounded-lg border border-halo-line bg-halo-surface px-3 py-2 font-mono text-xs text-halo-text outline-none transition-colors placeholder:text-halo-muted/60 focus:border-halo-accent/60"
               />

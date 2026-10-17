@@ -106,6 +106,8 @@ export function HooksSection() {
   const [testOut, setTestOut] = useState<Record<string, HookOutcome>>({});
   const [testBusy, setTestBusy] = useState<string | null>(null);
   const [showAdd, setShowAdd] = useState(false);
+  // Локальные черновики поля команды по id хука (см. комментарий у input)
+  const [cmdDrafts, setCmdDrafts] = useState<Record<string, string>>({});
 
   useEffect(() => {
     hooksLoad()
@@ -120,31 +122,38 @@ export function HooksSection() {
   /** Провал записи откатывает UI к прежнему списку — иначе он врал об
    *  применённом конфиге, а после рестарта хуки исчезали (revert-паттерн
    *  6af9361; конвенция применялась избирательно — McpSection
-
    *  и секции конфигов откатывали, hooks — нет).
    *  Запись идёт через общую с плагинами очередь и сливается со свежим
    *  файлом: плагин, добавивший хук после нашего чтения, не стирается
-   *  нашим снапшотом */
-  const persist = async (next: Hook[]) => {
-    const prev = hooksRef.current;
-    hooksRef.current = next;
-    setHooks(next);
-    try {
-      const merged = await withHooksFile((fresh) => {
-        const list = mergeFreshIds(next, fresh, (h) => h.id, knownIdsRef.current);
-        return hooksSave({ hooks: list }).then(() => {
-          knownIdsRef.current = new Set(list.map((h) => h.id));
-          return list;
+   *  нашим снапшотом.
+   *  Сами persist-ы тоже выстраиваются в цепочку: rollback провалившейся
+   *  записи откатывает только СВОЙ шаг, а не всё, что успел поставить
+   *  optimistic-стейт следующего быстрого клика */
+  const persistChainRef = useRef<Promise<void>>(Promise.resolve());
+  const persist = (next: Hook[]) => {
+    const run = async () => {
+      const prev = hooksRef.current;
+      hooksRef.current = next;
+      setHooks(next);
+      try {
+        const merged = await withHooksFile((fresh) => {
+          const list = mergeFreshIds(next, fresh, (h) => h.id, knownIdsRef.current);
+          return hooksSave({ hooks: list }).then(() => {
+            knownIdsRef.current = new Set(list.map((h) => h.id));
+            return list;
+          });
         });
-      });
-      hooksRef.current = merged;
-      setHooks(merged);
-      setError(null);
-    } catch (e) {
-      hooksRef.current = prev;
-      setHooks(prev);
-      setError(String(e));
-    }
+        hooksRef.current = merged;
+        setHooks(merged);
+        setError(null);
+      } catch (e) {
+        hooksRef.current = prev;
+        setHooks(prev);
+        setError(String(e));
+      }
+    };
+    persistChainRef.current = persistChainRef.current.then(run, run);
+    return persistChainRef.current;
   };
 
   const update = async (id: string, patch: Partial<Hook>) => {
@@ -298,16 +307,22 @@ export function HooksSection() {
                   <MiniTrashIcon />
                 </button>
               </div>
-              {/* Редактирование команды inline. D8: запись на диск по blur/Enter,
-                  а не на каждое нажатие клавиши — раньше каждый символ гонял
-                  IPC-запись hooks.json (гонки записи, лаг ввода) */}
+              {/* Редактирование команды inline: контролируемое поле с локальным
+                  черновиком. Прежний defaultValue + key={id+command} пересоздавал
+                  input при каждом обновлении команды и терял недозаписанный ввод.
+                  Черновик НЕ чистится по blur: запись асинхронная, и поле прыгнуло
+                  бы обратно к старому значению до коммита; при провале записи
+                  текст правки вообще остаётся в поле, ошибка видна рядом */}
               <input
                 type="text"
-                defaultValue={h.command}
-                key={h.id + h.command}
+                value={cmdDrafts[h.id] ?? h.command}
+                onChange={(e) =>
+                  setCmdDrafts((prev) => ({ ...prev, [h.id]: e.target.value }))
+                }
                 onBlur={(e) => {
-                  if (e.target.value !== h.command) {
-                    void update(h.id, { command: e.target.value });
+                  const v = e.target.value;
+                  if (v !== h.command) {
+                    void update(h.id, { command: v });
                   }
                 }}
                 onKeyDown={(e) => {

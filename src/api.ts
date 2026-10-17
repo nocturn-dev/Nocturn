@@ -361,6 +361,14 @@ export interface ModelInfo {
   context: number | null;
 }
 
+/** Статус проверки соединения (ApiSection/SettingsModal/useApiSettings):
+ *  единое определение здесь — раньше дублировалось в хуке и в settings/types */
+export interface ApiStatus {
+  kind: "idle" | "checking" | "ok" | "error";
+  message?: string;
+  models?: ModelInfo[];
+}
+
 export async function testConnection(
   baseUrl: string,
   apiKey: string,
@@ -1550,18 +1558,21 @@ export async function imageGenSetConfig(config: ImageGenConfig): Promise<void> {
   return invoke("imagegen_set_config", { config });
 }
 
-// ---------- Веб-поиск (SearXNG / Brave) ----------
+// ---------- Веб-поиск (DuckDuckGo / SearXNG / Brave) ----------
 
 export interface WebSearchConfig {
   enabled: boolean;
-  /** "searxng" | "brave" */
+  /** "duckduckgo" | "searxng" | "brave" ("" тоже валиден — Rust гоняет DDG) */
   provider: string;
   searxng_url: string;
   brave_key: string;
 }
 
 export async function webSearchGetConfig(): Promise<WebSearchConfig> {
-  if (!inTauri) return { enabled: false, provider: "searxng", searxng_url: "", brave_key: "" };
+  // Дефолт — DDG: пустой provider в Rust маршрутизируется на DuckDuckGo,
+  // превью не должно расходиться с нативным поведением
+  if (!inTauri)
+    return { enabled: false, provider: "duckduckgo", searxng_url: "", brave_key: "" };
   return invoke<WebSearchConfig>("websearch_get_config");
 }
 

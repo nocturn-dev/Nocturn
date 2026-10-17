@@ -10,10 +10,15 @@ export function NetworkSection() {
     ca_path: "",
   });
   const [loaded, setLoaded] = useState(false);
+  // Чтение упало (битый/недоступный network.json): сохранение блокируется —
+  // запись пустых дефолтов затёрла бы файл, из которого данные можно
+  // вытащить руками (тот же принцип, что у settingsBrokenRef)
+  const [loadErr, setLoadErr] = useState<string | null>(null);
   const [savedField, setSavedField] = useState<string | null>(null);
   useEffect(() => {
     void networkGetConfig()
       .then(setCfg)
+      .catch((e) => setLoadErr(String(e)))
       .finally(() => setLoaded(true));
   }, []);
   const saveField = async (key: keyof NetworkConfig) => {
@@ -27,6 +32,18 @@ export function NetworkSection() {
     }
   };
   if (!loaded) return null;
+  if (loadErr) {
+    return (
+      <div>
+        <h3 className="mb-3 text-sm font-semibold text-halo-text">
+          {t("settings.network")}
+        </h3>
+        <p className="break-all rounded-lg border border-red-400/30 bg-red-400/10 px-3 py-2 text-xs leading-relaxed text-red-400">
+          {t("network.loadErr", { e: loadErr })}
+        </p>
+      </div>
+    );
+  }
   const placeholders: Record<keyof NetworkConfig, string> = {
     proxy: t("network.proxyPh"),
     no_proxy: t("network.noProxyPh"),

@@ -2,124 +2,130 @@ import { useEffect, useRef, useState } from "react";
 import { useLangState, useLangSetter } from "../../locales";
 import type { Appearance } from "../../appearance";
 
-export function StylePattern({ id }: { id: Appearance["style"] }) {
-  const P = ({
-    children,
-    vb = "0 0 32 32",
-  }: {
-    children: React.ReactNode;
-    vb?: string;
-  }) => (
+/** Обёртка-рамка паттерна стиля: объявлена на уровне модуля — инлайн-компонент
+ *  пересоздавался на каждый рендер StylePattern, и все SVG монтировались
+ *  заново (мигание превью, лишняя работа reconciler'а) */
+function PatternFrame({
+  children,
+  vb = "0 0 32 32",
+}: {
+  children: React.ReactNode;
+  vb?: string;
+}) {
+  return (
     <svg width="1em" height="1em" viewBox={vb} fill="currentColor" aria-hidden="true">
       {children}
     </svg>
   );
+}
+
+export function StylePattern({ id }: { id: Appearance["style"] }) {
   switch (id) {
     case "forest":
       // Ель + малая ель + поляна
       return (
-        <P>
+        <PatternFrame>
           <path d="M10 26 L15 12 L20 26 Z M15 12 L12.4 17 H17.6 Z" />
           <path d="M15 8 L12.8 13 H17.2 Z" opacity="0.8" />
           <path d="M22 26 L25 17 L28 26 Z" opacity="0.7" />
           <ellipse cx="17" cy="27.5" rx="11" ry="1.6" opacity="0.5" />
-        </P>
+        </PatternFrame>
       );
     case "storm":
       // Облако + молния
       return (
-        <P>
+        <PatternFrame>
           <path d="M9 12a6 6 0 0 1 11.5-2A5 5 0 0 1 21 19.8H10A4.5 4.5 0 0 1 9 12z" />
           <path d="M17 17 L11.5 25 H15 L13.5 31 L20 22.5 H16.4 L18.5 17 Z" />
-        </P>
+        </PatternFrame>
       );
     case "midnight":
       // Полумесяц + звёзды
       return (
-        <P>
+        <PatternFrame>
           <path d="M20 4a11 11 0 1 0 7 19.5A12.5 12.5 0 0 1 20 4z" />
           <path d="M8 8l1 2.4L11.4 11.4 9 12.4 8 14.8 7 12.4 4.6 11.4 7 10.4z" opacity="0.9" />
           <circle cx="12" cy="20" r="1.1" opacity="0.7" />
-        </P>
+        </PatternFrame>
       );
     case "abyss":
       // Волны + пузырь
       return (
-        <P>
+        <PatternFrame>
           <path d="M0 18c3-3 6-3 9 0s6 3 9 0 6-3 9 0 5 2.6 5 2.6V32H0z" opacity="0.9" />
           <path d="M0 25c3-2.6 6-2.6 9 0s6 2.6 9 0 6-2.6 9 0 5 2.2 5 2.2V32H0z" opacity="0.6" />
           <circle cx="8" cy="9" r="2" opacity="0.7" />
           <circle cx="14" cy="5" r="1.2" opacity="0.5" />
-        </P>
+        </PatternFrame>
       );
     case "dusk":
       // Горы + серп
       return (
-        <P>
+        <PatternFrame>
           <path d="M2 27 L12 12 L19 23 L23 18 L30 27 Z" opacity="0.85" />
           <path d="M23 4a8 8 0 1 0 5 14A9.4 9.4 0 0 1 23 4z" opacity="0.9" />
-        </P>
+        </PatternFrame>
       );
     case "sepia":
       // Лист с прожилкой
       return (
-        <P>
+        <PatternFrame>
           <path d="M16 3C8 9 6 17 8 24c7 2 15 0 19-8C23 9 20 5 16 3z" />
           <path d="M16 3C14 12 12 19 9 27" stroke="var(--halo-bg)" strokeWidth="1.6" fill="none" />
-        </P>
+        </PatternFrame>
       );
     case "rosewood":
       // Роза: спираль + лист
       return (
-        <P>
+        <PatternFrame>
           <circle cx="14" cy="12" r="9" opacity="0.25" />
           <path d="M14 12a4 4 0 1 1 4 4 6 6 0 1 1-8-1 8.5 8.5 0 0 1 11-1" fill="none" stroke="currentColor" strokeWidth="2" />
           <path d="M17 22c3 1 5 4 5 8-4 0-7-2-8-5z" opacity="0.8" />
-        </P>
+        </PatternFrame>
       );
     case "ocean":
       // Океан: волна + парус
       return (
-        <P>
+        <PatternFrame>
           <path d="M0 24c3-2.6 6-2.6 9 0s6 2.6 9 0 6-2.6 9 0 5 2 5 2V32H0z" opacity="0.8" />
           <path d="M18 4v14l9-4z" opacity="0.9" />
           <path d="M16 4v14l-7-4z" opacity="0.6" />
-        </P>
+        </PatternFrame>
       );
     case "amethyst":
       // Кристалл + грани
       return (
-        <P>
+        <PatternFrame>
           <path d="M16 2l10 8-10 20L6 10z" opacity="0.9" />
           <path d="M6 10h20M16 2l-4 8 4 20 4-20-4-8" fill="none" stroke="var(--halo-bg)" strokeWidth="1.4" />
-        </P>
+        </PatternFrame>
       );
     case "espresso":
       // Чашка с паром
       return (
-        <P>
+        <PatternFrame>
           <path d="M6 14h16v7a6 6 0 0 1-6 6h-4a6 6 0 0 1-6-6z" />
           <path d="M22 15h3a3 3 0 0 1 0 6h-3" fill="none" stroke="currentColor" strokeWidth="2" />
           <path d="M11 4c0 2 2 2 2 4M16 4c0 2 2 2 2 4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" opacity="0.8" />
-        </P>
+        </PatternFrame>
       );
     case "carbon":
       // Графит: гексагональная решётка
       return (
-        <P>
+        <PatternFrame>
           <path d="M16 3l9 5v10l-9 5-9-5V8z" fill="none" stroke="currentColor" strokeWidth="2" />
           <path d="M16 3v10m0 0l-9 5m9-5l9 5m-9-5v16" fill="none" stroke="currentColor" strokeWidth="1.4" opacity="0.7" />
-        </P>
+        </PatternFrame>
       );
     default:
       // Claude — солнце с лучами
       return (
-        <P>
+        <PatternFrame>
           <circle cx="16" cy="16" r="6" />
           <g opacity="0.85">
             <path d="M16 2v5 M16 25v5 M2 16h5 M25 16h5 M6 6l3.5 3.5 M22.5 22.5L26 26 M26 6l-3.5 3.5 M9.5 22.5L6 26" stroke="currentColor" strokeWidth="2.4" fill="none" strokeLinecap="round" />
           </g>
-        </P>
+        </PatternFrame>
       );
   }
 }
@@ -226,9 +232,13 @@ export function Dropdown({
           } else if (e.key === "ArrowUp") {
             e.preventDefault();
             setHoverIdx((i) => Math.max(0, i - 1));
-          } else if (e.key === "Enter" && !e.nativeEvent.isComposing && hoverIdx >= 0) {
+          } else if (e.key === "Enter" && !e.nativeEvent.isComposing) {
             e.preventDefault();
-            const o = options[hoverIdx];
+            // Ничего не подсвечено мышью/стрелками — коммитим текущее
+            // значение (как у нативного select: Enter закрывает список
+            // с выбранным), а не молча игнорируем клавиатуру
+            const idx = hoverIdx >= 0 ? hoverIdx : options.findIndex((o) => o.value === value);
+            const o = options[idx];
             if (o) {
               onSelect(o.value);
               setOpen(false);

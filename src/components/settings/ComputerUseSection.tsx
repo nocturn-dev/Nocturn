@@ -6,7 +6,11 @@ import { WarnIcon } from "../cards/icons";
 
 export function ComputerUseSection() {
   const { t } = useLang();
-  const [cfg, setCfg] = useState<ComputerConfig>({ enabled: true });
+  const [cfg, setCfg] = useState<ComputerConfig>({
+    // Дефолт как в Rust (disabled): computer use — самый сильный инструмент,
+    // показывать «включено» до ответа бекенда опасно
+    enabled: false,
+  });
 
   useEffect(() => {
     computerGetConfig()

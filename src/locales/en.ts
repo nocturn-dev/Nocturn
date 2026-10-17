@@ -753,16 +753,6 @@ export const en = {
     "mcp.importBtn": "Import",
     "mcp.importOk": "Servers imported: {n}",
     "mcp.importFail": "Could not parse the JSON — check the format.",
-    // Agent allowlist (settings)
-    "agent.allowlistDesc":
-      "Commands allowed via “Always for this task”: the agent runs them without confirmation. The list is stored per task.",
-    "agent.allowlistEmpty":
-      "Nothing allowed yet. Press “Always for this task” in an agent request and the command will appear here.",
-    "agent.allowlistClear": "Clear list",
-    "agent.allowlistOf": "Task: “{title}”",
-    "agent.allowlistAllTitle": "Allowed commands across all tasks",
-    "agent.allowlistAllEmpty":
-      "No task has allowed commands yet. Press “Always for this task” in agent dialogs and the list will appear here.",
     "main.version": "Version",
     "main.autostart": "Run at login",
     "main.autoUpdate": "Check for updates at startup",
@@ -1531,6 +1521,7 @@ export const en = {
     "tg.correctionSent": "Correction from Telegram sent to the running task",
     "tg.taskQueued": "Task from Telegram added to the queue",
     "tg.privacy": "The token is stored encrypted and never leaves via settings export; the bot writes only to the bound chat; with the toggle off — zero requests.",
+    "tg.tokenShow": "Show/hide token",
     "tg.started": "▶️ Task started: {task}",
     "tg.finished": "Task finished: {task}",
     "tg.stopped": "Task stopped: {task}",
@@ -1723,6 +1714,7 @@ export const en = {
   "network.caPh": "e.g. C:/certs/root-ca.pem",
   "network.save": "Save",
   "network.saved": "Saved",
+  "network.loadErr": "Network configuration could not be read: {e}. Saving is blocked — an empty configuration would overwrite the file on disk.",
 
   // Audit: UI strings that bypassed the dictionaries
   "chat.modelLocal": "local",

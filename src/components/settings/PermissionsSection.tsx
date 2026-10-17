@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLang, type MsgKey } from "../../locales";
 import { getToolSchemas } from "../../api";
 import {
@@ -46,6 +46,10 @@ const KINDS: {
 export function PermissionsSection() {
   const { t } = useLang();
   const [rules, setRules] = useState<PermRules>(loadPermRules);
+  // Ref-зеркало: remove/add считают следующий список из него, а не из
+  // снапшота state — два быстрых действия подряд иначе перезаписывают
+  // результат первого (оба читают один и тот же rules из замыкания)
+  const rulesRef = useRef(rules);
   const [known, setKnown] = useState<Set<string>>(new Set());
   const [draft, setDraft] = useState<Record<RuleKind, string>>({
     deny: "",
@@ -75,10 +79,18 @@ export function PermissionsSection() {
       .catch(() => {});
   }, []);
 
-  const remove = (kind: RuleKind, idx: number) => {
-    const next: PermRules = { ...rules, [kind]: rules[kind].filter((_, i) => i !== idx) };
+  /** Единственная точка мутации правил: следующий список считается от
+   *  актуального (ref), синхронно пишется и на диск — быстрые клики
+   *  по удалению в разных группах не теряют друг друга */
+  const commit = (update: (prev: PermRules) => PermRules) => {
+    const next = update(rulesRef.current);
+    rulesRef.current = next;
     setRules(next);
     savePermRules(next);
+  };
+
+  const remove = (kind: RuleKind, idx: number) => {
+    commit((prev) => ({ ...prev, [kind]: prev[kind].filter((_, i) => i !== idx) }));
   };
 
   const add = (kind: RuleKind) => {
@@ -91,13 +103,11 @@ export function PermissionsSection() {
     }
     setError((prev) => ({ ...prev, [kind]: "" }));
     // Дубликат — тихо игнорируем (идемпотентность списка)
-    if (rules[kind].includes(raw)) {
+    if (rulesRef.current[kind].includes(raw)) {
       setDraft((prev) => ({ ...prev, [kind]: "" }));
       return;
     }
-    const next: PermRules = { ...rules, [kind]: [...rules[kind], raw] };
-    setRules(next);
-    savePermRules(next);
+    commit((prev) => ({ ...prev, [kind]: [...prev[kind], raw] }));
     setDraft((prev) => ({ ...prev, [kind]: "" }));
   };
 

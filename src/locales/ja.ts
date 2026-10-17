@@ -253,6 +253,7 @@ export const ja = {
   "network.caPh": "例: C:/certs/root-ca.pem",
   "network.save": "保存",
   "network.saved": "保存しました",
+  "network.loadErr": "ネットワーク設定を読み込めませんでした: {e}。保存はブロックされています — 空の設定でディスク上のファイルを上書きしてしまいます。",
     "composer.send": "送信 (Enter)",
     "composer.stop": "生成を停止",
     "composer.attach": "画像を添付",
@@ -782,16 +783,6 @@ export const ja = {
     "mcp.importBtn": "インポート",
     "mcp.importOk": "インポートしたサーバー：{n}",
     "mcp.importFail": "JSON を解析できませんでした — 形式を確認してください。",
-    // Allowlist агента (настройки)
-    "agent.allowlistDesc":
-      "「このタスクでは常に」で許可したコマンド：エージェントは確認なしで実行します。リストはタスク内に保存されます。",
-    "agent.allowlistEmpty":
-      "まだ何も許可されていません。エージェントのリクエストで「このタスクでは常に」を押すと、コマンドがここに現れます。",
-    "agent.allowlistClear": "リストを消去",
-    "agent.allowlistOf": "タスク：「{title}」",
-    "agent.allowlistAllTitle": "すべてのタスクで許可されたコマンド",
-    "agent.allowlistAllEmpty":
-      "まだコマンドを許可したタスクはありません。エージェントのダイアログで「このタスクでは常に」を押すと、リストがここに現れます。",
     "main.version": "バージョン",
     "main.autostart": "ログイン時に起動",
     "main.autoUpdate": "起動時に更新を確認",
@@ -1557,6 +1548,7 @@ export const ja = {
     "tg.correctionSent": "Telegram からの修正を実行中のタスクに送信しました",
     "tg.taskQueued": "Telegram からのタスクをキューに追加しました",
     "tg.privacy": "トークンは暗号化して保存され、設定エクスポートには含まれません。ボットはバインドされたチャットにのみ書き込み、オフなら通信はゼロです。",
+    "tg.tokenShow": "トークンを表示/非表示",
     "tg.started": "▶️ タスク開始：{task}",
     "tg.finished": "タスク完了：{task}",
     "tg.stopped": "タスク停止：{task}",
