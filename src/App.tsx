@@ -675,7 +675,7 @@ export default function App() {
   useEffect(() => {
     limitsRef.current = limits;
     // Сбой записи (квота) молча откатывал бы лимиты при рестарте — тост
-    if (!saveLimits(limits)) addToast(t("error.localSaveFailed"));
+    if (!saveLimits(limits)) addToast(t("error.localSaveFailed"), "error");
   }, [limits, addToast, t]);
   // Reasoning effort: усилие размышлений («off» — не отправлять провайдеру)
   const [effort, setEffort] = useState<"off" | "low" | "high" | "max">(() => {
@@ -976,7 +976,7 @@ export default function App() {
     const hex = raw.trim();
     if (hex !== "" && !/^#[0-9a-fA-F]{6}$/.test(hex)) {
       // Невалидный ввод: тост, диалог остаётся открытым для правки
-      addToast(t("menu.projectAccentBad"));
+      addToast(t("menu.projectAccentBad"), "error");
       return;
     }
     setProjects((prev) =>
@@ -1135,7 +1135,7 @@ export default function App() {
     null,
   );
   useEffect(() => {
-    if (!saveMediaPrefs(mediaPrefs)) addToast(t("error.localSaveFailed"));
+    if (!saveMediaPrefs(mediaPrefs)) addToast(t("error.localSaveFailed"), "error");
   }, [mediaPrefs, addToast, t]);
   // Повтор очереди YT: тумблер «Интеграций» — источник правды, плеер —
   // потребитель. Раньше поле и ветка в onTrackChange были, а синка не было:
@@ -1407,7 +1407,7 @@ export default function App() {
       const saved = localStorage.getItem(STORAGE_KEYS.quickentryBind);
       if (saved) {
         await quickentrySetBind(saved).catch(() => {
-          if (!cancelled) addToast(tMirrorQuickEntry.current("main.quickentryBindFail"));
+          if (!cancelled) addToast(tMirrorQuickEntry.current("main.quickentryBindFail"), "error");
         });
       }
       const ok = await quickentryStatus().catch(() => true);
@@ -1418,7 +1418,7 @@ export default function App() {
         await new Promise((r) => setTimeout(r, 6000));
         const rechecked = await quickentryStatus().catch(() => false);
         if (!rechecked && !cancelled)
-          addToast(tMirrorQuickEntry.current("main.quickentryUnavailable"));
+          addToast(tMirrorQuickEntry.current("main.quickentryUnavailable"), "error");
       }
     })();
     return () => {
@@ -1548,7 +1548,7 @@ export default function App() {
   const handleOpenFileExternal = useCallback(
     (path: string, mode: "open" | "explorer" | "vscode" = "open") => {
       openFileExternal(projectRootRef.current, path, mode).catch((e) =>
-        addToast(String(e)),
+        addToast(String(e), "error"),
       );
     },
     [addToast],
@@ -1796,7 +1796,10 @@ export default function App() {
         else if (s === "suspended" && !streamingIdRef.current) setVoicePhase("idle");
       },
       onError: (msg) => {
-        addToast(msg === "mic denied" ? t("voice.micDenied") : t("voice.failed", { e: msg.slice(0, 90) }));
+        addToast(
+        msg === "mic denied" ? t("voice.micDenied") : t("voice.failed", { e: msg.slice(0, 90) }),
+        "error",
+      );
       },
       onWarn: () => {
         // Откат на дефолтный микрофон не гасит слушателя, но молчать нельзя:
@@ -1824,7 +1827,7 @@ export default function App() {
             setActiveId(session.id);
             handleSendRef.current?.(cmd, undefined, session.id);
           } catch (e) {
-            addToast(t("voice.failed", { e: String(e).slice(0, 90) }));
+            addToast(t("voice.failed", { e: String(e).slice(0, 90) }), "error");
           }
         })();
       },
@@ -2144,7 +2147,7 @@ export default function App() {
       // C16: try/finally без catch давал unhandled rejection — редактор
       // показывал старый контент, и пользователь терял текст, считая его
       // сохранённым
-      addToast(t("error.noteSaveFailed"));
+      addToast(t("error.noteSaveFailed"), "error");
       console.error("note save failed:", e);
     } finally {
       setNoteSaving(false);
@@ -2386,7 +2389,7 @@ export default function App() {
       await factoryReset(); // Rust стирает каталоги данных и перезапускает процесс
     } catch {
       setResetBusy(false);
-      addToast(t("reset.failed"));
+      addToast(t("reset.failed"), "error");
     }
   };
 
@@ -2581,6 +2584,7 @@ export default function App() {
           label: confirmingDelete ? t("menu.deleteConfirm") : t("menu.delete"),
           danger: true,
           keepOpen: !confirmingDelete,
+          armed: confirmingDelete,
           onSelect: () => {
             if (confirmingDelete) {
               handleDeleteProject(menuProject.id);
@@ -2605,6 +2609,7 @@ export default function App() {
             danger: true,
             separator: true,
             keepOpen: !confirmingDelete,
+            armed: confirmingDelete,
             onSelect: () => {
               if (confirmingDelete) {
                 void handleDeleteNote(menuNote.file);
@@ -2662,6 +2667,7 @@ export default function App() {
           danger: true,
           separator: true,
           keepOpen: !confirmingDelete,
+          armed: confirmingDelete,
           onSelect: () => {
             if (confirmingDelete) {
               handleDelete(menuSession.id);
@@ -2823,7 +2829,7 @@ export default function App() {
           в любом из них (SVG-математика графа, сторонний плагин-скин) раньше
           выносило приложение в белый экран — boundary стоял только на ленте
           и SettingsModal. Внутренний boundary ленты срабатывает первым */}
-      <ErrorBoundary title={t("err.boundary")} action={t("err.boundaryRetry")}>
+      <ErrorBoundary title={t("err.boundary")} action={t("err.boundaryRetry")} resetKey={`${activeId}:${sessions.length}:${projects.length}`}>
       <Sidebar
         collapsed={sidebarCollapsed}
         sessions={sessions}
@@ -3054,7 +3060,7 @@ export default function App() {
           />
         </Suspense>
       )}
-      <ErrorBoundary title={t("err.boundary")} action={t("err.boundaryRetry")}>
+      <ErrorBoundary title={t("err.boundary")} action={t("err.boundaryRetry")} resetKey={`${settingsOpen}:${theme}:${lang}`}>
       {/* Sticky-mount (useEverOpened): до первого открытия чанка нет вообще,
           после — компонент живёт смонтированным, поэтому внутреннее состояние
           (вкладка/поиск) и exit-анимация useDelayedUnmount — как раньше */}
@@ -3276,6 +3282,7 @@ export default function App() {
       {onboardingOpen && splashDone && (
         <Onboarding
           theme={theme}
+          accent={appearance.accent}
           onTheme={handleOnboardingTheme}
           onHardTheme={handleOnboardingHardTheme}
           hardTheme={

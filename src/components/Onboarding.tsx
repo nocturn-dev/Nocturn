@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import NocturnMark from "./NocturnMark";
 import { useLang, useLangSetter, type Lang } from "../locales";
 import { ACCENT_PRESETS } from "../appearance";
@@ -36,6 +36,7 @@ const inputCls =
 export default function Onboarding({
   theme,
   hardTheme,
+  accent,
   onTheme,
   onHardTheme,
   onAccent,
@@ -44,6 +45,8 @@ export default function Onboarding({
   theme: Theme;
   /** [онбординг] Активная жёсткая тема: Official / Full Claude */
   hardTheme: "official" | "fullClaude" | null;
+  /** Текущий акцент: снимок на монтирование нужен для отката при «Пропустить» */
+  accent: string;
   /** клик по плитке — тема меняется сразу во всём приложении */
   onTheme: (t: Theme) => void;
   /** [онбординг] Жёсткая тема: всегда тёмная, вне каскада кастомизации */
@@ -64,36 +67,79 @@ export default function Onboarding({
   const [checkMsg, setCheckMsg] = useState<{ ok: boolean; text: string } | null>(
     null,
   );
+  // Какая пара url+ключ уже прошла проверку: «Готово» не сохранит непроверенный
+  // ключ молча — опечатка в ключе проявилась бы только при первой задаче
+  const checkedRef = useRef("");
+  // Снимок оформления на входе в визард: тема/акцент применяются живьём,
+  // «Пропустить всё» обещает не сохранять ничего — возвращает и оформление
+  const initTheme = useRef(theme);
+  const initHardTheme = useRef(hardTheme);
+  const initAccent = useRef(accent);
 
   const finish = (settings: ApiSettings | null) => onFinish({ settings });
+
+  /** Модели нового источника к старому не относятся: в подсказке оставались
+   *  бы недоступные имена, а «Готово» подставил бы одно из них молча */
+  const clearCheckedModels = () => {
+    setModels([]);
+    setModel("");
+    checkedRef.current = "";
+    setCheckMsg(null);
+  };
 
   const pickProvider = (id: string) => {
     setProvider(id);
     const preset = PROVIDERS.find((p) => p.id === id);
     if (preset) setBaseUrl(preset.baseUrl);
+    clearCheckedModels();
   };
 
-  const check = async () => {
+/** Проверка соединения; возвращает список моделей (пустой при провале) */
+  const check = async (): Promise<string[]> => {
     setChecking(true);
     setCheckMsg(null);
     try {
       const list = await testConnection(baseUrl.trim(), apiKey.trim(), provider);
       setModels(list.map((m) => m.id));
+      checkedRef.current = `${baseUrl.trim()}|${apiKey.trim()}`;
       setCheckMsg({ ok: true, text: t("onb.checkOk", { n: list.length }) });
+      return list.map((m) => m.id);
     } catch (e) {
+      checkedRef.current = "";
       setCheckMsg({ ok: false, text: String(e) });
+      return [];
     } finally {
       setChecking(false);
     }
   };
 
-  const done = () =>
+  /** http:// (кроме localhost) уходит в сеть открытым текстом — ключ на виду */
+  const insecureUrl =
+    /^http:\/\//i.test(baseUrl.trim()) &&
+    !/^http:\/\/(localhost|127\.0\.0\.1)([:/]|$)/i.test(baseUrl.trim());
+
+  const skip = () => {
+    onHardTheme(initHardTheme.current);
+    onTheme(initTheme.current);
+    onAccent(initAccent.current);
+    finish(null);
+  };
+
+  const done = async () => {
+    const key = apiKey.trim();
+    const url = baseUrl.trim();
+    let list = models;
+    if (key && checkedRef.current !== `${url}|${key}`) {
+      list = await check();
+      if (checkedRef.current !== `${url}|${key}`) return; // провал — остаёмся на шаге
+    }
     finish({
-      api_key: apiKey.trim(),
-      base_url: baseUrl.trim(),
-      model: model.trim() || models[0] || "",
+      api_key: key,
+      base_url: url,
+      model: model.trim() || list[0] || "",
       provider,
     });
+  };
 
   return (
     <div className="fixed inset-0 z-[var(--halo-z-modal)] flex items-center justify-center bg-halo-bg">
@@ -224,10 +270,14 @@ export default function Onboarding({
               onChange={(e) => {
                 setBaseUrl(e.target.value);
                 setProvider("custom");
+                clearCheckedModels();
               }}
               placeholder="https://api.example.com/v1"
               className={`mt-1 ${inputCls}`}
             />
+            {insecureUrl && (
+              <p className="mt-1.5 text-xs text-red-400">{t("onb.httpWarn")}</p>
+            )}
             <label className="mt-2.5 block text-xs text-halo-muted">
               {t("onb.apiKey")}
             </label>
@@ -278,7 +328,7 @@ export default function Onboarding({
 
         <div className="mt-6 flex items-center justify-between gap-3">
           <button
-            onClick={() => finish(null)}
+            onClick={skip}
             className="text-xs text-halo-muted transition-colors hover:text-halo-text"
           >
             {t("onb.skip")}
@@ -301,8 +351,9 @@ export default function Onboarding({
               </button>
             ) : (
               <button
-                onClick={done}
-                className="rounded-lg bg-halo-accent px-4 py-2 text-xs font-medium text-halo-on-accent shadow-sm press hover:bg-halo-accent-deep"
+                onClick={() => void done()}
+                disabled={checking}
+                className="rounded-lg bg-halo-accent px-4 py-2 text-xs font-medium text-halo-on-accent shadow-sm press hover:bg-halo-accent-deep disabled:opacity-50"
               >
                 {t("onb.done")}
               </button>

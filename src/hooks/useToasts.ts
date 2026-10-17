@@ -1,6 +1,7 @@
 import { useCallback, useState } from "react";
 import { uid } from "./useAgentRun";
 import { motionScale } from "../motion";
+import type { ToastItem, ToastKind } from "../components/Toast";
 
 /**
  * Плавающие уведомления: короткие события (чекпоинт, сохранение).
@@ -13,17 +14,13 @@ import { motionScale } from "../motion";
 const SHOW_MS = 4200;
 const EXIT_MS = 120; // = --motion-fast до множителя
 
-interface ToastItem {
-  id: string;
-  text: string;
-  leaving?: boolean;
-}
+export type { ToastItem };
 
 export function useToasts() {
   const [toasts, setToasts] = useState<ToastItem[]>([]);
-  const addToast = useCallback((text: string) => {
+  const addToast = useCallback((text: string, kind: ToastKind = "info") => {
     const id = uid();
-    setToasts((prev) => [...prev.slice(-3), { id, text }]);
+    setToasts((prev) => [...prev.slice(-3), { id, text, kind }]);
     window.setTimeout(
       () =>
         setToasts((prev) =>

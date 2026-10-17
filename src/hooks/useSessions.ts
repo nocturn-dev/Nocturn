@@ -82,7 +82,7 @@ function sanitizeSession(raw: unknown): Session | null {
   };
 }
 export function useSessions(opts: {
-  addToast: (text: string) => void;
+  addToast: (text: string, kind?: "info" | "success" | "error") => void;
   autoArchive: boolean;
   archiveRetention: number;
   setUsageLog: Dispatch<SetStateAction<UsageEvent[]>>;
@@ -142,7 +142,7 @@ export function useSessions(opts: {
       const globalData = await loadSessionsDetailed();
       if (globalData.status === "error") {
         brokenGlobalRef.current = true;
-        addToast(t("error.sessionsCorrupted", { e: globalData.error }));
+        addToast(t("error.sessionsCorrupted", { e: globalData.error }), "error");
       } else if (globalData.status === "ok") {
         try {
           const raw: unknown = JSON.parse(globalData.data);
@@ -161,7 +161,7 @@ export function useSessions(opts: {
         const data = await loadProjectSessionsDetailed(p.root);
         if (data.status === "error") {
           brokenRootsRef.current.add(p.root);
-          addToast(t("error.sessionsCorrupted", { e: data.error }));
+          addToast(t("error.sessionsCorrupted", { e: data.error }), "error");
           continue;
         }
         if (data.status !== "ok") continue;

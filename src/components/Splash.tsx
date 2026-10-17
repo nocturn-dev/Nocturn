@@ -7,6 +7,11 @@ import { STYLE_PALETTES } from "../themeStyles";
 const STAGE1_MS = 900;
 const MIN_TOTAL_MS = 2300;
 const FADE_MS = 400;
+/** Порог ожидания готовности: дольше — инициализация зависла (битое
+ *  обновление, сбой IPC, антивирус), и запирать окно навсегда нельзя */
+const TIMEOUT_MS = 15000;
+/** Сколько держать подпись о задержке до принудительного фейда */
+const SLOW_MS = 3000;
 
 /**
  * Splash в два этапа: лого на тёмном нейтральном фоне (этап 1, цвет совпадает
@@ -25,6 +30,7 @@ export default function Splash({
   const { t } = useLang();
   const [stage2, setStage2] = useState(false);
   const [fading, setFading] = useState(false);
+  const [slow, setSlow] = useState(false);
   // Точка отсчёта минимальной выдержки — монтирование компонента
   const mountedAtRef = useRef(Date.now());
   // Актуальный колбэк через реф: fade-эффект не должен перезапускаться
@@ -50,6 +56,20 @@ export default function Splash({
     const id = window.setTimeout(() => setFading(true), remain);
     return () => window.clearTimeout(id);
   }, [done]);
+
+  // Тайм-аут ожидания: признак задержки пользователю, затем переход в
+  // приложение — сплэш навсегда хуже недогруженный интерфейс
+  useEffect(() => {
+    if (done) return;
+    const id = window.setTimeout(() => setSlow(true), TIMEOUT_MS);
+    return () => window.clearTimeout(id);
+  }, [done]);
+
+  useEffect(() => {
+    if (!slow) return;
+    const id = window.setTimeout(() => setFading(true), SLOW_MS);
+    return () => window.clearTimeout(id);
+  }, [slow]);
 
   // Фейд завершён — размонтирование на стороне App
   useEffect(() => {
@@ -85,6 +105,11 @@ export default function Splash({
       {stage2 && (
         <p className="anim-fade-up mt-5 text-xs tracking-wide text-halo-muted">
           {t("splash.tagline")}
+        </p>
+      )}
+      {slow && !fading && (
+        <p className="anim-fade mt-2 text-[0.6875rem] text-halo-muted/70">
+          {t("splash.slow")}
         </p>
       )}
     </div>

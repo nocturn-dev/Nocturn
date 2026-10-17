@@ -1,5 +1,7 @@
 import { createPortal } from "react-dom";
-import { useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useLang } from "../locales";
+import { useOverlay } from "../hooks/useOverlay";
 
 /**
  * Просмотр картинки на весь экран (клик по вложению/результату).
@@ -15,26 +17,43 @@ export function Lightbox({
   alt?: string;
   onClose: () => void;
 }) {
+  const { t } = useLang();
+  const [failed, setFailed] = useState(false);
+  const boxRef = useRef<HTMLDivElement>(null);
+  const overlay = useOverlay({
+    open: src !== null,
+    onClose,
+    containerRef: boxRef,
+  });
+
+  // Новая картинка — это новая попытка загрузки, старый сбой не показываем
   useEffect(() => {
-    if (!src) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [src, onClose]);
+    setFailed(false);
+  }, [src]);
+
   if (!src) return null;
   return createPortal(
     <div
-      className="anim-fade fixed inset-0 z-[var(--halo-z-modal)] flex items-center justify-center bg-halo-scrim p-8"
+      ref={boxRef}
+      tabIndex={-1}
+      {...overlay}
+      aria-label={alt || t("lightbox.title")}
+      className="anim-fade fixed inset-0 z-[var(--halo-z-modal)] flex items-center justify-center bg-halo-scrim p-8 outline-none"
       onClick={onClose}
     >
-      <img
-        src={src}
-        alt={alt ?? ""}
-        className="max-h-full max-w-full select-none rounded-lg object-contain shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      />
+      {failed ? (
+        <p className="max-w-sm text-center text-sm text-halo-muted">
+          {t("lightbox.loadError")}
+        </p>
+      ) : (
+        <img
+          src={src}
+          alt={alt ?? ""}
+          onError={() => setFailed(true)}
+          className="max-h-full max-w-full select-none rounded-lg object-contain shadow-2xl"
+          onClick={(e) => e.stopPropagation()}
+        />
+      )}
     </div>,
     document.body,
   );

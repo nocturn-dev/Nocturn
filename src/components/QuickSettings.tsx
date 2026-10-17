@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { ACCENT_PRESETS, withStyleAccent } from "../appearance";
 import { loadCustomStyles } from "../themeStyles";
 import type { ModelInfo } from "../api";
@@ -9,6 +9,7 @@ import type { Theme } from "../types";
 import ProviderIcon from "./ProviderIcon";
 import { useLang } from "../locales";
 import { reasoningLevels } from "../reasoning";
+import { useOverlay } from "../hooks/useOverlay";
 
 /**
  * Быстрые настройки (поповер из композера): модель, роль, тема,
@@ -53,12 +54,35 @@ export default function QuickSettings({
 }: QuickSettingsProps) {
   const { t } = useLang();
   const [tab, setTab] = useState<"model" | "role" | "look">("model");
+  // Фильтр моделей: провайдеры отдают сотни имён — без поиска длинный
+  // список приходилось обрезать, и нужной модели в нём просто не было
+  const [modelQuery, setModelQuery] = useState("");
+  const paneRef = useRef<HTMLDivElement>(null);
+  const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  const overlay = useOverlay({
+    open: true,
+    onClose,
+    containerRef: paneRef,
+  });
 
   const tabs: { id: typeof tab; label: string }[] = [
     { id: "model", label: t("qs.model") },
     { id: "role", label: t("qs.role") },
     { id: "look", label: t("qs.look") },
   ];
+
+  // Стрелки по вкладкам: фокус и выбор ходят вместе (roving), как в нативных
+  // табах. Escape закрывает поповер — через общий стек useOverlay
+  const onTabKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
+    e.preventDefault();
+    const cur = tabs.findIndex((tb) => tb.id === tab);
+    const dir = e.key === "ArrowRight" ? 1 : -1;
+    const next = tabs[(cur + dir + tabs.length) % tabs.length];
+    if (!next) return;
+    setTab(next.id);
+    tabRefs.current[tabs.indexOf(next)]?.focus();
+  };
 
   // Кастомные стили: localStorage + JSON.parse + санитизация — раз на
   // монтирование поповера (условный рендер в ChatArea), а не на каждый его
@@ -85,20 +109,35 @@ export default function QuickSettings({
     { id: "max", label: t("qs.effortMax") },
   ];
 
+  // Показ моделей: без запроса — первые 40 (полный список всё равно длинный,
+  // ссылка в настройки рядом), с запросом — все совпадения без обрезки
+  const q = modelQuery.trim().toLowerCase();
+  const shownModels = q
+    ? models.filter((m) => m.id.toLowerCase().includes(q))
+    : models.slice(0, 40);
+
   return (
     <>
       {/* Клик вне — закрыть */}
       <div className="fixed inset-0 z-[var(--halo-z-panel-raised)]" onClick={onClose} />
       <div
+        ref={paneRef}
+        {...overlay}
         className="glass-pane anim-pop absolute bottom-full right-0 z-[var(--halo-z-panel-top)] mb-2 w-80 overflow-hidden rounded-xl border border-halo-line bg-halo-deep/95 shadow-2xl"
       >
         {/* Вкладки */}
-        <div className="flex border-b border-halo-line/60 p-1.5">
-          {tabs.map((tb) => (
+        <div role="tablist" onKeyDown={onTabKeyDown} className="flex border-b border-halo-line/60 p-1.5">
+          {tabs.map((tb, i) => (
             <button
               key={tb.id}
+              ref={(el) => {
+                tabRefs.current[i] = el;
+              }}
+              role="tab"
+              aria-selected={tab === tb.id}
+              tabIndex={tab === tb.id ? 0 : -1}
               onClick={() => setTab(tb.id)}
-              className={`flex-1 rounded-md px-2 py-1 text-[0.6875rem] font-medium transition-colors ${
+              className={`flex-1 rounded-md px-2 py-1 text-[0.6875rem] font-medium transition-colors focus-visible:outline focus-visible:outline-1 focus-visible:outline-halo-accent ${
                 tab === tb.id
                   ? "bg-halo-accent/15 text-halo-accent"
                   : "text-halo-muted hover:bg-halo-hover hover:text-halo-text"
@@ -112,11 +151,27 @@ export default function QuickSettings({
         <div className="scroll-slim max-h-72 overflow-y-auto p-2.5">
           {tab === "model" && (
             <div className="space-y-1">
+              {models.length > 10 && (
+                <input
+                  type="search"
+                  value={modelQuery}
+                  onChange={(e) => setModelQuery(e.target.value)}
+                  placeholder={t("qs.searchModels")}
+                  aria-label={t("qs.searchModels")}
+                  className="w-full rounded-lg border border-halo-line bg-halo-surface px-2 py-1 text-xs text-halo-text outline-none placeholder:text-halo-muted/60 focus:border-halo-accent/60"
+                />
+              )}
               {models.length === 0 && (
                 <p className="px-1 py-2 text-xs text-halo-muted/70">
                   {t("qs.noModels")}
                 </p>
-              )}              {models.slice(0, 40).map((m) => (
+              )}
+              {models.length > 0 && q !== "" && shownModels.length === 0 && (
+                <p className="px-1 py-2 text-xs text-halo-muted/70">
+                  {t("qs.searchEmpty")}
+                </p>
+              )}
+              {shownModels.map((m) => (
                 <button
                   key={m.id}
                   onClick={() => {
@@ -138,7 +193,7 @@ export default function QuickSettings({
                   )}
                 </button>
               ))}
-              {models.length > 40 && (
+              {models.length > 40 && q === "" && (
                 <p className="px-1 pt-1 text-[0.625rem] text-halo-muted/50">
                   {t("qs.moreInSettings")}
                 </p>
@@ -269,6 +324,7 @@ export default function QuickSettings({
                     onChange={(e) =>
                       onAppearanceChange({ ...appearance, accent: e.target.value })
                     }
+                    aria-label={t("themes.accentCustom")}
                     title={t("themes.accentCustom")}
                     className="h-5 w-7 cursor-pointer rounded border border-halo-line bg-transparent"
                   />
@@ -289,6 +345,7 @@ export default function QuickSettings({
                   max={115}
                   step={5}
                   value={appearance.scale}
+                  aria-label={t("themes.scale")}
                   onChange={(e) =>
                     onAppearanceChange({ ...appearance, scale: Number(e.target.value) })
                   }

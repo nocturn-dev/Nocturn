@@ -106,7 +106,7 @@ export interface AgentRunDeps {
   browserAutoPanelRef: { current: boolean };
   activeSessionRef: { current: Session | null };
   setBrowserPanelOpen: (v: boolean) => void;
-  addToast: (text: string) => void;
+  addToast: (text: string, kind?: "info" | "success" | "error") => void;
   /** RAG-трасса: последний поиск по базе — для панели
    *  Knowledge. Не передан — запись не ведётся */
   onKbTrace?: (trace: import("../api").KbTrace) => void;

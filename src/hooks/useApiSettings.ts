@@ -43,7 +43,7 @@ export function useApiSettings(opts: {
   setSessions: Dispatch<SetStateAction<Session[]>>;
   /** Текущее оформление — снапшот уходит в профиль при «Сохранить текущие» */
   appearance: Appearance;
-  addToast: (text: string) => void;
+  addToast: (text: string, kind?: "info" | "success" | "error") => void;
 }) {
   const { activeId, sessions, setSessions, appearance, addToast } = opts;
   const { t } = useLang();
@@ -87,7 +87,7 @@ export function useApiSettings(opts: {
       .then((r) => {
         if (r.status === "error") {
           settingsBrokenRef.current = true;
-          addToast(t("error.settingsCorrupted", { e: r.error }));
+          addToast(t("error.settingsCorrupted", { e: r.error }), "error");
           return;
         }
         const s = r.status === "ok" ? r.data : { ...DEFAULT_SETTINGS };

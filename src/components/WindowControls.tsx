@@ -34,7 +34,11 @@ export default function WindowControls() {
   return (
     <div className="flex shrink-0 items-center gap-0.5">
       <button
-        onClick={() => void win.minimize()}
+        onClick={() => {
+          // Сбой сворачивания маловероятен, но молча проглатывать его тоже
+          // нельзя: кнопка «не работает» без всякой диагностики
+          void win.minimize().catch((e) => console.warn("[nocturn] minimize:", e));
+        }}
         title={t("win.min")}
         className={`${btn} hover:bg-halo-hover hover:text-halo-text`}
       >
@@ -46,8 +50,12 @@ export default function WindowControls() {
         onClick={() => {
           // Анимированный разворот/восстановление в рабочую область монитора
           // (Rust). Нативный maximize для безрамочного окна ломает циклы
-          // maximize↔restore (чёрные полосы, съехавшая картинка) — tao#471
-          void windowToggleMaximize().catch(() => void win.toggleMaximize());
+          // maximize↔restore (чёрные полосы, съехавшая картинка) — tao#471,
+          // поэтому при сбое нативный toggleMaximize как фолбэк не зовём:
+          // он возвращает ровно тот баг, от которого ушли
+          void windowToggleMaximize().catch((e) =>
+            console.warn("[nocturn] toggle maximize:", e),
+          );
         }}
         title={t("win.max")}
         className={`${btn} hover:bg-halo-hover hover:text-halo-text`}
@@ -58,9 +66,13 @@ export default function WindowControls() {
       </button>
       <button
         onClick={() => {
-          // «Скрывать в трей»: крестик прячет окно, выход — из меню трея
+          // «Скрывать в трей»: крестик прячет окно, выход — из меню трея.
+          // Если трей недоступен, окно НЕ закрываем: пользователь выбрал
+          // «скрыть», а не «выйти», потерять сеанс из-за сбоя трея — потеря данных
           if (localStorage.getItem(STORAGE_KEYS.closeToTray) === "1") {
-            void hideToTray().catch(() => win.close());
+            void hideToTray().catch((e) =>
+              console.warn("[nocturn] hide to tray:", e),
+            );
           } else {
             void win.close();
           }

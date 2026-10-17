@@ -34,12 +34,20 @@ export default function BrowserPanel({ open, onClose }: BrowserPanelProps) {
   const [frame, setFrame] = useState<string | null>(null);
   const [url, setUrl] = useState("");
   const [size, setSize] = useState(0);
+  // Ошибка запуска трансляции: без неё панель висит в «ожидании» без причины
+  const [startErr, setStartErr] = useState(false);
   // Отписка от событий: тапл из listen + признак размонтирования
   const unlistenRef = useRef<(() => void) | null>(null);
+  // Выбранный размер в реф: эффект старта не должен перезапускаться
+  // при смене селектора, а вьюпорт пере-применять ему нужно актуальный
+  const sizeRef = useRef(size);
+  sizeRef.current = size;
 
   useEffect(() => {
     if (!open) return;
     let alive = true;
+    setStartErr(false);
+    setUrl("");
     // start больше не void — cleanup при быстром закрытии раньше
     // вызывался ДО завершения start, stop обгонял start, и CDP-трансляция
     // оставалась жить в Rust с мёртвым подписчиком. Ждём start и гасим
@@ -47,12 +55,23 @@ export default function BrowserPanel({ open, onClose }: BrowserPanelProps) {
     (async () => {
       try {
         await browserViewStart();
-      } catch {
+      } catch (e) {
+        console.error("[nocturn] browser view start:", e);
+        if (alive) setStartErr(true);
         return;
       }
       if (!alive) {
         void browserViewStop().catch(() => {});
         return;
+      }
+      // Вьюпорт пере-применяем при каждом открытии: агент мог сменить
+      // разрешение через Emulation, а селектор панель показывает свой —
+      // источник правды о размере здесь панель
+      const s = SIZES[sizeRef.current];
+      if (s) {
+        void browserViewSetSize(s.w, s.h).catch(() => {
+          if (alive) setSize(0);
+        });
       }
     })();
     void listenBrowserFrame((f) => {
@@ -80,10 +99,15 @@ export default function BrowserPanel({ open, onClose }: BrowserPanelProps) {
   if (!show) return null;
 
   const applySize = (idx: number) => {
+    const prev = size;
     setSize(idx);
     const s = SIZES[idx];
     if (!s) return;
-    void browserViewSetSize(s.w, s.h).catch(() => {});
+    void browserViewSetSize(s.w, s.h).catch(() => {
+      // Селектор показывает применённый размер: при сбое возвращаем
+      // предыдущее значение, чтобы подпись не врала
+      if (sizeRef.current === idx) setSize(prev);
+    });
   };
 
   return (
@@ -121,7 +145,11 @@ export default function BrowserPanel({ open, onClose }: BrowserPanelProps) {
 
       {/* Кадр */}
       <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-black/60">
-        {frame ? (
+        {startErr ? (
+          <p className="max-w-[280px] text-center text-xs leading-relaxed text-red-400">
+            {t("browserPanel.startError")}
+          </p>
+        ) : frame ? (
           <img
             src={`data:image/jpeg;base64,${frame}`}
             alt=""

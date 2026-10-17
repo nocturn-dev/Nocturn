@@ -1,9 +1,12 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useLang } from "../locales";
+import { useOverlay } from "../hooks/useOverlay";
 
 /** Предупреждение при применении джейлбрейка: риски ToS/банов — на
  * пользователе, Nocturn отправляет только его провайдеру. Показывается
- * при каждом применении, пока не отмечено «больше не показывать». */
+ * при каждом применении, пока не отмечено «больше не показывать».
+ * «Отмена» — основная кнопка: предупреждение открыто ради неё,
+ * принятие должно требовать прицеливания, а не наоборот. */
 export default function JbWarnModal({
   onConfirm,
   onCancel,
@@ -14,6 +17,12 @@ export default function JbWarnModal({
 }) {
   const { t } = useLang();
   const [dontShow, setDontShow] = useState(false);
+  const cardRef = useRef<HTMLDivElement>(null);
+  const overlay = useOverlay({
+    open: true,
+    onClose: onCancel,
+    containerRef: cardRef,
+  });
 
   return (
     <div
@@ -21,6 +30,9 @@ export default function JbWarnModal({
       onClick={onCancel}
     >
       <div
+        ref={cardRef}
+        {...overlay}
+        aria-label={t("jb.warnTitle")}
         className="glass-pane w-full max-w-md rounded-2xl border border-halo-line bg-halo-deep p-5 shadow-2xl anim-pop"
         onClick={(e) => e.stopPropagation()}
       >
@@ -41,16 +53,16 @@ export default function JbWarnModal({
         </label>
         <div className="mt-4 flex items-center justify-end gap-2">
           <button
-            onClick={onCancel}
-            className="press rounded-lg border border-halo-line px-3 py-1.5 text-sm text-halo-muted transition-colors hover:bg-halo-hover hover:text-halo-text"
-          >
-            {t("jb.warnCancel")}
-          </button>
-          <button
             onClick={() => onConfirm(dontShow)}
-            className="rounded-lg bg-halo-accent px-4 py-1.5 text-sm font-medium text-halo-on-accent press hover:bg-halo-accent-deep"
+            className="press rounded-lg border border-halo-line px-4 py-1.5 text-sm text-halo-muted transition-colors hover:bg-halo-hover hover:text-halo-text"
           >
             {t("jb.warnAccept")}
+          </button>
+          <button
+            onClick={onCancel}
+            className="rounded-lg bg-halo-accent px-4 py-1.5 text-sm font-medium text-halo-on-accent press hover:bg-halo-accent-deep"
+          >
+            {t("jb.warnCancel")}
           </button>
         </div>
       </div>

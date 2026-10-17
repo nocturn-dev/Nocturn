@@ -45,6 +45,11 @@ export function QuickEntry() {
   // Модель для чипа внизу: текущее подключение из настроек (ключ может быть
   // зашифрован — для показа имени модели он не нужен)
   const [model, setModel] = useState("");
+  const refreshModel = () => {
+    loadSettings()
+      .then((s) => setModel(s.model))
+      .catch(() => {});
+  };
 
   useEffect(() => {
     applyTheme();
@@ -70,6 +75,9 @@ export function QuickEntry() {
         if (!focused) return;
         applyTheme();
         ref.current?.focus();
+        // Чип модели живёт долго (окно скрыто, но смонтировано): без
+        // перечитывания при показе он показывал подключение месячной давности
+        void refreshModel();
       })
       .then((u) => {
         if (disposed) u();
@@ -102,9 +110,7 @@ export function QuickEntry() {
   }, []);
 
   useEffect(() => {
-    loadSettings()
-      .then((s) => setModel(s.model))
-      .catch(() => {});
+    refreshModel();
   }, []);
 
   const hide = () => {
@@ -115,8 +121,15 @@ export function QuickEntry() {
   const submit = () => {
     const text = draft.trim();
     if (!text) return;
-    setDraft("");
-    void quickentrySubmit(text).then(hide).catch(hide);
+    // Черновик чистим только после успешной отправки: при сбое текст и окно
+    // остаются на месте — задачу можно поправить и отправить снова, а не
+    // набирать заново по памяти
+    void quickentrySubmit(text)
+      .then(() => {
+        setDraft("");
+        hide();
+      })
+      .catch(() => {});
   };
 
   return (
