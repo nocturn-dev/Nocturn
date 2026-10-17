@@ -507,6 +507,7 @@ export const ja = {
     "sub.maxSteps": "ステップ上限",
     "sub.tools": "ツール（カンマ区切り、空欄 = すべて）",
     "sub.toolsHint": "例：fs_read, fs_list, shell_run, browser_read",
+    "sub.toolsReadOnly": "許可リストなし — 読み取り専用ツールのみ",
     "sub.prompt": "ロールのシステムプロンプト",
     "sub.addRole": "新しいロール",
     // 上のボタンで作るロールの初期値：desc はバイリンガルデータ

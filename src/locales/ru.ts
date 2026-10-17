@@ -488,6 +488,7 @@ export const ru = {
     "sub.maxSteps": "Лимит шагов",
     "sub.tools": "Инструменты (через запятую, пусто — все)",
     "sub.toolsHint": "Например: fs_read, fs_list, shell_run, browser_read",
+    "sub.toolsReadOnly": "без allowlist — только инструменты чтения",
     "sub.prompt": "Системный промт роли",
     "sub.addRole": "Новая роль",
     // Заготовка роли, создаваемой кнопкой выше: desc — двуязычные данные

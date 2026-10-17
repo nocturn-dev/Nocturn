@@ -476,6 +476,7 @@ export const en = {
     "sub.maxSteps": "Step limit",
     "sub.tools": "Tools (comma-separated, empty = all)",
     "sub.toolsHint": "e.g. fs_read, fs_list, shell_run, browser_read",
+    "sub.toolsReadOnly": "no allowlist — read-only tools only",
     "sub.prompt": "Role system prompt",
     "sub.addRole": "New role",
     // Seed for the role created by the button above: desc is bilingual data

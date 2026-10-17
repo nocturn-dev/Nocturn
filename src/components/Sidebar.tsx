@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Project, Session } from "../types";
 import WindowControls from "./WindowControls";
 import { pickFolder, pickAnyFile, type NoteInfo } from "../api";
@@ -298,15 +298,21 @@ export default function Sidebar({
     const i = Math.max(p.lastIndexOf("\\"), p.lastIndexOf("/"));
     return i > 0 ? p.slice(0, i) : p;
   };
-  /** «+» → Папка: проект с корнем в выбранной папке, имя = имя папки */
+  /** «+» → Папка: проект с корнем в выбранной папке, имя = имя папки.
+   *  Пикер может reject'нуть (отмена/сбой) — без catch это unhandledrejection
+   *  при первом же клике в превью */
   const addFromPicker = async (kind: "folder" | "file") => {
-    if (kind === "folder") {
-      const root = await pickFolder();
-      if (root) onAddProject(baseName(root), root);
-      return;
+    try {
+      if (kind === "folder") {
+        const root = await pickFolder();
+        if (root) onAddProject(baseName(root), root);
+        return;
+      }
+      const file = await pickAnyFile();
+      if (file) onAddProject(baseName(file), parentDir(file));
+    } catch {
+      // Пользователь отменил выбор или пикер недоступен — просто ничего не добавляем
     }
-    const file = await pickAnyFile();
-    if (file) onAddProject(baseName(file), parentDir(file));
   };
   const changeGroupBy = (v: "flat" | "project") => {
     setGroupBy(v);
@@ -375,7 +381,10 @@ export default function Sidebar({
     // setTaggingId из useState стабилен — первым рендером и остаётся
     setTaggingId,
   });
-  useEffect(() => {
+  // useLayoutEffect, а не useEffect: поля должны быть свежи К ПЕРВОМУ кадру —
+  // обычный эффект оставлял окно в один кадр с устаревшими колбэками,
+  // несмотря на обещание комментария ниже
+  useLayoutEffect(() => {
     // Только колбэки из пропсов: setState-функции стабильны, их в refresh
     // не включаем (правило exhaustive-deps справедливо — смысла нет)
     Object.assign(rowHandlersRef.current, {
@@ -840,7 +849,14 @@ function ColorPalette({
 }) {
   const { t } = useLang();
   return (
-    <div className="anim-pop absolute left-0 top-6 z-[var(--halo-z-panel-top)] w-44 rounded-lg border border-halo-line bg-halo-deep p-2 shadow-xl">
+    <>
+      {/* Подложка: клик вне закрывает палитру, как у остальных поповеров
+          сайдбара — раньше палитра висела поверх контента без выхода */}
+      <div
+        className="fixed inset-0 z-[var(--halo-z-panel-top)]"
+        onClick={onClose}
+      />
+      <div className="anim-pop absolute left-0 top-6 z-[var(--halo-z-panel-top)] w-44 rounded-lg border border-halo-line bg-halo-deep p-2 shadow-xl">
       <div className="mb-2 flex items-center justify-between">
         <p className="text-[0.625rem] uppercase tracking-wider text-halo-muted/70">
           {t("sidebar.headerColorTitle")}
@@ -880,7 +896,8 @@ function ColorPalette({
           {t("sidebar.headerColorReset")}
         </button>
       </div>
-    </div>
+      </div>
+    </>
   );
 }
 

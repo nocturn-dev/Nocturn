@@ -1,7 +1,12 @@
 /** Раздел «Субагенты»: тумблер, лимит параллельности, редактор ролей */
 import { useState } from "react";
 import { pickBilingual, translate, useLang } from "../locales";
-import { mergeRoles, type SubagentRole, type SubagentsConfig } from "../subagents";
+import {
+  BUILTIN_ROLE_IDS,
+  mergeRoles,
+  type SubagentRole,
+  type SubagentsConfig,
+} from "../subagents";
 import { MiniTrashIcon, Row, Segmented, ToggleRow } from "./settings/parts";
 
 export default function SubagentsSection({
@@ -18,7 +23,32 @@ export default function SubagentsSection({
   const [editing, setEditing] = useState<string | null>(null);
   const roles = mergeRoles(config.roles);
   const storedIds = new Set(config.roles.map((r) => r.id));
-  const builtinIds = new Set(["researcher", "coder", "critic", "librarian"]);
+
+  // Черновики полей роли (tools/maxSteps) живут строкой до blur: раньше
+  // контролируемое поле пересобиралось на каждый символ — запятая в списке
+  // инструментов съедалась мгновенно, а очистка maxSteps мгновенно падала в 1.
+  // Черновик один: редактируется максимум одна роль за раз
+  const [toolsDraft, setToolsDraft] = useState<string | null>(null);
+  const [stepsDraft, setStepsDraft] = useState<string | null>(null);
+
+  const commitTools = (r: SubagentRole, raw: string) => {
+    setToolsDraft(null);
+    const clean = raw.trim();
+    const next = clean === "" ? null : clean.split(/\s*,\s*/).filter(Boolean);
+    if (JSON.stringify(next) === JSON.stringify(r.tools)) return;
+    updateRole({ ...r, tools: next });
+  };
+
+  const commitSteps = (r: SubagentRole, raw: string) => {
+    setStepsDraft(null);
+    // Пустое поле — отказ от правки, возвращаем прежнее значение: раньше
+    // очистка мгновенно превращалась в 1
+    const n = parseInt(raw, 10);
+    if (Number.isNaN(n)) return;
+    const clamped = Math.max(1, Math.min(25, n));
+    if (clamped === r.maxSteps) return;
+    updateRole({ ...r, maxSteps: clamped });
+  };
 
   const updateRole = (next: SubagentRole) => {
     onChange({
@@ -109,7 +139,7 @@ export default function SubagentsSection({
           <div className="space-y-2">
             {roles.map((r) => {
               const isEditing = editing === r.id;
-              const isCustom = storedIds.has(r.id) && !builtinIds.has(r.id);
+              const isCustom = storedIds.has(r.id) && !BUILTIN_ROLE_IDS.has(r.id);
               return (
                 <div
                   key={r.id}
@@ -136,6 +166,14 @@ export default function SubagentsSection({
                     <span className="min-w-0 flex-1 basis-48 truncate text-xs leading-relaxed text-halo-muted">
                       {pickBilingual(r.desc, lang)}
                     </span>
+                    {/* Превью plugin-роли без редактора: набор инструментов
+                        должен быть виден до установки плагина — роль с пустым
+                        allowlist получает только инструменты чтения */}
+                    {pluginIds?.has(r.id) && (
+                      <span className="max-w-56 shrink-0 truncate font-mono text-[0.625rem] text-halo-muted/70" title={r.tools?.join(", ") ?? t("sub.toolsReadOnly")}>
+                        {r.tools && r.tools.length > 0 ? r.tools.join(", ") : t("sub.toolsReadOnly")}
+                      </span>
+                    )}
                     {pluginIds?.has(r.id) ? null : (
                       <button
                         onClick={() => setEditing(isEditing ? null : r.id)}
@@ -184,29 +222,28 @@ export default function SubagentsSection({
                           type="number"
                           min={1}
                           max={25}
-                          value={r.maxSteps}
-                          onChange={(e) =>
-                            updateRole({
-                              ...r,
-                              maxSteps: Math.max(1, Math.min(25, Number(e.target.value) || 1)),
-                            })
-                          }
+                          value={stepsDraft !== null && editing === r.id ? stepsDraft : String(r.maxSteps)}
+                          onChange={(e) => setStepsDraft(e.target.value)}
+                          onBlur={(e) => commitSteps(r, e.target.value)}
+                          onKeyDown={(e) => {
+                            // Enter коммитит черновик; IME-энтер — только закрытие состава
+                            if (e.key === "Enter" && !e.nativeEvent.isComposing) {
+                              e.currentTarget.blur();
+                            }
+                          }}
                           title={t("sub.maxSteps")}
                           className="w-full rounded-lg border border-halo-line bg-halo-surface px-2 py-1.5 text-center text-xs text-halo-text outline-none focus:border-halo-accent/60"
                         />
                       </div>
                       <input
                         type="text"
-                        value={r.tools === null ? "" : r.tools.join(", ")}
-                        onChange={(e) => {
-                          const raw = e.target.value.trim();
-                          updateRole({
-                            ...r,
-                            tools:
-                              raw === ""
-                                ? null
-                                : raw.split(/\s*,\s*/).filter(Boolean),
-                          });
+                        value={toolsDraft !== null && editing === r.id ? toolsDraft : r.tools === null ? "" : r.tools.join(", ")}
+                        onChange={(e) => setToolsDraft(e.target.value)}
+                        onBlur={(e) => commitTools(r, e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && !e.nativeEvent.isComposing) {
+                            e.currentTarget.blur();
+                          }
                         }}
                         placeholder={t("sub.tools")}
                         title={t("sub.toolsHint")}

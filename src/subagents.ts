@@ -99,6 +99,13 @@ export const SUBAGENT_ROLES: SubagentRole[] = [
   },
 ];
 
+/** Идентификаторы встроенных ролей: UI отличает их от сохранённых
+ *  переопределений и кастомных ролей. Выводится из списка, поэтому при
+ *  добавлении роли не расходится с захардкоженной копией */
+export const BUILTIN_ROLE_IDS: ReadonlySet<string> = new Set(
+  SUBAGENT_ROLES.map((r) => r.id),
+);
+
 export interface SubagentStep {
   type: "thought" | "text" | "tool";
   text: string;

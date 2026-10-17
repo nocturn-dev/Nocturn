@@ -93,6 +93,13 @@ export function DiffPanel({
   useEffect(() => {
     if (open) setOpenFile(focusPath ?? null);
   }, [open, focusPath, focusNonce]);
+  // Файл исчез из прогона (откат/новая версия данных) — раскрытие сбрасываем,
+  // иначе молчаливо храним путь, которого в списке больше нет
+  useEffect(() => {
+    setOpenFile((cur) =>
+      cur !== null && !files.some((f) => f.path === cur) ? null : cur,
+    );
+  }, [files]);
   const show = useDelayedUnmount(open, 200);
   if (!show) return null;
   const total = files.reduce(

@@ -507,6 +507,7 @@ export const zh = {
     "sub.maxSteps": "步数上限",
     "sub.tools": "工具（逗号分隔，留空 = 全部）",
     "sub.toolsHint": "例如：fs_read, fs_list, shell_run, browser_read",
+    "sub.toolsReadOnly": "无白名单——仅限只读工具",
     "sub.prompt": "角色系统提示词",
     "sub.addRole": "新建角色",
     // 上方按钮创建的角色的初始内容：desc 是双语数据

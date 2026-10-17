@@ -50,22 +50,28 @@ export default function ChainMonitor({ chain, onClose }: ChainMonitorProps) {
   const plan = chain?.plan ?? null;
   const { pos, width, height } = useMemo(() => {
     const nodes = plan ?? [];
-    const byTitle = new Map(nodes.map((n) => [n.title.toLowerCase(), n]));
+    // Узлы идентифицируются ИНДЕКСОМ в плане: дубликаты file (две заметки
+    // с одним именем) раньше затирали позицию друг друга и дублировали ключи
+    const byTitle = new Map<string, number>();
+    nodes.forEach((n, i) => {
+      if (!byTitle.has(n.title.toLowerCase())) byTitle.set(n.title.toLowerCase(), i);
+    });
     // Глубина — BFS от корня: обход в глубину фиксировал глубину первым
     // путём, и ромбовидная связь рисовалась длинным разрывом вместо
     // кратчайшего маршрута
-    const depth = new Map<string, number>();
+    const depth = new Map<number, number>();
     if (nodes[0]) {
-      depth.set(nodes[0].file, 0);
-      const queue: Note[] = [nodes[0]];
+      depth.set(0, 0);
+      const queue: number[] = [0];
       for (let head = 0; head < queue.length; head++) {
-        const n = queue[head]!;
-        const d = depth.get(n.file) ?? 0;
+        const i = queue[head]!;
+        const n = nodes[i]!;
+        const d = depth.get(i) ?? 0;
         for (const link of extractLinks(n.content)) {
-          const next = byTitle.get(link.toLowerCase());
-          if (next && !depth.has(next.file)) {
-            depth.set(next.file, d + 1);
-            queue.push(next);
+          const j = byTitle.get(link.toLowerCase());
+          if (j !== undefined && j !== i && !depth.has(j)) {
+            depth.set(j, d + 1);
+            queue.push(j);
           }
         }
       }
@@ -74,21 +80,21 @@ export default function ChainMonitor({ chain, onClose }: ChainMonitorProps) {
     // глубиной: раньше фолбэк-глубина 0 ставила их на корень и узлы налезали
     let reachableMax = 0;
     for (const d of depth.values()) reachableMax = Math.max(reachableMax, d);
-    const byDepth = new Map<number, Note[]>();
-    for (const n of nodes) {
-      const d = depth.get(n.file) ?? reachableMax + 1;
+    const byDepth = new Map<number, number[]>();
+    nodes.forEach((_n, i) => {
+      const d = depth.get(i) ?? reachableMax + 1;
       const bucket = byDepth.get(d);
-      if (bucket) bucket.push(n);
-      else byDepth.set(d, [n]);
-    }
-    const pos = new Map<string, { x: number; y: number }>();
+      if (bucket) bucket.push(i);
+      else byDepth.set(d, [i]);
+    });
+    const pos = new Map<number, { x: number; y: number }>();
     let maxDepth = 0;
     let maxY = 0;
     for (const [d, group] of byDepth) {
       maxDepth = Math.max(maxDepth, d);
-      group.forEach((n, i) => {
-        const y = (i - (group.length - 1) / 2) * STEP_H;
-        pos.set(n.file, { x: 40 + d * STEP_W, y: y });
+      group.forEach((i, k) => {
+        const y = (k - (group.length - 1) / 2) * STEP_H;
+        pos.set(i, { x: 40 + d * STEP_W, y: y });
         maxY = Math.max(maxY, Math.abs(y));
       });
     }
@@ -101,9 +107,12 @@ export default function ChainMonitor({ chain, onClose }: ChainMonitorProps) {
 
   if (!chain || chain.plan.length === 0) return null;
 
-  const visible = (i: number) => chain.status[i] !== "pending";
-  const byTitle = new Map(chain.plan.map((n) => [n.title.toLowerCase(), n]));
-  const fileIndex = new Map(chain.plan.map((n, i) => [n.file, i]));
+  // Единственная точка чтения статуса: рассинхрон длин (status короче
+  // плана) трактуем как pending — раньше «нет записи» был не-pending
+  // в одних проверках и pending в других
+  const statusAt = (i: number): ChainStepStatus => chain.status[i] ?? "pending";
+  const visible = (i: number) => statusAt(i) !== "pending";
+  const byTitle = new Map(chain.plan.map((n, i) => [n.title.toLowerCase(), i]));
 
   const nodeColor = (st: ChainStepStatus) =>
     st === "done"
@@ -153,13 +162,11 @@ export default function ChainMonitor({ chain, onClose }: ChainMonitorProps) {
           {/* Шаги */}
           <div className="scroll-slim w-72 shrink-0 overflow-y-auto border-r border-halo-line px-3 py-3">
             {chain.plan.map((n, i) => {
-              // status короче plan не бывает, но строгие индексы требуют
-              // явности: рассинхрон длин трактуем как pending
-              const st = chain.status[i] ?? "pending";
+              const st = statusAt(i);
               const agent = parseAgentFlag(n.content);
               return (
                 <div
-                  key={n.file}
+                  key={`${i}-${n.file}`}
                   className={`mb-1.5 flex items-start gap-2 rounded-lg border px-2.5 py-2 transition-colors ${
                     st === "running"
                       ? "border-halo-accent/60 bg-halo-accent/10"
@@ -201,18 +208,17 @@ export default function ChainMonitor({ chain, onClose }: ChainMonitorProps) {
                 visible(i)
                   ? extractLinks(n.content)
                       .map((link) => byTitle.get(link.toLowerCase()))
-                      .filter((next): next is Note => !!next)
-                      .map((next) => {
+                      .filter((next): next is number => next !== undefined && next !== i)
+                      .map((j) => {
                         // fileIndex заполнен из тех же заметок: guard вместо
                         // non-null assertion — защита не исчезает при рефакторинге
-                        const j = fileIndex.get(next.file);
-                        if (j === undefined || !visible(j)) return null;
-                        const a = pos.get(n.file);
-                        const b = pos.get(next.file);
+                        if (!visible(j)) return null;
+                        const a = pos.get(i);
+                        const b = pos.get(j);
                         if (!a || !b) return null;
                         const active =
-                          chain.status[j] === "running" ||
-                          (chain.status[i] === "running" && chain.status[j] !== "pending");
+                          statusAt(j) === "running" ||
+                          (statusAt(i) === "running" && statusAt(j) !== "pending");
                         return (
                           <line
                             key={`${i}-${j}`}
@@ -222,7 +228,7 @@ export default function ChainMonitor({ chain, onClose }: ChainMonitorProps) {
                             y2={b.y}
                             stroke={active ? "var(--halo-accent)" : "var(--halo-line)"}
                             strokeWidth={active ? 2 : 1.2}
-                            strokeDasharray={chain.status[j] === "running" ? "6 4" : undefined}
+                            strokeDasharray={statusAt(j) === "running" ? "6 4" : undefined}
                           />
                         );
                       })
@@ -231,11 +237,11 @@ export default function ChainMonitor({ chain, onClose }: ChainMonitorProps) {
               {/* Узлы */}
               {chain.plan.map((n, i) => {
                 if (!visible(i)) return null;
-                const p = pos.get(n.file);
+                const p = pos.get(i);
                 if (!p) return null;
-                const st = chain.status[i] ?? "pending";
+                const st = statusAt(i);
                 return (
-                  <g key={n.file} transform={`translate(${p.x},${p.y})`}>
+                  <g key={`${i}-${n.file}`} transform={`translate(${p.x},${p.y})`}>
                     {st === "running" && (
                       <circle r={16} fill="none" stroke="var(--halo-accent)" strokeOpacity={0.4} strokeWidth={2}>
                         <animate attributeName="r" values="12;20;12" dur="1.6s" repeatCount="indefinite" />
