@@ -1,6 +1,7 @@
 import {
   Fragment,
   memo,
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -18,7 +19,7 @@ import { StepAccordion } from "./StepAccordion";
 import { MarkdownLink } from "./MarkdownLink";
 import { SubagentCard } from "./SubagentCard";
 import { ErrorNote } from "./ErrorNote";
-import { CodeBlock } from "./AssistantCard";
+import { CodeBlock, CodeStreamingContext } from "./AssistantCard";
 import { shortModelName } from "../ProviderIcon";
 import ProviderIcon from "../ProviderIcon";
 import { fmtInt } from "./util";
@@ -72,9 +73,14 @@ function ThoughtIcon() {
   );
 }
 
+// Стабильные пустые массивы для раундов без шагов/тулов: inline ?? [] на
+// каждый рендер рвал memo исторических раундов
+const EMPTY_STEPS: StepRow[] = [];
+const EMPTY_TOOL_MSGS: Message[] = [];
+
 /** Один раунд хода: строка мысли + текст + шаги. Отдельный компонент —
  *  useSmoothText обязан зваться безуслов­но на верхнем уровне */
-function RunRound({
+const RunRound = memo(function RunRound({
   round,
   steps,
   toolMsgs,
@@ -106,7 +112,9 @@ function RunRound({
   /** Иерархия хода сложена: остаётся только текст ответа */
   folded: boolean;
   open: boolean;
-  onToggleThought: () => void;
+  /** Идентификатор раунда отделён от колбэка: свежая стрелка на каждый
+   *  рендер рвала memo — сюда приходит стабильный toggleThought */
+  onToggleThought: (id: string) => void;
   mdComponents: {
     a: (p: ComponentPropsWithoutRef<"a">) => ReactNode;
     pre: (p: { node?: unknown; children?: ReactNode }) => ReactNode;
@@ -120,7 +128,7 @@ function RunRound({
       {round.thought && showThought && !folded && (
         <div className="mt-2">
           <button
-            onClick={onToggleThought}
+            onClick={() => onToggleThought(round.id)}
             className={`flex items-center gap-1.5 text-[0.6875rem] text-halo-muted transition-colors hover:text-halo-text ${
               isStreamingRound && !round.content.trim() ? "step-live rounded" : ""
             }`}
@@ -152,18 +160,22 @@ function RunRound({
         /* Мягкая подложка под текстом раунда: на «голом» фоне ленты текст
            сливался с ambient/шагами */
         <div className="markdown mt-2 rounded-lg border border-halo-line/40 bg-halo-surface/40 px-3.5 py-2.5 text-sm leading-relaxed text-halo-text">
-          {/* stream-tail только на тексте: каретка ниже остаётся чёткой */}
-          <div className={isStreamingRound ? "stream-tail" : undefined}>
-            <StreamMarkdown
-              md={text}
-              streaming={isStreamingRound && smooth}
-              remarkPlugins={MD_PLUGINS}
-              rehypePlugins={
-                highlightLive || !isStreamingRound ? REHYPE_PLUGINS : REHYPE_PLUGINS_NO_HL
-              }
-              components={mdComponents}
-            />
-          </div>
+          {/* stream-tail только на тексте: каретка ниже остаётся чёткой.
+              Провайдер стрима: CodeBlock гасит копирование частичного кода
+              только у стримящегося раунда, завершённые раунды копируются */}
+          <CodeStreamingContext.Provider value={isStreamingRound}>
+            <div className={isStreamingRound ? "stream-tail" : undefined}>
+              <StreamMarkdown
+                md={text}
+                streaming={isStreamingRound && smooth}
+                remarkPlugins={MD_PLUGINS}
+                rehypePlugins={
+                  highlightLive || !isStreamingRound ? REHYPE_PLUGINS : REHYPE_PLUGINS_NO_HL
+                }
+                components={mdComponents}
+              />
+            </div>
+          </CodeStreamingContext.Provider>
           {caret && isStreamingRound && (
             <span className="caret-blink align-baseline text-halo-accent">▍</span>
           )}
@@ -193,13 +205,13 @@ function RunRound({
       {round.error && <ErrorNote title={round.error.title} raw={round.error.raw} />}
     </Fragment>
   );
-}
+});
 
-/** Тяжёлая часть раунда — парс markdown + highlight — под memo: ре-рендер
- *  RunCard (смена subRuns/activity) не должен перепарсивать текст
- *  исторических раундов. Пропсы стабильны: текст раунда из derived-кэша
- *  ChatArea, mdComponents — useMemo([onPreviewArtifact]) в RunCardBase */
-
+/** Тяжёлая часть раунда — парс markdown + highlight — под memo (см. RunRound
+ *  выше): ре-рендер RunCard (смена subRuns/activity) не должен перепарсивать
+ *  текст исторических раундов. Пропсы стабильны: текст раунда и шаги из
+ *  derived-кэша ChatArea, mdComponents — useMemo([onPreviewArtifact]) в
+ *  RunCardBase, toggleThought — useCallback */
 
 function RunCardBase({
   runKey,
@@ -283,13 +295,14 @@ function RunCardBase({
     if (prevStreaming.current && !isStreaming) setFolded(true);
     prevStreaming.current = isStreaming;
   }, [isStreaming]);
-  const toggleThought = (id: string) =>
+  const toggleThought = useCallback((id: string) => {
     setOpenThoughts((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
       return next;
     });
+  }, []);
 
   // Компоненты markdown: pre получает колбэк предпросмотра артефактов
   const mdComponents = useMemo(
@@ -399,8 +412,8 @@ function RunCardBase({
         <RunRound
           key={a.id}
           round={a}
-          steps={stepsOf.get(a.id) ?? []}
-          toolMsgs={toolMsgsOf.get(a.id) ?? []}
+          steps={stepsOf.get(a.id) ?? EMPTY_STEPS}
+          toolMsgs={toolMsgsOf.get(a.id) ?? EMPTY_TOOL_MSGS}
           callOf={callOf}
           subRuns={subRuns}
           isStreamingRound={a.id === streamingMsgId}
@@ -411,7 +424,7 @@ function RunCardBase({
           showThought={showReasoning}
           folded={folded}
           open={openThoughts.has(a.id)}
-          onToggleThought={() => toggleThought(a.id)}
+          onToggleThought={toggleThought}
           mdComponents={mdComponents}
         />
       ))}

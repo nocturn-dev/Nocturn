@@ -347,7 +347,10 @@ export default function App() {
     files: DiffPanelFile[];
     /** Файл, на котором сфокусироваться (кнопка Review на строке карточки) */
     focus?: string;
-  }>({ open: false, files: [] });
+    /** Счётчик вызовов Review: повторный Review того же файла при открытой
+     *  панели не меняет ни open, ни focus — панель ориентируется на nonce */
+    nonce: number;
+  }>({ open: false, files: [], nonce: 0 });
 
   // ---------- Панель плана (Plan Mode): авто-открытие при смене режима ----------
   const [planPanelOpen, setPlanPanelOpen] = useState(false);
@@ -1513,7 +1516,14 @@ export default function App() {
           // снимок недоступен (ротация CP_KEEP/удалён) — остаётся fs_write
         }
       }
-      setDiffReview({ open: true, files: [...byPath.values()], focus: focusPath });
+      // Функциональный апдейт: nonce растёт на каждый вызов Review, даже
+      // когда open/focus не изменились — панель обязана переразвернуть строку
+      setDiffReview((prev) => ({
+        open: true,
+        files: [...byPath.values()],
+        focus: focusPath,
+        nonce: prev.nonce + 1,
+      }));
     },
     // ref стабилен; включён для exhaustive-deps
     [lastCheckpointRef],
@@ -3214,6 +3224,7 @@ export default function App() {
         open={diffReview.open}
         files={diffReview.files}
         focusPath={diffReview.focus}
+        focusNonce={diffReview.nonce}
         onQuote={handleDiffQuote}
         onClose={closeDiffReview}
       />

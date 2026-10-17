@@ -28,8 +28,17 @@ export const MessageNav = memo(function MessageNav({
     [messages],
   );
 
+  // Ключ состава засечек вместо ссылки массива: messages меняется на каждый
+  // флеш стрима, и эффект ниже (переподписка scroll + перемер) перезапускался
+  // на каждый кадр стрима без реального изменения набора засечек
+  const tickKey = useMemo(() => ticks.map((m) => m.id).join("\n"), [ticks]);
+
   const tickIdsRef = useRef<Set<string>>(new Set());
-  tickIdsRef.current = new Set(ticks.map((m) => m.id));
+  useEffect(() => {
+    // Запись в эффекте, а не в теле рендера: рендер обязан быть чистым.
+    // id — randomUUID, разделитель \n в них не встречается
+    tickIdsRef.current = new Set(tickKey ? tickKey.split("\n") : []);
+  }, [tickKey]);
 
   // Отмечаем «текущее» сообщение при прокрутке
   useEffect(() => {
@@ -65,7 +74,9 @@ export const MessageNav = memo(function MessageNav({
       if (raf !== 0) cancelAnimationFrame(raf);
       el.removeEventListener("scroll", onScroll);
     };
-  }, [scrollRef, ticks]);
+    // tickKey — стабильная строка состава засечек: стрим меняет messages,
+    // но не набор id, и перемер на каждый кадр стрима не нужен
+  }, [scrollRef, tickKey]);
 
   // Прицельный скролл КОНТЕЙНЕРА ленты: scrollIntoView скроллил и вложенные
   // прокручиваемые блоки (код, терминал), и прыжок получался «50/50». Плюс

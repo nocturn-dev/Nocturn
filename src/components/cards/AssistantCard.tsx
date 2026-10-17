@@ -19,7 +19,9 @@ import { ToolStepCard } from "./ToolStepCard";
 import { CheckIcon, ChevronDownIcon, CopyIcon, PlusIcon, SpeakerIcon, StopIcon, SubagentIcon, ToolIcon } from "./icons";
 import { speak, stopSpeaking } from "../../tts";
 import {
+  createContext,
   memo,
+  useContext,
   useEffect,
   useMemo,
   useRef,
@@ -39,6 +41,12 @@ const REHYPE_PLUGINS = [rehypeHighlight];
 /** Вариант без highlight для стрима (тумблер «Подсветка при стриме»):
  *  стабильная пустая ссылка, чтобы react-markdown не пересоздавал пайплайн */
 const REHYPE_PLUGINS_NO_HL: typeof REHYPE_PLUGINS = [];
+
+/** Стримится ли код в этом блоке. Частичный код копировать/сохранять/превью-
+ *  ировать нельзя: пользователь унёс бы недописанный файл, а клик по кнопке
+ *  посреди стрима выглядел как полный код. Провайдеры — AssistantCard и
+ *  RunRound (только стримящийся раунд) */
+export const CodeStreamingContext = createContext(false);
 
 /** Язык fenced-блока из hast-дерева react-markdown (className="language-x") */
 function codeLanguage(node: unknown): string {
@@ -85,6 +93,9 @@ export function CodeBlock({
   const preRef = useRef<HTMLPreElement>(null);
   const [copied, setCopied] = useState(false);
   const [applied, setApplied] = useState(false);
+  // Стрим: кнопки копировать/сохранить/превью гасятся — textContent в этот
+  // момент является недописанным префиксом кода
+  const streaming = useContext(CodeStreamingContext);
   const text = () => preRef.current?.textContent ?? "";
   // Артефакт = ```html-блок (язык берём из hast — доктайп-эвристика не нужна)
   const previewable = onPreview !== undefined && codeLanguage(_node) === "html";
@@ -139,7 +150,8 @@ export function CodeBlock({
             <button
               onClick={() => onPreview?.(text())}
               title={t("cp.preview")}
-              className="rounded-md p-1 text-halo-muted transition-colors hover:text-halo-text"
+              disabled={streaming}
+              className="rounded-md p-1 text-halo-muted transition-colors hover:text-halo-text disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:text-halo-muted"
             >
               <PlayIcon />
             </button>
@@ -147,14 +159,16 @@ export function CodeBlock({
           <button
             onClick={copy}
             title={t("cp.copy")}
-            className="rounded-md p-1 text-halo-muted transition-colors hover:text-halo-text"
+            disabled={streaming}
+            className="rounded-md p-1 text-halo-muted transition-colors hover:text-halo-text disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:text-halo-muted"
           >
             {copied ? <CheckIcon /> : <CopyIcon />}
           </button>
           <button
             onClick={apply}
             title={t("cp.apply")}
-            className="rounded-md p-1 text-halo-muted transition-colors hover:text-halo-text"
+            disabled={streaming}
+            className="rounded-md p-1 text-halo-muted transition-colors hover:text-halo-text disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:text-halo-muted"
           >
             {applied ? <CheckIcon /> : <SaveIcon />}
           </button>
@@ -473,15 +487,17 @@ function AssistantCardBase({
             markdown рендерит фрагмент блоков — соседи в одном .markdown,
             поэтому .markdown > :first/:last-child верны как и раньше;
             сплит только на активном стриме */}
-        <div className={isStreaming ? "stream-tail" : undefined}>
-          <StreamMarkdown
-            md={displayContent}
-            streaming={isStreaming && smooth}
-            remarkPlugins={MD_PLUGINS}
-            rehypePlugins={rehypePlugins}
-            components={mdComponents}
-          />
-        </div>
+        <CodeStreamingContext.Provider value={isStreaming}>
+          <div className={isStreaming ? "stream-tail" : undefined}>
+            <StreamMarkdown
+              md={displayContent}
+              streaming={isStreaming && smooth}
+              remarkPlugins={MD_PLUGINS}
+              rehypePlugins={rehypePlugins}
+              components={mdComponents}
+            />
+          </div>
+        </CodeStreamingContext.Provider>
         {caret && isStreaming && (
           <span className="caret-blink align-baseline text-halo-accent">▍</span>
         )}

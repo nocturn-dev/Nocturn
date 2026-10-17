@@ -218,6 +218,13 @@ export default function CompareModal({ open, onClose, profiles, current }: Compa
     setLanes(initial);
     // Буфер от прошлого прогона не должен втекать в новые полосы
     laneBufRef.current.clear();
+    // Заложенный rAF прошлого прогона в свёрнутом окне не тикает и навсегда
+    // держит гард scheduleLaneFlush — новые дельты копились без флаша.
+    // Отменяем вместе с буфером: следующий scheduleLaneFlush стартует заново
+    if (laneRafRef.current) {
+      cancelAnimationFrame(laneRafRef.current);
+      laneRafRef.current = 0;
+    }
     setActive(chosen);
     setRunning(true);
     remainingRef.current = chosen.length;

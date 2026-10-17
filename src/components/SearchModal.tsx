@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Session } from "../types";
 import { useLang } from "../locales";
 
@@ -41,6 +41,16 @@ export default function SearchModal({
     return () => window.clearTimeout(id);
   }, [query, open]);
 
+  // Список сессий палитра читает через ref: стрим активной сессии меняет
+  // массив на каждый флеш, и пересчёт результатов по ссылке sessions
+  // пересобирал haystack стримящейся сессии на каждый токен. Привязка
+  // пересчёта к debounced-запросу оставляет поиску цену одного прохода
+  // на порцию ввода, стрим его больше не дёргает
+  const sessionsRef = useRef(sessions);
+  useEffect(() => {
+    sessionsRef.current = sessions;
+  });
+
   // Сброс запроса при каждом открытии
   useEffect(() => {
     if (open) {
@@ -65,7 +75,7 @@ export default function SearchModal({
     // (т.е. на каждый токен стрима) даже в скрытом состоянии
     if (!open) return [];
     const words = searchQuery.trim().toLowerCase().split(/\s+/).filter(Boolean);
-    const list = [...sessions].sort(
+    const list = [...sessionsRef.current].sort(
       (a, b) => Number(!!b.pinned) - Number(!!a.pinned),
     );
     if (words.length === 0) return list.slice(0, 12);
@@ -73,11 +83,16 @@ export default function SearchModal({
     return list
       .filter((s) => words.every((w) => haystackOf(s).includes(w)))
       .slice(0, 20);
-  }, [open, sessions, searchQuery]);
+    // sessionsRef.current — всегда свежий список, в deps не нужен
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, searchQuery]);
 
   if (!open) return null;
 
   const submit = () => {
+    // Гард рассинхрона: results считаются по debounced searchQuery, и Enter
+    // по свеженабранному запросу открывал первую строку ПРЕДЫДУЩЕГО поиска
+    if (searchQuery !== query.trim()) return;
     if (results[0]) {
       onSelect(results[0].id);
       onClose();
@@ -85,32 +100,6 @@ export default function SearchModal({
   };
 
   const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
-
-  /** Подсветка совпадений по всем словам запроса */
-  const Highlight = ({ text }: { text: string }) => {
-    if (words.length === 0) return <>{text}</>;
-    const re = new RegExp(
-      `(${words.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})`,
-      "gi",
-    );
-    const parts = text.split(re);
-    return (
-      <>
-        {parts.map((p, i) =>
-          i % 2 === 1 ? (
-            <mark
-              key={i}
-              className="rounded-sm bg-halo-accent/30 px-0.5 text-halo-text"
-            >
-              {p}
-            </mark>
-          ) : (
-            <span key={i}>{p}</span>
-          ),
-        )}
-      </>
-    );
-  };
 
   return (
     <div
@@ -176,12 +165,12 @@ export default function SearchModal({
                       </span>
                     )}
                     <span className="truncate text-sm text-halo-text">
-                      <Highlight text={s.title} />
+                      <Highlight text={s.title} words={words} />
                     </span>
                   </div>
                   {snippet && (
                     <p className="mt-0.5 truncate text-xs text-halo-muted">
-                      <Highlight text={snippet} />
+                      <Highlight text={snippet} words={words} />
                     </p>
                   )}
                 </button>
@@ -191,6 +180,33 @@ export default function SearchModal({
         </div>
       </div>
     </div>
+  );
+}
+
+/** Подсветка совпадений по всем словам запроса. Уровень модуля: объявление
+ *  в теле компонента перемонтировало все <mark> на каждый рендер палитры */
+function Highlight({ text, words }: { text: string; words: string[] }) {
+  if (words.length === 0) return <>{text}</>;
+  const re = new RegExp(
+    `(${words.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})`,
+    "gi",
+  );
+  const parts = text.split(re);
+  return (
+    <>
+      {parts.map((p, i) =>
+        i % 2 === 1 ? (
+          <mark
+            key={i}
+            className="rounded-sm bg-halo-accent/30 px-0.5 text-halo-text"
+          >
+            {p}
+          </mark>
+        ) : (
+          <span key={i}>{p}</span>
+        ),
+      )}
+    </>
   );
 }
 

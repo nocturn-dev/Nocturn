@@ -24,8 +24,21 @@ export interface DiffPanelFile {
   after: string;
 }
 
+/** Отложенное значение для тяжёлых вычислений: живой дифф стримящегося
+ *  файла пересчитывал LCS (до 1500×1500) на каждый флеш App в главном
+ *  потоке. Пауза 400 мс собирает дельты и считает максимум несколько раз
+ *  в секунду, всегда догоняя финальное содержимое */
+function useDebouncedValue<T>(value: T, ms: number): T {
+  const [deferred, setDeferred] = useState(value);
+  useEffect(() => {
+    const id = window.setTimeout(() => setDeferred(value), ms);
+    return () => window.clearTimeout(id);
+  }, [value, ms]);
+  return deferred;
+}
+
 /** Развёрнутый дифф одного файла. LCS (Int32-матрица до 1500×1500) —
- *  тяжёлое: считаем один раз на файл через useMemo, а не на каждый флеш
+ *  тяжёлое: считаем по отложенному содержимому, а не на каждый флеш
  *  стрима — App перерисовывается каждый флеш, а панель открыта именно
  *  во время прогона */
 function ExpandedDiff({
@@ -35,7 +48,9 @@ function ExpandedDiff({
   f: DiffPanelFile;
   onQuote?: (path: string, line: number, text: string) => void;
 }) {
-  const lines = useMemo(() => diffLines(f.before ?? "", f.after), [f.before, f.after]);
+  const before = useDebouncedValue(f.before, 400);
+  const after = useDebouncedValue(f.after, 400);
+  const lines = useMemo(() => diffLines(before ?? "", after), [before, after]);
   return (
     <div className="mb-1 ml-6">
       <DiffView
@@ -54,6 +69,7 @@ export function DiffPanel({
   open,
   files,
   focusPath,
+  focusNonce,
   onQuote,
   onClose,
 }: {
@@ -61,6 +77,10 @@ export function DiffPanel({
   files: DiffPanelFile[];
   /** Файл, на котором сфокусироваться при открытии (кнопка Review на строке) */
   focusPath?: string;
+  /** Счётчик вызовов Review: повторный Review того же файла при открытой
+   *  панели не меняет ни open, ни focusPath — без него эффект не срабатывал,
+   *  и строка, свёрнутая вручную, не раскрывалась обратно */
+  focusNonce?: number;
   /** Клик по строке диффа → цитата «file:line» в композер */
   onQuote?: (path: string, line: number, text: string) => void;
   onClose: () => void;
@@ -71,7 +91,7 @@ export function DiffPanel({
   // панели (состояние экземпляра живёт между открытиями)
   useEffect(() => {
     if (open) setOpenFile(focusPath ?? null);
-  }, [open, focusPath]);
+  }, [open, focusPath, focusNonce]);
   const show = useDelayedUnmount(open, 200);
   if (!show) return null;
   const total = files.reduce(

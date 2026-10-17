@@ -43,24 +43,40 @@ export default function ChainMonitor({ chain, onClose }: ChainMonitorProps) {
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  // Раскладка: x = глубина в дереве ссылок, y — порядок внутри глубины
+  // Раскладка: x = глубина в дереве ссылок, y — порядок внутри глубины.
+  // Пересчёт привязан к плану: chain пересоздаётся на каждом событии
+  // прогона (статусы), а ссылки plan при этом стабильны — позиции не
+  // должны пересобираться на каждый статус-тик
+  const plan = chain?.plan ?? null;
   const { pos, width, height } = useMemo(() => {
-    const plan = chain?.plan ?? [];
-    const byTitle = new Map(plan.map((n) => [n.title.toLowerCase(), n]));
+    const nodes = plan ?? [];
+    const byTitle = new Map(nodes.map((n) => [n.title.toLowerCase(), n]));
+    // Глубина — BFS от корня: обход в глубину фиксировал глубину первым
+    // путём, и ромбовидная связь рисовалась длинным разрывом вместо
+    // кратчайшего маршрута
     const depth = new Map<string, number>();
-    const walk = (n: Note, d: number) => {
-      if (depth.has(n.file)) return;
-      depth.set(n.file, d);
-      for (const link of extractLinks(n.content)) {
-        const next = byTitle.get(link.toLowerCase());
-        if (next) walk(next, d + 1);
+    if (nodes[0]) {
+      depth.set(nodes[0].file, 0);
+      const queue: Note[] = [nodes[0]];
+      for (let head = 0; head < queue.length; head++) {
+        const n = queue[head]!;
+        const d = depth.get(n.file) ?? 0;
+        for (const link of extractLinks(n.content)) {
+          const next = byTitle.get(link.toLowerCase());
+          if (next && !depth.has(next.file)) {
+            depth.set(next.file, d + 1);
+            queue.push(next);
+          }
+        }
       }
-    };
-    if (plan[0]) walk(plan[0], 0);
-
+    }
+    // Недостижимые от корня узлы — в общий столбец за последней достижимой
+    // глубиной: раньше фолбэк-глубина 0 ставила их на корень и узлы налезали
+    let reachableMax = 0;
+    for (const d of depth.values()) reachableMax = Math.max(reachableMax, d);
     const byDepth = new Map<number, Note[]>();
-    for (const n of plan) {
-      const d = depth.get(n.file) ?? 0;
+    for (const n of nodes) {
+      const d = depth.get(n.file) ?? reachableMax + 1;
       const bucket = byDepth.get(d);
       if (bucket) bucket.push(n);
       else byDepth.set(d, [n]);
@@ -81,7 +97,7 @@ export default function ChainMonitor({ chain, onClose }: ChainMonitorProps) {
       width: 120 + maxDepth * STEP_W,
       height: 160 + maxY * 2,
     };
-  }, [chain]);
+  }, [plan]);
 
   if (!chain || chain.plan.length === 0) return null;
 
