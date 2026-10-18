@@ -1179,18 +1179,29 @@ pub(crate) fn rejects_sensitive_path(path: &str) -> Result<(), String> {
         {
             return Err("path points to a protected system location".into());
         }
-        // macOS: /etc, /var, /root — симлинки в /private/...; канонизация на
-        // ревалидации (ensure_export_target / settings_import_read) даёт
-        // /private/etc, который без этой ветки проходил мимо блока — два пути
-        // к одному месту были защищены асимметрично
-
-        #[cfg(target_os = "macos")]
-        if comps.first().is_some_and(|c| *c == "private")
-            && comps
-                .get(1)
-                .is_some_and(|c| matches!(*c, "etc" | "var" | "root"))
+        // macOS: /var/root — домашний каталог root (на macOS нет /root)
+        if comps.first().is_some_and(|c| *c == "var")
+            && comps.get(1).is_some_and(|c| *c == "root")
         {
             return Err("path points to a protected system location".into());
+        }
+        // macOS: /etc — симлинк в /private/...; канонизация на
+        // ревалидации (ensure_export_target / settings_import_read) даёт
+        // /private/etc, а root — /private/var/root, которые без этой ветки
+        // проходили мимо блока топ-каталогов — два пути к одному месту защищены симметрично
+        #[cfg(target_os = "macos")]
+        if comps.first().is_some_and(|c| *c == "private") {
+            if comps
+                .get(1)
+                .is_some_and(|c| matches!(*c, "etc" | "root"))
+            {
+                return Err("path points to a protected system location".into());
+            }
+            if comps.get(1).is_some_and(|c| *c == "var")
+                && comps.get(2).is_some_and(|c| *c == "root")
+            {
+                return Err("path points to a protected system location".into());
+            }
         }
         if comps.contains(&".ssh") {
             return Err("path points to a protected location (SSH keys)".into());
@@ -1870,8 +1881,15 @@ mod tests {
     #[cfg(not(windows))]
     #[test]
     fn sensitive_unix_locations_are_rejected() {
-        for p in ["/etc/passwd", "/proc/self/x", "/sys/x", "/boot/x", "/root/x"] {
+        for p in ["/etc/passwd", "/proc/self/x", "/sys/x", "/boot/x", "/root/x", "/var/root/x"] {
             assert!(rejects_sensitive_path(p).is_err(), "must reject: {p}");
+        }
+        #[cfg(target_os = "macos")]
+        {
+            assert!(rejects_sensitive_path("/private/etc/passwd").is_err());
+            assert!(rejects_sensitive_path("/private/var/root/x").is_err());
+            assert!(rejects_sensitive_path("/var/folders/xx/test.json").is_ok());
+            assert!(rejects_sensitive_path("/private/var/folders/xx/test.json").is_ok());
         }
         // .ssh блокируется на любой глубине
         assert!(rejects_sensitive_path("/home/me/.ssh/id_rsa").is_err());

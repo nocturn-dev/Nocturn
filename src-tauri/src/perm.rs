@@ -953,23 +953,19 @@ fn path_allowed(roots_canon: &[String], path: &str) -> bool {
 /// (ext4/btrfs) ФС регистрозависима — lowercase там УБИВАЛ корректность
 /// (директория-тёзка в другом регистре проходила как «внутри корня»)
 fn norm_for_compare(s: &str) -> String {
-    #[cfg(any(windows, target_os = "macos"))]
+    #[cfg(windows)]
     {
-        // mut нужен только windows-ветке (срез \\?\-префикса)
-        #[cfg_attr(not(windows), allow(unused_mut))]
-        let mut s = s.to_lowercase();
-        #[cfg(windows)]
-        {
-            // разделитель `\`; canonicalize на Windows возвращает
-            // \\?\C:\... (или \\?\UNC\srv\share) — срезаем префикс
-            s = s.replace('/', "\\");
-            if let Some(rest) = s.strip_prefix("\\\\?\\unc\\") {
-                s = format!("\\\\{rest}");
-            } else if let Some(rest) = s.strip_prefix("\\\\?\\") {
-                s = rest.to_string();
-            }
+        let mut s = s.to_lowercase().replace('/', "\\");
+        if let Some(rest) = s.strip_prefix("\\\\?\\unc\\") {
+            s = format!("\\\\{rest}");
+        } else if let Some(rest) = s.strip_prefix("\\\\?\\") {
+            s = rest.to_string();
         }
         s
+    }
+    #[cfg(target_os = "macos")]
+    {
+        s.to_lowercase().replace('\\', "/")
     }
     #[cfg(not(any(windows, target_os = "macos")))]
     {
@@ -1067,6 +1063,15 @@ mod tests {
         assert!(shell_command_hits_config_dir(
             "echo test > C:\\Users\\me\\AppData\\Roaming\\com.haloui.app\\hooks.json",
             Some(cfg)
+        ));
+        let cfg_unix = "/home/me/.config/com.haloui.app";
+        assert!(shell_command_hits_config_dir(
+            "cat /home/me/.config/com.haloui.app/settings.json",
+            Some(cfg_unix)
+        ));
+        assert!(shell_command_hits_config_dir(
+            "echo test > /home/me/.config/com.haloui.app/hooks.json",
+            Some(cfg_unix)
         ));
     }
 
