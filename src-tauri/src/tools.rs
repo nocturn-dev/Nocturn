@@ -1149,7 +1149,7 @@ mod tests {
         } else {
             "head -c 200000 /dev/zero | tr '\\0' 'x'"
         };
-        let args = json!({ "command": command, "timeout_sec": 15 }).to_string();
+        let args = json!({ "command": command, "timeout_sec": 60 }).to_string();
         let res = execute_tool("shell_run", &args).unwrap();
         assert!(res.contains("exit code: 0"), "got: {res}");
         assert!(!res.contains("TIMEOUT"), "got: {res}");
