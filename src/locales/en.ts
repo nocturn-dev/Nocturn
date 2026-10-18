@@ -1522,7 +1522,9 @@ export const en = {
     "tg.connect": "Connect",
     "tg.disconnect": "Disconnect",
     "tg.bound": "Bound to a chat — notifications arrive there",
-    "tg.notBound": "Not bound: send /start to your bot in a private chat",
+    "tg.notBound": "Not bound: get a code and send /start <code> to bot",
+    "tg.getBindCode": "Get bind code",
+    "tg.bindCode": "Bind code: {code} (send /start {code} to bot, valid 5m)",
     "tg.enabled": "Enabled",
     "tg.disabled": "Disabled",
     "tg.badToken": "Invalid token — paste the 123456789:AA... string from @BotFather",
@@ -1736,7 +1738,7 @@ export const en = {
   "network.saved": "Saved",
   "network.loadErr": "Network configuration could not be read: {e}. Saving is blocked — an empty configuration would overwrite the file on disk.",
 
-  // Audit: UI strings that bypassed the dictionaries
+  // UI strings:
   "chat.modelLocal": "local",
   "agent.reviewOpen": "Review ↗",
   "commands.blankTemplate": "You are …\n\nTask: $ARGUMENTS",

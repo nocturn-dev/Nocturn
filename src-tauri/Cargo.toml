@@ -1,6 +1,6 @@
 [package]
 name = "nocturn"
-version = "0.2.4"
+version = "0.2.5"
 description = "Nocturn — универсальный ИИ-клиент (BYOK)"
 authors = ["Nocturn"]
 edition = "2021"
@@ -73,6 +73,7 @@ memmap2 = "0.9"
 # из JS — перехватываемая поверхность (клиппер-малварь)
 arboard = "3"
 dunce = "1.0.5"
+ttf-parser = "0.25.1"
 
 [target.'cfg(unix)'.dependencies]
 # kill(-pgid) для kill_tree: std не умеет сигналить процесс-группе

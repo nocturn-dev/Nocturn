@@ -1,102 +1,94 @@
-# AGENTS.md: правила работы с кодом Nocturn
+# AGENTS.md: Rules for Nocturn Codebase
 
-Контекст для агентов и людей. Держать кратким и актуальным:
-правки правил делаются в том же коммите, что и правки кода, которые они описывают.
+Context for agents and human contributors. Keep concise and up-to-date:
+rule updates must be committed alongside the code changes they describe.
 
-## Что это
+## What this is
 
-Nocturn (HaloUI), локальный BYOK AI-клиент: Tauri 2 + React 19 + TS +
-Tailwind 4, бекенд Rust в `src-tauri/`. Без облаков: ключи, чаты и настройки
-лежат у пользователя на диске (часть в зашифрованном vault).
+Nocturn (HaloUI), a local BYOK AI client: Tauri 2 + React 19 + TypeScript +
+Tailwind 4, with a Rust backend in `src-tauri/`. No cloud dependencies: keys,
+conversations, and settings are stored locally on disk (sensitive parts in an
+encrypted vault).
 
-## Карта кода
+## Code Map
 
-**Бекенд (`src-tauri/src/`):**
-- `chat.rs`: SSE-стримы провайдеров (OpenAI-совместимый + нативный Anthropic),
-  abort-реестр; `tooling.rs`: оркестрация, `run_tool`, схемы инструментов,
-  user-disabled гардал; `tools.rs`: реестр встроенных инструментов
-- `perm.rs`: серверный слой прав (plan/ask/edit/full); `crypto.rs`:
-  AES-256-GCM + Argon2id; `settings.rs`: настройки/профили/экспорт
+**Backend (`src-tauri/src/`):**
+- `chat.rs`: Provider SSE streams (OpenAI-compatible + native Anthropic),
+  abort registry; `tooling.rs`: orchestration, `run_tool`, tool schemas,
+  user-disabled guardrails; `tools.rs`: built-in tool registry
+- `perm.rs`: Server-side permission model (plan/ask/edit/full); `crypto.rs`:
+  AES-256-GCM + Argon2id; `settings.rs`: settings, profiles, export/import
 - `mcp.rs`: MCP over stdio; `browser.rs` (CDP), `computer.rs`, `pty.rs` (ConPTY),
-  `hooks.rs`, `files.rs` (чекпоинты), `colibri.rs` (запуск `coli serve`)
+  `hooks.rs`, `files.rs` (checkpoints), `colibri.rs` (runs `coli serve`)
 
-**Фронтенд (`src/`):**
-- `App.tsx`: композиция и состояние верхнего уровня; `hooks/useAgentRun.ts`:
-  агентный цикл; `api.ts`: типизированные invoke-обёртки (единственная точка IPC)
-- `components/cards/`: карточки сообщений; `components/settings/`: разделы
-  настроек (сплит из монолита); `src/locales/{ru,en,zh,ja}.ts`:
-  `MsgKey = keyof ru`
+**Frontend (`src/`):**
+- `App.tsx`: Top-level state and composition; `hooks/useAgentRun.ts`:
+  agent loop; `api.ts`: Typed invoke wrappers (single entry point for IPC)
+- `components/cards/`: Message cards; `components/settings/`: Settings panels;
+  `src/locales/{ru,en,zh,ja}.ts`: Localization dictionaries (`MsgKey = keyof ru`)
 
-## Команды
+## Commands
 
-- `npm run tauri dev`: запуск (UI существует только в нативном окне)
-- `npm run build`: tsc + vite build; `npm run lint`: eslint src
-- `npm run test`: vitest, включая перф-бюджеты горячих функций
-  (`*.perf.test.ts`; отдельного скрипта `bench` нет)
-- `cargo test` и `cargo clippy --all-targets -- -D warnings` в `src-tauri/`
-- `node scripts/verify.mjs fast`: tsc + eslint + vitest (~16 с)
-- `node scripts/verify.mjs all`: + clippy + cargo test + сборка
+- `npm run tauri dev`: Launch application (UI runs inside the native window)
+- `npm run build`: `tsc` + `vite build`; `npm run lint`: ESLint for `src`
+- `npm run test`: Vitest, including performance budgets for hot paths
+  (`*.perf.test.ts`)
+- `cargo test` and `cargo clippy --all-targets -- -D warnings` inside `src-tauri/`
+- `node scripts/verify.mjs fast`: `tsc` + ESLint + Vitest (~16s)
+- `node scripts/verify.mjs all`: Fast suite + Clippy + Cargo tests + full build
 
-## Ритуалы
+## Workflow & Rituals
 
-1. Любое изменение только с зелёным `verify fast`; перед передачей
-   владельцу `verify all`. Pre-commit hook гоняет fast автоматически.
-2. Новые ключи локалей добавляются во **все 4** файла (ru/en/zh/ja),
-   с настоящими переводами, не заглушками.
-3. Коммиты делает **агент, локально** (стиль `type(scope): message` по
-   `git log`); **пуш в GitHub** (`nocturn-dev/Nocturn`, remote `origin`)
-   агент делает по запросу владельца (GitLab `nocturn-lab1` удалён,
-   аккаунт забанен).
-4. Коммит-стиль: `type(scope): message` по-английски, сверяться с `git log`.
+1. Every change requires a passing `verify fast`; run `verify all` before
+   submitting work. The pre-commit hook runs `fast` automatically.
+2. New locale keys must be added to **all 4** dictionaries (ru/en/zh/ja) with
+   accurate translations, not placeholders.
+3. Commit messages must follow conventional commits: `type(scope): message`
+   in English, matching the style in `git log`.
 
-## Конвенции
+## Conventions
 
-- Новый инструмент агента: схема в `tools.rs`/`tooling.rs`; мутирующий
-  добавляется в `isMutatingTool` (`src/agent/toolFilter.ts`, золотой список
-  в тесте) и в `perm.rs`. Гардалы вызова ставятся
-  ДО PreToolUse-хуков (образцы: `ensure_not_user_disabled`, `perm::decide`).
-- Любая запись файлов по пути с фронтенда только через
-  `ensure_export_target` (sensitive-path, вне конфиг-каталога, atomic_write).
-- `hooks.json`/`mcp.json` исполняемы по своей природе: произвольная запись
-  в конфиг-каталог = RCE-вектор. Не ослаблять гардалы perm.rs/crypto.rs.
-- Пути с фронтенда валидируются через `rejects_sensitive_path` /
-  `ensure_export_target` (settings.rs): вербатим-префиксы (`\\?\`), `\.\`
-  и 8.3-алиасы нормализуются/отвергаются (см. тесты settings::tests).
-- Экспорт настроек: `crypto.json` уходит только при `include_secrets=true`
-  (иначе файл-«шеринг» несёт материал для перебора мастер-пароля).
-- UI-цвета только токены `halo-*` (Tailwind theme vars); новые добавляются
-  через `appearance.ts`, не хардкодом в компонентах. Исключение: семантика
-  статусов (success/error/warn-палитра Tailwind в карточках и точках
-  проектов) сознательно не привязана к темам.
-- Комментарии в коде по-русски, объясняют «почему», а не «что».
-- `#[tauri::command]` без async не трогает ФС/сеть: `Path::exists()` на
-  сетевом пути морозил GUI (sync-команда живёт на главном потоке).
-- Запуск процессов через `proc::run_command_opts` (CREATE_NO_WINDOW и
-  процесс-группа уже внутри); гасить дерево через `proc::kill_tree`.
-- Enter-обработчики полей проверяют `isComposing`: энтер подтверждения IME
-  (китайский/японский ввод) приходит с тем же `key === "Enter"` и не должен
-  отправлять сообщение/коммитить (образец: `ChatArea.tsx`).
-- Платформенный FFI (`#[link(name = ...)]`) только под соответствующим
-  `#[cfg(windows)]`/`#[cfg(unix)]`: атрибут уходит линкеру безусловно, и
-  незагейченный user32 ломал сборку macOS/Linux (ловится cargo test
-  в rust-матрице CI: тестовый бинарник линкуется).
-- CSS: `color-mix()` только с `@supports`-фолбэком (WebKitGTK < 2.40
-  отбрасывает декларацию целиком); `backdrop-filter` ставить условно
-  (blur(0px) не no-op); `transition-all` не использовать (см. S8-волна).
+- New agent tool: Schema in `tools.rs`/`tooling.rs`; mutating tools must be
+  added to `isMutatingTool` (`src/agent/toolFilter.ts`, guarded by tests) and
+  in `perm.rs`. Call guardrails must precede PreToolUse hooks (examples:
+  `ensure_not_user_disabled`, `perm::decide`).
+- Any frontend file write by path must use `ensure_export_target`
+  (sensitive path protection, outside config directory, atomic write).
+- `hooks.json` and `mcp.json` are executable configurations: arbitrary writes
+  to the config directory are an RCE vector. Never weaken `perm.rs` or
+  `crypto.rs` checks.
+- Frontend paths are validated via `rejects_sensitive_path` and
+  `ensure_export_target` (in `settings.rs`): verbatim prefixes (`\\?\`),
+  relative traversals, and 8.3 aliases are normalized or rejected.
+- Settings export: `crypto.json` is exported only when `include_secrets=true`
+  (otherwise shared configs expose key derivation material).
+- UI colors use `halo-*` design tokens (Tailwind CSS theme variables); add
+  new tokens via `appearance.ts`, never hardcode in components. Semantic
+  status indicators (success/error/warning colors) are intentionally decoupled.
+- Code comments are written in Russian or English and must explain *why*,
+  not *what*.
+- Synchronous `#[tauri::command]` functions must never touch the filesystem or
+  network: blocking calls freeze the main UI thread.
+- Process execution uses `proc::run_command_opts` (sets `CREATE_NO_WINDOW` and
+  process groups); terminate process trees using `proc::kill_tree`.
+- Field Enter-handlers must check `!isComposing`: IME confirmation Enter keys
+  share `key === "Enter"` and must not submit or commit prematurely.
+- Platform-specific FFI (`#[link(name = ...)]`) must be strictly guarded with
+  `#[cfg(windows)]` or `#[cfg(unix)]`.
+- CSS rules: `color-mix()` must include `@supports` fallbacks for older
+  WebKitGTK engines; use `backdrop-filter` conditionally; avoid `transition-all`.
 
-## Грабли (полная версия в docs/internal/SESSION_NOTES.md)
+## Gotchas
 
-- Windows: дочерние процессы гасить деревом (`proc::kill_tree`: taskkill
-  /T /F на Windows, kill -pgid на Unix); `cmd /C` только с raw_arg;
-  таймаут сокета приходит как `TimedOut`, не `WouldBlock`.
-- Python-хередоки и регулярки: бэкслэши через `chr(92)`; после генерации
-  проверять байты (`\\n` в python это `\n` в файле).
-- Эффект с ранним `return` + повторная проверка того же условия → TS2367;
-  TS не видит присваивания в колбэках, нужен holder-объект.
+- Windows: Terminate child processes as a tree (`proc::kill_tree`: `taskkill /T /F`
+  on Windows, `kill -pgid` on Unix); use `cmd /C` only with raw arguments; socket
+  timeouts manifest as `TimedOut`, not `WouldBlock`.
+- Python scripts & regex: Pass backslashes via `chr(92)`; verify raw bytes after
+  generation (`\\n` in Python is `\n` on disk).
+- TypeScript effects with early returns and repeated conditions trigger TS2367;
+  callbacks do not narrow types across closures, use holder objects when needed.
 
-## Документация
+## Documentation
 
-- `docs/internal/SESSION_NOTES.md`: хендофф и история решений
-- `PLAN.md` (в корне): текущий рабочий план (медиа, интеграции, остатки);
-  `docs/internal/PLAN_ARCHIVE_25.09-02.10.md`: архив ранних блоков 1–15
-- `SECURITY.md` / `RELEASE.md`: политика безопасности и релизный процесс
+- `README.md`: Public project overview and setup.
+- `SECURITY.md` / `RELEASE.md`: Security policy and release workflow.

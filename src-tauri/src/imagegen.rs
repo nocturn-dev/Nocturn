@@ -1,7 +1,7 @@
 //! Генерация изображений — опциональный инструмент агента (тумблер в настройках).
 //! BYOK: запрос уходит только к провайдеру, выбранному пользователем
-//! (OpenAI-совместимый `POST {base_url}/images/generations`). Модуль не имеет
-//! собственных серверов и никуда сам не обращается.
+//! (OpenAI-совместимый `POST {base_url}/images/generations`) и для загрузки
+//! сгенерированных изображений по публичным URL провайдера (с фильтрацией приватных адресов).
 //! Результат сохраняется на диск (appdata/images), модели возвращается путь.
 
 use serde::{Deserialize, Serialize};
@@ -79,60 +79,117 @@ const DOWNLOAD_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120
 const IMAGE_MAX_BYTES: u64 = 32 * 1024 * 1024;
 /// Потолок JSON-ответа провайдера
 const JSON_MAX_BYTES: u64 = 10 * 1024 * 1024;
+const MAX_PROMPT_CHARS: usize = 4000;
+const MIN_IMAGE_DIM: u32 = 64;
+const MAX_IMAGE_DIM: u32 = 4096;
 
-/// Читать тело ответа с потолком размера: Content-Length мог отсутствовать
-async fn read_body_capped(
-    mut resp: reqwest::Response,
-    limit: u64,
-) -> Result<Vec<u8>, String> {
-    if let Some(len) = resp.content_length() {
-        if len > limit {
-            return Err(format!("response too large: {len} bytes (limit {limit})"));
-        }
+/// Валидация текста промпта: пустые промпты и превышающие лимит отсекаются
+pub fn sanitize_prompt(prompt: &str) -> Result<String, String> {
+    let p = prompt.trim();
+    if p.is_empty() {
+        return Err("prompt cannot be empty".into());
     }
-    let mut out: Vec<u8> = Vec::new();
-    while let Some(chunk) = resp
-        .chunk()
-        .await
-        .map_err(|e| format!("download failed: {e}"))?
+    let count = p.chars().count();
+    if count > MAX_PROMPT_CHARS {
+        return Err(format!(
+            "prompt too long: {count} characters (limit {MAX_PROMPT_CHARS})"
+        ));
+    }
+    Ok(p.to_string())
+}
+
+/// Валидация и нормализация размера изображения вида "WIDTHxHEIGHT"
+pub fn sanitize_size(size: &str) -> Result<String, String> {
+    let s = size.trim();
+    if s.is_empty() {
+        return Ok(String::new());
+    }
+    let parts: Vec<&str> = s.split('x').collect();
+    if parts.len() != 2 {
+        return Err(format!(
+            "invalid image size '{s}', expected WIDTHxHEIGHT format like 1024x1024"
+        ));
+    }
+    let w: u32 = parts[0]
+        .trim()
+        .parse()
+        .map_err(|_| format!("invalid width in image size '{s}'"))?;
+    let h: u32 = parts[1]
+        .trim()
+        .parse()
+        .map_err(|_| format!("invalid height in image size '{s}'"))?;
+    if !(MIN_IMAGE_DIM..=MAX_IMAGE_DIM).contains(&w)
+        || !(MIN_IMAGE_DIM..=MAX_IMAGE_DIM).contains(&h)
     {
-        if out.len() as u64 + chunk.len() as u64 > limit {
-            return Err(format!("response too large (limit {limit} bytes)"));
-        }
-        out.extend_from_slice(&chunk);
+        return Err(format!(
+            "image dimensions in '{s}' are outside allowed range {MIN_IMAGE_DIM}..{MAX_IMAGE_DIM}"
+        ));
     }
-    Ok(out)
+    Ok(format!("{w}x{h}"))
+}
+
+fn host_of(endpoint: &str) -> Option<String> {
+    let s = endpoint.trim();
+    if let Ok(u) = url::Url::parse(s) {
+        return u.host_str().map(|h| h.to_ascii_lowercase());
+    }
+    let rest = s
+        .strip_prefix("https://")
+        .or_else(|| s.strip_prefix("http://"))
+        .unwrap_or(s);
+    let host = rest
+        .split(['/', ':', '?'])
+        .next()?
+        .trim_end_matches('.')
+        .to_ascii_lowercase();
+    if host.is_empty() {
+        None
+    } else {
+        Some(host)
+    }
 }
 
 /// Целевое подключение для генерации. Приоритет у вкладки «Генерация
 /// изображений»; её пустые поля дополняются текущим подключением чата
-/// (settings.json) — инструмент работает сразу после включения тумблера,
-/// без обязательной настройки отдельного провайдера картинок.
+/// (settings.json). Ключ чата передаётся только если эндпоинт генерации
+/// не задан или совпадает по хосту с чатом (защита от утечки ключа на сторонний хост).
 fn resolve_target(
     cfg: &ImageGenConfig,
     chat: Option<&ApiSettings>,
 ) -> Result<(String, String, String), String> {
-    // Единый лайфтайм: обе строки-кандидата приводятся к короткому —
-    // результат живёт только до конца этой функции
-    fn pick<'x>(primary: &'x str, fallback: &'x str) -> &'x str {
-        let p = primary.trim();
-        if p.is_empty() {
-            fallback.trim()
-        } else {
-            p
-        }
-    }
     let chat_base = chat.map(|c| c.base_url.as_str()).unwrap_or("");
     let chat_model = chat.map(|c| c.model.as_str()).unwrap_or("");
     let chat_key = chat.map(|c| c.api_key.as_str()).unwrap_or("");
     let cfg_base = cfg.base_url.as_str();
     let cfg_model = cfg.model.as_str();
     let cfg_key = cfg.api_key.as_str();
-    let base = pick(cfg_base, chat_base)
-        .trim_end_matches('/')
-        .to_string();
-    let model = pick(cfg_model, chat_model).to_string();
-    let api_key = pick(cfg_key, chat_key).to_string();
+
+    let base = if !cfg_base.trim().is_empty() {
+        cfg_base.trim().trim_end_matches('/').to_string()
+    } else {
+        chat_base.trim().trim_end_matches('/').to_string()
+    };
+
+    let model = if !cfg_model.trim().is_empty() {
+        cfg_model.trim().to_string()
+    } else {
+        chat_model.trim().to_string()
+    };
+
+    let api_key = if !cfg_key.trim().is_empty() {
+        cfg_key.trim().to_string()
+    } else {
+        let same_host = match (host_of(&base), host_of(chat_base)) {
+            (Some(h1), Some(h2)) => h1 == h2,
+            _ => false,
+        };
+        if cfg_base.trim().is_empty() || same_host {
+            chat_key.trim().to_string()
+        } else {
+            String::new()
+        }
+    };
+
     if base.is_empty() || model.is_empty() {
         return Err(
             "Image generation is not configured: fill the Image tab in Settings \
@@ -168,6 +225,7 @@ pub async fn generate(
     if !cfg.enabled {
         return Err("Image generation is disabled in Settings".into());
     }
+    let valid_prompt = sanitize_prompt(prompt)?;
     let (base, model, api_key_raw) = resolve_target(&cfg, chat)?;
     ensure_https_or_local(&base)?;
     // Ключ мог быть сохранён зашифрованным (vault): расшифровка на месте
@@ -184,11 +242,12 @@ pub async fn generate(
     let url = format!("{base}/images/generations");
     let client = crate::network::shared_client(std::time::Duration::from_secs(15))
         .map_err(|e| format!("http client: {e}"))?;
-    let req_size = size
+    let raw_size = size
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(String::from)
         .unwrap_or_else(|| cfg.size.trim().to_string());
+    let req_size = sanitize_size(&raw_size)?;
 
     // Попытка 1: стандартный OpenAI-совместимый images/generations.
     // 404/HTML означают, что у провайдера просто нет этой ручки — тогда
@@ -202,7 +261,7 @@ pub async fn generate(
         &url,
         &model,
         api_key.trim(),
-        prompt,
+        &valid_prompt,
         Some(req_size.as_str()).filter(|s| !s.is_empty()),
     )
     .await
@@ -223,7 +282,7 @@ pub async fn generate(
                 if aborted(abort) {
                     return Err("aborted by user".to_string());
                 }
-                match chat_image_bytes(&client, &base, m, api_key.trim(), prompt).await {
+                match chat_image_bytes(&client, &base, m, api_key.trim(), &valid_prompt).await {
                     Ok(b) => {
                         bytes_fb = Some(b);
                         break;
@@ -273,7 +332,7 @@ pub async fn generate(
     } else if bytes.starts_with(b"GIF8") {
         "gif"
     } else {
-        // Аудит imagegen 199: неизвестный формат (HTML-заглушка, JSON
+        // неизвестный формат (HTML-заглушка, JSON
         // ошибки) раньше сохранялся как .png с "ok". Отказ вместо мусора
         return Err("response is not a recognized image format (jpeg/png/webp/gif)".into());
     };
@@ -309,7 +368,7 @@ pub async fn generate(
 /// POST {base}/images/generations -> байты картинки. Ошибка несёт флаг
 /// «стоит пробовать chat/completions» (404 или HTML-ответ: у провайдера
 /// нет этой ручки — не тащим HTML-простыню в текст ошибки).
-/// Аудит imagegen 201: ключ в заголовках по открытому http — утечка.
+/// ключ в заголовках по открытому http — утечка.
 /// http:// допустим только локальным адресам (localhost/LAN), как в
 /// ensure_key_transport_is_safe в chat.rs
 fn ensure_https_or_local(base: &str) -> Result<(), String> {
@@ -368,7 +427,7 @@ async fn post_images_endpoint(
         .map_err(|e| (format!("request failed: {e}"), false))?;
     let status = resp.status();
     // Потолок JSON: враждебный base_url мог слать гигабайты
-    let text_bytes = read_body_capped(resp, JSON_MAX_BYTES)
+    let text_bytes = crate::network::read_body_capped(resp, JSON_MAX_BYTES)
         .await
         .map_err(|e| (e, false))?;
     let text = String::from_utf8_lossy(&text_bytes).to_string();
@@ -428,7 +487,7 @@ async fn chat_image_bytes(
         .await
         .map_err(|e| format!("request failed: {e}"))?;
     let status = resp.status();
-    let text_bytes = read_body_capped(resp, JSON_MAX_BYTES).await?;
+    let text_bytes = crate::network::read_body_capped(resp, JSON_MAX_BYTES).await?;
     let text = String::from_utf8_lossy(&text_bytes).to_string();
     if !status.is_success() {
         let head: String = text.chars().take(200).collect();
@@ -532,15 +591,9 @@ fn extract_image_ref(content: &str) -> Option<String> {
 
 /// Скачать картинку по URL (SSRF-фильтр внутри), потолок размера
 async fn download_image(img_url: &str) -> Result<Vec<u8>, String> {
-    if !crate::browser::url_is_public_http(img_url) {
-        return Err("image URL rejected: private network addresses are not allowed".into());
-    }
+    crate::network::rejects_private_url(img_url)?;
     let dl = crate::network::shared_client(std::time::Duration::from_secs(15))
         .map_err(|e| format!("http client: {e}"))?;
-    // Аудит imagegen 197: редиректы на приватные адреса закрывает
-    // ssrf_redirect_policy из network::apply (общий клиент): origin публичный,
-    // любой переход на непубличный адрес — ошибка; входной URL отфильтрован
-    // url_is_public_http выше
     let r = dl
         .get(img_url)
         .timeout(DOWNLOAD_TIMEOUT)
@@ -550,7 +603,7 @@ async fn download_image(img_url: &str) -> Result<Vec<u8>, String> {
     if !r.status().is_success() {
         return Err(format!("image download HTTP {}", r.status()));
     }
-    read_body_capped(r, IMAGE_MAX_BYTES).await
+    crate::network::read_body_capped(r, IMAGE_MAX_BYTES).await
 }
 
 
@@ -610,7 +663,7 @@ async fn fetch_image_model_ids(base: &str, api_key: &str) -> Vec<String> {
     if !resp.status().is_success() {
         return Vec::new();
     }
-    let text_bytes = match read_body_capped(resp, JSON_MAX_BYTES).await {
+    let text_bytes = match crate::network::read_body_capped(resp, JSON_MAX_BYTES).await {
         Ok(b) => b,
         Err(_) => return Vec::new(),
     };
@@ -684,10 +737,44 @@ mod tests {
             ..Default::default()
         };
         let (base, model, key) =
-            resolve_target(&cfg, Some(&chat("", "chat-model", "sk-chat"))).unwrap();
+            resolve_target(&cfg, Some(&chat("http://img.local/v1", "chat-model", "sk-chat"))).unwrap();
         assert_eq!(base, "http://img.local/v1");
         assert_eq!(model, "chat-model");
         assert_eq!(key, "sk-chat");
+    }
+
+    #[test]
+    fn chat_key_is_never_leaked_to_foreign_host() {
+        let cfg = ImageGenConfig {
+            enabled: true,
+            base_url: "https://api.foreign-image-ai.com/v1".into(),
+            model: "dall-e-3".into(),
+            ..Default::default()
+        };
+        let (base, model, key) = resolve_target(
+            &cfg,
+            Some(&chat("https://api.openai.com/v1", "gpt-4o", "sk-primary-secret")),
+        )
+        .unwrap();
+        assert_eq!(base, "https://api.foreign-image-ai.com/v1");
+        assert_eq!(model, "dall-e-3");
+        assert_eq!(key, "", "ключ основного чата не должен передаваться на сторонний хост");
+    }
+
+    #[test]
+    fn validates_prompt_and_size() {
+        assert!(sanitize_prompt("").is_err());
+        assert!(sanitize_prompt("   ").is_err());
+        assert_eq!(sanitize_prompt("cat").unwrap(), "cat");
+        let long_prompt = "a".repeat(4001);
+        assert!(sanitize_prompt(&long_prompt).is_err());
+
+        assert_eq!(sanitize_size("").unwrap(), "");
+        assert_eq!(sanitize_size("1024x1024").unwrap(), "1024x1024");
+        assert_eq!(sanitize_size(" 512 x 768 ").unwrap(), "512x768");
+        assert!(sanitize_size("invalid").is_err());
+        assert!(sanitize_size("10x10").is_err());
+        assert!(sanitize_size("9999x9999").is_err());
     }
 
     #[test]

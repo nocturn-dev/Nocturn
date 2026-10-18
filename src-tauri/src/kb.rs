@@ -63,16 +63,10 @@ fn kb_dir(app: &tauri::AppHandle, id: &str) -> Result<PathBuf, String> {
         .join(id))
 }
 
-fn open_db(dir: &std::path::Path) -> Result<Connection, String> {
+fn init_db(dir: &std::path::Path) -> Result<Connection, String> {
     let conn = Connection::open(dir.join("index.db")).map_err(|e| e.to_string())?;
-    // busy_timeout — чтение (kb_query перед каждой отправкой)
-    // больше не падает мгновенным SQLITE_BUSY, пока идёт запись документа
-    // (BEGIN IMMEDIATE держит блокировку секунды на мегабайтах)
     conn.busy_timeout(std::time::Duration::from_secs(5))
         .map_err(|e| e.to_string())?;
-    // WAL: читатели не блокируют писателя и наоборот. На сетевом AppData
-    // может не переключиться — тихо остаёмся на журнале по умолчанию
-    // (busy_timeout всё равно стоит)
     let _ = conn.query_row("PRAGMA journal_mode = WAL", [], |r| {
         let _: String = r.get(0)?;
         Ok(())
@@ -93,6 +87,17 @@ fn open_db(dir: &std::path::Path) -> Result<Connection, String> {
         CREATE VIRTUAL TABLE IF NOT EXISTS fts USING fts5(text, title, doc_id UNINDEXED);",
     )
     .map_err(|e| e.to_string())?;
+    Ok(conn)
+}
+
+fn open_db(dir: &std::path::Path) -> Result<Connection, String> {
+    let db_path = dir.join("index.db");
+    if !db_path.exists() {
+        return init_db(dir);
+    }
+    let conn = Connection::open(&db_path).map_err(|e| e.to_string())?;
+    conn.busy_timeout(std::time::Duration::from_secs(5))
+        .map_err(|e| e.to_string())?;
     Ok(conn)
 }
 
@@ -195,7 +200,7 @@ fn fts_query(query: &str) -> String {
 /// Чтение текстового документа с потолком: не-UTF8 не роняет команду
 fn read_text_capped(path: &std::path::Path) -> Result<String, String> {
     let md = std::fs::metadata(path).map_err(|e| format!("cannot stat: {e}"))?;
-    // Аудит kb 211: FIFO/устройство через симлинк проходили проверку и
+    // FIFO/устройство через симлинк проходили проверку и
     // блокировались на read; файл мог вырасти между stat и read
     if !md.is_file() {
         return Err("not a regular file".into());
@@ -237,15 +242,14 @@ pub async fn kb_create(app: tauri::AppHandle, name: String) -> Result<String, St
             created: now_ms(),
         };
         let meta = dir.join("meta.json");
-        // Аудит kb 218: не-атомарная запись оставляла обрезанный meta.json,
-        // и kb_list молча пропускал базу
+        // Не-атомарная запись оставляла обрезанный meta.json, и kb_list молча пропускал базу
         crate::fsutil::atomic_write(
             &meta,
             serde_json::to_string_pretty(&car)
                 .map_err(|e| e.to_string())?
                 .as_bytes(),
         )?;
-        drop(open_db(&dir)?);
+        drop(init_db(&dir)?);
         Ok(id)
     })
     .await
@@ -282,14 +286,19 @@ pub async fn kb_list(app: tauri::AppHandle) -> Result<Vec<KbMeta>, String> {
             let Ok(car) = serde_json::from_slice::<KbCar>(&car_raw) else {
                 continue;
             };
-            let (docs, chunks) = match open_db(&e.path()) {
-                Ok(conn) => (
-                    conn.query_row("SELECT COUNT(*) FROM docs", [], |r| r.get::<_, u64>(0))
-                        .unwrap_or(0),
-                    conn.query_row("SELECT COUNT(*) FROM chunks", [], |r| r.get::<_, u64>(0))
-                        .unwrap_or(0),
-                ),
-                Err(_) => (0, 0),
+            let db_path = e.path().join("index.db");
+            let (docs, chunks) = if db_path.exists() {
+                match open_db(&e.path()) {
+                    Ok(conn) => (
+                        conn.query_row("SELECT COUNT(*) FROM docs", [], |r| r.get::<_, u64>(0))
+                            .unwrap_or(0),
+                        conn.query_row("SELECT COUNT(*) FROM chunks", [], |r| r.get::<_, u64>(0))
+                            .unwrap_or(0),
+                    ),
+                    Err(_) => (0, 0),
+                }
+            } else {
+                (0, 0)
             };
             out.push(KbMeta {
                 id: car.id,
@@ -306,18 +315,54 @@ pub async fn kb_list(app: tauri::AppHandle) -> Result<Vec<KbMeta>, String> {
     .map_err(|e| format!("join error: {e}"))?
 }
 
-/// Удалить базу целиком (каталог с индексом)
+/// Удалить базу целиком (каталог с индексом) с нативным подтверждением
 #[tauri::command(async)]
 pub async fn kb_delete(app: tauri::AppHandle, id: String) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let dir = kb_dir(&app, &id)?;
-        if dir.exists() {
-            std::fs::remove_dir_all(&dir).map_err(|e| e.to_string())?;
+    let dir = kb_dir(&app, &id)?;
+    if dir.exists() {
+        let base_name = if let Ok(car_raw) = std::fs::read(dir.join("meta.json")) {
+            serde_json::from_slice::<KbCar>(&car_raw)
+                .map(|c| c.name)
+                .unwrap_or_else(|_| id.clone())
+        } else {
+            id.clone()
+        };
+
+        use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
+        let confirmed = app
+            .dialog()
+            .message(format!(
+                "Delete knowledge base \"{base_name}\"?\n\nAll indexed documents and chunks for this base will be permanently removed.",
+            ))
+            .title("Confirm Knowledge Base Deletion")
+            .kind(MessageDialogKind::Warning)
+            .buttons(MessageDialogButtons::OkCancelCustom(
+                "Delete".into(),
+                "Cancel".into(),
+            ))
+            .blocking_show();
+        if !confirmed {
+            return Err("knowledge base deletion cancelled by user".to_string());
         }
-        Ok(())
-    })
-    .await
-    .map_err(|e| format!("join error: {e}"))?
+
+        tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
+            let root = app
+                .path()
+                .app_data_dir()
+                .map_err(|e| e.to_string())?
+                .join("knowledge");
+            let canon_root = dunce::canonicalize(&root).unwrap_or_else(|_| root.clone());
+            let canon_dir = dunce::canonicalize(&dir).map_err(|e| e.to_string())?;
+            if !canon_dir.starts_with(&canon_root) {
+                return Err("knowledge base directory escapes root storage".into());
+            }
+            std::fs::remove_dir_all(&canon_dir).map_err(|e| e.to_string())?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| format!("join error: {e}"))??;
+    }
+    Ok(())
 }
 
 /// Проиндексировать документ: путь из диалога — sensitive-path гардал, как
@@ -330,11 +375,11 @@ pub async fn kb_add_document(
 ) -> Result<u64, String> {
     crate::settings::rejects_sensitive_path(&path)?;
     tauri::async_runtime::spawn_blocking(move || {
-        // Аудит: строковый гардал проходит мимо симлинка/junction —
+        // строковый гардал проходит мимо симлинка/junction —
         // read_text_capped следует по линку, и предзасаженный линк читал
         // защищённую локацию мимо блок-листа. Эталон — settings_import_read:
         // резолвим каноническую форму и ревалидируем её же
-        let canon = std::fs::canonicalize(&path)
+        let canon = dunce::canonicalize(&path)
             .map_err(|e| format!("cannot resolve document path: {e}"))?;
         let canon_str = canon.to_string_lossy().to_string();
         crate::settings::rejects_sensitive_path(&canon_str)?;
@@ -349,53 +394,45 @@ pub async fn kb_add_document(
             return Err("document has no extractable text".into());
         }
         let added = now_ms();
-        let conn = open_db(&dir)?;
-        // Все записи — в одной транзакции: rusqlite в autocommit делал каждый
-        // INSERT отдельным fsync, документ на несколько МБ индексировался
-        // секундами и изнашивал диск
-        conn.execute_batch("BEGIN IMMEDIATE")
+        let mut conn = open_db(&dir)?;
+        let tx = conn
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
             .map_err(|e| e.to_string())?;
-        let inserted = (|| -> Result<u64, String> {
-            // Переиндексация: старые куски того же пути — вон
-            let existing: Option<i64> = conn
-                .query_row(
-                    "SELECT id FROM docs WHERE path = ?1",
-                    [&path],
-                    |r| r.get(0),
-                )
-                .ok();
-            if let Some(doc_id) = existing {
-                remove_doc_chunks(&conn, doc_id)?;
-                conn.execute("DELETE FROM docs WHERE id = ?1", [doc_id])
-                    .map_err(|e| e.to_string())?;
-            }
-            conn.execute(
-                "INSERT INTO docs(title, path, added) VALUES (?1, ?2, ?3)",
-                rusqlite::params![title, path, added],
+
+        // Переиндексация: старые куски того же пути — вон
+        let existing: Option<i64> = tx
+            .query_row(
+                "SELECT id FROM docs WHERE path = ?1",
+                [&path],
+                |r| r.get(0),
+            )
+            .ok();
+        if let Some(doc_id) = existing {
+            remove_doc_chunks(&tx, doc_id)?;
+            tx.execute("DELETE FROM docs WHERE id = ?1", [doc_id])
+                .map_err(|e| e.to_string())?;
+        }
+        tx.execute(
+            "INSERT INTO docs(title, path, added) VALUES (?1, ?2, ?3)",
+            rusqlite::params![title, path, added],
+        )
+        .map_err(|e| e.to_string())?;
+        let doc_id = tx.last_insert_rowid();
+        for (ord, chunk) in chunks.iter().enumerate() {
+            tx.execute(
+                "INSERT INTO chunks(doc_id, ord, text) VALUES (?1, ?2, ?3)",
+                rusqlite::params![doc_id, ord as i64, chunk],
             )
             .map_err(|e| e.to_string())?;
-            let doc_id = conn.last_insert_rowid();
-            for (ord, chunk) in chunks.iter().enumerate() {
-                conn.execute(
-                    "INSERT INTO chunks(doc_id, ord, text) VALUES (?1, ?2, ?3)",
-                    rusqlite::params![doc_id, ord as i64, chunk],
-                )
-                .map_err(|e| e.to_string())?;
-                let rowid = conn.last_insert_rowid();
-                conn.execute(
-                    "INSERT INTO fts(rowid, text, title, doc_id) VALUES (?1, ?2, ?3, ?4)",
-                    rusqlite::params![rowid, chunk, title, doc_id],
-                )
-                .map_err(|e| e.to_string())?;
-            }
-            Ok(chunks.len() as u64)
-        })()
-        .inspect_err(|_e| {
-            // Частичная индексация не должна остаться в базе
-            let _ = conn.execute_batch("ROLLBACK");
-        })?;
-        conn.execute_batch("COMMIT").map_err(|e| e.to_string())?;
-        Ok(inserted)
+            let rowid = tx.last_insert_rowid();
+            tx.execute(
+                "INSERT INTO fts(rowid, text, title, doc_id) VALUES (?1, ?2, ?3, ?4)",
+                rusqlite::params![rowid, chunk, title, doc_id],
+            )
+            .map_err(|e| e.to_string())?;
+        }
+        tx.commit().map_err(|e| e.to_string())?;
+        Ok(chunks.len() as u64)
     })
     .await
     .map_err(|e| format!("join error: {e}"))?
@@ -423,10 +460,14 @@ pub async fn kb_remove_document(
 ) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
         let dir = kb_dir(&app, &id)?;
-        let conn = open_db(&dir)?;
-        remove_doc_chunks(&conn, doc_id)?;
-        conn.execute("DELETE FROM docs WHERE id = ?1", [doc_id])
+        let mut conn = open_db(&dir)?;
+        let tx = conn
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
             .map_err(|e| e.to_string())?;
+        remove_doc_chunks(&tx, doc_id)?;
+        tx.execute("DELETE FROM docs WHERE id = ?1", [doc_id])
+            .map_err(|e| e.to_string())?;
+        tx.commit().map_err(|e| e.to_string())?;
         Ok(())
     })
     .await
@@ -638,5 +679,31 @@ mod tests {
         assert_eq!(v.get("docTitle").and_then(|x| x.as_str()), Some("Заметки.md"));
         assert!(v.get("doc_title").is_none(), "snake_case поле утекло на фронт");
         assert_eq!(v.get("score").and_then(|x| x.as_f64()), Some(1.5));
+    }
+
+    #[test]
+    fn init_db_and_open_db_no_redundant_schema() {
+        let dir = std::env::temp_dir().join(format!("haloui-kb-init-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let conn1 = init_db(&dir).unwrap();
+        conn1
+            .execute(
+                "INSERT INTO docs(title, path, added) VALUES ('t', '/p', 123)",
+                [],
+            )
+            .unwrap();
+        drop(conn1);
+
+        // Повторное открытие через open_db не должно ронять или перезаписывать данные
+        let conn2 = open_db(&dir).unwrap();
+        let count: u64 = conn2
+            .query_row("SELECT COUNT(*) FROM docs", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(count, 1);
+        drop(conn2);
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

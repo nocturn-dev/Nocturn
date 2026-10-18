@@ -1550,7 +1550,9 @@ export const zh = {
     "tg.connect": "连接",
     "tg.disconnect": "断开",
     "tg.bound": "已绑定到聊天 — 通知将发送到这里",
-    "tg.notBound": "未绑定：在私聊中向你的机器人发送 /start",
+    "tg.notBound": "未绑定：获取验证码并向机器人发送 /start <code>",
+    "tg.getBindCode": "获取验证码",
+    "tg.bindCode": "绑定码：{code}（向机器人发送 /start {code}，5分钟内有效）",
     "tg.enabled": "已启用",
     "tg.disabled": "已停用",
     "tg.badToken": "令牌无效 — 请粘贴来自 @BotFather 的 123456789:AA... 字符串",
@@ -1747,7 +1749,7 @@ export const zh = {
     "docs.keys.body":
       "Ctrl+N — 新建任务 · Ctrl+K — 搜索 · Ctrl+V — 粘贴截图 · Enter — 发送，Shift+Enter — 换行。输入框中的斜杠命令：/new /clear /agent /terminal /theme /glass /provider /prompt /note /chain。",
 
-    // Аудит: строки UI, ходившие мимо словарей
+    // строки UI, ходившие мимо словарей
     "chat.modelLocal": "本地",
     "agent.reviewOpen": "审查 ↗",
     "commands.blankTemplate": "你是……\n\n任务：$ARGUMENTS",

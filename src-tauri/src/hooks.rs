@@ -127,10 +127,10 @@ pub fn load(dir: &std::path::Path) -> HookFile {
         Ok(d) => match serde_json::from_str::<HookFile>(&d) {
             Ok(f) => f,
             Err(e) => {
-                eprintln!(
+                crate::app_log::log_warn(&format!(
                     "hooks: broken {} ({e}) — hooks are disabled until the file is fixed or removed",
                     path.display()
-                );
+                ));
                 HookFile::default()
             }
         },
@@ -159,7 +159,7 @@ pub fn matches(hook: &Hook, event: &str, tool: &str) -> bool {
     if !hook.enabled || hook.event != event {
         return false;
     }
-    // Аудит hooks 192: пустое имя инструмента запускало ВСЕ хуки с
+    // пустое имя инструмента запускало ВСЕ хуки с
     // матчером. Для событий с инструментом пустое имя совпадает только
     // с хуками без матчера
     if hook.matcher.is_empty() {
@@ -245,7 +245,7 @@ fn exec_with_abort(
     out.stdout = proc_out.stdout;
     out.stderr = proc_out.stderr;
     if out.timed_out {
-        // Аудит proc 394: Stop пользователя раньше выглядел как «timed out»
+        // Stop пользователя раньше выглядел как «timed out»
         out.stderr = if proc_out.aborted {
             "hook stopped by user".to_string()
         } else {
@@ -267,7 +267,7 @@ fn exec_with_abort(
                 .to_string();
         }
         if let Some(ctx) = v.get("additionalContext").and_then(|c| c.as_str()) {
-            // Аудит hooks 187: безлимитный вывод хука переполнял контекст
+            // безлимитный вывод хука переполнял контекст
             // модели. Потолок как у HOOK_STRING_LIMIT, с пометкой
             let mut ctx = ctx.to_string();
             if ctx.len() > HOOK_STRING_LIMIT {
@@ -286,7 +286,7 @@ const HOOK_STRING_LIMIT: usize = 64 * 1024;
 /// Рекурсивно обрезает строки длиннее HOOK_STRING_LIMIT в JSON-значении,
 /// добавляя суффикс "\n...[truncated]". Хук не должен получать мегабайты.
 fn truncate_long_strings(v: &mut serde_json::Value) {
-    // Аудит hooks 188: тысячи строк по 64 КБ давали сотни мегабайт на stdin
+    // тысячи строк по 64 КБ давали сотни мегабайт на stdin
     // хука. Общий бюджет payload: тратится — хвост режется до 1 КБ
     let mut budget: u64 = 256 * 1024;
     truncate_long_strings_budget(v, &mut budget);

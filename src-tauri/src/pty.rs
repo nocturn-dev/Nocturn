@@ -47,7 +47,7 @@ impl PtyRegistry {
             // wait() reap'ит процесс: на Unix без него shell оставался зомби
             // до выхода приложения
             if let Ok(mut c) = s.child.lock() {
-                // Аудит: голый kill бьёт только прямого ребёнка — внуки
+                // голый kill бьёт только прямого ребёнка — внуки
                 // (запущенный в терминале сервер) оставались жить с
                 // EIO-pty. Дерево: taskkill /T на Windows, kill(-pgid) на
                 // Unix — portable-pty делает ребёнка лидером группы
@@ -311,7 +311,7 @@ pub async fn pty_create(
                             PtyEvent { id: out_id.clone(), data: acc.clone() },
                         );
                         if let Err(e) = emit_err {
-                            eprintln!("pty: output emit failed (window gone?): {e}");
+                            crate::app_log::log_warn(&format!("pty: output emit failed (window gone?): {e}"));
                         }
                     }
                     acc.clear();
@@ -492,7 +492,7 @@ mod tests {
         // Даём PowerShell подняться и присылаем команду
         std::thread::sleep(Duration::from_millis(1500));
         {
-            let mut io = session.io.lock().unwrap();
+            let mut io = session.io.lock().unwrap_or_else(|p| p.into_inner());
             io.writer.write_all(b"echo haloui-pty\r\n").unwrap();
             io.writer.flush().unwrap();
         }
@@ -515,7 +515,7 @@ mod tests {
             if !responded {
                 if let Some(pos) = acc.find("\u{1b}[6n") {
                     responded = true;
-                    let mut io = session.io.lock().unwrap();
+                    let mut io = session.io.lock().unwrap_or_else(|p| p.into_inner());
                     io.writer.write_all(b"\x1b[1;1R").unwrap();
                     io.writer.flush().unwrap();
                     acc.replace_range(pos..pos + 4, "");
@@ -527,6 +527,6 @@ mod tests {
         }
         assert!(acc.contains("haloui-pty"), "got: {acc:?}");
 
-        session.child.lock().unwrap().kill().ok();
+        session.child.lock().unwrap_or_else(|p| p.into_inner()).kill().ok();
     }
 }

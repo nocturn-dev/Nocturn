@@ -389,14 +389,22 @@ const PROVIDER_BODY_LIMIT: usize = 16 * 1024 * 1024;
 /// Потолок для ответов-ошибок и локальных зондов: мегабайты там не нужны
 const ERROR_BODY_LIMIT: usize = 1024 * 1024;
 
-/// Чтение тела ответа с потолком (замена `resp.text()` без границ): ответ
+/// Чтение тела ответа с потолком (замена `resp.text()` без границ) и
+/// stall-таймаутом на чанки для защиты от зависших стримов: ответ
 /// неожиданного размера — сбойный шлюз или подмена прокси — не должен
 /// буферизоваться в память целиком
 async fn read_body_capped(resp: reqwest::Response, limit: usize) -> Result<String, String> {
+    const STALL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
     let mut stream = resp.bytes_stream();
     let mut buf: Vec<u8> = Vec::new();
-    while let Some(chunk) = stream.next().await {
-        let bytes = chunk.map_err(|e| format!("failed to read response body: {e}"))?;
+    loop {
+        let chunk_res = tokio::time::timeout(STALL_TIMEOUT, stream.next()).await;
+        let chunk_opt = match chunk_res {
+            Ok(Some(c)) => c,
+            Ok(None) => break,
+            Err(_) => return Err("response body stream stalled for 30s".to_string()),
+        };
+        let bytes = chunk_opt.map_err(|e| format!("failed to read response body: {e}"))?;
         if buf.len() + bytes.len() > limit {
             return Err(format!(
                 "response body exceeds the {} MB limit",
@@ -2893,14 +2901,22 @@ pub async fn detect_local_runtimes() -> Result<LocalRuntimes, String> {
     let (o, l) = tokio::join!(ollama_req, lmstudio_req);
     let ollama = match o {
         Ok(r) if r.status().is_success() => {
-            let body = r.text().await.unwrap_or_default();
+            let body = tokio::time::timeout(std::time::Duration::from_secs(3), r.text())
+                .await
+                .ok()
+                .and_then(|t| t.ok())
+                .unwrap_or_default();
             Some(parse_ollama_tags(&body))
         }
         _ => None,
     };
     let lmstudio = match l {
         Ok(r) if r.status().is_success() => {
-            let body = r.text().await.unwrap_or_default();
+            let body = tokio::time::timeout(std::time::Duration::from_secs(3), r.text())
+                .await
+                .ok()
+                .and_then(|t| t.ok())
+                .unwrap_or_default();
             Some(parse_v1_models(&body))
         }
         _ => None,
@@ -2962,7 +2978,7 @@ mod tests {
     fn abort_guard_removes_only_own_flag() {
         let registry = AbortRegistry(Mutex::new(HashMap::new()));
         let old = Arc::new(AtomicBool::new(false));
-        registry.0.lock().unwrap().insert("r".into(), old.clone());
+        registry.0.lock().unwrap_or_else(|p| p.into_inner()).insert("r".into(), old.clone());
         let new = Arc::new(AtomicBool::new(false));
         // Стрим B стартовал на том же request_id: слот перезаписан флагом B,
         // флаг A поднят (эмуляция insert из chat_stream)
@@ -2970,7 +2986,7 @@ mod tests {
         registry
             .0
             .lock()
-            .unwrap()
+            .unwrap_or_else(|p| p.into_inner())
             .insert("r".into(), new.clone());
         {
             // Guard старого стрима A умирает первым — слот B не трогаем
@@ -2982,7 +2998,7 @@ mod tests {
             drop(guard_a);
         }
         assert!(
-            registry.0.lock().unwrap().contains_key("r"),
+            registry.0.lock().unwrap_or_else(|p| p.into_inner()).contains_key("r"),
             "guard A не должен вычищать флаг B из реестра"
         );
         {
@@ -2994,7 +3010,7 @@ mod tests {
             drop(guard_b);
         }
         assert!(
-            !registry.0.lock().unwrap().contains_key("r"),
+            !registry.0.lock().unwrap_or_else(|p| p.into_inner()).contains_key("r"),
             "guard B чистит собственный слот"
         );
     }
@@ -3008,7 +3024,7 @@ mod tests {
         let real = AbortRegistry(Mutex::new(HashMap::new()));
         let flag = Arc::new(AtomicBool::new(false));
         // chat_stream: регистрация в оригинале...
-        real.0.lock().unwrap().insert("r".into(), flag.clone());
+        real.0.lock().unwrap_or_else(|p| p.into_inner()).insert("r".into(), flag.clone());
         {
             // ...внутренний guard живёт на снапшоте (копия карты, те же Arc)
             let snapshot = real.snapshot();
@@ -3020,7 +3036,7 @@ mod tests {
             drop(inner);
         }
         assert!(
-            real.0.lock().unwrap().contains_key("r"),
+            real.0.lock().unwrap_or_else(|p| p.into_inner()).contains_key("r"),
             "снапшот-чистка не должна трогать оригинал"
         );
         {
@@ -3033,7 +3049,7 @@ mod tests {
             drop(outer);
         }
         assert!(
-            !real.0.lock().unwrap().contains_key("r"),
+            !real.0.lock().unwrap_or_else(|p| p.into_inner()).contains_key("r"),
             "наружный guard обязан вычистить запись из реального реестра"
         );
     }
@@ -3092,7 +3108,7 @@ mod tests {
 
     #[test]
     fn mid_text_think_is_literal_even_unclosed() {
-        // Аудит chat 72: литеральный <think> в середине ответа (модель пишет
+        // литеральный <think> в середине ответа (модель пишет
         // про XML) не прячет весь хвост в рассуждения, даже если </think>
         // не пришёл — стрим оборвался на max_tokens
         let mut acc = SseAccumulator::default();
@@ -3244,7 +3260,7 @@ mod tests {
 
     #[test]
     fn anthropic_cache_creation_reaches_usage() {
-        // Аудит chat 76: cache_creation_input_tokens тарифицируется дороже
+        // cache_creation_input_tokens тарифицируется дороже
         // обычных, но в Usage не попадал — Hard Limit занижался
         let mut acc = AnthropicAccumulator::default();
         let mut events = Vec::new();
@@ -3266,7 +3282,7 @@ mod tests {
 
     #[test]
     fn anthropic_image_mime_whitelist() {
-        // Аудит chat 77: неподдерживаемый MIME отклоняется текстом, а не
+        // неподдерживаемый MIME отклоняется текстом, а не
         // 400 от API; внешние http-ссылки не молча пропадают
         assert!(anthropic_image_block("data:image/svg+xml;base64,PHN2Zz4=").is_err());
         assert!(anthropic_image_block("data:image/bmp;base64,AAAA").is_err());
@@ -3277,7 +3293,7 @@ mod tests {
 
     #[test]
     fn key_transport_blocks_plain_http_for_remote() {
-        // Аудит chat 68/85: ключ по открытому http уходит только локальным
+        // ключ по открытому http уходит только локальным
         // адресам; https и parse-отказ не блокируются
         assert!(ensure_key_transport_is_safe("https://api.openai.com/v1").is_ok());
         assert!(ensure_key_transport_is_safe("http://127.0.0.1:11434/v1").is_ok());

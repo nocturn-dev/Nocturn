@@ -53,8 +53,19 @@ pub fn init_config_dir(path: &std::path::Path) {
 /// Глобальное состояние (одно на процесс). None = ещё не синхронизировано
 static PERM: Mutex<Option<PermState>> = Mutex::new(None);
 
+#[cfg(test)]
+thread_local! {
+    static TEST_PERM: std::cell::RefCell<Option<PermState>> = const { std::cell::RefCell::new(None) };
+}
+
 /// Текущее состояние; до первого perm_set — Ask без корней и без синхронизации
 pub(crate) fn current() -> PermState {
+    #[cfg(test)]
+    {
+        if let Some(st) = TEST_PERM.with(|c| c.borrow().clone()) {
+            return st;
+        }
+    }
     let default_cfg = APP_CONFIG_DIR
         .lock()
         .unwrap_or_else(|p| p.into_inner())
@@ -77,6 +88,10 @@ pub(crate) fn current() -> PermState {
 /// в no-op — иначе все мутации навсегда отбивались бы «not synchronized yet»
 /// при внешне зелёном UI, и ни один лог об этом не сказал бы
 pub(crate) fn set(state: PermState) {
+    #[cfg(test)]
+    {
+        TEST_PERM.with(|c| *c.borrow_mut() = Some(state.clone()));
+    }
     let mut g = PERM.lock().unwrap_or_else(|p| p.into_inner());
     *g = Some(state);
 }
@@ -662,43 +677,61 @@ fn shell_command_hits_sensitive(cmd: &str) -> bool {
 }
 
 /// Решение по инструменту. Возвращаемое Err — текст для модели.
-pub(crate) fn decide(state: &PermState, name: &str, path: Option<&str>) -> Result<(), String> {
+fn decide_shell(state: &PermState, cmd: Option<&str>) -> Result<(), String> {
+    let Some(raw_cmd) = cmd else {
+        return Err("shell_run requires a non-empty command argument".to_string());
+    };
+    let trimmed = raw_cmd.trim();
+    if trimmed.is_empty() {
+        return Err("shell_run requires a non-empty command argument".to_string());
+    }
+    if rule_matches_shell(&state.rules.deny, trimmed, false) {
+        return Err("blocked by deny rule (shell_run)".to_string());
+    }
+    if shell_command_hits_config_dir(trimmed, state.config_dir.as_deref()) {
+        return Err(
+            "access to the app config directory is denied unconditionally".to_string(),
+        );
+    }
+    if shell_command_hits_sensitive(trimmed)
+        && !rule_matches_shell(&state.rules.allow, trimmed, true)
+    {
+        return Err(
+            "command references a protected path (secrets are denied by default; the owner can allow it explicitly)"
+                .to_string(),
+        );
+    }
+    Ok(())
+}
+
+pub(crate) fn decide(state: &PermState, name: &str, arg: Option<&str>) -> Result<(), String> {
     let mutating = !is_read_only_tool(name);
     let fs_tool = matches!(
         name,
         "fs_read" | "fs_list" | "fs_write" | "fs_delete" | "fs_grep" | "diagnostics"
     );
 
-    let rule_arg: Option<String> = if fs_tool {
-        path.map(canon_norm)
-    } else {
-        path.map(|p| p.to_string())
-    };
-
-    let denied = if name == "shell_run" {
-        rule_matches_shell(&state.rules.deny, rule_arg.as_deref().unwrap_or(""), false)
-    } else {
-        rule_matches(&state.rules.deny, name, rule_arg.as_deref(), fs_tool)
-    };
-    if denied {
-        return Err(format!("blocked by deny rule ({name})"));
-    }
-
     if name == "shell_run" {
-        if let Some(cmd) = rule_arg.as_deref() {
-            if shell_command_hits_config_dir(cmd, state.config_dir.as_deref()) {
-                return Err(
-                    "access to the app config directory is denied unconditionally".to_string(),
-                );
+        decide_shell(state, arg)?;
+    } else {
+        if name.starts_with("vault_") {
+            if let Some(p) = arg {
+                if p.contains("..") || p.contains('/') || p.contains('\\') || p.contains(':') {
+                    return Err(format!("blocked: invalid note path '{p}' (traversal characters are forbidden)"));
+                }
+                if is_sensitive_path(p) {
+                    return Err(format!("blocked: note path '{p}' hits sensitive pattern"));
+                }
             }
-            if shell_command_hits_sensitive(cmd)
-                && !rule_matches_shell(&state.rules.allow, cmd, true)
-            {
-                return Err(
-                    "command references a protected path (secrets are denied by default; the owner can allow it explicitly)"
-                        .to_string(),
-                );
-            }
+        }
+        let rule_arg: Option<String> = if fs_tool {
+            arg.map(canon_norm)
+        } else {
+            arg.map(|p| p.to_string())
+        };
+        let denied = rule_matches(&state.rules.deny, name, rule_arg.as_deref(), fs_tool);
+        if denied {
+            return Err(format!("blocked by deny rule ({name})"));
         }
     }
 
@@ -715,7 +748,7 @@ pub(crate) fn decide(state: &PermState, name: &str, path: Option<&str>) -> Resul
                 return Err(format!("blocked by permission mode: plan (tool {name})"));
             }
             if fs_tool {
-                check_fs_path(state, name, path)?;
+                check_fs_path(state, name, arg)?;
                 return Ok(());
             }
             if !PLAN_READ_ONLY.contains(&name) {
@@ -732,7 +765,7 @@ pub(crate) fn decide(state: &PermState, name: &str, path: Option<&str>) -> Resul
                 ));
             }
             if name == "fs_write" {
-                if let Some(p) = path {
+                if let Some(p) = arg {
                     if is_auto_exec_path(p) {
                         return Err(format!(
                             "tool blocked: modifying auto-exec file requires full or ask mode: {p}"
@@ -741,19 +774,19 @@ pub(crate) fn decide(state: &PermState, name: &str, path: Option<&str>) -> Resul
                 }
             }
             if fs_tool {
-                check_fs_path(state, name, path)?;
+                check_fs_path(state, name, arg)?;
             }
             Ok(())
         }
         PermMode::Ask => {
             if fs_tool {
-                check_fs_path(state, name, path)?;
+                check_fs_path(state, name, arg)?;
             }
             Ok(())
         }
         PermMode::Full => {
             if fs_tool {
-                check_fs_path(state, name, path)?;
+                check_fs_path(state, name, arg)?;
             }
             Ok(())
         }
@@ -761,7 +794,7 @@ pub(crate) fn decide(state: &PermState, name: &str, path: Option<&str>) -> Resul
 }
 
 /// Path-контроль для fs_* инструментов.
-fn check_fs_path(state: &PermState, name: &str, path: Option<&str>) -> Result<(), String> {
+pub(crate) fn check_fs_path(state: &PermState, name: &str, path: Option<&str>) -> Result<(), String> {
     let Some(p) = path else {
         return Err("fs tool requires a path argument".to_string());
     };
@@ -964,7 +997,7 @@ pub(crate) fn canonicalize_roots(roots: &[String]) -> Vec<String> {
 /// существующего файла — поднимается до первого существующего предка,
 /// канонизирует его и присоединяет накопленный остаток.
 fn canonicalize_for_compare(path: &std::path::Path) -> Option<std::path::PathBuf> {
-    if let Ok(c) = std::fs::canonicalize(path) {
+    if let Ok(c) = dunce::canonicalize(path) {
         return Some(c);
     }
     // Собираем компоненты с конца, пока предок не станет существующим
@@ -981,7 +1014,7 @@ fn canonicalize_for_compare(path: &std::path::Path) -> Option<std::path::PathBuf
             _ => break,
         }
     }
-    let real_ancestor = std::fs::canonicalize(curr).ok()?;
+    let real_ancestor = dunce::canonicalize(curr).ok()?;
     let mut res = real_ancestor;
     for part in suffix.into_iter().rev() {
         res.push(part);
@@ -1035,6 +1068,15 @@ mod tests {
             "echo test > C:\\Users\\me\\AppData\\Roaming\\com.haloui.app\\hooks.json",
             Some(cfg)
         ));
+    }
+
+    #[test]
+    fn shell_run_requires_command_argument() {
+        let st = state(PermMode::Full, &["C:\\proj"]);
+        assert!(decide(&st, "shell_run", None).is_err());
+        assert!(decide(&st, "shell_run", Some("")).is_err());
+        assert!(decide(&st, "shell_run", Some("   ")).is_err());
+        assert!(decide(&st, "shell_run", Some("cargo test")).is_ok());
     }
 
     #[test]
@@ -1242,7 +1284,8 @@ mod tests {
 
     #[test]
     fn ask_defers_shell_run_to_frontend_confirm() {
-        assert!(decide(&state(PermMode::Ask, &[]), "shell_run", None).is_ok());
+        assert!(decide(&state(PermMode::Ask, &[]), "shell_run", Some("echo hi")).is_ok());
+        assert!(decide(&state(PermMode::Ask, &[]), "shell_run", None).is_err());
     }
 
     #[test]
@@ -1291,8 +1334,18 @@ mod tests {
     fn ask_confirms_mutating_but_keeps_fs_path_control() {
         assert!(decide(&state(PermMode::Ask, &["C:\\proj"]), "fs_delete", Some("C:\\other\\x")).is_err());
         assert!(decide(&state(PermMode::Ask, &["C:\\proj"]), "fs_delete", Some("C:\\proj\\x")).is_ok());
-        assert!(decide(&state(PermMode::Ask, &["C:\\proj"]), "shell_run", None).is_ok());
+        assert!(decide(&state(PermMode::Ask, &["C:\\proj"]), "shell_run", Some("dir")).is_ok());
+        assert!(decide(&state(PermMode::Ask, &["C:\\proj"]), "shell_run", None).is_err());
         assert!(decide(&state(PermMode::Ask, &[]), "vault_write", None).is_ok());
+    }
+
+    #[test]
+    fn vault_write_rejects_traversal_and_sensitive() {
+        assert!(decide(&state(PermMode::Ask, &[]), "vault_write", Some("../../x.md")).is_err());
+        assert!(decide(&state(PermMode::Ask, &[]), "vault_write", Some("a/b.md")).is_err());
+        assert!(decide(&state(PermMode::Ask, &[]), "vault_write", Some("C:\\proj\\x.md")).is_err());
+        assert!(decide(&state(PermMode::Ask, &[]), "vault_write", Some(".env.md")).is_err());
+        assert!(decide(&state(PermMode::Ask, &[]), "vault_write", Some("note.md")).is_ok());
     }
 
     #[cfg(windows)]

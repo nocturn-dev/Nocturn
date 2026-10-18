@@ -41,18 +41,6 @@ fn manifest_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
         .join("fonts.json"))
 }
 
-fn read_manifest(app: &tauri::AppHandle) -> Vec<CustomFont> {
-    // Аудит fonts 163: битый манифест возвращал пустой список, и следующая
-    // запись затирала файл — все шрифты становились сиротами. Err хранится
-    // в Result (см. read_manifest_checked), .bak — рядом
-    match read_manifest_checked(app) {
-        Ok(v) => v,
-        Err(e) => {
-            eprintln!("fonts: manifest unreadable: {e}");
-            Vec::new()
-        }
-    }
-}
 
 fn read_manifest_checked(app: &tauri::AppHandle) -> Result<Vec<CustomFont>, String> {
     let path = manifest_path(app)?;
@@ -109,7 +97,128 @@ pub async fn font_import(app: tauri::AppHandle, src: String) -> Result<CustomFon
         .map_err(|e| format!("font import task failed: {e}"))?
 }
 
+/// Проверяем структуру шрифта и наличие ключевых таблиц (head, cmap, name),
+/// чтобы битые файлы отсекались до сохранения и не ломали браузерный движок
+fn validate_font_structure(ext: &str, bytes: &[u8]) -> Result<(), String> {
+    match ext {
+        "ttf" | "otf" => {
+            let face = ttf_parser::Face::parse(bytes, 0)
+                .map_err(|e| format!("corrupted or invalid font: {e}"))?;
+            let has_head = face.raw_face().table(ttf_parser::Tag::from_bytes(b"head")).is_some();
+            let has_cmap = face.raw_face().table(ttf_parser::Tag::from_bytes(b"cmap")).is_some();
+            let has_name = face.raw_face().table(ttf_parser::Tag::from_bytes(b"name")).is_some();
+            if !has_head || !has_cmap || !has_name {
+                return Err("font missing required tables (head, cmap, name)".into());
+            }
+            Ok(())
+        }
+        "woff" => validate_woff_tables(bytes),
+        "woff2" => validate_woff2_tables(bytes),
+        _ => Err("unsupported font format".into()),
+    }
+}
+
+fn validate_woff_tables(bytes: &[u8]) -> Result<(), String> {
+    if bytes.len() < 44 || !bytes.starts_with(b"wOFF") {
+        return Err("invalid woff signature or file too short".into());
+    }
+    let num_tables = u16::from_be_bytes([bytes[12], bytes[13]]) as usize;
+    if num_tables == 0 || num_tables > 128 {
+        return Err("invalid woff table count".into());
+    }
+    let total_len = u32::from_be_bytes([bytes[8], bytes[9], bytes[10], bytes[11]]) as usize;
+    if total_len > bytes.len() {
+        return Err("woff file truncated".into());
+    }
+    let dir_end = 44 + num_tables * 20;
+    if bytes.len() < dir_end {
+        return Err("woff header truncated".into());
+    }
+    let mut has_head = false;
+    let mut has_cmap = false;
+    let mut has_name = false;
+    for i in 0..num_tables {
+        let offset = 44 + i * 20;
+        let tag = &bytes[offset..offset + 4];
+        if tag == b"head" {
+            has_head = true;
+        } else if tag == b"cmap" {
+            has_cmap = true;
+        } else if tag == b"name" {
+            has_name = true;
+        }
+    }
+    if !has_head || !has_cmap || !has_name {
+        return Err("woff missing required tables (head, cmap, name)".into());
+    }
+    Ok(())
+}
+
+fn validate_woff2_tables(bytes: &[u8]) -> Result<(), String> {
+    if bytes.len() < 48 || !bytes.starts_with(b"wOF2") {
+        return Err("invalid woff2 signature or file too short".into());
+    }
+    let num_tables = u16::from_be_bytes([bytes[12], bytes[13]]) as usize;
+    if num_tables == 0 || num_tables > 128 {
+        return Err("invalid woff2 table count".into());
+    }
+    let total_len = u32::from_be_bytes([bytes[8], bytes[9], bytes[10], bytes[11]]) as usize;
+    if total_len > bytes.len() {
+        return Err("woff2 file truncated".into());
+    }
+    let mut has_head = false;
+    let mut has_cmap = false;
+    let mut has_name = false;
+    let mut cursor = 48;
+    for _ in 0..num_tables {
+        if cursor >= bytes.len() {
+            return Err("woff2 directory truncated".into());
+        }
+        let flags = bytes[cursor];
+        cursor += 1;
+        let tag_idx = flags & 0x3f;
+        if tag_idx == 0 {
+            has_cmap = true;
+        } else if tag_idx == 1 {
+            has_head = true;
+        } else if tag_idx == 5 {
+            has_name = true;
+        } else if tag_idx == 63 {
+            if cursor + 4 > bytes.len() {
+                return Err("woff2 directory truncated".into());
+            }
+            let tag = &bytes[cursor..cursor + 4];
+            cursor += 4;
+            if tag == b"head" {
+                has_head = true;
+            } else if tag == b"cmap" {
+                has_cmap = true;
+            } else if tag == b"name" {
+                has_name = true;
+            }
+        }
+        while cursor < bytes.len() && (bytes[cursor] & 0x80) != 0 {
+            cursor += 1;
+        }
+        cursor += 1;
+        let transform_version = (flags & 0xc0) >> 6;
+        if transform_version != 0 && (tag_idx == 2 || tag_idx == 3) {
+            while cursor < bytes.len() && (bytes[cursor] & 0x80) != 0 {
+                cursor += 1;
+            }
+            cursor += 1;
+        }
+    }
+    if !has_head || !has_cmap || !has_name {
+        return Err("woff2 missing required tables (head, cmap, name)".into());
+    }
+    Ok(())
+}
+
 fn font_import_impl(app: tauri::AppHandle, src: String) -> Result<CustomFont, String> {
+    // Проверяем манифест ДО сохранения файла: если он повреждён, не дописываем вслепую
+    let mut fonts = read_manifest_checked(&app)?;
+
     let src_path = PathBuf::from(&src);
     if src_path
         .components()
@@ -126,9 +235,6 @@ fn font_import_impl(app: tauri::AppHandle, src: String) -> Result<CustomFont, St
             "unsupported font format: .{ext} (use ttf/otf/woff/woff2)"
         ));
     }
-    // Лимит ДО чтения: иначе выбранный многогигабайтный файл тянулся в
-    // память целиком (класс бага из sound_import, чиненый там же)
-    // Аудит fonts 168: источник может быть симлинком на произвольный файл
     if let Ok(md) = fs::symlink_metadata(&src_path) {
         if md.file_type().is_symlink() {
             return Err("source path is a symlink".into());
@@ -138,7 +244,6 @@ fn font_import_impl(app: tauri::AppHandle, src: String) -> Result<CustomFont, St
     if meta.len() > MAX_FONT_BYTES as u64 {
         return Err("font file is larger than 20 MB".into());
     }
-    // Аудит fonts 167: файл мог вырасти между metadata и read — take дублирует
     let src_file = fs::File::open(&src_path).map_err(|e| e.to_string())?;
     let mut bytes = Vec::with_capacity(meta.len() as usize);
     {
@@ -151,18 +256,10 @@ fn font_import_impl(app: tauri::AppHandle, src: String) -> Result<CustomFont, St
     if bytes.len() > MAX_FONT_BYTES {
         return Err("font file is larger than 20 MB".into());
     }
-    // Аудит fonts 165: расширение не проверяет содержимое — произвольный
-    // файл раздавался вебвью через asset-протокол. Магические байты
-    let ok_sig = bytes.starts_with(&[0x00, 0x01, 0x00, 0x00]) // TTF
-        || bytes.starts_with(b"OTTO") // OTF
-        || bytes.starts_with(b"wOFF") // WOFF
-        || bytes.starts_with(b"wOF2"); // WOFF2
-    if !ok_sig {
-        return Err("file content is not a recognized font (ttf/otf/woff/woff2)".into());
-    }
+
+    validate_font_structure(&ext, &bytes)?;
+
     let dir = fonts_dir(&app)?;
-    // fsutil::rand_hex8 — единственный источник коротких id: дубль здесь
-    // жил своей жизнью и расползался независимо от канонического
     let id = crate::fsutil::rand_hex8();
     let family = format!("NocturnFont-{id}");
     let file_name = format!("font-{id}.{ext}");
@@ -180,10 +277,7 @@ fn font_import_impl(app: tauri::AppHandle, src: String) -> Result<CustomFont, St
         name,
         path: dir.join(file_name).to_string_lossy().to_string(),
     };
-    let mut fonts = read_manifest(&app);
     fonts.push(font.clone());
-    // Аудит fonts 166: файл уже на диске — при провале записи манифеста
-    // удаляем, чтобы не плодить сирот
     if let Err(e) = write_manifest(&app, &fonts) {
         let _ = fs::remove_file(&font_path);
         return Err(e);
@@ -193,11 +287,9 @@ fn font_import_impl(app: tauri::AppHandle, src: String) -> Result<CustomFont, St
 
 #[tauri::command(async)]
 pub async fn font_list(app: tauri::AppHandle) -> Result<Vec<CustomFont>, String> {
-    // exists() на каждый файл манифеста: на сетевом профиле — секунды;
-    // blocking-пул (класс crypto_status). Результат обёрнут в Result —
-    // контракт для invoke не меняется (Ok-значение сериализуется как раньше)
     tauri::async_runtime::spawn_blocking(move || {
-        Ok(read_manifest(&app)
+        let fonts = read_manifest_checked(&app)?;
+        Ok(fonts
             .into_iter()
             .filter(|f| PathBuf::from(&f.path).exists())
             .collect::<Vec<_>>())
@@ -209,15 +301,16 @@ pub async fn font_list(app: tauri::AppHandle) -> Result<Vec<CustomFont>, String>
 #[tauri::command(async)]
 pub async fn font_delete(app: tauri::AppHandle, id: String) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let mut fonts = read_manifest(&app);
+        let mut fonts = read_manifest_checked(&app)?;
         if let Some(pos) = fonts.iter().position(|f| f.id == id) {
             let f = fonts.remove(pos);
-            // Аудит fonts 162: путь из подменённого манифеста удалял
-            // произвольный файл. Разрешаем только наш шаблон внутри fonts_dir
             let target = std::path::PathBuf::from(&f.path);
             let inside = fonts_dir(&app)
                 .ok()
-                .and_then(|dir| target.canonicalize().ok().map(|c| (dir, c)))
+                .and_then(|dir| {
+                    let canon_dir = dunce::canonicalize(&dir).unwrap_or(dir);
+                    dunce::canonicalize(&target).ok().map(|c| (canon_dir, c))
+                })
                 .map(|(dir, c)| c.starts_with(&dir))
                 .unwrap_or(false);
             let named = target
@@ -227,7 +320,7 @@ pub async fn font_delete(app: tauri::AppHandle, id: String) -> Result<(), String
             if inside && named {
                 let _ = fs::remove_file(&target);
             } else {
-                eprintln!("font_delete: refusing suspicious path {}", f.path);
+                crate::app_log::log_warn(&format!("font_delete: refusing suspicious path {}", f.path));
             }
             write_manifest(&app, &fonts)?;
         }
@@ -251,5 +344,57 @@ mod tests {
         // Потолок 40 символов
         let long = sanitize_name(&"а".repeat(60));
         assert_eq!(long.chars().count(), 40);
+    }
+
+    #[test]
+    fn validate_corrupted_ttf_rejected() {
+        // Сигнатура TTF верна, но таблицы отсутствуют
+        let corrupted = vec![0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
+        assert!(validate_font_structure("ttf", &corrupted).is_err());
+    }
+
+    #[test]
+    fn validate_woff_table_checks() {
+        // Создаём синтетический минимальный WOFF с 3 таблицами: head, cmap, name
+        let mut woff = vec![0u8; 44 + 3 * 20];
+        woff[0..4].copy_from_slice(b"wOFF");
+        let len = (woff.len() as u32).to_be_bytes();
+        woff[8..12].copy_from_slice(&len);
+        woff[12..14].copy_from_slice(&3u16.to_be_bytes());
+        // Таблица 1: head
+        woff[44..48].copy_from_slice(b"head");
+        // Таблица 2: cmap
+        woff[64..68].copy_from_slice(b"cmap");
+        // Таблица 3: name
+        woff[84..88].copy_from_slice(b"name");
+
+        assert!(validate_font_structure("woff", &woff).is_ok());
+
+        // Если заменяем name на что-то другое, должно вернуть отказ
+        woff[84..88].copy_from_slice(b"post");
+        assert!(validate_font_structure("woff", &woff).is_err());
+    }
+
+    #[test]
+    fn validate_woff2_table_checks() {
+        // Создаём синтетический минимальный WOFF2 с тегами cmap (0), head (1), name (5)
+        let mut woff2 = vec![0u8; 48 + 6];
+        woff2[0..4].copy_from_slice(b"wOF2");
+        let len = (woff2.len() as u32).to_be_bytes();
+        woff2[8..12].copy_from_slice(&len);
+        woff2[12..14].copy_from_slice(&3u16.to_be_bytes());
+        // Записи таблицы: флаг (1 байт) + origLength (1 байт)
+        woff2[48] = 0; // cmap
+        woff2[49] = 10;
+        woff2[50] = 1; // head
+        woff2[51] = 10;
+        woff2[52] = 5; // name
+        woff2[53] = 10;
+
+        assert!(validate_font_structure("woff2", &woff2).is_ok());
+
+        // Если убираем head
+        woff2[50] = 7; // post
+        assert!(validate_font_structure("woff2", &woff2).is_err());
     }
 }

@@ -25,7 +25,7 @@ fn mcp_client_end_to_end() {
     let conn = McpConnection::from_child("echo", child, stdout, stderr)
         .expect("handshake must succeed");
 
-    let tools = conn.tools.lock().unwrap().clone();
+    let tools = conn.tools.lock().unwrap_or_else(|p| p.into_inner()).clone();
     assert_eq!(tools.len(), 1);
     assert_eq!(tools[0].name, "echo");
     assert!(tools[0].description.contains("Echoes"));

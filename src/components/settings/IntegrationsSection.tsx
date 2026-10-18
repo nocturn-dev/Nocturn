@@ -5,6 +5,7 @@ import {
   mediaStatus,
   telegramGetConfig,
   telegramSetConfig,
+  telegramStartBind,
   telegramStatus,
   telegramUnbind,
   type MediaStateDto,
@@ -81,7 +82,8 @@ export function IntegrationsSection({
       const server = await telegramGetConfig().catch(() => null);
       const saved = { ...next, chatId: next.chatId || server?.chatId || "" };
       await telegramSetConfig(saved);
-      setTg(saved);
+      const fresh = await telegramGetConfig().catch(() => null);
+      setTg(fresh ?? saved);
       const st = await telegramStatus().catch(() => null);
       if (st) setTgStatus(st);
     } catch (e) {
@@ -573,15 +575,35 @@ export function IntegrationsSection({
           {tgError && (
             <p className="px-2 pt-1 text-[0.625rem] text-halo-error">{tgError}</p>
           )}
-          <p className="px-2 pt-1.5 text-[0.625rem] text-halo-muted">
+          <div className="px-2 pt-1.5 text-[0.625rem] text-halo-muted">
             {tgStatus?.bound ? (
               <span className="inline-flex items-center gap-1 text-emerald-400"><CheckIcon /> {t("tg.bound")}</span>
             ) : tgOn ? (
-              t("tg.notBound")
+              <div className="flex flex-col gap-1">
+                <div className="flex items-center justify-between gap-2">
+                  <span>{t("tg.notBound")}</span>
+                  <button
+                    onClick={() => {
+                      void telegramStartBind()
+                        .then(() => telegramStatus())
+                        .then((s) => setTgStatus(s))
+                        .catch((e) => setTgError(e instanceof Error ? e.message : String(e)));
+                    }}
+                    className="shrink-0 rounded border border-halo-accent/40 bg-halo-accent/10 px-2 py-0.5 text-halo-accent transition-colors hover:bg-halo-accent/20"
+                  >
+                    {t("tg.getBindCode")}
+                  </button>
+                </div>
+                {tgStatus?.bindCode && (
+                  <p className="font-mono text-emerald-400">
+                    {t("tg.bindCode", { code: tgStatus.bindCode })}
+                  </p>
+                )}
+              </div>
             ) : (
               <span className="text-halo-muted/60">{t("tg.disabled")}</span>
             )}
-          </p>
+          </div>
           <div className="mt-1 border-t border-halo-line/60 pt-2">
             <p className="mb-0.5 px-2 text-[0.625rem] font-semibold uppercase tracking-[0.14em] text-halo-muted/60">
               {t("tg.notifyTitle")}

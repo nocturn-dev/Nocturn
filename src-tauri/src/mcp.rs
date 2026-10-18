@@ -135,6 +135,13 @@ pub fn is_transport_err(e: &str) -> bool {
     e.starts_with("mcp transport:")
 }
 
+/// Проверяет, произошла ли ошибка ДО отправки запроса в сервер (процесс был мёртв
+/// или упала запись в пайп stdin). При таких ошибках повтор вызова гарантированно
+/// не задваивает побочные эффекты
+pub fn is_pre_send_transport_err(e: &str) -> bool {
+    e.contains("server process is not alive") || e.contains("write failed")
+}
+
 /// Сессия удалённого сервера истекла: 404 с jsonrpc -32001.
 /// Соединение дропается и переподключается невидимо; повтор вызова
 /// инициирует сама модель (аннотаций readOnlyHint нет — авто-повтор
@@ -1202,10 +1209,10 @@ pub fn load_servers(app: &tauri::AppHandle) -> Result<Vec<McpServerConfig>, Stri
     let mut out = Vec::with_capacity(all.len());
     for s in all {
         if !valid_server_name(&s.name) {
-            eprintln!(
+            crate::app_log::log_warn(&format!(
                 "mcp.json: server with invalid name \"{}\" skipped — use latin letters, digits, . - and single _ (no \"__\")",
                 s.name
-            );
+            ));
             continue;
         }
         out.push(s);
@@ -1301,7 +1308,7 @@ fn mcp_save_servers_impl(
                     s.name
                 ));
             }
-            // Аудит mcp 264: заголовки Authorization и OAuth-токены по
+            // заголовки Authorization и OAuth-токены по
             // открытому http уходят в открытом виде. http:// — только
             // локальным адресам (localhost, 127.0.0.1, [::1], *.localhost)
             if url.starts_with("http://") && !is_local_http_url(url) {
@@ -1331,7 +1338,7 @@ fn mcp_save_servers_impl(
             return Err(format!("server \"{}\": command is empty", s.name));
         }
     }
-    // Аудит mcp 263: конфиг сохраняется через IPC с произвольной командой —
+    // конфиг сохраняется через IPC с произвольной командой —
     // скомпрометированный webview получал исполнение любого бинаря при
     // следующем mcp_connect. Изменённые/новые команды и URL подтверждаются
     // нативным диалогом; неизменённый конфиг сохраняется без вопросов
@@ -1467,10 +1474,10 @@ pub async fn ensure_connected(
     // при старте → Failed с реальной ошибкой)
     let (cfg, missing) = expand_config_env(&cfg);
     if !missing.is_empty() {
-        eprintln!(
+        crate::app_log::log_warn(&format!(
             "mcp env: variables not set for \"{name}\": {}",
             missing.join(", ")
-        );
+        ));
     }
     if is_remote(&cfg) {
         let handle = match RemoteConnection::connect(&cfg).await {

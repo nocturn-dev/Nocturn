@@ -908,7 +908,7 @@ export function applyAppearance(a: Appearance) {
   // стили загружены: фон дальше ведут правила (glass-градиент / body bg)
   root.style.removeProperty("background");
   // И статический фолбэк из index.html: непрозрачный фон html запрещает
-  // трансляцию фона body на canvas (CSS Backgrounds §3.11.2), и
+  // трансляцию фона body на canvas (CSS Backgrounds ), и
   // непрозрачный body на шаге 3 отрисовки накрывал ВСЕ слои z-index:-1 —
   // ambient «за интерфейсом» и лента лирики были невидимы без стекла
   //. В стекле canvas и так красит градиент html.glass (0,1,1),

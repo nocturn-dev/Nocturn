@@ -1630,6 +1630,8 @@ export interface TelegramStatus {
   enabled: boolean;
   bound: boolean;
   polling: boolean;
+  bindCode?: string | null;
+  bindCodeExpiresIn?: number | null;
 }
 
 export async function telegramGetConfig(): Promise<TelegramConfig> {
@@ -1649,6 +1651,11 @@ export async function telegramSetConfig(config: TelegramConfig): Promise<void> {
 export async function telegramStatus(): Promise<TelegramStatus> {
   if (!inTauri) return { enabled: false, bound: false, polling: false };
   return invoke<TelegramStatus>("telegram_status");
+}
+
+export async function telegramStartBind(): Promise<string> {
+  if (!inTauri) throw nativeOnly("Привязка Telegram");
+  return invoke<string>("telegram_start_bind");
 }
 
 export async function telegramUnbind(): Promise<void> {

@@ -37,7 +37,7 @@ fn load(path: &Path) -> Result<MemoryStore, String> {
         return Ok(MemoryStore::default());
     }
     let data = crate::fsutil::read_capped_string(path, 0)?;
-    // Аудит memory 315: битый файл блокировал и add, и list навсегда.
+    // битый файл блокировал и add, и list навсегда.
     // Сохраняем как .bak и стартуем с пустого — новые факты живут
     serde_json::from_str(&data).map_err(|e| {
         let bak = path.with_extension("json.bak");
@@ -54,22 +54,58 @@ fn save(path: &Path, store: &MemoryStore) -> Result<(), String> {
     crate::fsutil::atomic_write(path, json.as_bytes())
 }
 
-/// Новый факт: дедуп по тексту (обновляем время), потолок длины и количества.
-/// Возвращает текст для модели (было ли обновление, сколько фактов всего).
-/// Похоже ли на секрет: известные префиксы ключей и плотные 24+ символы
-/// base64-алфавита
+/// Похоже ли на секрет: известные префиксы ключей (sk-, ghp-, Bearer и др.),
+/// маркеры присваивания параметров аутентификации и плотные 24+ символы base64-алфавита
 fn looks_like_secret(text: &str) -> bool {
-    const PREFIXES: &[&str] = &[
-        "sk-", "ghp_", "gho_", "github_pat", "AKIA", "xoxb-", "xoxp-",
-        "glpat-", "sk-ant-", "AIza", "ya29.", "Bearer ", "eyJ",
+    const LITERAL_PREFIXES: &[&str] = &[
+        "sk-", "ghp_", "gho_", "ghu_", "ghs_", "ghr_", "github_pat",
+        "AKIA", "ASIA", "xoxb-", "xoxp-", "xoxe-", "xoxr-", "xoxa-",
+        "glpat-", "glsoat-", "sk-ant-", "AIza", "ya29.", "eyJ",
+        "hf_", "npm_",
+        "BEGIN PRIVATE KEY", "BEGIN RSA PRIVATE KEY", "BEGIN OPENSSH PRIVATE KEY", "BEGIN EC PRIVATE KEY",
+        "ssh-rsa", "ssh-ed25519",
     ];
-    if PREFIXES.iter().any(|p| text.contains(p)) {
+    if LITERAL_PREFIXES.iter().any(|p| text.contains(p)) {
         return true;
     }
+
+    let lower = text.to_lowercase();
+    const LOWER_MARKERS: &[&str] = &[
+        "bearer ", "basic ",
+        "token=", "token:", "token :",
+        "api_key=", "api_key:", "api_key :",
+        "apikey=", "apikey:", "apikey :",
+        "password=", "password:", "password :",
+        "passwd=", "passwd:",
+        "secret=", "secret:", "secret :",
+    ];
+    for m in LOWER_MARKERS {
+        if let Some(pos) = lower.find(m) {
+            let after = lower[pos + m.len()..].trim_start();
+            let val_token = after
+                .split_whitespace()
+                .next()
+                .unwrap_or("")
+                .trim_matches(|c| c == '"' || c == '\'' || c == ',' || c == ';');
+            if val_token.len() >= 8 {
+                return true;
+            }
+        }
+    }
+
     text.split_whitespace().any(|w| {
-        w.len() >= 24
-            && w.chars()
-                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '=')
+        let clean = w.trim_matches(|c| {
+            c == '"' || c == '\'' || c == ',' || c == ';' || c == '(' || c == ')' || c == '[' || c == ']'
+        });
+        if clean.len() >= 24
+            && clean.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '=')
+        {
+            let has_digit = clean.chars().any(|c| c.is_ascii_digit());
+            let has_special = clean.chars().any(|c| c == '-' || c == '_' || c == '=');
+            has_digit || has_special || clean.len() >= 32
+        } else {
+            false
+        }
     })
 }
 
@@ -79,7 +115,7 @@ pub(crate) fn add_fact(path: &Path, raw_text: &str) -> Result<String, String> {
     if text.is_empty() {
         return Err("empty fact text".to_string());
     }
-    // Аудит memory 307: инструкция модели «NEVER save secrets» — не граница.
+    // инструкция модели «NEVER save secrets» — не граница.
     // Типичные форматы ключей в факте — отказ: memory_recall вернул бы секрет
     // в контекст любого последующего запроса
     if looks_like_secret(&text) {
@@ -115,7 +151,7 @@ pub(crate) fn add_fact(path: &Path, raw_text: &str) -> Result<String, String> {
             ts: now,
         });
         if store.facts.len() > MAX_FACTS {
-            // Аудит memory 309: remove(0) вытеснял первый элемент вектора,
+            // remove(0) вытеснял первый элемент вектора,
             // а не старейший — дедуп обновляет ts, но не позицию
             if let Some(oldest) = store.facts.iter().min_by_key(|f| f.ts).cloned() {
                 store.facts.retain(|f| f.id != oldest.id);
@@ -138,7 +174,7 @@ pub(crate) fn recall_facts(path: &Path, query: &str) -> Result<String, String> {
     if store.facts.is_empty() {
         return Ok("Memory is empty.".to_string());
     }
-    // Аудит memory 312: подстрока целиком не матчит «dark themes» против
+    // подстрока целиком не матчит «dark themes» против
     // «prefers dark themes» в другом порядке — требуем все слова запроса
     let mut facts: Vec<&MemoryFact> = store.facts.iter().collect();
     let q = query.trim().to_lowercase();
@@ -154,7 +190,7 @@ pub(crate) fn recall_facts(path: &Path, query: &str) -> Result<String, String> {
     }
     // Новейшие первыми — модель видит актуальные формулировки
     facts.sort_by_key(|f| std::cmp::Reverse(f.ts));
-    // Аудит memory 313: модель должна знать, что выдача урезана
+    // модель должна знать, что выдача урезана
     let hidden = facts.len().saturating_sub(40);
     let mut out = facts
         .iter()
@@ -173,7 +209,7 @@ pub(crate) fn delete_fact(path: &Path, id: &str) -> Result<(), String> {
     let mut store = load(path)?;
     let before = store.facts.len();
     store.facts.retain(|f| f.id != id);
-    // Аудит memory 316: двойной клик «удалить» отдавал ошибку как сбой.
+    // двойной клик «удалить» отдавал ошибку как сбой.
     // Идемпотентно: отсутствие id — успешный no-op
     if store.facts.len() == before {
         return Ok(());
@@ -366,5 +402,40 @@ mod tests {
         clear_all(&path).unwrap();
         assert!(recall_facts(&path, "").unwrap().contains("empty"));
         let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    fn looks_like_secret_rejects_api_tokens_and_allows_facts() {
+        let path = tmp("secrets");
+        let _ = fs::remove_file(&path);
+
+        assert!(add_fact(&path, "user token is sk-proj-1234567890abcdef").is_err());
+        assert!(add_fact(&path, "my github ghp_123456789012345678901234567890").is_err());
+        assert!(add_fact(&path, "Authorization: Bearer secret_token_value_xyz").is_err());
+        assert!(add_fact(&path, "database password: supersecret1234").is_err());
+        assert!(add_fact(&path, "api_key=abcdef1234567890").is_err());
+        assert!(add_fact(&path, "-----BEGIN RSA PRIVATE KEY-----").is_err());
+        assert!(add_fact(&path, "token is aHR0cHM6Ly9leGFtcGxlLmNvbS9hcGk=").is_err());
+
+        assert!(add_fact(&path, "Пользователь предпочитает темную тему и Rust").is_ok());
+        assert!(add_fact(&path, "User lives in Prague and prefers metric system").is_ok());
+
+        let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    fn corrupted_memory_file_creates_backup() {
+        let path = tmp("corrupt");
+        let _ = fs::remove_file(&path);
+        let bak = path.with_extension("json.bak");
+        let _ = fs::remove_file(&bak);
+
+        std::fs::write(&path, "{ invalid json corrupt").unwrap();
+        let loaded = load(&path);
+        assert!(loaded.is_err());
+        assert!(bak.exists());
+
+        let _ = fs::remove_file(&path);
+        let _ = fs::remove_file(&bak);
     }
 }

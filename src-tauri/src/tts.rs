@@ -15,8 +15,9 @@ use std::sync::Mutex;
 /// Активный плеер: новый speak и tts_stop гасят его (Sink::stop)
 static SINK: Mutex<Option<std::sync::Arc<rodio::Sink>>> = Mutex::new(None);
 #[cfg(windows)]
-/// Запрос отмены: ставится kill_active, проверяется между фазами
-static CANCELED: AtomicBool = AtomicBool::new(false);
+/// Активный токен отмены: держится через Arc, чтобы tts_stop или новый speak
+/// гарантированно гасил предыдущий PowerShell-процесс через kill_tree
+static CURRENT_CANCEL: Mutex<Option<std::sync::Arc<AtomicBool>>> = Mutex::new(None);
 #[cfg(windows)]
 /// Поколение воспроизведения: очистка старого потока не должна затирать
 /// Sink нового speak (гонка sleep_until_end ↔ новый запуск)
@@ -74,7 +75,9 @@ pub fn audio_outputs() -> Vec<String> {
 
 #[cfg(windows)]
 fn kill_active() {
-    CANCELED.store(true, Ordering::Relaxed);
+    if let Some(cancel) = CURRENT_CANCEL.lock().unwrap_or_else(|p| p.into_inner()).take() {
+        cancel.store(true, Ordering::Relaxed);
+    }
     if let Some(sink) = SINK
         .lock()
         .unwrap_or_else(|p| p.into_inner())
@@ -84,48 +87,68 @@ fn kill_active() {
     }
 }
 
+/// Потолок на общий размер синтезируемого текста: защита от сотен процессов
+#[cfg(windows)]
+const MAX_TTS_TEXT_BYTES: usize = 64 * 1024;
+/// Максимальное число кусков в одном сеансе речи
+#[cfg(windows)]
+const MAX_TTS_CHUNKS: usize = 16;
+/// Кусок текста, безопасный для -EncodedCommand: лимит в БАЙТАХ UTF-8.
+#[cfg(any(windows, test))]
+const MAX_TTS_CHUNK_BYTES: usize = 8000;
+
 #[cfg(windows)]
 async fn speak_impl(text: String, output: Option<String>) -> Result<(), String> {
     if text.trim().is_empty() {
         return Ok(());
     }
+    if text.len() > MAX_TTS_TEXT_BYTES {
+        return Err(format!(
+            "TTS text exceeds limit of {} KB",
+            MAX_TTS_TEXT_BYTES / 1024
+        ));
+    }
     kill_active();
-    CANCELED.store(false, Ordering::Relaxed);
     let gen = GEN.fetch_add(1, Ordering::Relaxed) + 1;
-    // Фаза 1: SAPI рендерит текст во временные WAV (без воспроизведения).
-    // Рендер короткий (сотни мс), но это fs+процесс — в blocking-пул.
-    // Текст режется на куски: base64 -EncodedCommand упирается в лимит
-    // командной строки Windows (~32767 симв.) уже на ~12 тыс. символов
-    // текста — длинные ответы падали с невнятной ошибкой spawn
-    let paths = tauri::async_runtime::spawn_blocking(move || render_wavs(&text, gen))
-        .await
-        .map_err(|e| format!("join error: {e}"))??;
-    if CANCELED.load(Ordering::Relaxed) {
-        for p in &paths {
-            let _ = std::fs::remove_file(p);
-        }
+    let cancel_token = std::sync::Arc::new(AtomicBool::new(false));
+    *CURRENT_CANCEL.lock().unwrap_or_else(|p| p.into_inner()) = Some(cancel_token.clone());
+
+    let mut chunks = split_tts_text(&text);
+    if chunks.is_empty() {
         return Ok(());
     }
-    // Фаза 2: воспроизведение в выбранное устройство; sleep_until_end
-    // блокирующий — тоже в blocking-пул, команда разрешится в конце речи
-    let result = tauri::async_runtime::spawn_blocking(move || play_wavs(paths, output, gen))
-        .await
-        .map_err(|e| format!("join error: {e}"))?;
-    result
-}
+    if chunks.len() > MAX_TTS_CHUNKS {
+        chunks.truncate(MAX_TTS_CHUNKS);
+    }
+    let total_chunks = chunks.len();
 
-/// Кусок текста, безопасный для -EncodedCommand: лимит в БАЙТАХ UTF-8.
-/// Худший случай — ASCII: ×2 в юникодных байтах, т.е. ≤16 КБ UTF-16 на
-/// кусок текста + оверхед скрипта → ~22 КБ base64 против потолка 32767
-/// симв. командной строки. Кириллица/эмодзи дают МЕНЬШЕ юникодных байт
-/// на байт UTF-8 — переполнения нет (подозрение не
-/// подтвердилось: лимит байтовый, а не посимвольный)
-#[cfg(windows)]
-const MAX_TTS_CHUNK_BYTES: usize = 8000;
+    // Конвейер: рендер кусков идёт параллельно в blocking-пуле,
+    // а воспроизведение начинается сразу по готовности первого куска
+    let (tx, rx) = std::sync::mpsc::channel();
+    for (idx, chunk) in chunks.into_iter().enumerate() {
+        let tx = tx.clone();
+        let cancel = cancel_token.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            if cancel.load(Ordering::Relaxed) || gen != GEN.load(Ordering::Relaxed) {
+                return;
+            }
+            let res = render_wav(&chunk, &cancel).map(|p| (idx, p));
+            let _ = tx.send(res);
+        });
+    }
+    drop(tx);
+
+    let play_cancel = cancel_token.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        play_stream(rx, total_chunks, output, gen, play_cancel)
+    })
+    .await
+    .map_err(|e| format!("join error: {e}"))?
+}
 
 /// Режет текст на куски ≤ MAX_TTS_CHUNK_BYTES по границам предложений;
 /// жёсткий разрез — только когда предложение само длиннее лимита
-#[cfg(windows)]
+#[cfg(any(windows, test))]
 fn split_tts_text(text: &str) -> Vec<String> {
     let mut chunks: Vec<String> = Vec::new();
     let mut start = 0usize;
@@ -158,8 +181,6 @@ fn split_tts_text(text: &str) -> Vec<String> {
             }
         }
         if cut <= start {
-            // Аудит tts 497: break молча выбрасывал хвост. Жёсткий разрез
-            // по лимиту: граница символа уже выровнена probe-циклом
             cut = probe;
         }
         let piece = text[start..cut].trim();
@@ -171,35 +192,25 @@ fn split_tts_text(text: &str) -> Vec<String> {
     chunks
 }
 
-/// Рендер всех кусков в отдельные WAV; отмена между кусками не тратит
-/// время на оставшиеся
-#[cfg(windows)]
-fn render_wavs(text: &str, gen: u64) -> Result<Vec<std::path::PathBuf>, String> {
-    let chunks = split_tts_text(text);
-    let mut paths = Vec::with_capacity(chunks.len());
-    for chunk in chunks {
-        // Аудит tts 499: CANCELED сбрасывается новым speak сразу, и прежний
-        // рендер дорабатывал до конца. Поколение: устаревший рендер сам
-        // прекращается, даже когда флаг отмены уже погашен новым вызовом
-        if CANCELED.load(Ordering::Relaxed) || gen != GEN.load(Ordering::Relaxed) {
-            break;
-        }
-        paths.push(render_wav(&chunk)?);
-    }
-    Ok(paths)
-}
-
 /// SAPI: текст → WAV-файл. Скрипт статический: текст и путь приходят через
-/// переменные окружения, в скрипте их литералов нет вообще. Удвоение
-/// апострофа не спасало — Windows PowerShell считает типографские
-/// кавычки (U+2018/2019/201A/201B) вариантами одинарной, и текст ответа
-/// модели вида «…’; Start-Process calc; ‘…» исполнял команду
+/// переменные окружения, в скрипте их литералов нет вообще
 #[cfg(windows)]
-fn render_wav(text: &str) -> Result<std::path::PathBuf, String> {
+fn render_wav(text: &str, cancel: &std::sync::Arc<AtomicBool>) -> Result<std::path::PathBuf, String> {
     let path = std::env::temp_dir().join(format!(
         "nocturn-tts-{}.wav",
         crate::fsutil::rand_hex8()
     ));
+
+    struct TmpCleanup(Option<std::path::PathBuf>);
+    impl Drop for TmpCleanup {
+        fn drop(&mut self) {
+            if let Some(ref p) = self.0 {
+                let _ = std::fs::remove_file(p);
+            }
+        }
+    }
+    let mut cleanup = TmpCleanup(Some(path.clone()));
+
     let script = "Add-Type -AssemblyName System.Speech; \
          $s = New-Object System.Speech.Synthesis.SpeechSynthesizer; \
          $s.SetOutputToWaveFile($env:NOCTURN_TTS_WAV, [System.Speech.AudioFormat.SpeechAudioFormatInfo]::new(16000, [System.Speech.AudioFormat.AudioBitsPerSample]::Sixteen, [System.Speech.AudioFormat.AudioChannel]::Mono)); \
@@ -217,85 +228,151 @@ fn render_wav(text: &str) -> Result<std::path::PathBuf, String> {
         .env("NOCTURN_TTS_WAV", &path)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        // Аудит tts 492: ошибки SAPI (нет голосов и т.п.) терялись — код
-        // выхода без причины. stderr пайпится и читается run_command_opts
         .stderr(Stdio::piped());
     // CREATE_NO_WINDOW: консольное окно из GUI-процесса иначе мигает
     use std::os::windows::process::CommandExt;
     cmd.creation_flags(CREATE_NO_WINDOW);
-    let out = crate::proc::run_command_opts(&mut cmd, std::time::Duration::from_secs(60), None, None)?;
+    let out = crate::proc::run_command_opts(
+        &mut cmd,
+        std::time::Duration::from_secs(60),
+        None,
+        Some(cancel.as_ref()),
+    )?;
+    if out.aborted || cancel.load(Ordering::Relaxed) {
+        return Err("tts render canceled".into());
+    }
     if out.timed_out {
         return Err("tts render timed out".into());
     }
     if let Some(code) = out.status {
         if code != 0 {
-            return Err(format!("tts render exited with {code}"));
+            let err = out.stderr.trim();
+            if err.is_empty() {
+                return Err(format!("tts render exited with {code}"));
+            } else {
+                return Err(format!("tts render exited with {code}: {err}"));
+            }
         }
     }
     if !path.exists() {
         return Err("tts render produced no wav".into());
     }
+    cleanup.0 = None;
     Ok(path)
 }
 
-/// rodio: WAV-файлы → выбранное устройство ПОСЛЕДОВАТЕЛЬНО (sink-очередь);
-/// temp-WAV удаляет сам по завершении. Устройство открывается один раз на
-/// все куски. Разрешается по концу воспроизведения; tts_stop/новый speak
-/// гасят Sink из любого потока
+/// rodio: конвейерное воспроизведение полученных WAV-файлов в выбранное устройство.
+/// Воспроизведение начинается сразу с первого готового куска, пока остальные
+/// рендерятся в фоне
 #[cfg(windows)]
-fn play_wavs(paths: Vec<std::path::PathBuf>, output: Option<String>, gen: u64) -> Result<(), String> {
-    let result = (|| -> Result<(), String> {
-        let device = match output.as_deref().filter(|s| !s.trim().is_empty()) {
-            Some(want) => {
-                use rodio::cpal::traits::{DeviceTrait, HostTrait};
-                let host = rodio::cpal::default_host();
-                let mut found = None;
-                if let Ok(devices) = host.output_devices() {
-                    for d in devices {
-                        if d.name().map(|n| n == want).unwrap_or(false) {
-                            found = Some(d);
-                            break;
-                        }
+fn play_stream(
+    rx: std::sync::mpsc::Receiver<Result<(usize, std::path::PathBuf), String>>,
+    total_chunks: usize,
+    output: Option<String>,
+    gen: u64,
+    cancel: std::sync::Arc<AtomicBool>,
+) -> Result<(), String> {
+    let device = match output.as_deref().filter(|s| !s.trim().is_empty()) {
+        Some(want) => {
+            use rodio::cpal::traits::{DeviceTrait, HostTrait};
+            let host = rodio::cpal::default_host();
+            let mut found = None;
+            if let Ok(devices) = host.output_devices() {
+                for d in devices {
+                    if d.name().map(|n| n == want).unwrap_or(false) {
+                        found = Some(d);
+                        break;
                     }
                 }
-                let dev = found.ok_or_else(|| format!("output device not found: {want}"))?;
-                rodio::OutputStream::try_from_device(&dev)
-                    .map_err(|e| format!("output device {want}: {e}"))?
             }
-            None => rodio::OutputStream::try_default()
-                .map_err(|e| format!("no default output device: {e}"))?,
-        };
-        let sink = std::sync::Arc::new(
-            rodio::Sink::try_new(&device.1).map_err(|e| format!("tts sink: {e}"))?,
-        );
-        for path in &paths {
-            let file = std::fs::File::open(path).map_err(|e| format!("tts wav: {e}"))?;
+            let dev = found.ok_or_else(|| format!("output device not found: {want}"))?;
+            rodio::OutputStream::try_from_device(&dev)
+                .map_err(|e| format!("output device {want}: {e}"))?
+        }
+        None => rodio::OutputStream::try_default()
+            .map_err(|e| format!("no default output device: {e}"))?,
+    };
+    let sink = std::sync::Arc::new(
+        rodio::Sink::try_new(&device.1).map_err(|e| format!("tts sink: {e}"))?,
+    );
+
+    if GEN.load(Ordering::Relaxed) != gen || cancel.load(Ordering::Relaxed) {
+        sink.stop();
+        return Ok(());
+    }
+    *SINK.lock().unwrap_or_else(|p| p.into_inner()) = Some(sink.clone());
+
+    struct CleanupGuard(Vec<std::path::PathBuf>);
+    impl Drop for CleanupGuard {
+        fn drop(&mut self) {
+            for p in &self.0 {
+                let _ = std::fs::remove_file(p);
+            }
+        }
+    }
+    let mut cleanup = CleanupGuard(Vec::new());
+
+    let mut next_expected = 0usize;
+    let mut ready_chunks: std::collections::HashMap<usize, std::path::PathBuf> =
+        std::collections::HashMap::new();
+
+    while next_expected < total_chunks {
+        if cancel.load(Ordering::Relaxed) || GEN.load(Ordering::Relaxed) != gen {
+            sink.stop();
+            break;
+        }
+
+        if let Some(path) = ready_chunks.remove(&next_expected) {
+            let file = std::fs::File::open(&path).map_err(|e| format!("tts wav: {e}"))?;
             let source = rodio::Decoder::new_wav(std::io::BufReader::new(file))
                 .map_err(|e| format!("tts wav decode: {e}"))?;
             sink.append(source);
+            next_expected += 1;
+            continue;
         }
-        // tts_stop мог пройти между проверкой CANCELED в speak_impl и этой
-        // точкой (его sink.stop() был no-op — SINK ещё пуст), либо начался
-        // новый speak (gen сместился): в обоих случаях играть нельзя
-        if GEN.load(Ordering::Relaxed) == gen && !CANCELED.load(Ordering::Relaxed) {
-            *SINK.lock().unwrap_or_else(|p| p.into_inner()) = Some(sink.clone());
-            // sleep_until_end вернётся сразу после sink.stop() из tts_stop
-            sink.sleep_until_end();
-        } else {
-            sink.stop();
+
+        match rx.recv() {
+            Ok(Ok((idx, path))) => {
+                cleanup.0.push(path.clone());
+                if idx == next_expected {
+                    let file = std::fs::File::open(&path).map_err(|e| format!("tts wav: {e}"))?;
+                    let source = rodio::Decoder::new_wav(std::io::BufReader::new(file))
+                        .map_err(|e| format!("tts wav decode: {e}"))?;
+                    sink.append(source);
+                    next_expected += 1;
+                } else {
+                    ready_chunks.insert(idx, path);
+                }
+            }
+            Ok(Err(e)) => {
+                sink.stop();
+                if cancel.load(Ordering::Relaxed) || GEN.load(Ordering::Relaxed) != gen {
+                    return Ok(());
+                }
+                return Err(e);
+            }
+            Err(_) => {
+                sink.stop();
+                if cancel.load(Ordering::Relaxed) || GEN.load(Ordering::Relaxed) != gen {
+                    return Ok(());
+                }
+                return Err("tts render worker disconnected unexpectedly".into());
+            }
         }
-        Ok(())
-    })();
-    // Temp-wav не переживают воспроизведение в любом исходе
-    for path in paths {
-        let _ = std::fs::remove_file(path);
     }
-    // Слот чистим только если это всё ещё наше поколение: новый speak мог
-    // уже положить туда свой Sink — его не затираем
+
+    if GEN.load(Ordering::Relaxed) == gen && !cancel.load(Ordering::Relaxed) {
+        sink.sleep_until_end();
+    } else {
+        sink.stop();
+    }
+
     if GEN.load(Ordering::Relaxed) == gen {
         *SINK.lock().unwrap_or_else(|p| p.into_inner()) = None;
     }
-    result
+    drop(sink);
+    drop(device);
+    Ok(())
 }
 
 #[cfg(windows)]
@@ -310,15 +387,12 @@ pub fn kill_on_exit() {
 #[cfg(not(windows))]
 pub fn kill_on_exit() {}
 
-#[cfg(all(test, windows))]
+#[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn split_tts_text_keeps_every_sentence_within_limit() {
-        // Куски не превышают лимит и не теряют содержимое: конкатенация
-        // сохраняет все предложения (детерминированный генератор без
-        // вектора = незакрытая находка)
         let text = "Первое предложение. ".repeat(1500);
         let chunks = split_tts_text(&text);
         assert!(chunks.len() >= 2);
@@ -335,8 +409,6 @@ mod tests {
 
     #[test]
     fn split_tts_text_hard_split_respects_char_boundary() {
-        // Нет знаков препинания — жёсткий разрез по границе символа;
-        // 'ё' двухбайтовый: наивный байтовый срез паниковал бы/резал букву
         let text = "ё".repeat(MAX_TTS_CHUNK_BYTES + 10);
         let chunks = split_tts_text(&text);
         assert!(chunks.len() >= 2);

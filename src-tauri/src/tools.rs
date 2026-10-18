@@ -139,6 +139,8 @@ pub fn execute_tool_with_abort(
     let args: Value = serde_json::from_str(arguments)
         .map_err(|e| format!("invalid arguments JSON: {e}"))?;
 
+    validate_tool_args(name, &args)?;
+
     match name {
         "sleep" => {
             // [P4] Поллинг без жжения шагов: ждём короткими шагами, чтобы
@@ -164,21 +166,21 @@ pub fn execute_tool_with_abort(
             Ok(serde_json::json!({ "ok": true, "slept": seconds }).to_string())
         }
         "fs_list" => {
-            let path = arg_str(&args, "path")?;
+            let path = arg_path(&args)?;
             fs_list(Path::new(&path))
         }
         "fs_read" => {
-            let path = arg_str(&args, "path")?;
+            let path = arg_path(&args)?;
             fs_read(Path::new(&path))
         }
         "fs_grep" => {
-            let path = arg_str(&args, "path")?;
+            let path = arg_path(&args)?;
             let query = arg_str(&args, "query")?;
             let max = args.get("max_results").and_then(|v| v.as_u64()).unwrap_or(20).clamp(1, 50) as usize;
             fs_grep(Path::new(&path), &query, max)
         }
         "fs_write" => {
-            let path = arg_str(&args, "path")?;
+            let path = arg_path(&args)?;
             let content = args
                 .get("content")
                 .and_then(|v| v.as_str())
@@ -186,29 +188,59 @@ pub fn execute_tool_with_abort(
             fs_write(Path::new(&path), content)
         }
         "fs_delete" => {
-            let path = arg_str(&args, "path")?;
-            // Аудит tools 467: как в fs_write — recheck по каноническому
-            // адресу: decide() видел сырой путь, симлинк-подмена между
-            // проверкой и удалением задевала бы файл вне корней
-            let target = Path::new(&path);
-            let canon = target
-                .canonicalize()
-                .map_err(|e| format!("cannot resolve {}: {e}", target.display()))?;
-            crate::perm::recheck_location("fs_delete", &canon)?;
-            fs_delete(&canon)
+            let path = arg_path(&args)?;
+            fs_delete(Path::new(&path))
         }
         "shell_run" => {
-            let command = arg_str(&args, "command")?;
+            let command = args
+                .get("command")
+                .or_else(|| args.get("arg"))
+                .and_then(|v| v.as_str())
+                .ok_or("missing required argument: command")?;
+            if command.trim().is_empty() {
+                return Err("command cannot be empty".to_string());
+            }
             let cwd = args.get("cwd").and_then(|v| v.as_str()).map(String::from);
             let timeout = args
                 .get("timeout_sec")
                 .and_then(|v| v.as_u64())
                 .unwrap_or(SHELL_DEFAULT_TIMEOUT)
                 .clamp(1, 300);
-            shell_run(&command, cwd.as_deref(), timeout, abort)
+            shell_run(command, cwd.as_deref(), timeout, abort)
         }
         other => Err(format!("unknown tool: {other}")),
     }
+}
+
+fn validate_tool_args(name: &str, args: &Value) -> Result<(), String> {
+    let Some(obj) = args.as_object() else {
+        return Err("tool arguments must be a JSON object".to_string());
+    };
+    let allowed: &[&str] = match name {
+        "sleep" => &["seconds"],
+        "fs_list" => &["path", "file", "file_path", "dir"],
+        "fs_read" => &["path", "file", "file_path", "dir"],
+        "fs_grep" => &["path", "file", "file_path", "dir", "query", "max_results"],
+        "fs_write" => &["path", "file", "file_path", "dir", "content"],
+        "fs_delete" => &["path", "file", "file_path", "dir"],
+        "shell_run" => &["command", "arg", "cwd", "timeout_sec"],
+        _ => return Ok(()),
+    };
+    for key in obj.keys() {
+        if !allowed.contains(&key.as_str()) {
+            return Err(format!("unknown argument: {key}"));
+        }
+    }
+    Ok(())
+}
+
+fn arg_path(args: &Value) -> Result<String, String> {
+    for key in &["path", "file", "file_path", "dir"] {
+        if let Some(s) = args.get(*key).and_then(|v| v.as_str()) {
+            return Ok(s.to_string());
+        }
+    }
+    Err("missing required argument: path".to_string())
 }
 
 fn arg_str(args: &Value, key: &str) -> Result<String, String> {
@@ -312,10 +344,6 @@ pub fn execute_vault_tool(
 /// Windows: `fs::rename` в `CON.md` падал с невнятной ошибкой, а заметки
 /// с `:`/`?` не переносились vault-экспортом на NTFS
 pub(crate) fn sanitize_note_name(file: &str) -> Result<String, String> {
-    const RESERVED_WIN32: &[&str] = &[
-        "con", "prn", "aux", "nul", "com1", "com2", "com3", "com4", "com5", "com6", "com7",
-        "com8", "com9", "lpt1", "lpt2", "lpt3", "lpt4", "lpt5", "lpt6", "lpt7", "lpt8", "lpt9",
-    ];
     // stem — только через strip_suffix: прежний срез &file[..len-3]
     // вычислялся ДО проверки ends_with(".md") и паниковал на байте внутри
     // многобайтного символа (имя «файл» без суффикса — гарантированный
@@ -334,7 +362,7 @@ pub(crate) fn sanitize_note_name(file: &str) -> Result<String, String> {
         })
         || stem.is_empty()
         || stem.ends_with(['.', ' '])
-        || RESERVED_WIN32.contains(&stem.to_ascii_lowercase().as_str());
+        || crate::fsutil::is_windows_device_name(file);
     if bad {
         return Err(format!("invalid note file name: {file}"));
     }
@@ -427,14 +455,13 @@ fn vault_search(notes_dir: &Path, query: &str) -> Result<String, String> {
 
 /// Создать/перезаписать заметку (мутирующий — на фронте в списке правок)
 fn vault_write(notes_dir: &Path, file: &str, content: &str) -> Result<String, String> {
-    sanitize_note_name(file)?;
+    let path = crate::notes::resolve_note_path(notes_dir, file)?;
     if content.len() > VAULT_WRITE_LIMIT {
         return Err(format!(
             "note too large: {} bytes (limit {VAULT_WRITE_LIMIT})",
             content.len()
         ));
     }
-    let path = notes_dir.join(file);
     // atomic_write: как и notes_write — 0600 на Unix, без рваных файлов
     crate::fsutil::atomic_write(&path, content.as_bytes())
         .map_err(|e| format!("cannot write note: {e}"))?;
@@ -447,9 +474,8 @@ fn vault_write(notes_dir: &Path, file: &str, content: &str) -> Result<String, St
 }
 
 fn vault_read(notes_dir: &Path, file: &str) -> Result<String, String> {
-    sanitize_note_name(file)?;
-    let path = notes_dir.join(file);
-    // Аудит: fs::read тянул файл в память ЦЕЛИКОМ до усечения до 64 КБ —
+    let path = crate::notes::resolve_note_path(notes_dir, file)?;
+    // fs::read тянул файл в память ЦЕЛИКОМ до усечения до 64 КБ —
     // гигантская заметка (см. vault_write без потолка до фикса) целиком
     // уходила в heap. Крупный файл читаем с потолком (хвост дочитывается
     // и выбрасывается), трекаем усечение по размеру ДО чтения
@@ -513,7 +539,7 @@ fn fs_list(path: &Path) -> Result<String, String> {
     // node_modules/System32 уносил сотни КБ прямо в контекст модели
     use crate::files::{LIST_DIR_HARD_CAP, LIST_DIR_LIMIT};
     let entries = fs::read_dir(path).map_err(|e| format!("cannot list {path:?}: {e}"))?;
-    // Аудит: до 100k строк форматировалось в String до сортировки, а
+    // до 100k строк форматировалось в String до сортировки, а
     // выживали 500. Копим (имя, тип, размер), сортируем (папки первыми,
     // дальше по имени), формат — только у выживших
     let mut items: Vec<(String, &'static str, u64)> = Vec::new();
@@ -591,27 +617,16 @@ const FS_WRITE_DIFF_LIMIT: u64 = 512 * 1024;
 /// регистра; file_stem отрезает «NUL.txt» → «NUL»). Запись в такое имя
 /// «успешна», но содержимое выбрасывается драйвером: модель получала
 /// «ok», а данные терялись
-#[cfg(windows)]
-fn is_windows_device_name(path: &Path) -> bool {
-    const DEVICES: [&str; 22] = [
-        "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7",
-        "COM8", "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
-    ];
-    path.file_stem()
-        .and_then(|s| s.to_str())
-        .map(|s| DEVICES.contains(&s.to_ascii_uppercase().as_str()))
-        .unwrap_or(false)
-}
-
 fn fs_write(path: &Path, content: &str) -> Result<String, String> {
- // молчаливая потеря данных в device-имя — сначала гард
-    #[cfg(windows)]
-    if is_windows_device_name(path) {
+    if crate::fsutil::is_windows_device_name(&path.to_string_lossy()) {
         return Err(format!(
             "{path:?} is a reserved Windows device name; writing to it would silently discard data"
         ));
     }
+    // Проверка прав на запись в целевой путь и создание каталогов только после валидации
+    crate::perm::recheck_location("fs_write", path)?;
     if let Some(dir) = path.parent() {
+        crate::perm::recheck_location("fs_write", dir)?;
         fs::create_dir_all(dir).map_err(|e| format!("cannot create directory {dir:?}: {e}"))?;
     }
     // Существовал ли файл — ДО открытия (O_CREAT создал бы его сам, и
@@ -678,13 +693,22 @@ fn fs_write(path: &Path, content: &str) -> Result<String, String> {
 }
 
 fn fs_delete(path: &Path) -> Result<String, String> {
-    // Только обычные файлы: каталоги и ссылки не трогаем из чата
-    let meta = fs::metadata(path).map_err(|e| format!("cannot stat {path:?}: {e}"))?;
-    if meta.is_dir() {
+    // Не следуем симлинкам: symlink_metadata для проверки типа ссылки
+    let sym_meta = fs::symlink_metadata(path).map_err(|e| format!("cannot stat {path:?}: {e}"))?;
+    if sym_meta.file_type().is_symlink() {
+        // Для симлинка удаляем саму ссылку без перехода к цели
+        crate::perm::recheck_location("fs_delete", path)?;
+        fs::remove_file(path).map_err(|e| format!("cannot delete symlink {path:?}: {e}"))?;
+        return Ok(json!({ "ok": true, "deleted": path.display().to_string() }).to_string());
+    }
+    if sym_meta.is_dir() {
         return Err(format!("{path:?} is a directory — refusing to delete"));
     }
-    fs::remove_file(path).map_err(|e| format!("cannot delete {path:?}: {e}"))?;
-    Ok(json!({ "ok": true, "deleted": path.display().to_string() }).to_string())
+    let canon = dunce::canonicalize(path)
+        .map_err(|e| format!("cannot resolve {}: {e}", path.display()))?;
+    crate::perm::recheck_location("fs_delete", &canon)?;
+    fs::remove_file(&canon).map_err(|e| format!("cannot delete {path:?}: {e}"))?;
+    Ok(json!({ "ok": true, "deleted": canon.display().to_string() }).to_string())
 }
 
 /// Поиск по содержимому файлов (FTS-lite): рекурсивный обход
@@ -702,6 +726,7 @@ fn fs_grep(dir: &Path, query: &str, max_results: usize) -> Result<String, String
     if q.is_empty() {
         return Err("empty search query".to_string());
     }
+    let perm_state = crate::perm::current();
     let mut out: Vec<String> = Vec::new();
     let mut stack: Vec<PathBuf> = vec![dir.to_path_buf()];
     let mut scanned = 0usize;
@@ -711,15 +736,14 @@ fn fs_grep(dir: &Path, query: &str, max_results: usize) -> Result<String, String
         for e in rd.flatten() {
             let Ok(ft) = e.file_type() else { continue };
             let p = e.path();
-            // Аудит tools 465: e.file_type() НЕ следует симлинку — readdir-
-            // запись-ссылка на ~/.ssh/config или /etc/shadow читалась бы
-            // fs::read ниже. Ссылки не заходим вовсе (ни в файлы, ни в каталоги)
             if ft.is_symlink() {
                 continue;
             }
             if ft.is_dir() {
                 let name = e.file_name().to_string_lossy().to_string();
-                if !SKIP_DIRS.contains(&name.as_str()) {
+                if !SKIP_DIRS.contains(&name.as_str())
+                    && crate::perm::check_fs_path(&perm_state, "fs_list", Some(&p.to_string_lossy())).is_ok()
+                {
                     stack.push(p);
                 }
                 continue;
@@ -729,9 +753,8 @@ fn fs_grep(dir: &Path, query: &str, max_results: usize) -> Result<String, String
                 break;
             }
             scanned += 1;
-            // Аудит tools 464: рекурсия заходит в .env/id_rsa/*.pem внутри
-            // проекта — совпадения уходили модели мимо sensitive-класса perm
-            if crate::perm::is_sensitive_path(&p.to_string_lossy()) {
+            // Единая проверка прав и самозащиты конфига для каждого найденного файла
+            if crate::perm::check_fs_path(&perm_state, "fs_grep", Some(&p.to_string_lossy())).is_err() {
                 continue;
             }
             let Ok(md) = e.metadata() else { continue };
@@ -744,16 +767,10 @@ fn fs_grep(dir: &Path, query: &str, max_results: usize) -> Result<String, String
                 continue;
             }
             let text = String::from_utf8_lossy(&bytes);
-            // to_lowercase на строку — аллокация в горячем цикле, но альтернативы
-            // (char-fold) сложнее и рискованнее; потолки FILE_CAP держат время
-            // конечным. Мёртвый счётчик hits снят: считал и выбрасывался
             for (i, line) in text.lines().enumerate() {
                 if out.len() >= max_results {
                     break;
                 }
-                // Exact-case префильтр: попадания в том же регистре (частый
-                // случай в коде) обходят аллокацию to_lowercase на строку.
-                // Семантика та же: to_lowercase сохраняет exact-case совпадение
                 if line.contains(&q) || line.to_lowercase().contains(&q) {
                     let mut s = line.trim().to_string();
                     crate::truncate_at_char_boundary(&mut s, LINE_SNIPPET);
@@ -779,6 +796,20 @@ fn fs_grep(dir: &Path, query: &str, max_results: usize) -> Result<String, String
     Ok(res)
 }
 
+const SHELL_OUTPUT_CAP: usize = 256 * 1024;
+
+fn cap_shell_stream(raw: &str) -> String {
+    if raw.len() > SHELL_OUTPUT_CAP {
+        let mut s = raw.to_string();
+        crate::truncate_at_char_boundary(&mut s, SHELL_OUTPUT_CAP);
+        format!("{}\n...[TRUNCATED: output exceeded 256 KB]", s)
+    } else if raw.is_empty() {
+        "(empty)".to_string()
+    } else {
+        raw.to_string()
+    }
+}
+
 fn shell_run(
     command: &str,
     cwd: Option<&str>,
@@ -787,9 +818,6 @@ fn shell_run(
 ) -> Result<String, String> {
     let mut cmd = if cfg!(windows) {
         let mut c = Command::new("powershell");
-        // PowerShell 5.1 пишет в пайп в OEM-кодировке (cp866 на русской
-        // Windows) — принудительно переводим консоль в UTF-8, иначе
-        // русский вывод превращается в кракозябры
         let wrapped = format!(
             "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; {}",
             command
@@ -806,23 +834,22 @@ fn shell_run(
         cmd.current_dir(&p);
     }
 
-    // Запуск, параллельное чтение пайпов, таймаут с kill и сбор вывода —
-    // единый примитив proc; abort-флаг позволяет Stop убить процесс сразу
     let out = crate::proc::run_command_opts(&mut cmd, Duration::from_secs(timeout_sec), None, abort)?;
-    let (stdout, stderr) = (&out.stdout, &out.stderr);
+    let stdout_capped = cap_shell_stream(&out.stdout);
+    let stderr_capped = cap_shell_stream(&out.stderr);
 
     if out.timed_out {
         return Ok(format!(
             "TIMEOUT after {timeout_sec}s (process killed)\n--- stdout ---\n{}\n--- stderr ---\n{}",
-            if stdout.is_empty() { "(empty)" } else { stdout },
-            if stderr.is_empty() { "(empty)" } else { stderr },
+            stdout_capped,
+            stderr_capped,
         ));
     }
     Ok(format!(
         "exit code: {}\n--- stdout ---\n{}\n--- stderr ---\n{}",
         out.status.unwrap_or(-1),
-        if stdout.is_empty() { "(empty)" } else { stdout },
-        if stderr.is_empty() { "(empty)" } else { stderr },
+        stdout_capped,
+        stderr_capped,
     ))
 }
 
@@ -984,25 +1011,108 @@ mod tests {
     #[test]
     fn fs_grep_finds_content_and_skips_binaries() {
         let dir = tmp_dir("fs-grep");
+        let dir_str = dir.to_string_lossy().to_string();
+        crate::perm::set(crate::perm::PermState {
+            mode: crate::perm::PermMode::Full,
+            roots: vec![dir_str.clone()],
+            roots_canon: vec![crate::perm::norm_canonical_path(&dir_str)],
+            synced: true,
+            rules: crate::perm::PermRules::default(),
+            config_dir: Some("C:\\fake\\config".to_string()),
+        });
         fs::create_dir_all(dir.join("sub")).unwrap();
         fs::create_dir_all(dir.join("node_modules")).unwrap();
-        fs::write(dir.join("a.md"), "# Header
-unique_needle here
-").unwrap();
-        fs::write(dir.join("sub/b.rs"), "fn main() { // another unique_needle
-}").unwrap();
+        fs::create_dir_all(dir.join(".ssh")).unwrap();
+        fs::write(dir.join("a.md"), "# Header\nunique_needle here\n").unwrap();
+        fs::write(dir.join("sub/b.rs"), "fn main() { // another unique_needle\n}").unwrap();
         fs::write(dir.join("node_modules/c.js"), "unique_needle in deps").unwrap();
+        fs::write(dir.join(".ssh/id_rsa"), "unique_needle in ssh").unwrap();
+        fs::write(dir.join(".env"), "unique_needle in env").unwrap();
         fs::write(dir.join("bin.dat"), [0u8, 1, 2]).unwrap();
-        // Обратные слэши Windows-пути должны быть экранированы в JSON-строке
         let path_json = dir.display().to_string().replace('\\', "\\\\");
         let res = execute_tool("fs_grep", &format!(r#"{{"path":"{}","query":"unique_needle"}}"#, path_json)).unwrap();
         assert!(res.contains("a.md:2"));
         assert!(res.contains("b.rs:1"));
-        // зависимости и бинарники не сканируются
         assert!(!res.contains("deps"));
-        // регистронезависимость
+        assert!(!res.contains("in ssh"));
+        assert!(!res.contains("in env"));
         let res2 = execute_tool("fs_grep", &format!(r#"{{"path":"{}","query":"UNIQUE_NEEDLE"}}"#, path_json)).unwrap();
         assert!(res2.contains("a.md"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn fs_write_rejects_reserved_device_names() {
+        let dir = tmp_dir("fs-dev");
+        let dir_str = dir.to_string_lossy().to_string();
+        crate::perm::set(crate::perm::PermState {
+            mode: crate::perm::PermMode::Full,
+            roots: vec![dir_str.clone()],
+            roots_canon: vec![crate::perm::norm_canonical_path(&dir_str)],
+            synced: true,
+            rules: crate::perm::PermRules::default(),
+            config_dir: Some("C:\\fake\\config".to_string()),
+        });
+        let res = execute_tool("fs_write", &json!({ "path": dir.join("NUL.tar.gz"), "content": "test" }).to_string());
+        assert!(res.is_err());
+        assert!(res.unwrap_err().contains("reserved Windows device name"));
+
+        let res2 = execute_tool("fs_write", &json!({ "path": dir.join("con.foo.md"), "content": "test" }).to_string());
+        assert!(res2.is_err());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn fs_tools_accept_aliases_and_reject_unknown_keys() {
+        let dir = tmp_dir("fs-alias");
+        let dir_str = dir.to_string_lossy().to_string();
+        crate::perm::set(crate::perm::PermState {
+            mode: crate::perm::PermMode::Full,
+            roots: vec![dir_str.clone()],
+            roots_canon: vec![crate::perm::norm_canonical_path(&dir_str)],
+            synced: true,
+            rules: crate::perm::PermRules::default(),
+            config_dir: Some("C:\\fake\\config".to_string()),
+        });
+        let file = dir.join("alias_test.txt");
+        let res = execute_tool("fs_write", &json!({ "file": file, "content": "alias ok" }).to_string()).unwrap();
+        assert!(res.contains("\"ok\":true"));
+        let res = execute_tool("fs_read", &json!({ "file_path": file }).to_string()).unwrap();
+        assert_eq!(res, "alias ok");
+        let res = execute_tool("fs_read", &json!({ "path": file, "unknown_field": 123 }).to_string());
+        assert!(res.is_err());
+        assert!(res.unwrap_err().contains("unknown argument"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn fs_delete_symlink_removes_link_not_target() {
+        let dir = tmp_dir("fs-del-sym");
+        let dir_str = dir.to_string_lossy().to_string();
+        crate::perm::set(crate::perm::PermState {
+            mode: crate::perm::PermMode::Full,
+            roots: vec![dir_str.clone()],
+            roots_canon: vec![crate::perm::norm_canonical_path(&dir_str)],
+            synced: true,
+            rules: crate::perm::PermRules::default(),
+            config_dir: Some("C:\\fake\\config".to_string()),
+        });
+        let target = dir.join("real_target.txt");
+        fs::write(&target, "target content").unwrap();
+        let link = dir.join("link.txt");
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        #[cfg(windows)]
+        if std::os::windows::fs::symlink_file(&target, &link).is_err() {
+            eprintln!("skipped: no symlink privilege on this machine");
+            let _ = fs::remove_dir_all(&dir);
+            return;
+        }
+        let res = execute_tool("fs_delete", &json!({ "path": link }).to_string()).unwrap();
+        assert!(res.contains("deleted"));
+        assert!(!link.exists());
+        assert!(target.exists());
+        assert_eq!(fs::read_to_string(&target).unwrap(), "target content");
         let _ = fs::remove_dir_all(&dir);
     }
 

@@ -1539,7 +1539,9 @@ export const ru = {
     "tg.connect": "Подключить",
     "tg.disconnect": "Отключить",
     "tg.bound": "Привязан к чату — уведомления приходят сюда",
-    "tg.notBound": "Не привязан: отправь боту /start в личку",
+    "tg.notBound": "Не привязан: получи код и отправь боту /start <code>",
+    "tg.getBindCode": "Получить код",
+    "tg.bindCode": "Код привязки: {code} (отправь боту /start {code}, действует 5 мин)",
     "tg.enabled": "Включено",
     "tg.disabled": "Выключено",
     "tg.badToken": "Некорректный токен — вставь строку вида 123456789:AA... из @BotFather",
@@ -1753,7 +1755,7 @@ export const ru = {
     "docs.keys.body":
       "Ctrl+N — новая задача · Ctrl+K — поиск · Ctrl+V — вставить скриншот · Enter — отправить, Shift+Enter — перенос строки. Slash-команды в поле ввода: /new /clear /agent /terminal /theme /glass /provider /prompt /note /chain.",
 
-    // Аудит: строки UI, ходившие мимо словарей (бейдж локальной модели,
+    // строки UI, ходившие мимо словарей (бейдж локальной модели,
     // кнопка Review, названия игр, категории шагов, шаблон новой команды)
     "chat.modelLocal": "локально",
     "agent.reviewOpen": "Ревью ↗",

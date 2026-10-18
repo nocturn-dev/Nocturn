@@ -15,13 +15,29 @@ pub struct NoteInfo {
 
 pub(crate) fn notes_dir(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
     use tauri::Manager;
-    let dir = app
+    let data_dir = app
         .path()
-        .app_config_dir()
-        .map_err(|e| format!("failed to determine config directory: {e}"))?
+        .app_data_dir()
+        .map_err(|e| format!("failed to determine data directory: {e}"))?
         .join("notes");
-    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    Ok(dir)
+    fs::create_dir_all(&data_dir).map_err(|e| e.to_string())?;
+
+    // При переносе хранилища из каталога конфигурации копируем прежние файлы пользователя
+    if let Ok(cfg_dir) = app.path().app_config_dir() {
+        let old_notes = cfg_dir.join("notes");
+        if old_notes.exists() && old_notes.is_dir() {
+            if let Ok(entries) = fs::read_dir(&old_notes) {
+                for entry in entries.flatten() {
+                    let dest = data_dir.join(entry.file_name());
+                    if !dest.exists() {
+                        let _ = fs::copy(entry.path(), &dest);
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(data_dir)
 }
 
 /// Защита от выхода за пределы папки: только простое имя файла.
@@ -30,15 +46,49 @@ pub(crate) fn sanitize_note_file(file: &str) -> Result<String, String> {
     tools::sanitize_note_name(file)
 }
 
+/// Разрешение пути заметки с канонизацией: путь обязан оставаться строго внутри notes_dir,
+/// запрещены относительные переходы и внешние симлинки
+pub(crate) fn resolve_note_path(
+    notes_dir: &std::path::Path,
+    file: &str,
+) -> Result<std::path::PathBuf, String> {
+    let clean_file = sanitize_note_file(file)?;
+    if clean_file.contains('/') || clean_file.contains('\\') || clean_file.contains("..") {
+        return Err("path traversal detected in note file name".into());
+    }
+    let canon_dir = dunce::canonicalize(notes_dir).unwrap_or_else(|_| notes_dir.to_path_buf());
+    let candidate = notes_dir.join(&clean_file);
+
+    if let Ok(meta) = fs::symlink_metadata(&candidate) {
+        if meta.file_type().is_symlink() {
+            let target = dunce::canonicalize(&candidate)
+                .map_err(|e| format!("cannot resolve note symlink: {e}"))?;
+            if !target.starts_with(&canon_dir) || !target.is_file() {
+                return Err("note symlink points outside notes directory".into());
+            }
+            return Ok(candidate);
+        }
+    }
+
+    let parent = candidate
+        .parent()
+        .ok_or_else(|| "invalid note path parent".to_string())?;
+    let canon_parent = dunce::canonicalize(parent).unwrap_or_else(|_| parent.to_path_buf());
+    if !canon_parent.starts_with(&canon_dir) {
+        return Err("note path escapes notes directory".into());
+    }
+
+    Ok(candidate)
+}
+
 pub(crate) fn note_title_from_content(file: &str, content: &str) -> String {
-    // Аудит notes 341: «# comment» внутри кода в середине документа
-    // засчитывался заголовком. Заголовок ищем только в начале (до первого
-    // абзаца); таб после # тоже засчитываем
+    // В середине документа решётки комментариев не считаем заголовком;
+    // берём первый найденный Markdown-заголовок верхнего уровня
     for line in content.lines().take(25) {
         let t = line.trim();
         let h = t
             .strip_prefix("# ")
-            .or_else(|| t.strip_prefix("#	"));
+            .or_else(|| t.strip_prefix("#\t"));
         if let Some(h) = h {
             let title = h.trim();
             if !title.is_empty() {
@@ -51,15 +101,25 @@ pub(crate) fn note_title_from_content(file: &str, content: &str) -> String {
 
 #[tauri::command(async)]
 pub async fn notes_list(app: tauri::AppHandle) -> Result<Vec<NoteInfo>, String> {
-    // Список читает до 1 МБ НА КАЖДУЮ заметку ради заголовка: vault на сотни
-    // файлов — секунды блокировки. blocking-пул (класс crypto_status)
     tauri::async_runtime::spawn_blocking(move || {
         let dir = notes_dir(&app)?;
+        let canon_dir = dunce::canonicalize(&dir).unwrap_or_else(|_| dir.clone());
         let mut out: Vec<NoteInfo> = Vec::new();
         for entry in fs::read_dir(&dir).map_err(|e| e.to_string())?.flatten() {
             let name = entry.file_name().to_string_lossy().to_string();
             if !name.ends_with(".md") {
                 continue;
+            }
+            let path = entry.path();
+            if let Ok(ft) = entry.file_type() {
+                if ft.is_symlink() {
+                    let Ok(target) = dunce::canonicalize(&path) else {
+                        continue;
+                    };
+                    if !target.starts_with(&canon_dir) || !target.is_file() {
+                        continue;
+                    }
+                }
             }
             let updated = entry
                 .metadata()
@@ -68,10 +128,7 @@ pub async fn notes_list(app: tauri::AppHandle) -> Result<Vec<NoteInfo>, String> 
                 .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
                 .map(|d| d.as_secs())
                 .unwrap_or(0);
-            // Для заголовка достаточно первых 4 КБ (1 МБ на
-
-            // заметку на каждое открытие списка — сотни МБ чтения на vault)
-            let title = crate::fsutil::read_capped_string(&entry.path(), 4 * 1024)
+            let title = crate::fsutil::read_capped_string(&path, 4 * 1024)
                 .map(|c| note_title_from_content(&name, &c))
                 .unwrap_or_else(|_| note_title_from_content(&name, ""));
             out.push(NoteInfo { title, file: name, updated });
@@ -86,17 +143,8 @@ pub async fn notes_list(app: tauri::AppHandle) -> Result<Vec<NoteInfo>, String> 
 #[tauri::command(async)]
 pub async fn notes_read(app: tauri::AppHandle, file: String) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let file = sanitize_note_file(&file)?;
-        let path = notes_dir(&app)?.join(file);
-        // Аудит notes 337: симлинк внутри папки заметок вёл на произвольный
-        // файл (синхронизация/импорт vault) — читаем только регулярные файлы
-        if let Ok(md) = fs::symlink_metadata(&path) {
-            if md.file_type().is_symlink() {
-                return Err("note path is a symlink".into());
-            }
-        }
-        // Потолок размера: агентный vault_read лимитирован, прямая команда
-        // раньше возвращала файл любого размера (OOM на многогигабайтном пути)
+        let dir = notes_dir(&app)?;
+        let path = resolve_note_path(&dir, &file)?;
         crate::fsutil::read_capped_string(&path, 0)
     })
     .await
@@ -106,10 +154,8 @@ pub async fn notes_read(app: tauri::AppHandle, file: String) -> Result<String, S
 #[tauri::command(async)]
 pub async fn notes_write(app: tauri::AppHandle, file: String, content: String) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let file = sanitize_note_file(&file)?;
-        let path = notes_dir(&app)?.join(file);
-        // atomic_write, а не fs::write: «личный vault» на Unix не должен быть
-        // 0644-читаемым всеми, краш не должен рвать файл
+        let dir = notes_dir(&app)?;
+        let path = resolve_note_path(&dir, &file)?;
         crate::fsutil::atomic_write(&path, content.as_bytes())
     })
     .await
@@ -119,8 +165,8 @@ pub async fn notes_write(app: tauri::AppHandle, file: String, content: String) -
 #[tauri::command(async)]
 pub async fn notes_delete(app: tauri::AppHandle, file: String) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let file = sanitize_note_file(&file)?;
-        let path = notes_dir(&app)?.join(file);
+        let dir = notes_dir(&app)?;
+        let path = resolve_note_path(&dir, &file)?;
         fs::remove_file(path).map_err(|e| e.to_string())
     })
     .await
@@ -157,4 +203,19 @@ mod notes_tests {
         );
         assert_eq!(note_title_from_content("заметка.md", "без заголовка"), "заметка");
     }
+
+    #[test]
+    fn resolve_note_path_blocks_traversal_and_absolute() {
+        let dir = std::env::temp_dir().join(format!("haloui-notes-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+
+        assert!(resolve_note_path(&dir, "../../escaped.md").is_err());
+        assert!(resolve_note_path(&dir, "sub/dir.md").is_err());
+        assert!(resolve_note_path(&dir, "a\\b.md").is_err());
+        assert!(resolve_note_path(&dir, "valid_note.md").is_ok());
+
+        let _ = fs::remove_dir_all(&dir);
+    }
 }
+

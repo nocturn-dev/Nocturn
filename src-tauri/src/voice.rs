@@ -135,7 +135,7 @@ pub async fn voice_download_models(
     if DOWNLOADING.swap(true, Ordering::Relaxed) {
         return Err("model download already in progress".into());
     }
-    // Аудит voice 503: store(false) обычным кодом после await — паника
+    // store(false) обычным кодом после await — паника
     // внутри do_download оставляла флаг взведённым до рестарта. RAII
     struct FlagGuard;
     impl Drop for FlagGuard {
@@ -161,10 +161,23 @@ async fn do_download(app: &tauri::AppHandle, wake_model: &str) -> Result<(), Str
         let dir = dir.clone();
         move || -> Result<Vec<&'static str>, String> {
             std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-            Ok(names
-                .into_iter()
-                .filter(|name| !dir.join(name).exists())
-                .collect())
+            let mut needed = Vec::new();
+            for name in names {
+                let p = dir.join(name);
+                if !p.exists() {
+                    needed.push(name);
+                    continue;
+                }
+                // Нулевой файл после сбоя питания удаляем и перекачиваем
+                if let Ok(m) = std::fs::metadata(&p) {
+                    if m.len() == 0 {
+                        let _ = std::fs::remove_file(&p);
+                        needed.push(name);
+                        continue;
+                    }
+                }
+            }
+            Ok(needed)
         }
     })
     .await
@@ -182,6 +195,7 @@ async fn do_download(app: &tauri::AppHandle, wake_model: &str) -> Result<(), Str
         let dl = async {
             let resp = client
                 .get(&url)
+                .timeout(std::time::Duration::from_secs(60))
                 .send()
                 .await
                 .map_err(|e| format!("model download failed: {e}"))?;
@@ -193,20 +207,28 @@ async fn do_download(app: &tauri::AppHandle, wake_model: &str) -> Result<(), Str
             let mut file = tokio::fs::File::create(&tmp)
                 .await
                 .map_err(|e| e.to_string())?;
+            // Guard удаляет временный файл при любом исходе до успешного rename
+            struct TmpGuard<'a>(&'a std::path::Path);
+            impl Drop for TmpGuard<'_> {
+                fn drop(&mut self) {
+                    let _ = std::fs::remove_file(self.0);
+                }
+            }
+            let tmp_guard = TmpGuard(&tmp);
             let mut received: u64 = 0;
             let mut last_emit: u64 = 0;
             let mut stream = resp;
-            while let Some(chunk) = stream
-                .chunk()
-                .await
-                .map_err(|e| format!("model download interrupted: {e}"))?
-            {
+            const CHUNK_STALL: std::time::Duration = std::time::Duration::from_secs(30);
+            while let Some(chunk) = match tokio::time::timeout(CHUNK_STALL, stream.chunk()).await {
+                Ok(Ok(c)) => c,
+                Ok(Err(e)) => return Err(format!("model download interrupted: {e}")),
+                Err(_) => return Err("model download stalled: no data for 30s".to_string()),
+            } {
                 file.write_all(&chunk).await.map_err(|e| e.to_string())?;
                 received += chunk.len() as u64;
                 // Файлы ~1 МБ: прогресс шлём дважды — начало и конец
                 if received - last_emit >= 512 * 1024 {
                     last_emit = received;
-                    // Аудит voice 504: только main, не все окна
                     let _ = app.emit_to(
                         "main",
                         "voice-progress",
@@ -215,21 +237,17 @@ async fn do_download(app: &tauri::AppHandle, wake_model: &str) -> Result<(), Str
                 }
             }
             file.flush().await.map_err(|e| e.to_string())?;
+            file.sync_all().await.map_err(|e| e.to_string())?;
             drop(file);
-            // Аудит voice 501/502: обрезанный ответ переименовывался в
-            // «скачанную» модель; .tmp оставался на любом пути ошибки
             if received == 0 {
-                let _ = std::fs::remove_file(&tmp);
                 return Err(format!("model download {name}: empty response"));
             }
             if total > 0 && received != total {
-                let _ = std::fs::remove_file(&tmp);
                 return Err(format!(
                     "model download {name} incomplete: {received} of {total} bytes"
                 ));
             }
-            // Дайджест сверяется ДО rename: битый файл остаётся .tmp-мусором,
-            // а не «моделью», которую вебвью молча загрузит в ONNX-сессию
+            // Дайджест сверяется ДО rename: битый файл остаётся .tmp-мусором
             let digest = tauri::async_runtime::spawn_blocking({
                 let tmp = tmp.clone();
                 move || crate::fsutil::sha256_file_hex(&tmp)
@@ -237,20 +255,17 @@ async fn do_download(app: &tauri::AppHandle, wake_model: &str) -> Result<(), Str
             .await
             .map_err(|e| format!("voice download task failed: {e}"))??;
             match expected_sha256(name) {
-                Some(expected) if digest != expected => {
-                    let _ = std::fs::remove_file(&tmp);
+                Some(expected) if !digest.eq_ignore_ascii_case(expected) => {
                     return Err(format!(
                         "model download {name}: sha256 mismatch (got {digest}, expected {expected})"
                     ));
                 }
                 Some(_) => {}
                 None => {
-                    // Имени нет в таблице хэшей — белый список файлов шире
-                    // таблицы не должен быть; отказ вместо тихой загрузки
-                    let _ = std::fs::remove_file(&tmp);
                     return Err(format!("model download {name}: no pinned sha256"));
                 }
             }
+            std::mem::forget(tmp_guard); // успех: tmp переименован, guard не удаляет
             std::fs::rename(&tmp, &final_path).map_err(|e| e.to_string())?;
             let _ = app.emit_to(
                 "main",
@@ -330,6 +345,17 @@ mod tests {
         }
         for (_, f) in WAKE_FILES {
             assert!(expected_sha256(f).is_some(), "{f} has no pinned sha256");
+        }
+    }
+
+    #[test]
+    fn pinned_sha256_format_valid() {
+        for (name, hash) in MODEL_SHA256 {
+            assert_eq!(hash.len(), 64, "hash for {name} must be 64 hex chars");
+            assert!(
+                hash.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()),
+                "hash for {name} must be lowercase hex"
+            );
         }
     }
 }

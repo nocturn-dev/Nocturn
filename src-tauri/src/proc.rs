@@ -66,7 +66,7 @@ pub(crate) fn run_command_opts(
         .map_err(|e| format!("failed to spawn command: {e}"))?;
 
     if let (Some(payload), Some(mut stdin)) = (stdin_payload, child.stdin.take()) {
-        // Аудит proc 395: безлимитный payload целиком в памяти у зависшего
+        // безлимитный payload целиком в памяти у зависшего
         // читателя. Потолок — хвост отбрасывается
         const STDIN_CAP: usize = 16 * 1024 * 1024;
         let payload = if payload.len() > STDIN_CAP {
@@ -95,7 +95,7 @@ pub(crate) fn kill_tree(pid: u32) {
     {
         use std::os::windows::process::CommandExt;
         // CREATE_NO_WINDOW: taskkill из GUI-приложения иначе мигнёт консолью
-        // Аудит proc 393: результат taskkill проверяется и логируется —
+        // результат taskkill проверяется и логируется —
         // молчаливый провал оставлял дерево живым при уверенности в обратном
         match Command::new("taskkill")
             .args(["/PID", &pid.to_string(), "/T", "/F"])
@@ -103,17 +103,17 @@ pub(crate) fn kill_tree(pid: u32) {
             .output()
         {
             Ok(o) if o.status.success() => {}
-            Ok(o) => eprintln!(
+            Ok(o) => crate::app_log::log_warn(&format!(
                 "kill_tree: taskkill failed for pid {pid}: {}",
                 String::from_utf8_lossy(&o.stderr).trim()
-            ),
-            Err(e) => eprintln!("kill_tree: taskkill spawn failed for pid {pid}: {e}"),
+            )),
+            Err(e) => crate::app_log::log_warn(&format!("kill_tree: taskkill spawn failed for pid {pid}: {e}")),
         }
     }
     #[cfg(not(windows))]
     {
         // Отрицательный pid = вся процесс-группа; SIGKILL неперехватываем.
-        // Аудит proc 391: Linux проверяет принадлежность группы — pid мог
+        // Linux проверяет принадлежность группы — pid мог
         // быть переиспользован чужим процессом-лидером, kill(-pid) убивал бы
         // чужую группу. /proc/<pid>/stat поле 5 = pgrp; лидер своей группы
         // (наша конвенция spawn: process_group(0)) подтверждает принадлежность
@@ -294,7 +294,7 @@ fn drain(rx: mpsc::Receiver<Vec<u8>>) -> Vec<u8> {
     match rx.recv_timeout(DRAIN_GRACE) {
         Ok(v) => v,
         Err(mpsc::RecvTimeoutError::Timeout) => {
-            // Аудит proc 397: таймаут grace возвращал ПУСТОЙ вывод без
+            // таймаут grace возвращал ПУСТОЙ вывод без
             // пометки — модель считала команду пустой. Явный маркер
             b"...[output lost: pipe drain timed out]".to_vec()
         }
@@ -311,6 +311,39 @@ fn clip(b: &[u8]) -> String {
         text.push_str("\n...[output truncated]");
     }
     text
+}
+
+/// Безопасный поиск исполняемого файла в каталогах PATH:
+/// в отличие от Win32 where, не проверяет текущий рабочий каталог процесса (CWD)
+/// и отбрасывает относительные сегменты PATH во избежание подмены бинарников.
+pub(crate) fn find_on_path(name: &str) -> Option<std::path::PathBuf> {
+    let path_var = std::env::var_os("PATH")?;
+    let exts: &[&str] = if cfg!(windows) {
+        if name.ends_with(".exe") || name.ends_with(".cmd") || name.ends_with(".bat") {
+            &[""]
+        } else {
+            &[".exe", ".cmd", ".bat", ""]
+        }
+    } else {
+        &[""]
+    };
+
+    for dir in std::env::split_paths(&path_var) {
+        if !dir.is_absolute() {
+            continue;
+        }
+        for ext in exts {
+            let candidate = if ext.is_empty() {
+                dir.join(name)
+            } else {
+                dir.join(format!("{name}{ext}"))
+            };
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+        }
+    }
+    None
 }
 
 #[cfg(test)]
@@ -373,5 +406,12 @@ mod tests {
         assert_eq!(buf.len(), READ_CAP);
         // Дочитали до EOF, а не бросили после лимита
         assert_eq!(r.remaining, 0);
+    }
+
+    #[test]
+    fn find_on_path_finds_system_binary_and_rejects_missing() {
+        // cargo гарантированно присутствует в PATH при сборке и тестах
+        assert!(find_on_path("cargo").is_some());
+        assert!(find_on_path("definitely_nonexistent_cli_xyz_12345").is_none());
     }
 }

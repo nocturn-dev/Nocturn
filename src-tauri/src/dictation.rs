@@ -47,39 +47,19 @@ fn config(app: &tauri::AppHandle) -> DictationConfig {
 }
 
 /// whisper-cli: заданный в конфиге путь (если существует) либо поиск в PATH.
-/// None — CLI нет: фронт покажет подсказку по установке. Автодетект кэшируется
-/// по значению конфига: status дергается из UI при каждом открытии настроек,
-/// а where/which — запуск процесса на каждый опрос
-static CLI_PROBE: std::sync::Mutex<Option<(Option<String>, Option<String>)>> =
-    std::sync::Mutex::new(None);
-
+/// whisper-cli: заданный в конфиге путь (если существует) либо безопасный поиск в PATH.
+/// None — CLI нет: фронт покажет подсказку по установке.
 fn detect_cli(configured: Option<&str>) -> Option<String> {
     if let Some(p) = configured {
-        // Задан явно: не существует — не подменяем другим (паттерн browser.rs)
-        return std::path::Path::new(p)
-            .exists()
-            .then(|| p.to_string());
-    }
-    let key = configured.map(str::to_string);
-    let mut probe_cache = CLI_PROBE.lock().unwrap_or_else(|p| p.into_inner());
-    if let Some((cached_key, hit)) = probe_cache.as_ref() {
-        if *cached_key == key {
-            return hit.clone();
+        let p_trimmed = p.trim();
+        if p_trimmed.is_empty() {
+            return None;
         }
+        let pb = std::path::Path::new(p_trimmed);
+        return pb.is_file().then(|| p_trimmed.to_string());
     }
-    let mut probe = std::process::Command::new(if cfg!(windows) { "where" } else { "which" });
-    probe.arg("whisper-cli");
-    let found = crate::proc::run_command_opts(&mut probe, Duration::from_secs(5), None, None)
-        .ok()
-        .and_then(|out| {
-            out.stdout
-                .lines()
-                .map(str::trim)
-                .find(|l| !l.is_empty())
-                .map(str::to_string)
-        });
-    *probe_cache = Some((key, found.clone()));
-    found
+    crate::proc::find_on_path("whisper-cli")
+        .map(|p| p.to_string_lossy().into_owned())
 }
 
 fn model_file(app: &tauri::AppHandle, configured: Option<&str>) -> PathBuf {
@@ -179,7 +159,7 @@ pub async fn dictation_download_model(app: tauri::AppHandle) -> Result<(), Strin
     if DOWNLOADING.swap(true, Ordering::Relaxed) {
         return Err("model download already in progress".into());
     }
-    // Аудит dictation 137: store(false) обычным кодом после await — паника
+    // store(false) обычным кодом после await — паника
     // внутри do_download оставляла флаг взведённым до рестарта. RAII-гардал
     struct FlagGuard;
     impl Drop for FlagGuard {
@@ -220,7 +200,17 @@ async fn do_download(app: &tauri::AppHandle) -> Result<(), String> {
         let dir = dir.clone();
         move || -> Result<bool, String> {
             std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-            Ok(dir.join(MODEL_FILE).exists())
+            let model_path = dir.join(MODEL_FILE);
+            if !model_path.exists() {
+                return Ok(false);
+            }
+            // Нулевой или повреждённый файл после сбоя питания удаляем для повторной загрузки
+            let meta = std::fs::metadata(&model_path).map_err(|e| e.to_string())?;
+            if meta.len() == 0 {
+                let _ = std::fs::remove_file(&model_path);
+                return Ok(false);
+            }
+            Ok(true)
         }
     })
     .await
@@ -233,6 +223,7 @@ async fn do_download(app: &tauri::AppHandle) -> Result<(), String> {
     let client = crate::network::shared_client(std::time::Duration::from_secs(30))?;
     let resp = client
         .get(MODEL_URL)
+        .timeout(std::time::Duration::from_secs(60))
         .send()
         .await
         .map_err(|e| format!("model download failed: {e}"))?;
@@ -243,8 +234,7 @@ async fn do_download(app: &tauri::AppHandle) -> Result<(), String> {
     let mut file = tokio::fs::File::create(&tmp)
         .await
         .map_err(|e| e.to_string())?;
-    // Аудит dictation 139: .tmp оставался на любом выходе из загрузки —
-    // до ~57 МБ мусора. Guard удаляет при любом исходе до rename
+    // Guard удаляет временный файл при любом исходе до успешного rename
     struct TmpGuard<'a>(&'a std::path::Path);
     impl Drop for TmpGuard<'_> {
         fn drop(&mut self) {
@@ -255,18 +245,17 @@ async fn do_download(app: &tauri::AppHandle) -> Result<(), String> {
     let mut received: u64 = 0;
     let mut last_emit: u64 = 0;
     let mut stream = resp;
-    while let Some(chunk) = stream
-        .chunk()
-        .await
-        .map_err(|e| format!("model download interrupted: {e}"))?
-    {
+    const CHUNK_STALL: std::time::Duration = std::time::Duration::from_secs(30);
+    while let Some(chunk) = match tokio::time::timeout(CHUNK_STALL, stream.chunk()).await {
+        Ok(Ok(c)) => c,
+        Ok(Err(e)) => return Err(format!("model download interrupted: {e}")),
+        Err(_) => return Err("model download stalled: no data for 30s".to_string()),
+    } {
         file.write_all(&chunk).await.map_err(|e| e.to_string())?;
         received += chunk.len() as u64;
         // Прогресс не чаще ~1 МБ — IPC-канал не спамим
         if received - last_emit >= 1024 * 1024 {
             last_emit = received;
-            // Аудит dictation 142: emit доставлял прогресс всем окнам,
-            // включая quickentry — только main, как в chat/colibri
             let _ = app.emit_to(
                 "main",
                 "dictation-progress",
@@ -275,26 +264,24 @@ async fn do_download(app: &tauri::AppHandle) -> Result<(), String> {
         }
     }
     file.flush().await.map_err(|e| e.to_string())?;
+    file.sync_all().await.map_err(|e| e.to_string())?;
     drop(file);
     if received == 0 {
         return Err("model download: empty response".into());
     }
-    // Аудит dictation 135: обрезанный ответ (сервер закрыл соединение раньше
-    // content_length) переименовывался в готовую модель
     if total > 0 && received != total {
         return Err(format!(
             "model download incomplete: {received} of {total} bytes"
         ));
     }
-    // Дайджест до rename: битый tmp остаётся мусором под guard'ом,
-    // а не «моделью», которую получит whisper-cli
+    // Дайджест до rename: битый tmp остаётся мусором под guard'ом
     let digest = tauri::async_runtime::spawn_blocking({
         let tmp = tmp.clone();
         move || crate::fsutil::sha256_file_hex(&tmp)
     })
     .await
     .map_err(|e| format!("dictation download task failed: {e}"))??;
-    if digest != MODEL_SHA256 {
+    if !digest.eq_ignore_ascii_case(MODEL_SHA256) {
         return Err(format!(
             "model download: sha256 mismatch (got {digest}, expected {MODEL_SHA256})"
         ));
@@ -326,8 +313,6 @@ pub async fn dictation_transcribe(
 /// 16 кГц), а не захардкожен: текст «max ~3 minutes» уже расходился с
 /// фактическим лимитом
 fn recording_too_long_error() -> String {
-    // От МиБ: (12*1024*1024)/(2*16000)/60 = 6.55 → 6.6 (формат .1), а не 6
-
     let minutes = MAX_AUDIO_BYTES as f64 / 32000.0 / 60.0;
     format!("recording too long (max ~{minutes:.1} minutes)")
 }
@@ -358,7 +343,7 @@ fn transcribe_impl(app: &tauri::AppHandle, audio_base64: String) -> Result<Strin
     let cli = detect_cli(cfg.cli_path.as_deref())
         .ok_or("whisper-cli not found — install whisper.cpp and add it to PATH, or set the path in settings")?;
     let model = model_file(app, cfg.model_path.as_deref());
-    if !model.exists() {
+    if !model.is_file() {
         return Err("whisper model not downloaded yet — use the download button in settings".into());
     }
     if audio_base64.len() > MAX_AUDIO_BYTES / 3 * 4 {
@@ -371,7 +356,7 @@ fn transcribe_impl(app: &tauri::AppHandle, audio_base64: String) -> Result<Strin
     if pcm.len() < 3200 {
         return Err("recording is too short".into());
     }
-    // Аудит dictation 145: int16 требует чётного числа байт — нечётный хвост
+    // int16 требует чётного числа байт — нечётный хвост
     // отбрасывал бы последний сэмпл или отвергался whisper
     if pcm.len() % 2 != 0 {
         return Err("audio payload has odd PCM length".into());
@@ -397,7 +382,7 @@ fn transcribe_impl(app: &tauri::AppHandle, audio_base64: String) -> Result<Strin
         return Err(format!("whisper-cli timed out after {}s", CLI_TIMEOUT.as_secs()));
     }
     match out.status {
-        // Аудит dictation 141: None (убит сигналом) принимался за успех и
+        // None (убит сигналом) принимался за успех и
         // возвращал частичный stdout как готовый текст
         Some(code) if code != 0 => {
             let err = out.stderr.trim().to_string();
@@ -415,7 +400,7 @@ fn transcribe_impl(app: &tauri::AppHandle, audio_base64: String) -> Result<Strin
         .stdout
         .lines()
         .map(|l| {
-            // Аудит dictation 140: срез "[..] " снимал ЛЮБОЙ префикс
+            // срез "[..] " снимал ЛЮБОЙ префикс
             // вида [..], теряя «[MUSIC] текст» и «[1] пункт». Точный
             // паттерн таймстампов whisper
             if l.starts_with('[') && l.contains(" --> ") {
@@ -470,5 +455,17 @@ mod tests {
         };
         assert_eq!(recording_too_long_error(), expect);
         assert!(recording_too_long_error().contains("~6.6 minutes"));
+    }
+
+    #[test]
+    fn detect_cli_rejects_missing_configured_and_finds_none_for_missing() {
+        assert!(detect_cli(Some("definitely_nonexistent_cli_path_xyz_12345")).is_none());
+        assert!(detect_cli(Some("   ")).is_none());
+    }
+
+    #[test]
+    fn pinned_sha256_format_valid() {
+        assert_eq!(MODEL_SHA256.len(), 64);
+        assert!(MODEL_SHA256.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()));
     }
 }

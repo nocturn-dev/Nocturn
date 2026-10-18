@@ -93,7 +93,7 @@ pub fn start(app: AppHandle, combo: String) {
     let gen = PORTAL_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
     tauri::async_runtime::spawn(async move {
         if let Err(e) = run(app.clone(), &trigger, gen).await {
-            eprintln!("quickentry portal unavailable: {e}");
+            crate::app_log::log_warn(&format!("quickentry portal unavailable: {e}"));
             if PORTAL_GENERATION.load(Ordering::SeqCst) == gen {
                 crate::QUICKENTRY_REGISTERED.store(false, Ordering::Relaxed);
                 let _ = app.emit("quickentry-status-changed", false);
@@ -127,12 +127,6 @@ async fn run(app: AppHandle, trigger: &str, gen: u64) -> Result<(), String> {
         .await
         .map_err(|e| format!("portal session: {e}"))?;
 
-    // Структура гарантированного закрытия сессии при досрочном выходе
-    struct SessionDropGuard {
-        closed: bool,
-    }
-    let mut drop_guard = SessionDropGuard { closed: false };
-
     // bind_shortcuts резолвится ПОСЛЕ ответа композитора: Ok — пользователь
     // одобрил (или одобрение закэшировано), Err — отменил диалог/нет интерфейса
     let request = match shortcuts
@@ -151,20 +145,17 @@ async fn run(app: AppHandle, trigger: &str, gen: u64) -> Result<(), String> {
         Ok(req) => req,
         Err(e) => {
             let _ = session.close().await;
-            drop_guard.closed = true;
             return Err(format!("portal bind: {e}"));
         }
     };
 
     if let Err(e) = request.response() {
         let _ = session.close().await;
-        drop_guard.closed = true;
         return Err(format!("portal bind rejected: {e}"));
     }
 
     if PORTAL_GENERATION.load(Ordering::SeqCst) != gen {
         let _ = session.close().await;
-        drop_guard.closed = true;
         return Ok(());
     }
 
@@ -181,10 +172,9 @@ async fn run(app: AppHandle, trigger: &str, gen: u64) -> Result<(), String> {
     let mut stream = match stream_res {
         Ok(s) => s,
         Err(e) => {
-            if let Ok(mut guard) = PORTAL_SESSION.lock() {
-                if let Some(s) = guard.take() {
-                    let _ = s.close().await;
-                }
+            let session_to_close = PORTAL_SESSION.lock().ok().and_then(|mut g| g.take());
+            if let Some(s) = session_to_close {
+                let _ = s.close().await;
             }
             return Err(format!("portal stream: {e}"));
         }
@@ -205,10 +195,9 @@ async fn run(app: AppHandle, trigger: &str, gen: u64) -> Result<(), String> {
     if PORTAL_GENERATION.load(Ordering::SeqCst) == gen {
         crate::QUICKENTRY_REGISTERED.store(false, Ordering::Relaxed);
         let _ = app.emit("quickentry-status-changed", false);
-        if let Ok(mut guard) = PORTAL_SESSION.lock() {
-            if let Some(s) = guard.take() {
-                let _ = s.close().await;
-            }
+        let session_to_close = PORTAL_SESSION.lock().ok().and_then(|mut g| g.take());
+        if let Some(s) = session_to_close {
+            let _ = s.close().await;
         }
     }
     Ok(())

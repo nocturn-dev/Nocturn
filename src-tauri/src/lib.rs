@@ -49,6 +49,7 @@ mod portal;
 mod proc;
 mod pty;
 mod tools;
+pub mod app_log;
 
 
 /// Обрезает строку до `limit` байтов без паники на границе многобайтового символа:
@@ -78,6 +79,10 @@ pub fn run() {
         .manage(browser::BrowserRegistry::default())
         .manage(colibri::ColibriRegistry::default())
         .setup(|app| {
+            // Инициализация файлового лога в app_data/logs/nocturn.log
+            if let Ok(data_dir) = app.path().app_data_dir() {
+                app_log::init(&data_dir.join("logs"));
+            }
             // Загружаем конфиги browser/computer в статические снапшоты
             use tauri::Manager;
             let cfg_dir = app
@@ -178,7 +183,7 @@ pub fn run() {
             // построение падает — не разваливаем весь старт приложения
             match build_tray(app.handle()) {
                 Ok(()) => TRAY_AVAILABLE.store(true, Ordering::Relaxed),
-                Err(e) => eprintln!("tray unavailable: {e}"),
+                Err(e) => app_log::log_warn(&format!("tray unavailable: {e}")),
             }
             // Тёмный фон окна/вебвью: дефолт WebView2 — белый, и при ресайзах
             // (maximize/restore) непрокрашенный кадр вспыхивал белым каркасом
@@ -201,7 +206,7 @@ pub fn run() {
                     Ok(()) => QUICKENTRY_REGISTERED.store(true, Ordering::Relaxed),
                     Err(e) => {
                         QUICKENTRY_REGISTERED.store(false, Ordering::Relaxed);
-                        eprintln!("quickentry shortcut unavailable: {e}");
+                        app_log::log_warn(&format!("quickentry shortcut unavailable: {e}"));
                         // Wayland: XGrabKey недоступен в принципе — пробуем
                         // портал (композитор покажет диалог подтверждения)
                         quickentry_portal_fallback(app.handle(), "ctrl+shift+space");
@@ -306,6 +311,7 @@ pub fn run() {
             telegram::telegram_status,
             telegram::telegram_unbind,
             telegram::telegram_notify,
+            telegram::telegram_start_bind,
             fonts::font_import,
             fonts::font_list,
             fonts::font_delete,
@@ -575,13 +581,11 @@ async fn open_file_external(
         root_for_check.as_deref(),
     ) {
         (false, Some(r)) => Some(
-            std::path::Path::new(r.trim())
-                .canonicalize()
+            dunce::canonicalize(r.trim())
                 .map_err(|e| format!("cannot resolve project root: {e}"))?,
         ),
         (true, Some(r)) if !r.trim().is_empty() => Some(
-            std::path::Path::new(r.trim())
-                .canonicalize()
+            dunce::canonicalize(r.trim())
                 .map_err(|e| format!("cannot resolve project root: {e}"))?,
         ),
         _ => None,
@@ -597,18 +601,17 @@ async fn open_file_external(
         if mode != "vscode" && !std::path::Path::new(&target_str).is_file() {
             return Err(format!("file does not exist: {target_str}"));
         }
-        // Аудит lib 226: путь обязан лежать внутри корня проекта, если корень
+        // путь обязан лежать внутри корня проекта, если корень
         // известен — раньше "../../x.exe" от корня и абсолютные пути куда
         // угодно проходили мимо (кроме системных локаций)
         if let Some(root) = &root_canon {
-            let canon = std::path::Path::new(&target_str)
-                .canonicalize()
+            let canon = dunce::canonicalize(&target_str)
                 .map_err(|e| format!("cannot resolve path: {e}"))?;
             if !canon.starts_with(root) {
                 return Err("path is outside the project root".into());
             }
         }
-        // Аудит lib 225: системная ассоциация запускает .bat/.exe/.ps1 —
+        // системная ассоциация запускает .bat/.exe/.ps1 —
         // агент мог создать такой файл через fs_write, а пользователь нажал
         // «Открыть». Исполняемые расширения открываются только «показать в
         // папке» (explorer/folder reveal)
@@ -662,7 +665,7 @@ async fn open_file_external(
                 }
             }
             "vscode" => {
-                // Аудит lib 227: внутри двойных кавычек cmd продолжает
+                // внутри двойных кавычек cmd продолжает
                 // раскрывать %VAR% — пути с % в vscode-режим не пускаем
                 if target_str.contains('%') {
                     return Err("path must not contain '%'".into());
@@ -979,7 +982,7 @@ fn position_quickentry(app: &tauri::AppHandle, w: &tauri::WebviewWindow) {
         })
     });
     let Some(m) = monitor.or_else(|| w.current_monitor().ok().flatten()) else { return };
-    // Аудит: LogicalPosition конвертируется tao по scale ОКНА, а не целевого
+    // LogicalPosition конвертируется tao по scale ОКНА, а не целевого
     // монитора, и без m.position() точка уходила в глобальные координаты —
     // на втором мониторе окно всплывало top-center primary. Считаем в
     // ФИЗИЧЕСКИХ пикселях целевого монитора: размер окна переводим в
@@ -1157,7 +1160,7 @@ async fn factory_reset(app: tauri::AppHandle, confirm: Option<String>) -> Result
     if confirm.as_deref() != Some("RESET") {
         return Err("confirmation required: pass confirm=\"RESET\" to wipe all local data".into());
     }
-    // Аудит lib 224: строка "RESET" известна любому скрипту в webview —
+    // строка "RESET" известна любому скрипту в webview —
     // компрометация вебвью стирала все данные одним invoke. Серверный барьер
     // — нативный диалог ОС, который webview показать не может
     {

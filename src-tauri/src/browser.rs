@@ -768,9 +768,12 @@ impl BrowserConnection {
 
     /// Ждём загрузки страницы (document.readyState == complete).
     /// Таймаут не фатален: часть сайтов грузится вечно, отдаём страницу как есть.
-    fn wait_ready(&self) -> Result<String, String> {
+    fn wait_ready(&self, abort: Option<&std::sync::atomic::AtomicBool>) -> Result<String, String> {
         let deadline = Instant::now() + NAV_TIMEOUT;
         loop {
+            if abort.is_some_and(|f| f.load(Ordering::Relaxed)) {
+                return Err("aborted by user".to_string());
+            }
             // Мягкий кап на один evaluate: 15 с хватит любому живому рендереру
             // на «document.readyState»; stalled-пир отдаёт ошибку вызову вместо
             // удержания ws-мьютекса до 120 с
@@ -1341,8 +1344,21 @@ pub(crate) fn url_is_public_http(url: &str) -> bool {
     is_navigable_url(url, false)
 }
 
+/// Проверка валидности и допустимости навигационного URL с учётом настроек Browser Use.
+pub fn is_navigable_url_pub(url: &str) -> bool {
+    is_navigable_url(url, config().allow_private_networks)
+}
+
 /// Исполнение browser-инструмента на живом соединении (вызывается из lib.rs).
-pub fn execute_on(conn: &BrowserConnection, name: &str, args: &Value) -> Result<String, String> {
+pub fn execute_on(
+    conn: &BrowserConnection,
+    name: &str,
+    args: &Value,
+    abort: Option<&std::sync::atomic::AtomicBool>,
+) -> Result<String, String> {
+    if abort.is_some_and(|f| f.load(Ordering::Relaxed)) {
+        return Err("aborted by user".to_string());
+    }
     match name {
         "browser_navigate" => {
             let url = arg_str(args, "url")?;
@@ -1359,7 +1375,7 @@ pub fn execute_on(conn: &BrowserConnection, name: &str, args: &Value) -> Result<
             if let Some(err) = result.get("errorText").and_then(|e| e.as_str()) {
                 return Err(format!("navigation failed: {err}"));
             }
-            let note = conn.wait_ready()?;
+            let note = conn.wait_ready(abort)?;
             // Редирект мог увести на private-адрес: входной фильтр проверяет
             // только аргумент, фактический landing сверяем здесь
 
@@ -1993,27 +2009,28 @@ mod tests {
             &conn,
             "browser_navigate",
             &json!({ "url": format!("http://127.0.0.1:{port}/") }),
+            None,
         )
         .expect("navigate must succeed");
         assert!(nav.contains("HaloUI Test"), "got: {nav}");
 
-        let read = execute_on(&conn, "browser_read", &json!({})).unwrap();
+        let read = execute_on(&conn, "browser_read", &json!({}), None).unwrap();
         assert!(read.contains("Привет"), "got: {read}");
 
         // Скриншот: валидный JSON с dataUrl jpeg
-        let shot = execute_on(&conn, "browser_screenshot", &json!({})).unwrap();
+        let shot = execute_on(&conn, "browser_screenshot", &json!({}), None).unwrap();
         let parsed: Value = serde_json::from_str(&shot).unwrap();
         let data_url = parsed["dataUrl"].as_str().unwrap();
         assert!(data_url.starts_with("data:image/jpeg;base64,"));
 
         // Клик в фиксированную точку страницы: попадёт ли он в конкретный
         // элемент — заранее не знаем и не проверяем, важно лишь, что не падает
-        let click = execute_on(&conn, "browser_click", &json!({ "x": 20, "y": 160 }))
+        let click = execute_on(&conn, "browser_click", &json!({ "x": 20, "y": 160 }), None)
             .expect("click must succeed");
         assert!(click.contains("clicked") || click.contains("no element"));
 
         // ── Snapshot + действия по ref'ам (a11y-снапшот) ──
-        let snap = execute_on(&conn, "browser_snapshot", &json!({}))
+        let snap = execute_on(&conn, "browser_snapshot", &json!({}), None)
             .expect("snapshot must succeed");
         let snap_v: Value =
             serde_json::from_str(snap.trim_end()).expect("snapshot json must parse");
@@ -2034,6 +2051,7 @@ mod tests {
             &conn,
             "browser_type",
             &json!({ "ref": input_ref, "text": "тест" }),
+            None,
         )
         .expect("type by ref must succeed");
         assert!(typed.contains("typed"));
@@ -2044,7 +2062,7 @@ mod tests {
         );
         // click-by-ref: доверенные mousePressed/Released по центру элемента
         let button_ref = ref_of(&|e| e["name"].as_str() == Some("go"));
-        let clicked = execute_on(&conn, "browser_click", &json!({ "ref": button_ref }))
+        let clicked = execute_on(&conn, "browser_click", &json!({ "ref": button_ref }), None)
             .expect("click by ref must succeed");
         assert!(clicked.contains("clicked by ref"), "got: {clicked}");
         let title_after_click = conn.evaluate("document.title").expect("evaluate title");
@@ -2063,7 +2081,7 @@ mod tests {
             probe["x"].as_i64().unwrap() + 2,
             probe["y"].as_i64().unwrap() + 2,
         );
-        execute_on(&conn, "browser_click", &json!({ "x": px, "y": py }))
+        execute_on(&conn, "browser_click", &json!({ "x": px, "y": py }), None)
             .expect("coordinate click must succeed");
         let title_after_coord = conn.evaluate("document.title").expect("evaluate title");
         assert_eq!(
@@ -2074,7 +2092,7 @@ mod tests {
 
         // Без ref и координат при фокусе на кнопке текст не вводится, а вызов
         // падает — раньше уходило «typed N» при ушедшем в никуда insertText
-        let no_focus = execute_on(&conn, "browser_type", &json!({ "text": "x" }))
+        let no_focus = execute_on(&conn, "browser_type", &json!({ "text": "x" }), None)
             .expect_err("type without a focused editable element must fail");
         assert!(
             no_focus.contains("no focused editable element"),
@@ -2084,7 +2102,7 @@ mod tests {
         // ── Мягкий канал не ждёт жёсткий запрос ──
         // Жёсткий запрос на never-resolving promise висит до своего дедлайна,
         // удерживая основной ws-мьютекс; кадр живого просмотра обязан прийти
-        // сразу по своему (отдельному) каналу
+        // сразу по своему (отдельном) каналу
         let stalled = {
             let c = Arc::clone(&conn);
             std::thread::spawn(move || {
@@ -2121,7 +2139,7 @@ mod tests {
             allow_private_networks: false,
             ..config()
         });
-        let err = execute_on(&conn, "browser_read", &json!({}))
+        let err = execute_on(&conn, "browser_read", &json!({}), None)
             .expect_err("private page must not be readable");
         assert!(err.contains("not allowed"), "got: {err}");
         let href = conn.evaluate("location.href").unwrap();
@@ -2131,7 +2149,7 @@ mod tests {
             "page must be reset away from the private URL"
         );
         // about:blank не блокируется: контента нет, вызовы не ломаем
-        let blank = execute_on(&conn, "browser_read", &json!({})).expect("about:blank is readable");
+        let blank = execute_on(&conn, "browser_read", &json!({}), None).expect("about:blank is readable");
         assert!(blank.contains("--- page text ---"), "got: {blank}");
 
         // В execute_on нет ветки browser_close — гасим реестр напрямую,

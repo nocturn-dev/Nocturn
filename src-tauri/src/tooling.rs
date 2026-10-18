@@ -93,16 +93,47 @@ pub async fn run_tool(
     // shell_run — без path-контроля (cwd опционален), но его КОМАНДА едет в
     // perm как аргумент матчинга deny-правил
     {
+        // Проверка URL для browser_navigate до исполнения: блокируем file://, data:// и непубличные сети
+        if name == "browser_navigate" {
+            let url = args
+                .get("url")
+                .and_then(|v| v.as_str())
+                .ok_or("missing required argument: url")?;
+            if !browser::is_navigable_url_pub(url) {
+                return Err(
+                    "URL rejected: only public http/https URLs are allowed (private networks are blocked unless enabled in Settings → Browser Use)"
+                        .to_string(),
+                );
+            }
+        }
+
+        // Единый разбор алиасов пути (path, file, file_path, dir) для fs-инструментов и diagnostics
         let perm_arg = if name.starts_with("fs_") || name == "diagnostics" {
-            args.get("path").and_then(|v| v.as_str()).map(str::to_string)
+            ["path", "file", "file_path", "dir"]
+                .iter()
+                .find_map(|k| args.get(*k).and_then(|v| v.as_str()).map(str::to_string))
+        } else if name.starts_with("vault_") {
+            args.get("file")
+                .or_else(|| args.get("path"))
+                .and_then(|v| v.as_str())
+                .map(str::to_string)
         } else if name == "shell_run" {
             args.get("command")
+                .or_else(|| args.get("arg"))
                 .and_then(|v| v.as_str())
                 .map(str::to_string)
         } else {
             None
         };
-        // Аудит perm 470: cwd шелла не проверялся — команда могла исполниться
+        // Вторичные пути (например to, dst, target для будущих fs_move/fs_copy)
+        let secondary_path = if name.starts_with("fs_") {
+            ["to", "dst", "target"]
+                .iter()
+                .find_map(|k| args.get(*k).and_then(|v| v.as_str()).map(str::to_string))
+        } else {
+            None
+        };
+        // cwd шелла не проверялся — команда могла исполниться
         // где угодно, включая ~/.ssh или корень диска. Гейт тот же, что у
         // fs_read: корни + sensitive-класс + самозащита конфига
         let cwd_arg = if name == "shell_run" {
@@ -117,6 +148,10 @@ pub async fn run_tool(
         // SSE-стримов (класс бага, уже починенный для load_settings/CA_PEM)
         tauri::async_runtime::spawn_blocking(move || {
             perm::decide(&state, &tool, perm_arg.as_deref())?;
+            if let Some(sec) = &secondary_path {
+                perm::decide(&state, &tool, Some(sec))
+                    .map_err(|e| format!("secondary path rejected by path guard: {e}"))?;
+            }
             if let Some(cwd) = &cwd_arg {
                 perm::decide(&state, "fs_read", Some(cwd))
                     .map_err(|e| format!("cwd rejected by path guard: {e}"))?;
@@ -263,7 +298,7 @@ pub async fn run_tool(
         // диагностики логом
         crate::settings::load_settings_blocking(&app_for_settings)
             .inspect_err(|e| {
-                eprintln!("run_tool: settings load failed, fallbacks degraded: {e}");
+                crate::app_log::log_warn(&format!("run_tool: settings load failed, fallbacks degraded: {e}"));
             })
             .ok()
     })
@@ -360,8 +395,9 @@ pub async fn execute_tool_inner(
         // раньше сериализовался впустую на каждый тулл-колл (в т.ч. MCP
         // с большими аргументами)
         let arguments = args.to_string();
+        let abort_computer = abort_flag.clone();
         let work = tauri::async_runtime::spawn_blocking(move || {
-            computer::execute_computer_tool(&name, &arguments)
+            computer::execute_computer_tool(&name, &arguments, abort_computer.as_deref())
         });
         // Stop обязан отвечать сразу: блокирующий вызов доигрывает в фоне,
         // результат отбрасывается (раньше шаг стоял до таймаута)
@@ -400,8 +436,9 @@ pub async fn execute_tool_inner(
         .map_err(|e| format!("tool task failed: {e}"))??;
         // args переезжает в поток по владению: ветка завершается return,
         // глубокая копия Value на каждый browser-вызов была лишней
+        let abort_browser = abort_flag.clone();
         let work = tauri::async_runtime::spawn_blocking(move || {
-            browser::execute_on(&conn, &name, &args)
+            browser::execute_on(&conn, &name, &args, abort_browser.as_deref())
         });
         // Stop отвечает немедленно: блокирующий CDP-вызов (до WS-таймаута
         // 120 с, например browser_navigate на молчащем сайте) доигрывает
@@ -480,10 +517,20 @@ pub async fn execute_tool_inner(
                     .map_err(|err| err.to_string())?
                     .remove(&server);
                 mcp::note_transport_fail(&server);
-                let fresh = mcp::ensure_connected(app.clone(), registry_arc.clone(), server.clone())
-                    .await
-                    .map_err(|e| format!("mcp {server}.{tool}: reconnect: {e}"))?;
-                mcp_attempt!(fresh, args.clone())?
+                // Повторяем только если запрос гарантированно не ушёл
+                // (процесс умер до отправки или сбой записи в пайп).
+                // Если запрос уже ушёл, сервер мог выполнить действие —
+                // повтор мутирующего инструмента задвоил бы побочные эффекты
+                if mcp::is_pre_send_transport_err(&e) {
+                    let fresh = mcp::ensure_connected(app.clone(), registry_arc.clone(), server.clone())
+                        .await
+                        .map_err(|e| format!("mcp {server}.{tool}: reconnect: {e}"))?;
+                    mcp_attempt!(fresh, args.clone())?
+                } else {
+                    return Err(format!(
+                        "mcp {server}.{tool}: transport error after request was sent ({e}); tool execution state unknown, check manually before retrying"
+                    ));
+                }
             }
             Err(e) if mcp::is_session_expired(&e) => {
                 // сессия удалённого сервера истекла — невидимый
@@ -695,14 +742,35 @@ pub async fn browser_set_config(
     app: tauri::AppHandle,
     config: browser::BrowserConfig,
 ) -> Result<(), String> {
+    let old = browser::config();
+    let exe_changed = !config.executable.trim().is_empty() && old.executable != config.executable;
+    if exe_changed {
+        crate::settings::rejects_sensitive_path(config.executable.trim())?;
+        use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
+        let confirmed = app
+            .dialog()
+            .message(format!(
+                "Change browser executable to:\n{}\n\nThe browser process will run with your user privileges.",
+                config.executable.trim()
+            ))
+            .title("Confirm Browser Executable")
+            .kind(MessageDialogKind::Warning)
+            .buttons(MessageDialogButtons::OkCancelCustom(
+                "Allow".into(),
+                "Cancel".into(),
+            ))
+            .blocking_show();
+        if !confirmed {
+            return Err("browser executable update cancelled by user".to_string());
+        }
+    }
+
     // kill_all ждёт wait() на каждом живом браузере, запись конфига может
     // тянуть сетевой профиль — всё в blocking-пул. State в 'static-замыкание
     // не утащить — реестр берём из app внутри
     tauri::async_runtime::spawn_blocking(move || {
         use tauri::Manager;
-        let old = browser::config();
         save_json_config(&app, "browser.json", &config)?;
-        let exe_changed = old.executable != config.executable;
         let headless_changed = old.headless != config.headless;
         browser::set_config(config);
         if exe_changed || headless_changed {
@@ -820,6 +888,37 @@ pub async fn lsp_set_config(
     app: tauri::AppHandle,
     config: lsp::LspConfig,
 ) -> Result<(), String> {
+    let old = lsp::config();
+    let servers_changed = old.servers != config.servers;
+    if servers_changed && !config.servers.is_empty() {
+        for s in &config.servers {
+            crate::settings::rejects_sensitive_path(&s.command)?;
+        }
+        use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
+        let commands_list = config
+            .servers
+            .iter()
+            .map(|s| format!("• {} ({})", s.command, s.extensions.join(", ")))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let confirmed = app
+            .dialog()
+            .message(format!(
+                "Update LSP language server commands?\n\n{}\n\nLanguage servers run locally with your user privileges.",
+                commands_list
+            ))
+            .title("Confirm LSP Server Configuration")
+            .kind(MessageDialogKind::Warning)
+            .buttons(MessageDialogButtons::OkCancelCustom(
+                "Allow".into(),
+                "Cancel".into(),
+            ))
+            .blocking_show();
+        if !confirmed {
+            return Err("lsp configuration update cancelled by user".to_string());
+        }
+    }
+
     // Запись lsp.json — ФС на возможном сетевом профиле: blocking-пул
     // (класс crypto_status); снапшот обновляется только после записи,
     // упавший сет-колл не оставляет UI врать об активном тумблере

@@ -281,7 +281,7 @@ pub fn is_encrypted(s: &str) -> bool {
 }
 
 pub fn hex_encode(bytes: &[u8]) -> String {
-    // Аудит crypto 133: одна аллокация вместо format!-строки на байт
+    // одна аллокация вместо format!-строки на байт
     const HEX: &[u8; 16] = b"0123456789abcdef";
     let mut out = String::with_capacity(bytes.len() * 2);
     for b in bytes {
@@ -389,7 +389,7 @@ mod tests {
 
     #[test]
     fn corrupted_ciphertext_returns_none() {
-        // Аудит crypto 128: переворот бита шифротекста/nonce — None (GCM-таг),
+        // переворот бита шифротекста/nonce — None (GCM-таг),
         // невалидный UTF-8 в plaintext затирается и не уходит наружу
         let key = [0x42u8; KEY_LEN];
         // encrypt_with возвращает строку УЖЕ с префиксом
@@ -413,7 +413,7 @@ mod tests {
 
     #[test]
     fn decrypt_short_blob_lengths_rejected() {
-        // Аудит crypto 128: граничные длины блоба (nonce 12 + тег 16) не
+        // граничные длины блоба (nonce 12 + тег 16) не
         // паникуют на срезах — всё короче MIN_BLOB отбрасывается до split
         let key = [7u8; 32];
         for n in [0usize, 12, 13, 27] {

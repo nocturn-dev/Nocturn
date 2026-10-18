@@ -120,11 +120,15 @@ pub fn computer_tool_schemas() -> Value {
 // Исполнение
 // ---------------------------------------------------------------------------
 
-pub fn execute_computer_tool(name: &str, arguments: &str) -> Result<String, String> {
+pub fn execute_computer_tool(
+    name: &str,
+    arguments: &str,
+    abort: Option<&std::sync::atomic::AtomicBool>,
+) -> Result<String, String> {
     ensure_session_supported()?;
     let args: Value = serde_json::from_str(arguments)
         .map_err(|e| format!("invalid arguments JSON: {e}"))?;
-    execute(name, &args)
+    execute(name, &args, abort)
 }
 
 /// Computer Use строится на xcap (скриншоты) и enigo (ввод), которые на Linux
@@ -152,13 +156,20 @@ fn ensure_session_supported() -> Result<(), String> {
     Ok(())
 }
 
-fn execute(name: &str, args: &Value) -> Result<String, String> {
+fn execute(
+    name: &str,
+    args: &Value,
+    abort: Option<&std::sync::atomic::AtomicBool>,
+) -> Result<String, String> {
+    if abort.is_some_and(|a| a.load(std::sync::atomic::Ordering::Relaxed)) {
+        return Err("aborted by user".to_string());
+    }
     match name {
-        "computer_screenshot" => screenshot(),
-        "computer_click" => click(args),
-        "computer_type" => type_text(args),
-        "computer_key" => press_key(args),
-        "computer_scroll" => scroll(args),
+        "computer_screenshot" => screenshot(abort),
+        "computer_click" => click(args, abort),
+        "computer_type" => type_text(args, abort),
+        "computer_key" => press_key(args, abort),
+        "computer_scroll" => scroll(args, abort),
         other => Err(format!("unknown computer tool: {other}")),
     }
 }
@@ -176,7 +187,10 @@ fn target_monitor(
 }
 
 /// Скриншот основного монитора → JPEG → data URL
-fn screenshot() -> Result<String, String> {
+fn screenshot(abort: Option<&std::sync::atomic::AtomicBool>) -> Result<String, String> {
+    if abort.is_some_and(|a| a.load(std::sync::atomic::Ordering::Relaxed)) {
+        return Err("aborted by user".to_string());
+    }
     let monitors = xcap::Monitor::all().map_err(|e| format!("monitor enumeration failed: {e}"))?;
     let monitor = target_monitor(&monitors)?;
     let image = monitor
@@ -230,7 +244,7 @@ fn enigo_abs_coords(x: i32, y: i32) -> Result<(i32, i32), String> {
     Ok((x, y))
 }
 
-fn click(args: &Value) -> Result<String, String> {
+fn click(args: &Value, abort: Option<&std::sync::atomic::AtomicBool>) -> Result<String, String> {
     let x = arg_int(args, "x")? as i32;
     let y = arg_int(args, "y")? as i32;
     let (x, y) = enigo_abs_coords(x, y)?;
@@ -241,14 +255,23 @@ fn click(args: &Value) -> Result<String, String> {
     } else {
         enigo::Button::Left
     };
+    if abort.is_some_and(|a| a.load(std::sync::atomic::Ordering::Relaxed)) {
+        return Err("aborted by user".to_string());
+    }
     with_enigo(|e| {
         use enigo::{Coordinate, Direction, Mouse};
         e.move_mouse(x, y, Coordinate::Abs)
             .map_err(|err| format!("move failed: {err}"))?;
+        if abort.is_some_and(|a| a.load(std::sync::atomic::Ordering::Relaxed)) {
+            return Err("aborted by user".to_string());
+        }
         e.button(button, Direction::Click)
             .map_err(|err| format!("click failed: {err}"))?;
         if double {
             std::thread::sleep(std::time::Duration::from_millis(80));
+            if abort.is_some_and(|a| a.load(std::sync::atomic::Ordering::Relaxed)) {
+                return Err("aborted by user (double click cancelled after first click)".to_string());
+            }
             e.button(button, Direction::Click)
                 .map_err(|err| format!("double click failed: {err}"))?;
         }
@@ -260,19 +283,30 @@ fn click(args: &Value) -> Result<String, String> {
     })
 }
 
-fn type_text(args: &Value) -> Result<String, String> {
+fn type_text(args: &Value, abort: Option<&std::sync::atomic::AtomicBool>) -> Result<String, String> {
     let text = args
         .get("text")
         .and_then(|v| v.as_str())
         .ok_or("missing required argument: text")?;
+    let total = text.chars().count();
     with_enigo(|e| {
         use enigo::Keyboard;
-        e.text(text).map_err(|err| format!("typing failed: {err}"))?;
-        Ok(format!("typed {} characters", text.chars().count()))
+        for (i, ch) in text.chars().enumerate() {
+            if abort.is_some_and(|a| a.load(std::sync::atomic::Ordering::Relaxed)) {
+                return Err(format!("aborted by user (typed {i} of {total} characters)"));
+            }
+            let mut s = String::new();
+            s.push(ch);
+            e.text(&s).map_err(|err| format!("typing failed: {err}"))?;
+        }
+        Ok(format!("typed {total} characters"))
     })
 }
 
-fn press_key(args: &Value) -> Result<String, String> {
+fn press_key(args: &Value, abort: Option<&std::sync::atomic::AtomicBool>) -> Result<String, String> {
+    if abort.is_some_and(|a| a.load(std::sync::atomic::Ordering::Relaxed)) {
+        return Err("aborted by user".to_string());
+    }
     let combo = args
         .get("key")
         .and_then(|v| v.as_str())
@@ -362,7 +396,10 @@ fn parse_key(name: &str) -> Result<enigo::Key, String> {
     })
 }
 
-fn scroll(args: &Value) -> Result<String, String> {
+fn scroll(args: &Value, abort: Option<&std::sync::atomic::AtomicBool>) -> Result<String, String> {
+    if abort.is_some_and(|a| a.load(std::sync::atomic::Ordering::Relaxed)) {
+        return Err("aborted by user".to_string());
+    }
     let amount = args
         .get("amount")
         .and_then(|v| v.as_i64())
@@ -410,20 +447,20 @@ mod tests {
         assert!(matches!(parse_key("a"), Ok(enigo::Key::Unicode(_))));
         assert!(parse_key("nonexistent_key").is_err());
         // Невалидная комбинация отвергается до нажатия клавиш
-        assert!(execute_computer_tool("computer_key", r#"{"key":"ctrl+"}"#).is_err());
-        assert!(execute_computer_tool("computer_key", r#"{"key":"badmod+s"}"#).is_err());
+        assert!(execute_computer_tool("computer_key", r#"{"key":"ctrl+"}"#, None).is_err());
+        assert!(execute_computer_tool("computer_key", r#"{"key":"badmod+s"}"#, None).is_err());
     }
 
     #[test]
     fn unknown_tool_rejected() {
-        assert!(execute_computer_tool("computer_nuke", "{}").is_err());
+        assert!(execute_computer_tool("computer_nuke", "{}", None).is_err());
     }
 
     /// Скриншот реального экрана (машина с дисплеем). Возвращает валидный
     /// data URL и физические размеры монитора.
     #[test]
     fn computer_screenshot_e2e() {
-        let res = match execute_computer_tool("computer_screenshot", "{}") {
+        let res = match execute_computer_tool("computer_screenshot", "{}", None) {
             Ok(r) => r,
             Err(e) => {
                 // Headless-среда (CI/VM без дисплея) — тест неприменим,

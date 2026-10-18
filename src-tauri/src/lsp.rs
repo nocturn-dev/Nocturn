@@ -167,19 +167,21 @@ fn language_id(ext: &str) -> &'static str {
 }
 
 /// Разрешение сервера для расширения (ext с точкой, регистр не важен):
-/// пользовательский конфиг перекрывает встроенные семейства
+/// Разрешение сервера для расширения (ext с точкой, регистр не важен):
+/// пользовательский конфиг имеет приоритет, при отсутствии матча используется дефолт
 fn resolve_server(ext: &str) -> Option<LspServerEntry> {
     let ext = ext.to_ascii_lowercase();
     let cfg = config();
     for s in &cfg.servers {
-        if s.extensions.iter().any(|e| e.to_ascii_lowercase() == ext) && !s.command.trim().is_empty() {
+        if s.extensions.iter().any(|e| e.to_ascii_lowercase() == ext) {
+            if s.command.trim().is_empty() {
+                // Пустая команда означает явное отключение сервера для этого расширения
+                return None;
+            }
             return Some(s.clone());
         }
     }
-    if !cfg.servers.is_empty() {
-        // Непустой пользовательский список замещает дефолты целиком
-        return None;
-    }
+    // Если расширение не переопределено пользователем, обращаемся к встроенным семействам
     for (exts, command, args) in FAMILIES {
         if exts.contains(&ext.as_str()) {
             return Some(LspServerEntry {
@@ -517,14 +519,14 @@ fn spawn_handle(entry: &LspServerEntry, root: &str) -> Result<Arc<ServerHandle>,
             let reader = std::io::BufReader::new(stderr);
             for line in reader.lines().map_while(|l| l.ok()) {
                 let mut t = tail.lock().unwrap_or_else(|p| p.into_inner());
-                // Аудит lsp 244: сервер, пишущий без перевода строки, раздувал
+                // сервер, пишущий без перевода строки, раздувал
                 // память без предела — потолок длины строки
                 let mut line = line;
                 if line.len() > 4096 {
                     line.truncate(4096);
                     line.push_str("...[truncated]");
                 }
-                // Аудит lsp 243: t.clear() удалял ВСЕ накопленное, теряя
+                // t.clear() удалял ВСЕ накопленное, теряя
                 // причину падения, записанную раньше. Вытесняем старые
                 // строки по одной до влезания новой
                 while t.len() + line.len() > 8 * 1024 {
@@ -1084,7 +1086,7 @@ mod tests {
         assert_eq!(ts.command, "typescript-language-server");
         assert!(resolve_server(".unknown").is_none());
 
-        // Непустой пользовательский список замещает дефолты целиком
+        // Пользователь переопределяет Rust на my-ra, но дефолтный TS остаётся доступен
         set_config(LspConfig {
             enabled: true,
             auto_feedback: true,
@@ -1095,8 +1097,8 @@ mod tests {
             }],
         });
         assert_eq!(resolve_server(".rs").unwrap().command, "my-ra");
-        // ts больше не резолвится: замещение, а не слияние
-        assert!(resolve_server(".ts").is_none());
+        // TS по-прежнему резолвится во встроенный сервер
+        assert_eq!(resolve_server(".ts").unwrap().command, "typescript-language-server");
         set_config(LspConfig::default());
     }
 

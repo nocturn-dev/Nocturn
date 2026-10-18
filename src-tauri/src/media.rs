@@ -107,7 +107,7 @@ mod windows_impl {
         GlobalSystemMediaTransportControlsSessionPlaybackStatus,
     };
     use windows::Storage::Streams::DataReader;
-    use windows::Win32::System::Com::{CoInitializeEx, COINIT_MULTITHREADED};
+    use windows::Win32::System::Com::{CoInitializeEx, CoUninitialize, COINIT_APARTMENTTHREADED};
     use windows::Win32::UI::Accessibility::IUIAutomationRangeValuePattern;
 
     #[derive(Clone)]
@@ -151,11 +151,14 @@ mod windows_impl {
         START.call_once(|| {
             std::thread::spawn(|| {
                 unsafe {
-                    // WinRT требует инициализированную квартиру: MTA —
-                    // асинхронные операции не привязаны к окнам
-                    let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+                    // WinRT / UIA требуют инициализированную квартиру COM:
+                    // STA (Single Threaded Apartment) для потока-наблюдателя
+                    let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
                 }
                 run_observer();
+                unsafe {
+                    CoUninitialize();
+                }
             });
         });
     }
@@ -181,8 +184,6 @@ mod windows_impl {
     }
 
     fn track_hash(title: &str, artist: &str) -> String {
-        // Аудит media 300: DefaultHasher не гарантирует стабильность между
-        // версиями rustc, а ключ используется дедупом и лирикой на фронте.
         // FNV-1a 64 — фиксированный результат
         let mut h: u64 = 0xcbf29ce484222325;
         for b in (title.as_bytes()).iter().chain(artist.as_bytes()) {
@@ -193,51 +194,53 @@ mod windows_impl {
     }
 
     fn run_observer() {
-        // Менеджер один на систему; RequestAsync -> .get() блокирует поток
-        // наблюдателя — нарочно, он больше ничего не делает.
-        // SMTC-сервис может быть не готов к моменту старта приложения:
-        // одноразовый отказ раньше убивал наблюдателя до рестарта процесса —
-        // ограниченный ретрарай на СВОЁМ потоке (минута), не в цикле опроса
-        let manager = {
-            let mut found = None;
-            for attempt in 0..12 {
-                match GlobalSystemMediaTransportControlsSessionManager::RequestAsync() {
-                    Ok(op) => match op.get() {
-                        Ok(m) => {
-                            found = Some(m);
-                            break;
-                        }
-                        Err(e) => {
-                            eprintln!("media: SMTC request failed (attempt {}): {e}", attempt + 1);
-                        }
-                    },
-                    Err(e) => {
-                        eprintln!("media: SMTC unavailable (attempt {}): {e}", attempt + 1);
+        // SMTC-менеджер: пробуем получить на старте (до 3 попыток без многоминутных задержек).
+        // Если SMTC недоступен (N-редакции Windows, отключённая служба или сбой COM),
+        // поток наблюдателя продолжает работу с оконным фолбэком, не падая и не блокируя канал.
+        let mut manager: Option<GlobalSystemMediaTransportControlsSessionManager> = None;
+        for attempt in 0..3 {
+            match GlobalSystemMediaTransportControlsSessionManager::RequestAsync() {
+                Ok(op) => match op.get() {
+                    Ok(m) => {
+                        manager = Some(m);
+                        break;
                     }
-                }
-                std::thread::sleep(std::time::Duration::from_secs(5));
-            }
-            match found {
-                Some(m) => m,
-                None => {
-                    eprintln!("media: SMTC unavailable after retries — minubar disabled until restart");
-                    return;
+                    Err(e) => {
+                        crate::app_log::log_warn(&format!("media: SMTC request failed (attempt {}): {e}", attempt + 1));
+                    }
+                },
+                Err(e) => {
+                    crate::app_log::log_warn(&format!("media: SMTC unavailable (attempt {}): {e}", attempt + 1));
                 }
             }
-        };
+            std::thread::sleep(std::time::Duration::from_millis(500));
+        }
 
         let (tx, rx) = mpsc::channel::<Msg>();
         let _ = TX.set(tx);
 
+        let mut last_retry = std::time::Instant::now();
+
         loop {
             // Канал управления заодно задаёт темп опроса (1 Гц)
             match rx.recv_timeout(Duration::from_secs(1)) {
-                Ok(msg) => apply_control(&manager, &msg),
+                Ok(msg) => apply_control(manager.as_ref(), &msg),
                 Err(mpsc::RecvTimeoutError::Timeout) => {}
                 Err(mpsc::RecvTimeoutError::Disconnected) => return,
             }
-            if let Err(e) = poll(&manager) {
-                eprintln!("media: poll failed: {e}");
+
+            // Если SMTC не был доступен при старте, лениво пробуем переподключить раз в 60 секунд
+            if manager.is_none() && last_retry.elapsed() >= Duration::from_secs(60) {
+                last_retry = std::time::Instant::now();
+                if let Ok(op) = GlobalSystemMediaTransportControlsSessionManager::RequestAsync() {
+                    if let Ok(m) = op.get() {
+                        manager = Some(m);
+                    }
+                }
+            }
+
+            if let Err(e) = poll(manager.as_ref()) {
+                crate::app_log::log_warn(&format!("media: poll failed: {e}"));
             }
         }
     }
@@ -295,30 +298,30 @@ mod windows_impl {
     }
 
     fn apply_control(
-        manager: &GlobalSystemMediaTransportControlsSessionManager,
+        manager: Option<&GlobalSystemMediaTransportControlsSessionManager>,
         msg: &Msg,
     ) {
         // SMTC-сессия Spotify есть → нативное управление; нет (клиент без
         // SMTC) → WM_APPCOMMAND окну Spotify: Play/Pause — слепой тоггл,
         // факт применения придёт следующим опросом
-        if let Some(session) = spotify_session(manager) {
-        let op = match msg {
-            Msg::Play => session.TryPlayAsync(),
-            Msg::Pause => session.TryPauseAsync(),
-            Msg::Next => session.TrySkipNextAsync(),
-            Msg::Prev => session.TrySkipPreviousAsync(),
-        };
-        // Блокирующее .get() на потоке наблюдателя (не на tokio-воркере);
-        // результат bool: false = плеер отказал — статус придёт опросом
-        match op {
-            Ok(op) => {
-                if let Ok(false) = op.get() {
-                    eprintln!("media: player rejected control: {msg:?}");
+        if let Some(session) = manager.and_then(spotify_session) {
+            let op = match msg {
+                Msg::Play => session.TryPlayAsync(),
+                Msg::Pause => session.TryPauseAsync(),
+                Msg::Next => session.TrySkipNextAsync(),
+                Msg::Prev => session.TrySkipPreviousAsync(),
+            };
+            // Блокирующее .get() на потоке наблюдателя (не на tokio-воркере);
+            // результат bool: false = плеер отказал — статус придёт опросом
+            match op {
+                Ok(op) => {
+                    if let Ok(false) = op.get() {
+                        crate::app_log::log_warn(&format!("media: player rejected control: {msg:?}"));
+                    }
                 }
+                Err(e) => crate::app_log::log_warn(&format!("media: control failed: {e}")),
             }
-            Err(e) => eprintln!("media: control failed: {e}"),
-        }
-        return;
+            return;
         }
         window_control(msg);
     }
@@ -328,6 +331,71 @@ mod windows_impl {
     const APPCOMMAND_MEDIA_NEXTTRACK: isize = 11;
     const APPCOMMAND_MEDIA_PREVTRACK: isize = 12;
 
+    /// Кэш дескриптора окна Spotify: (hwnd, pid).
+    /// Проверяется через IsWindow + IsWindowVisible + GetWindowThreadProcessId + GetWindowTextW
+    /// перед тем как делать тяжёлый EnumWindows и снимок процессов Toolhelp32Snapshot.
+    static SPOTIFY_WINDOW_CACHE: Mutex<Option<(isize, u32)>> = Mutex::new(None);
+
+    /// Получить заголовок и HWND окна Spotify:
+    /// Сначала проверяет кэшированный HWND. Если он жив (IsWindow) и принадлежит Spotify,
+    /// возвращает (hwnd, pid, title) без перебора всех окон и процессов ОС.
+    fn get_spotify_track_window() -> Option<(isize, u32, String)> {
+        use windows::Win32::Foundation::HWND;
+        use windows::Win32::UI::WindowsAndMessaging::{
+            GetWindowTextW, GetWindowThreadProcessId, IsWindow, IsWindowVisible,
+        };
+
+        if let Ok(guard) = SPOTIFY_WINDOW_CACHE.lock() {
+            if let Some((hwnd_val, cached_pid)) = *guard {
+                unsafe {
+                    let hwnd = HWND(hwnd_val as *mut _);
+                    if IsWindow(Some(hwnd)).as_bool() && IsWindowVisible(hwnd).as_bool() {
+                        let mut pid = 0u32;
+                        GetWindowThreadProcessId(hwnd, Some(&mut pid));
+                        if pid == cached_pid {
+                            let mut buf = [0u16; 512];
+                            let len = GetWindowTextW(hwnd, &mut buf);
+                            if len > 0 {
+                                let title = String::from_utf16_lossy(&buf[..len as usize]);
+                                return Some((hwnd_val, pid, title));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Кэш пуст или окно закрылось: полный поиск
+        let pids = spotify_pids();
+        if pids.is_empty() {
+            if let Ok(mut guard) = SPOTIFY_WINDOW_CACHE.lock() {
+                *guard = None;
+            }
+            return None;
+        }
+
+        let windows = spotify_windows(&pids);
+        let found = windows
+            .iter()
+            .find(|(_hwnd, pid, title)| {
+                pids.contains(pid)
+                    && title.contains(" - ")
+                    && !title.eq_ignore_ascii_case("Spotify")
+            })
+            .or_else(|| windows.iter().find(|(_hwnd, _pid, title)| !title.is_empty()))
+            .cloned();
+
+        if let Some((hwnd, pid, _)) = found.as_ref() {
+            if let Ok(mut guard) = SPOTIFY_WINDOW_CACHE.lock() {
+                *guard = Some((*hwnd, *pid));
+            }
+        } else if let Ok(mut guard) = SPOTIFY_WINDOW_CACHE.lock() {
+            *guard = None;
+        }
+
+        found
+    }
+
     /// Управление окном Spotify без SMTC: WM_APPCOMMAND (проверено зондом
     /// --toggle: клиент тогглит воспроизведение и меняет заголовок).
     /// На паузе трек-окна нет (заголовок просто "Spotify") — раньше Play
@@ -336,15 +404,9 @@ mod windows_impl {
     fn window_control(msg: &Msg) {
         use windows::Win32::Foundation::{LPARAM, WPARAM};
         use windows::Win32::UI::WindowsAndMessaging::PostMessageW;
-        let pids = spotify_pids();
-        let hwnd = track_window_hwnd().or_else(|| {
-            spotify_windows(&pids)
-                .into_iter()
-                .find(|(_hwnd, _pid, title)| !title.is_empty())
-                .map(|(hwnd, _, _)| hwnd)
-        });
+        let hwnd = get_spotify_track_window().map(|(hwnd, _, _)| hwnd);
         let Some(hwnd) = hwnd else {
-            eprintln!("media: window control ignored, no spotify window");
+            crate::app_log::log_warn("media: window control ignored, no spotify window");
             return;
         };
         let cmd = match msg {
@@ -360,20 +422,6 @@ mod windows_impl {
                 LPARAM(cmd << 16),
             );
         }
-    }
-
-    /// Главное окно с треком: видимое, заголовок содержит " - " и не равен
-    /// просто "Spotify" (пауза/свёрнутый клиент)
-    fn track_window_hwnd() -> Option<isize> {
-        let pids = spotify_pids();
-        spotify_windows(&pids)
-            .into_iter()
-            .find(|(_hwnd, pid, title)| {
-                pids.contains(pid)
-                    && title.contains(" - ")
-                    && !title.eq_ignore_ascii_case("Spotify")
-            })
-            .map(|(hwnd, _, _)| hwnd)
     }
 
     /// PID всех процессов spotify.exe
@@ -455,11 +503,14 @@ mod windows_impl {
             .collect()
     }
 
-    fn poll(manager: &GlobalSystemMediaTransportControlsSessionManager) -> Result<(), String> {
-        // SMTC-сессия Spotify есть → нативные метаданные; нет → оконный
+    fn poll(manager: Option<&GlobalSystemMediaTransportControlsSessionManager>) -> Result<(), String> {
+        // SMTC-сессия Spotify есть → нативные метаданные; нет или сбой → оконный
         // fallback (заголовок окна несёт «Artist — Track»)
-        let dto_opt = match spotify_session(manager) {
-            Some(session) => Some(smtc_dto(&session)?),
+        let dto_opt = match manager.and_then(spotify_session) {
+            Some(session) => match smtc_dto(&session) {
+                Ok(dto) => Some(dto),
+                Err(_) => window_dto().unwrap_or(None),
+            },
             None => window_dto()?,
         };
 
@@ -576,20 +627,17 @@ mod windows_impl {
     /// трек (⏸). Позицию ОС не отдаёт — тикаем локально от старта трека.
     /// Обложки в этом пути нет (SMTC-поток недоступен).
     fn window_dto() -> Result<Option<MediaStateDto>, String> {
-        let pids = spotify_pids();
-        if pids.is_empty() {
+        let spotify_window = get_spotify_track_window();
+        if spotify_window.is_none() {
             // Клиент закрыт — липкий трек сбрасываем, минибар скрыт
             *LAST_TRACK.lock().map_err(|e| e.to_string())? = None;
             *TRACK_START.lock().map_err(|e| e.to_string())? = None;
             return Ok(None);
         }
-        let track_window = spotify_windows(&pids).into_iter().find(|(_hwnd, pid, title)| {
-            pids.contains(pid)
-                && title.contains(" - ")
-                && !title.eq_ignore_ascii_case("Spotify")
-        });
+        let (track_hwnd, _pid, window_title) = spotify_window.unwrap();
+        let is_track = window_title.contains(" - ") && !window_title.eq_ignore_ascii_case("Spotify");
         let now = now_ms();
-        let Some((track_hwnd, _pid, window_title)) = track_window else {
+        if !is_track {
             // Пауза: заголовок "Spotify" → липкий трек со статусом ⏸
             let sticky = LAST_TRACK.lock().ok().and_then(|g| g.clone());
             return Ok(sticky.map(|st| MediaStateDto {
@@ -1002,16 +1050,19 @@ mod lyrics {
         // connect_timeout, а stalled-соединение (молчащий прокси, NAT без
         // RST) вешало lyrics_fetch навсегда — минибар замирал на «…»
         let items: serde_json::Value = tokio::time::timeout(Duration::from_secs(15), async {
-            client
+            let resp = client
                 .get("https://lrclib.net/api/search")
                 .query(&[("artist_name", &artist), ("track_name", &title)])
                 .header("User-Agent", "Nocturn/0.2 (local media minibar)")
                 .send()
                 .await
-                .map_err(|e| format!("lrclib request failed: {e}"))?
-                .json::<serde_json::Value>()
-                .await
-                .map_err(|e| e.to_string())
+                .map_err(|e| format!("lrclib request failed: {e}"))?;
+            if !resp.status().is_success() {
+                return Err(format!("lrclib responded with status {}", resp.status()));
+            }
+            let bytes = crate::network::read_body_capped(resp, 512 * 1024).await?;
+            serde_json::from_slice::<serde_json::Value>(&bytes)
+                .map_err(|e| format!("invalid lrclib JSON: {e}"))
         })
         .await
         .map_err(|_| "lrclib request timed out after 15s".to_string())??;
@@ -1029,7 +1080,7 @@ mod lyrics {
             .and_then(|it| it.get("syncedLyrics").and_then(|v| v.as_str()).map(String::from));
         let plain = pick_lyrics(arr, target, "plainLyrics")
             .and_then(|it| it.get("plainLyrics").and_then(|v| v.as_str()).map(String::from));
-        // Аудит media 297: found: true даже при пустом ответе — фронт не
+        // found: true даже при пустом ответе — фронт не
         // отличал «текста нет» от «текст есть»
         let found = synced.is_some() || plain.is_some();
         let dto = LyricsDto {
@@ -1037,7 +1088,7 @@ mod lyrics {
             synced,
             found,
         };
-        // Аудит media 298: пустой результат не кэшируется на весь сеанс —
+        // пустой результат не кэшируется на весь сеанс —
         // текст мог появиться у lrclib позже
         if !found {
             return Ok(dto);

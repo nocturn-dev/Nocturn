@@ -7,6 +7,11 @@ use std::fs;
 
 // ---------- Хуки ----------
 
+// Мьютекс для сериализации чтения и записи hooks.json:
+// параллельные вызовы из разных окон или при установке плагинов
+// не должны перезаписывать друг друга посреди цикла чтения-модификации-записи
+static HOOKS_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 pub fn hooks_dir(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
     use tauri::Manager;
     app.path()
@@ -16,11 +21,13 @@ pub fn hooks_dir(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
 
 #[tauri::command(async)]
 pub async fn hooks_load(app: tauri::AppHandle) -> Result<hooks::HookFile, String> {
-    // Чтение hooks.json — sync-диск, в blocking-пул
-
-    tauri::async_runtime::spawn_blocking(move || Ok(hooks::load(&hooks_dir(&app)?)))
-        .await
-        .map_err(|e| format!("hooks load task failed: {e}"))?
+    // Чтение hooks.json — в blocking-пул под общим мьютексом
+    tauri::async_runtime::spawn_blocking(move || {
+        let _guard = HOOKS_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        Ok(hooks::load(&hooks_dir(&app)?))
+    })
+    .await
+    .map_err(|e| format!("hooks load task failed: {e}"))?
 }
 
 #[tauri::command(async)]
@@ -30,10 +37,8 @@ pub async fn hooks_save(app: tauri::AppHandle, file: hooks::HookFile) -> Result<
             return Err(format!("unknown hook event: {}", h.event));
         }
     }
-    // Аудит hooks 181: сохранённый хук исполняется на КАЖДОМ вызове
-    // инструмента с правами пользователя. Скомпрометированный webview
-    // записывал хук с произвольной командой — подтверждаем запись
-    // нативным диалогом с перечнем команд
+    // Сохранённый хук исполняется на КАЖДОМ вызове инструмента с правами пользователя.
+    // Подтверждаем запись нативным диалогом с перечнем включённых команд
     {
         use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
         let list: Vec<String> = file
@@ -68,11 +73,13 @@ Save?",
             return Err("hooks save cancelled".into());
         }
     }
-    // Запись hooks.json — sync-диск, в blocking-пул
-
-    tauri::async_runtime::spawn_blocking(move || hooks::save(&hooks_dir(&app)?, &file))
-        .await
-        .map_err(|e| format!("hooks save task failed: {e}"))?
+    // Запись hooks.json — в blocking-пуле под общим мьютексом для исключения гонок
+    tauri::async_runtime::spawn_blocking(move || {
+        let _guard = HOOKS_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        hooks::save(&hooks_dir(&app)?, &file)
+    })
+    .await
+    .map_err(|e| format!("hooks save task failed: {e}"))?
 }
 
 /// Прогнать один хук на пробном payload (кнопка «Тест» в настройках)
@@ -82,7 +89,7 @@ pub async fn hooks_test(
     hook: hooks::Hook,
     payload: serde_json::Value,
 ) -> Result<hooks::HookOutcome, String> {
-    // Аудит plugins 370: тест исполнял ЛЮБУЮ команду из IPC без сохранения
+    // тест исполнял ЛЮБУЮ команду из IPC без сохранения
     // и без следа на диске — один invoke из компрометированного webview
     // давал исполнение shell-команды. Нативное подтверждение с текстом
     // команды — барьер, недоступный вебвью
@@ -125,6 +132,9 @@ pub async fn hooks_run_event(
     event: String,
     payload: serde_json::Value,
 ) -> Result<Vec<hooks::HookOutcome>, String> {
+    if !hooks::EVENTS.contains(&event.as_str()) {
+        return Err(format!("unknown hook event: {event}"));
+    }
     let dir = hooks_dir(&app)?;
     tauri::async_runtime::spawn_blocking(move || hooks::run_event(&dir, &event, "", &payload))
         .await
@@ -172,12 +182,15 @@ pub async fn plugin_read(path: String) -> Result<serde_json::Value, String> {
     rejects_sensitive_path(&path)?;
     tauri::async_runtime::spawn_blocking(move || {
         let p = std::path::PathBuf::from(&path);
-        // Аудит plugins 368/369: симлинк внутри разрешённой папки вёл на
-        // произвольный файл, а команда работала как общий читатель с
-        // лимитом 32 МБ. Канонизация + только plugin.json по имени
-        let canon = p.canonicalize().map_err(|e| format!("cannot resolve path: {e}"))?;
+        // Канонизируем путь через dunce без вербатим-префикса на Windows
+        let canon = dunce::canonicalize(&p).map_err(|e| format!("cannot resolve path: {e}"))?;
         let manifest = if canon.is_dir() {
-            canon.join("plugin.json")
+            let m = canon.join("plugin.json");
+            let m_canon = dunce::canonicalize(&m).map_err(|e| format!("cannot resolve plugin.json: {e}"))?;
+            if !m_canon.starts_with(&canon) {
+                return Err("plugin.json symlink escapes plugin directory".into());
+            }
+            m_canon
         } else if canon.file_name().map(|n| n == "plugin.json").unwrap_or(false) {
             canon
         } else {
@@ -185,7 +198,20 @@ pub async fn plugin_read(path: String) -> Result<serde_json::Value, String> {
         };
         rejects_sensitive_path(&manifest.to_string_lossy())?;
         let data = crate::fsutil::read_capped_string(&manifest, 0)?;
-        serde_json::from_str(&data).map_err(|e| format!("plugin.json corrupted: {e}"))
+        let val: serde_json::Value = serde_json::from_str(&data).map_err(|e| format!("plugin.json corrupted: {e}"))?;
+
+        // Проверяем события хуков в манифесте по белому списку разрешённых событий
+        if let Some(hooks_arr) = val.get("hooks").and_then(|h| h.as_array()) {
+            for h in hooks_arr {
+                if let Some(ev) = h.get("event").and_then(|e| e.as_str()) {
+                    if !hooks::EVENTS.contains(&ev) {
+                        return Err(format!("plugin.json contains invalid hook event: {ev}"));
+                    }
+                }
+            }
+        }
+
+        Ok(val)
     })
     .await
     .map_err(|e| format!("plugin read task failed: {e}"))?
@@ -338,13 +364,37 @@ mod tests {
         let ok_dir = tauri::async_runtime::block_on(plugin_read(dir.display().to_string())).unwrap();
         assert_eq!(ok_dir.get("name").and_then(|v| v.as_str()), Some("demo"));
 
-        // Аудит plugins 369: читается ТОЛЬКО plugin.json — произвольный файл
+        // читается ТОЛЬКО plugin.json — произвольный файл
         // (в т.ч. broken.json) отвергается по имени
         let broken = dir.join("broken.json");
         std::fs::write(&broken, "{ not json").unwrap();
         let err = tauri::async_runtime::block_on(plugin_read(broken.display().to_string()))
             .expect_err("non-plugin.json must fail");
         assert!(err.contains("only plugin.json"), "неожиданная ошибка: {err}");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// plugin_read: валидирует события хуков по белому списку hooks::EVENTS
+    #[test]
+    fn plugin_read_validates_hook_events() {
+        let dir = std::env::temp_dir().join(format!("nocturn-plugins-events-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let file = dir.join("plugin.json");
+
+        // Невалидное событие
+        std::fs::write(&file, r#"{"name":"bad","hooks":[{"event":"InvalidEventName","command":"dir"}]}"#).unwrap();
+        let err = tauri::async_runtime::block_on(plugin_read(file.display().to_string()))
+            .expect_err("invalid hook event must be rejected");
+        assert!(err.contains("invalid hook event"), "неожиданная ошибка: {err}");
+
+        // Валидное событие
+        std::fs::write(&file, r#"{"name":"good","hooks":[{"event":"PreToolUse","command":"echo 1"}]}"#).unwrap();
+        let ok = tauri::async_runtime::block_on(plugin_read(file.display().to_string()))
+            .expect("valid hook event must succeed");
+        assert_eq!(ok.get("name").and_then(|v| v.as_str()), Some("good"));
 
         let _ = std::fs::remove_dir_all(&dir);
     }

@@ -168,21 +168,12 @@ tools operate on GGUF files inside a dedicated lab storage
 Please open a GitHub issue for anything security-related you find. For
 sensitive reports, contact the maintainers privately first.
 
-## MCP OAuth (волна F5)
+## MCP OAuth
 
-Удалённые MCP-серверы с `auth: "oauth"` проходят браузерную авторизацию
-(Authorization Code + PKCE, RFC 7636/8414/7591-DCR). Гарантии:
+Remote MCP servers configured with `auth: "oauth"` undergo browser-based OAuth 2.0 authorization (Authorization Code + PKCE, RFC 7636 / 8414 / 7591-DCR). Security guarantees:
 
-- **Никаких фоновых запросов**: discovery/авторизация только по кнопке
-  «Authorize»; refresh только по 401 в активном вызове (single-flight:
-  ровно один запрос к провайдеру при N параллельных 401); автоконнект
-  oauth-серверов при старте отключён.
-- **Loopback-listener**: только 127.0.0.1, эфемерный порт, параметр state
-  (CSRF), жёсткий дедлайн 180 секунд.
-- **Хранение токенов**: зашифрованный mcp-oauth.json (AES-256-GCM тем же
-  стеком, что настройки). Vault заперт / ключа нет → токены живут только
-  в памяти процесса (Authorize помечает «session-only»).
-- **Отзыв**: кнопка Revoke: RFC 7009 revocation (best-effort) + локальная
-  очистка токенов.
-- Риски на стороне пользователя: провайдер авторизации видит попытку
-  входа; Nocturn никаких сервисов не рекомендует и не выбирает.
+- **No background requests**: Discovery and authorization are triggered only when explicitly clicking "Authorize". Token refresh occurs strictly upon encountering an HTTP 401 in an active call (single-flight: exactly one refresh request across parallel 401s). Auto-connecting OAuth-enabled servers on app launch is disabled.
+- **Loopback listener**: Binds strictly to `127.0.0.1` on an ephemeral port with state parameter verification (CSRF protection) and a strict 180-second timeout.
+- **Token storage**: Encrypted in `mcp-oauth.json` (AES-256-GCM using the same vault credentials as settings). When the vault is locked or absent, tokens exist strictly in process memory (marked as session-only).
+- **Revocation**: The "Revoke" action performs RFC 7009 token revocation on a best-effort basis and clears local tokens immediately.
+- **User notice**: The upstream OAuth provider observes authentication attempts; Nocturn does not choose, mandate, or endorse third-party services.

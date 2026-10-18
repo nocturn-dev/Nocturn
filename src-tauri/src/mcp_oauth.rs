@@ -91,7 +91,7 @@ pub fn load_persisted(app: &tauri::AppHandle) {
         return;
     };
     let Some(dec) = crypto::decrypt(raw.trim()) else {
-        eprintln!("mcp-oauth: stored tokens unreadable (vault locked?) — re-authorize");
+        crate::app_log::log_warn("mcp-oauth: stored tokens unreadable (vault locked?) — re-authorize");
         return;
     };
     if let Ok(map) = serde_json::from_str::<HashMap<String, OAuthTokens>>(dec.trim()) {
@@ -154,7 +154,8 @@ async fn discover(server_url: &str) -> Result<OAuthMetaRaw, String> {
     for url in &candidates {
         match client.get(url).timeout(HTTP_TIMEOUT).send().await {
             Ok(resp) if resp.status().is_success() => {
-                if let Ok(meta) = resp.json::<OAuthMetaRaw>().await {
+                let parsed = tokio::time::timeout(HTTP_TIMEOUT, resp.json::<OAuthMetaRaw>()).await;
+                if let Ok(Ok(meta)) = parsed {
                     if meta.authorization_endpoint.is_some() && meta.token_endpoint.is_some() {
                         return Ok(meta);
                     }
@@ -290,9 +291,9 @@ pub async fn authorize(
                 .send()
                 .await
                 .map_err(|e| format!("dynamic registration failed: {e}"))?;
-            let body: serde_json::Value = resp
-                .json()
+            let body: serde_json::Value = tokio::time::timeout(HTTP_TIMEOUT, resp.json())
                 .await
+                .map_err(|_| "registration response read timed out".to_string())?
                 .map_err(|e| format!("registration body: {e}"))?;
             body["client_id"]
                 .as_str()
@@ -353,18 +354,17 @@ pub async fn authorize(
         .await
         .map_err(|e| format!("token exchange failed: {e}"))?;
     if !resp.status().is_success() {
-        let snippet: String = resp
-            .text()
+        let text = tokio::time::timeout(HTTP_TIMEOUT, resp.text())
             .await
-            .unwrap_or_default()
-            .chars()
-            .take(200)
-            .collect();
+            .ok()
+            .and_then(|r| r.ok())
+            .unwrap_or_default();
+        let snippet: String = text.chars().take(200).collect();
         return Err(format!("token exchange failed: {}", snippet));
     }
-    let body: serde_json::Value = resp
-        .json()
+    let body: serde_json::Value = tokio::time::timeout(HTTP_TIMEOUT, resp.json())
         .await
+        .map_err(|_| "token exchange response read timed out".to_string())?
         .map_err(|e| format!("token body: {e}"))?;
     let tokens = OAuthTokens {
         access_token: body["access_token"]
@@ -396,7 +396,7 @@ pub async fn authorize(
     let persisted = match persist_tokens(app) {
         Ok(()) => true,
         Err(e) => {
-            eprintln!("mcp-oauth: persist skipped: {e}");
+            crate::app_log::log_warn(&format!("mcp-oauth: persist skipped: {e}"));
             false
         }
     };
@@ -515,16 +515,18 @@ pub async fn refresh_single_flight(
         .await
         .map_err(|e| format!("refresh failed: {e}"))?;
     if !resp.status().is_success() {
-        let snippet: String = resp
-            .text()
+        let text = tokio::time::timeout(HTTP_TIMEOUT, resp.text())
             .await
-            .unwrap_or_default()
-            .chars()
-            .take(120)
-            .collect();
+            .ok()
+            .and_then(|r| r.ok())
+            .unwrap_or_default();
+        let snippet: String = text.chars().take(120).collect();
         return Err(format!("refresh failed: HTTP {}", snippet));
     }
-    let body: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+    let body: serde_json::Value = tokio::time::timeout(HTTP_TIMEOUT, resp.json())
+        .await
+        .map_err(|_| "refresh response read timed out".to_string())?
+        .map_err(|e| e.to_string())?;
     let access = body["access_token"]
         .as_str()
         .ok_or("refresh response has no access_token")?

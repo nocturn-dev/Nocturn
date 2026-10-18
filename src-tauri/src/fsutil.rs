@@ -55,7 +55,7 @@ pub fn open_write_verified(path: &Path) -> Result<(fs::File, PathBuf), String> {
         .file_name()
         .ok_or_else(|| format!("path has no file name: {}", path.display()))?;
     let parent = parent.ok_or_else(|| format!("no parent directory: {}", path.display()))?;
-    let expected = fs::canonicalize(parent)
+    let expected = dunce::canonicalize(parent)
         .map_err(|e| format!("cannot resolve parent {}: {e}", parent.display()))?
         .join(name);
     let file = open_no_follow(path)?;
@@ -234,6 +234,27 @@ pub fn display_path(p: &Path) -> String {
     s.into_owned()
 }
 
+/// Зарезервированные имена устройств Win32 (CON, PRN, AUX, NUL, COM1..9, LPT1..9,
+/// а также варианты с надстрочными цифрами COM¹..³, LPT¹..³).
+/// По правилам Win32 устройство определяется по части имени до первой точки
+/// без учёта регистра, с предварительной обрезкой хвостовых пробелов и точек.
+pub fn is_windows_device_name(name: &str) -> bool {
+    const DEVICES: &[&str] = &[
+        "con", "prn", "aux", "nul",
+        "com1", "com2", "com3", "com4", "com5", "com6", "com7", "com8", "com9",
+        "lpt1", "lpt2", "lpt3", "lpt4", "lpt5", "lpt6", "lpt7", "lpt8", "lpt9",
+        "com\u{00b9}", "com\u{00b2}", "com\u{00b3}",
+        "lpt\u{00b9}", "lpt\u{00b2}", "lpt\u{00b3}",
+    ];
+    let file_part = name
+        .rsplit(|c| c == '/' || c == '\\')
+        .next()
+        .unwrap_or(name);
+    let stem = file_part.split('.').next().unwrap_or("").trim_end_matches([' ', '.']);
+    let lower = stem.to_lowercase();
+    DEVICES.contains(&lower.as_str())
+}
+
 /// Сравнение финального пути с ожиданием: оба каноничны, но регистр и
 /// префиксы могли различаться формой (\\?\C:\ vs C:\) — нормализуем обе
 fn paths_equivalent(a: &Path, b: &Path) -> bool {
@@ -331,7 +352,7 @@ pub fn atomic_write(path: &Path, data: &[u8]) -> Result<(), String> {
         rand::random::<u32>()
     ));
     {
-        // Аудит fsutil 170: temp создаётся сразу с 600 на Unix — файл с
+        // temp создаётся сразу с 600 на Unix — файл с
         // ключами под umask 022 жил как 0644 до chmod после записи
         let mut f = fs::OpenOptions::new()
             .write(true)
@@ -340,11 +361,11 @@ pub fn atomic_write(path: &Path, data: &[u8]) -> Result<(), String> {
             .mode_if_unix(0o600)
             .open(&tmp)
             .map_err(|e| format!("cannot create {}: {e}", tmp.display()))?;
-        // Аудит fsutil 171: temp не оставляется на любом пути ошибки
+        // temp не оставляется на любом пути ошибки
         (|| -> Result<(), String> {
             f.write_all(data)
                 .map_err(|e| format!("cannot write {}: {e}", tmp.display()))?;
-            // Аудит fsutil 173: сбой sync раньше глотался, и файл
+            // сбой sync раньше глотался, и файл
             // переименовывался без гарантии долговечности
             f.sync_all()
                 .map_err(|e| format!("cannot sync {}: {e}", tmp.display()))?;
@@ -443,7 +464,7 @@ pub fn read_capped_string(path: &Path, limit: usize) -> Result<String, String> {
     const DEFAULT_LIMIT: usize = 32 * 1024 * 1024;
     let limit = if limit == 0 { DEFAULT_LIMIT } else { limit };
     let md = fs::metadata(path).map_err(|e| format!("cannot stat {}: {e}", path.display()))?;
-    // Аудит fsutil 175: FIFO/устройство проходят metadata-проверку (len 0)
+    // FIFO/устройство проходят metadata-проверку (len 0)
     // и висят на read_to_string навсегда
     if !md.is_file() {
         return Err(format!("not a regular file: {}", path.display()));
@@ -455,7 +476,7 @@ pub fn read_capped_string(path: &Path, limit: usize) -> Result<String, String> {
             limit
         ));
     }
-    // Аудит fsutil 176: файл мог вырасти между metadata и чтением — лимит
+    // файл мог вырасти между metadata и чтением — лимит
     // дублируется take() на самом чтении
     let file = fs::File::open(path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
     // Проверка дескриптора после открытия исключает TOCTOU с подменой пути на FIFO между metadata() и File::open()
@@ -547,7 +568,7 @@ pub struct StorageStats {
     pub sounds: u64,
     pub fonts: u64,
     /// GGUF Lab: экспорты, результаты резки, бинарник llama-server, логи —
-    /// гигабайты; PLAN §28.3 обещает видимость storage-менеджеру
+    /// гигабайты; держим видимыми storage-менеджеру
     pub gguf: u64,
 }
 
@@ -726,8 +747,8 @@ mod tests {
         assert_eq!(fs::read(&path).unwrap(), b"world");
         // Верифицированный путь — канонизованный настоящий адрес
         assert_eq!(
-            fs::canonicalize(&path).unwrap(),
-            fs::canonicalize(&v2).unwrap()
+            dunce::canonicalize(&path).unwrap(),
+            dunce::canonicalize(&v2).unwrap()
         );
         let _ = fs::remove_dir_all(&dir);
         drop(v1);
@@ -777,7 +798,7 @@ mod tests {
         use std::io::Write;
         f.write_all(b"x").unwrap();
         // Верифицированный адрес — по настоящему каталогу, не по ссылке
-        assert_eq!(verified, fs::canonicalize(dir.join("real")).unwrap().join("f.txt"));
+        assert_eq!(verified, dunce::canonicalize(dir.join("real")).unwrap().join("f.txt"));
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -808,5 +829,20 @@ mod tests {
         // Повторная очистка пустого каталога — не ошибка
         assert_eq!(clear_dir_contents(&dir).unwrap(), 0);
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_is_windows_device_name() {
+        assert!(is_windows_device_name("NUL.tar.gz"));
+        assert!(is_windows_device_name("con.foo.md"));
+        assert!(is_windows_device_name("COM1.txt"));
+        assert!(is_windows_device_name("COM\u{00b9}.txt"));
+        assert!(is_windows_device_name("lpt\u{00b2}.log"));
+        assert!(is_windows_device_name("aux"));
+        assert!(is_windows_device_name("prn .dat"));
+        assert!(is_windows_device_name("C:\\path\\to\\NUL.txt"));
+        assert!(!is_windows_device_name("normal.txt"));
+        assert!(!is_windows_device_name("contact.md"));
+        assert!(!is_windows_device_name("console.log"));
     }
 }

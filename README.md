@@ -56,7 +56,7 @@ Nocturn is the middle ground:
 - **Permission modes** (Plan / Ask / Edit / Full) with **persistent rules**
   (deny / always-ask / allow, prefix-based like `shell_run(git *)`), a
   sensitive-path deny class (`.env`, `.ssh`; overridable only by an explicit
-  owner allow-rule), shell-command analysis so an allow rule never silently
+  user allow-rule), shell-command analysis so an allow rule never silently
   covers chained or dangerous commands, and a **plan approval** panel.
 
 <p align="center">

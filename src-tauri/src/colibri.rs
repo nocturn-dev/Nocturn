@@ -16,12 +16,15 @@ use tauri::Emitter;
 #[derive(Default)]
 pub struct ColibriRegistry {
     proc: Mutex<Option<Child>>,
+    api_key: Mutex<Option<String>>,
 }
 
-#[derive(serde::Serialize)]
+#[derive(serde::Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct ColibriStatus {
     pub running: bool,
     pub pid: Option<u32>,
+    pub api_key: Option<String>,
 }
 
 #[derive(serde::Deserialize)]
@@ -104,17 +107,92 @@ fn split_args(s: &str) -> Vec<String> {
     out
 }
 
+/// Проверяем аргументы coli по белому списку флагов и значений:
+/// запрещаем привязку к внешним интерфейсам (0.0.0.0), произвольные пути к конфигам/логам
+/// и посторонние флаги
+fn validate_coli_args(args: &[String]) -> Result<(), String> {
+    const ALLOWED_FLAGS_WITH_VALUE: &[&str] = &[
+        "--port", "-p",
+        "--host", "-h",
+        "--threads", "-t",
+        "--workers", "-w",
+        "--ctx", "--ctx-size", "-c",
+        "--batch", "-b",
+        "--n-gpu-layers", "-ngl",
+        "--model", "-m",
+        "--device",
+        "--temp",
+        "--top-p",
+        "--log-level",
+    ];
+    const ALLOWED_BOOLEAN_FLAGS: &[&str] = &[
+        "--verbose", "-v",
+        "--quiet", "-q",
+    ];
+
+    let mut i = 0;
+    while i < args.len() {
+        let arg = &args[i];
+        if arg.starts_with('-') {
+            if ALLOWED_BOOLEAN_FLAGS.contains(&arg.as_str()) {
+                i += 1;
+                continue;
+            }
+            if ALLOWED_FLAGS_WITH_VALUE.contains(&arg.as_str()) {
+                i += 1;
+                if i >= args.len() {
+                    return Err(format!("flag {arg} requires a value"));
+                }
+                let val = &args[i];
+                // Валидация хоста: только loopback (не 0.0.0.0)
+                if (arg == "--host" || arg == "-h")
+                    && val != "127.0.0.1"
+                    && val != "localhost"
+                    && val != "::1"
+                {
+                    return Err(format!("host {val} rejected: only loopback is permitted (127.0.0.1, localhost, ::1)"));
+                }
+                // Валидация порта: число от 1 до 65535
+                if arg == "--port" || arg == "-p" {
+                    let port: u16 = val.parse().map_err(|_| format!("invalid port: {val}"))?;
+                    if port == 0 {
+                        return Err("port must be > 0".into());
+                    }
+                }
+                i += 1;
+                continue;
+            }
+            return Err(format!("unrecognized or disallowed coli flag: {arg}"));
+        } else {
+            return Err(format!("unexpected positional argument: {arg}"));
+        }
+    }
+    Ok(())
+}
+
 /// Живость процесса с подчисткой завершившегося: статус не должен
 /// показывать «запущен» по зомби
-fn status(proc: &mut Option<Child>) -> ColibriStatus {
-    let running = matches!(proc.as_mut().map(|c| c.try_wait()), Some(Ok(None)));
-    if !running {
-        *proc = None;
-    }
-    ColibriStatus {
+fn status(registry: &ColibriRegistry) -> Result<ColibriStatus, String> {
+    let mut guard = registry.proc.lock().map_err(|e| e.to_string())?;
+    let running = matches!(guard.as_mut().map(|c| c.try_wait()), Some(Ok(None)));
+    let pid = if running {
+        guard.as_ref().map(|c| c.id())
+    } else {
+        *guard = None;
+        let mut key_guard = registry.api_key.lock().map_err(|e| e.to_string())?;
+        *key_guard = None;
+        None
+    };
+    let api_key = if running {
+        registry.api_key.lock().map_err(|e| e.to_string())?.clone()
+    } else {
+        None
+    };
+    Ok(ColibriStatus {
         running,
-        pid: proc.as_ref().map(|c| c.id()),
-    }
+        pid,
+        api_key,
+    })
 }
 
 /// Убить дерево процессов (coli может порождать потомков; на Windows
@@ -131,13 +209,7 @@ pub fn colibri_start(
     registry: tauri::State<'_, ColibriRegistry>,
     launch: ColibriLaunch,
 ) -> Result<ColibriStatus, String> {
-    // Модель доверия: путь exe задаёт сам пользователь в настройках Colibri
-    // (по умолчанию «coli» из PATH), он приходит не от модели — поэтому
-    // perm::decide и rejects_sensitive_path здесь, в отличие от агентных
-    // инструментов, не применяются. Осознанный дисбаланс зафиксирован
-    // в SECURITY.md (Executable configs)
-    let mut guard = registry.proc.lock().map_err(|e| e.to_string())?;
-    let st = status(&mut guard);
+    let st = status(&registry)?;
     if st.running {
         return Ok(st);
     }
@@ -146,21 +218,33 @@ pub fn colibri_start(
         return Err("coli executable path is empty".into());
     }
 
+    let parsed_args = split_args(launch.args.as_deref().unwrap_or(""));
+    validate_coli_args(&parsed_args)?;
+
+    let mut guard = registry.proc.lock().map_err(|e| e.to_string())?;
+
+    // Генерируем криптографически стойкий 128-битный ключ через OsRng,
+    // если пользователь не задал свой
+    let key = launch
+        .api_key
+        .filter(|k| !k.trim().is_empty())
+        .unwrap_or_else(|| {
+            let mut bytes = [0u8; 16];
+            rand::RngCore::fill_bytes(&mut rand::rngs::OsRng, &mut bytes);
+            let mut s = String::with_capacity(32);
+            for b in bytes {
+                use std::fmt::Write;
+                let _ = write!(s, "{:02x}", b);
+            }
+            s
+        });
+
     let mut cmd = Command::new(exe);
-    // Дефолт «nocturn-local» известен из исходников — при
-    // наружном bind шлюза любой в сети получал доступ. Случайный ключ на
-    // каждый старт, когда пользователь не задал свой
-    cmd.arg("serve").env(
-        "COLI_API_KEY",
-        launch
-            .api_key
-            .filter(|k| !k.trim().is_empty())
-            .unwrap_or_else(|| crate::fsutil::rand_hex8() + &crate::fsutil::rand_hex8()),
-    );
+    cmd.arg("serve").env("COLI_API_KEY", &key);
     if let Some(m) = launch.model.as_deref().map(str::trim).filter(|m| !m.is_empty()) {
         cmd.env("COLI_MODEL", m);
     }
-    for a in split_args(launch.args.as_deref().unwrap_or("")) {
+    for a in parsed_args {
         cmd.arg(a);
     }
     #[cfg(windows)]
@@ -198,22 +282,19 @@ pub fn colibri_start(
         let app2 = app.clone();
         std::thread::spawn(move || {
             read_capped_lines(err, |line| {
-                // Канал приватный (см. комментарий выше): stderr — не исключение,
-                // broadcast доставлял логи и в quickentry без слушателей
                 let _ = app2.emit_to("main", "colibri-log", format!("[err] {line}"));
             });
         });
     }
 
     *guard = Some(child);
-    Ok(status(&mut guard))
+    *registry.api_key.lock().map_err(|e| e.to_string())? = Some(key);
+    drop(guard);
+    status(&registry)
 }
 
 #[tauri::command(async)]
 pub async fn colibri_stop(app: tauri::AppHandle) -> Result<ColibriStatus, String> {
-    // kill_tree + wait() блокируют до смерти процесса — на воркере tokio
-    // это вставало поперёк SSE-стримов (контраст: mcp_disconnect давно в
-    // spawn_blocking). State в 'static-замыкание не утащить — реестр из app
     tauri::async_runtime::spawn_blocking(move || {
         use tauri::Manager as _;
         let registry = app.state::<ColibriRegistry>();
@@ -221,15 +302,15 @@ pub async fn colibri_stop(app: tauri::AppHandle) -> Result<ColibriStatus, String
         if let Some(c) = guard.take() {
             kill_tree(c.id());
             let mut c = c;
-            // Страховка: kill_tree бьёт по группе и может промахнуться (гонка
-            // старта, унаследованная группа) — прямой kill гарантирует, что
-            // wait() ниже не зависнет навсегда
             let _ = c.kill();
             let _ = c.wait();
         }
+        let mut key_guard = registry.api_key.lock().map_err(|e| e.to_string())?;
+        *key_guard = None;
         Ok(ColibriStatus {
             running: false,
             pid: None,
+            api_key: None,
         })
     })
     .await
@@ -240,8 +321,7 @@ pub async fn colibri_stop(app: tauri::AppHandle) -> Result<ColibriStatus, String
 pub fn colibri_status(
     registry: tauri::State<'_, ColibriRegistry>,
 ) -> Result<ColibriStatus, String> {
-    let mut guard = registry.proc.lock().map_err(|e| e.to_string())?;
-    Ok(status(&mut guard))
+    status(&registry)
 }
 
 /// Гасит coli serve при выходе приложения
@@ -250,10 +330,12 @@ pub fn kill_on_exit(registry: &ColibriRegistry) {
         if let Some(c) = guard.take() {
             kill_tree(c.id());
             let mut c = c;
-            // Страховка от вечного wait(): см. colibri_stop
             let _ = c.kill();
             let _ = c.wait();
         }
+    }
+    if let Ok(mut key) = registry.api_key.lock() {
+        *key = None;
     }
 }
 
@@ -291,5 +373,28 @@ mod tests {
         .unwrap();
         assert_eq!(launch.api_key.as_deref(), Some("sk-contract-test"));
         assert_eq!(launch.model.as_deref(), Some("m"));
+    }
+
+    #[test]
+    fn validate_coli_args_allowlist() {
+        // Допустимые флаги и порт
+        let ok_args = vec!["--port".into(), "8080".into(), "--verbose".into(), "--threads".into(), "4".into()];
+        assert!(validate_coli_args(&ok_args).is_ok());
+
+        // Привязка к внешнему адресу запрещена
+        let bad_host = vec!["--host".into(), "0.0.0.0".into()];
+        assert!(validate_coli_args(&bad_host).is_err());
+
+        // Разрешён loopback
+        let loopback = vec!["--host".into(), "127.0.0.1".into()];
+        assert!(validate_coli_args(&loopback).is_ok());
+
+        // Неизвестный флаг отклонён
+        let unknown = vec!["--arbitrary-flag".into(), "value".into()];
+        assert!(validate_coli_args(&unknown).is_err());
+
+        // Позиционный аргумент без флага отклонён
+        let positional = vec!["rm".into(), "-rf".into()];
+        assert!(validate_coli_args(&positional).is_err());
     }
 }

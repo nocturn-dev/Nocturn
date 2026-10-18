@@ -79,9 +79,9 @@ fn load_profiles_blocking(app: &tauri::AppHandle) -> Result<ProfilesStore, Strin
                         store.active.clone(),
                         false,
                     ) {
-                        eprintln!(
+                        crate::app_log::log_warn(&format!(
                             "load_profiles: migration write failed (retries on next start): {e}"
-                        );
+                        ));
                     }
                     return Ok(store);
                 }
@@ -93,7 +93,7 @@ fn load_profiles_blocking(app: &tauri::AppHandle) -> Result<ProfilesStore, Strin
     let mut store: ProfilesStore =
         serde_json::from_str(&data).map_err(|e| format!("profiles file corrupted: {e}"))?;
     // Прозрачно расшифровываем ключи профилей
-    // Аудит settings 438: «?» на первом же профиле ронял загрузку всего
+    // «?» на первом же профиле ронял загрузку всего
     // файла — пользователь не видел ни одного профиля. Битый профиль
     // отдаётся с пустым ключом, остальные живут
     for p in &mut store.profiles {
@@ -120,7 +120,7 @@ fn save_profiles_blocking(
     active: String,
     encrypt: bool,
 ) -> Result<(), String> {
-    // Аудит settings 424: при запертом vault load_profiles отдаёт ключи
+    // при запертом vault load_profiles отдаёт ключи
     // пустыми — сохранение затирало enc:v1: на диске. Прежний шифротекст
     // профиля сохраняется, если пришёл пустой и vault заперт
     if !crypto::has_key() && !profiles.is_empty() {
@@ -261,7 +261,7 @@ pub async fn crypto_status(app: tauri::AppHandle) -> Result<serde_json::Value, S
 /// Вывод ключа — тяжёлый (Argon2id, 19 MiB) — исполняется вне потока UI.
 #[tauri::command(async)]
 pub async fn crypto_setup(app: tauri::AppHandle, password: String) -> Result<(), String> {
-    // Аудит settings 425: повторный setup затирал соль и check-маркер, и
+    // повторный setup затирал соль и check-маркер, и
     // все старые enc:v1:… становились нерасшифровываемыми навсегда.
     // Пересоздание хранилища — только через crypto_reset (осознанный
     // сброс с подтверждением на фронте)
@@ -293,7 +293,7 @@ pub async fn crypto_setup(app: tauri::AppHandle, password: String) -> Result<(),
 static UNLOCK_FAILS: std::sync::Mutex<(u32, Option<std::time::Instant>)> =
     std::sync::Mutex::new((0, None));
 
-/// Аудит settings 443: перебор пароля не ограничивался — webview мог
+/// перебор пароля не ограничивался — webview мог
 /// чесать unlock со скоростью CPU. Нарастающая задержка с 3-й неудачи:
 /// 2/4/8… секунд, кап 60. Вызывается ДО тяжёлого Argon2id-вывода
 fn unlock_rate_limit() -> Result<(), String> {
@@ -396,7 +396,7 @@ pub async fn crypto_unlock(app: tauri::AppHandle, password: String) -> Result<()
 }
 
 /// Файлы с enc-полями, которые переносит rekey_tx. imagegen/websearch/
-/// telegram — та же волна, что чистит crypto_reset (см. ниже): без переноса
+/// telegram — синхронно с crypto_reset (см. ниже): без переноса
 /// миграция PBKDF2→Argon2id делала эти ключи невосстановимыми (расшифровка-
 /// на-использовании честно отвечала «vault is locked» при разблокированном
 /// vault — старый шифротекст новым ключом не берётся)
@@ -476,7 +476,7 @@ fn rekey_staged_bytes(
 /// pbkdf2 со старой солью (потеря всех ключей на следующем анлоке).
 /// Оригиналы сохраняются в *.bak до перезаписи; сбой любой записи
 /// откатывает уже перезаписанные файлы.
-/// Аудит settings 426/427: мета-файл входит в ОДНУ транзакцию с файлами и
+/// мета-файл входит в ОДНУ транзакцию с файлами и
 /// пишется последним. Раньше rekey_all перешифровывал файлы, а crypto.json
 /// обновлялся отдельным шагом после — провал записи меты (или выход между
 /// шагами) оставлял файлы на новом ключе при старой мете, и следующий
@@ -551,7 +551,7 @@ pub async fn crypto_reset(app: tauri::AppHandle, confirm: String) -> Result<(), 
         if meta.exists() {
             fs::remove_file(&meta).map_err(|e| e.to_string())?;
         }
-        // Аудит settings 441: OAuth-токены MCP персистятся зашифрованными
+        // OAuth-токены MCP персистятся зашифрованными
         // (mcp-oauth.json) — после RESET старый шифротекст новым ключом не
         // берётся и load_persisted его молча пропускал. Файл целиком под
         // удаление: все его поля секретные
@@ -603,7 +603,7 @@ pub async fn crypto_reset(app: tauri::AppHandle, confirm: String) -> Result<(), 
             let data = fs::read_to_string(&path).map_err(|e| e.to_string())?;
             let mut v: serde_json::Value = serde_json::from_str(&data)
                 .map_err(|e| format!("cannot parse {file} — reset aborted: {e}"))?;
-            // Аудит settings 442: раньше чистились только зашифрованные
+            // раньше чистились только зашифрованные
             // значения, plaintext-ключи переживали RESET — правило одно:
             // RESET стирает ВСЕ ключи (settings/profiles так и делали)
             let has_value = v
@@ -637,7 +637,7 @@ pub async fn crypto_reset(app: tauri::AppHandle, confirm: String) -> Result<(), 
 /// memory.json (личная память агента) сознательно НЕ входит: приватные
 /// данные пользователя, перенос — только руками, как у sessions.json
 /// в «поделенный» экспорт без секретов.
-/// lsp.json/gguf.json входят: конфиги волны
+/// lsp.json/gguf.json входят: конфиги подсистем
 /// LSP/GGUF забывали внести в реестр — экспорт молча терял их. Секретов
 /// в них нет (команда/путь), как в mcp.json — в «поделенный» экспорт идут.
 const EXPORT_FILES: &[&str] = &[
@@ -957,7 +957,7 @@ fn settings_write_all_blocking(
     }
     let dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    // Аудит settings 428: crypto.json из чужого бэкапа подменял соль и
+    // crypto.json из чужого бэкапа подменял соль и
     // маркер — все ЛОКАЛЬНЫЕ зашифрованные ключи становились
     // нерасшифровываемыми. Импорт crypto.json — только при ещё не
     // настроенном хранилище (первичная установка из бэкапа)
@@ -967,7 +967,7 @@ fn settings_write_all_blocking(
                 .to_string(),
         );
     }
-    // Аудит settings 431: структура файлов валидируется ДО записи — битый
+    // структура файлов валидируется ДО записи — битый
     // импорт не должен ломать загрузку настроек после перезапуска
     for name in EXPORT_FILES {
         let Some(value) = files.get(*name) else {
@@ -986,7 +986,7 @@ fn settings_write_all_blocking(
             return Err("imported profiles.json must contain a profiles array".into());
         }
     }
-    // Аудит settings 429/430: всё стейджится в памяти, пишется с .bak-копией
+    // всё стейджится в памяти, пишется с .bak-копией
     // и общим откатом — сбой на третьем файле больше не оставляет смесь
     // нового и старого конфигов, а прежнее состояние восстанавливается
     let mut staged: Vec<(std::path::PathBuf, Vec<u8>)> = Vec::new();
@@ -1044,7 +1044,7 @@ pub async fn settings_write_all(
 /// нормализует), подъём `..`. На Windows блокируются системные топ-уровневые
 /// каталоги диска, на Unix — системные префиксы и ~/.ssh.
 pub(crate) fn rejects_sensitive_path(path: &str) -> Result<(), String> {
-    // Аудит settings 434: каталоги секретов гейтились только в Unix-ветке,
+    // каталоги секретов гейтились только в Unix-ветке,
     // и C:\Users\me\.ssh\id_rsa проходил импорт/экспорт целиком.
     // Единая проверка по компонентам, до платформенных веток
     {
@@ -1688,7 +1688,7 @@ fn save_settings_blocking(app: &tauri::AppHandle, settings: ApiSettings) -> Resu
         fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
     let mut s = settings;
-    // Аудит settings 423: при запертом vault load отдаёт api_key пустым,
+    // при запертом vault load отдаёт api_key пустым,
     // и сохранение любого другого поля затирало enc:v1:\u2026 на диске
     // пустой строкой — после разблокировки ключа уже не было (потеря
     // невосстановима). Пустое входное поле при запертом хранилище и
@@ -1810,7 +1810,7 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn config_dir_comparison_normalizes_forward_slashes() {
-        // Аудит: путь с «/» и несуществующим родителем уходил мимо
+        // путь с «/» и несуществующим родителем уходил мимо
         // лексического сравнения (norm_path не нормализовал слэши) —
         // гардал пропускал запись во вложенный каталог конфигов,
         // а atomic_write создавал её
