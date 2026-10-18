@@ -247,7 +247,7 @@ pub fn is_windows_device_name(name: &str) -> bool {
         "lpt\u{00b9}", "lpt\u{00b2}", "lpt\u{00b3}",
     ];
     let file_part = name
-        .rsplit(|c| c == '/' || c == '\\')
+        .rsplit(['/', '\\'])
         .next()
         .unwrap_or(name);
     let stem = file_part.split('.').next().unwrap_or("").trim_end_matches([' ', '.']);
