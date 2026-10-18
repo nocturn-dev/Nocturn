@@ -24,7 +24,7 @@
 2. Commit, push to `origin` (GitHub `nocturn-dev/Nocturn`), then tag:
 
    ```bash
-   git tag v0.2.5
+   git tag v0.2.6
    git push origin main --tags
    ```
 
