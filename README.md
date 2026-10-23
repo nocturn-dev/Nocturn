@@ -58,10 +58,6 @@ Connect any OpenAI-compatible endpoint, native Anthropic, Google Gemini, Ollama,
 
 Nocturn is not just a chat wrapper — it is a full agent environment capable of driving real development workflows safely.
 
-<p align="center">
-  <img src="docs/screenshots/permissions.png" width="820" alt="Permissions and rule configuration in Nocturn" />
-</p>
-
 * **Tools & Execution:** Native file system operations, interactive **PTY terminal** (xterm.js), headless **Browser Use** via Chrome DevTools Protocol (CDP) with a live view screen, and OS **Computer Use**.
 * **Sandboxed Code Interpreter:** Python 3 execution runs inside a local Pyodide (WASM) worker with strictly isolated memory.
 * **LSP Compile-Loop:** Agents receive immediate language server diagnostics after edits to self-correct compiler errors in the same turn.
@@ -74,10 +70,6 @@ Nocturn is not just a chat wrapper — it is a full agent environment capable of
 ### 3. Local Intelligence & Knowledge Bases (RAG)
 
 Keep your knowledge entirely on your own hardware without uploading proprietary codebases or private documents to third-party embedding providers.
-
-<p align="center">
-  <img src="docs/screenshots/knowledge.png" width="820" alt="Local SQLite FTS5 Knowledge Base" />
-</p>
 
 * **Local RAG on SQLite FTS5:** Index documentation, notes, and manuals. Semantic relevance retrieval is performed 100% locally on your CPU.
 * **Personal Vault:** Markdown notes with bi-directional `[[wiki links]]` and interactive knowledge graph visualization.
@@ -128,11 +120,6 @@ Work should feel great. Nocturn comes with deep visual craftsmanship and a respo
 ---
 
 ### 7. Integrations & Power Tools
-
-<p align="center">
-  <img src="docs/screenshots/mcp.png" width="410" alt="MCP Server configuration" />
-  <img src="docs/screenshots/automations.png" width="410" alt="Scheduled Automations and Idle Queue" />
-</p>
 
 * **Model Context Protocol (MCP):** Connect external tools via **stdio** or **remote HTTP** with lazy reconnects, variable expansion, and encrypted OAuth tokens.
 * **Automations & Idle Queue:** Schedule recurring prompts or let the engine process queued background tasks whenever system resources are idle.
